@@ -1,0 +1,8 @@
+# runtime data (library index, artwork cache, party state, uploads)
+/data/
+node_modules/
+*.log
+.DS_Store
+/test-results/
+/.cache/
+*.tmp

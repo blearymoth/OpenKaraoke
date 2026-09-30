@@ -1,0 +1,26 @@
+{
+  "name": "openkaraoke",
+  "version": "0.1.0",
+  "description": "Self-hosted web karaoke party app for Linux: plays your local CDG+MP3/MP4 library with a TV second screen, QR-code guest lobby, key/tempo control, singer rotation, battles and a music quiz.",
+  "type": "module",
+  "main": "server/index.js",
+  "bin": { "openkaraoke": "server/index.js" },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/",
+    "vendor": "node scripts/vendor.js"
+  },
+  "engines": { "node": ">=18.17" },
+  "keywords": ["karaoke", "cdg", "mp3+g", "party", "self-hosted", "linux", "second-screen", "qr-code"],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/blearymoth/OpenKaraoke.git" },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "htm": "^3.1.1",
+    "preact": "^10.29.8",
+    "qrcode-generator": "^2.0.4",
+    "signalsmith-stretch": "^1.3.2",
+    "ws": "^8.22.0"
+  }
+}

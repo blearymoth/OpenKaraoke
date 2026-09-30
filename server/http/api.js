@@ -71,6 +71,11 @@ export function apiRoutes(router, app) {
     return out;
   });
 
+  router.get('/api/songs', (ctx) => {
+    const ids = (ctx.query.get('ids') || '').split(',').filter(Boolean).slice(0, 300);
+    return { items: summaries(ids.map((id) => cat().song(id)).filter(Boolean)) };
+  });
+
   router.get('/api/songs/:id', (ctx) => {
     const detail = cat().songDetail(ctx.params.id);
     if (!detail) throw new HttpError(404, 'Song not found');

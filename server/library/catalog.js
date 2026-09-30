@@ -241,7 +241,7 @@ export class Catalog {
         s.artist = mostCommon(ts.map((t) => t.p.artist));
       }
       s.artistKeys = s.credits;
-      s.letter = letterOf(s.artist);
+      s.letter = letterOf(s.artist.replace(/^the\s+/i, ''));
       s.trackIds = ts.map((t) => t.id);
       const tags = new Set();
       const flags = {};
@@ -287,7 +287,10 @@ export class Catalog {
     this.songs = songMap;
     this.songList = [...songMap.values()];
     this.artists = artists;
-    for (const a of artists.values()) a.sortKey = mfold(a.name).replace(/^the /, '');
+    for (const a of artists.values()) {
+      a.sortKey = mfold(a.name).replace(/^the /, '');
+      a.letter = letterOf(a.sortKey); // "The Beatles" is browsed under B
+    }
     this.artistList = [...artists.values()].sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
     for (const a of this.artistList) {
       a.songIds.sort((x, y) => {

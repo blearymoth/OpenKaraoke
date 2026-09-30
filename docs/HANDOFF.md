@@ -1,121 +1,189 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-09-30 (end of the second build session). Everything is pushed to GitHub
-`main`; the next session can run in the cloud (see the starter prompt at the end)._
+_Last updated: 2026-09-30 (end of the third build session, run in a cloud sandbox without the
+owner's PC or drive). Everything is pushed to GitHub `main`._
 
 ## TL;DR
-- **M0–M4 are done: the first party-ready version works** — server, TV display, host app and
-  guest app. `npm test` → 101/101; `npm run e2e` (Playwright + Chromium) → 17/17 and 26/26.
-- Start: `npm start -- --library "/run/media/ruutu/SMILE-2/<collection folder>"` (or
-  `bin/openkaraoke.sh …`), open `http://localhost:8080/host` on the PC and `/tv` on the TV
-  (`bin/open-tv.sh` opens it full screen on the second monitor with sound allowed).
-- No drive at hand? `npm run demo` builds a small demo library (synthesised MP3 + CDG lyrics).
-- Next: **M5 artwork & metadata**, then M6 games, M7 polish (PLAN §18). Before that, try a
-  real party on the PC with the real drive (checklist below).
+- **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
+  metadata (M5), seven party games plus performance ratings (M6) and the polish list (M7):
+  break music, guest photos, remote display pairing, live TV preview, printable songbook,
+  systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
+- `npm test` → all green (see the table below); `npm run e2e` → 9 Playwright scripts, all green.
+- **Nothing in session 3 could touch real hardware or the internet**: the artwork providers were
+  unreachable from the sandbox (parsers are tested against fixtures built from the documented
+  response shapes), and sound, microphone, TV legibility and phones need the PC. Work through
+  the **owner checklist** below before the next party.
+- Start as before: `bin/openkaraoke.sh --library "/run/media/ruutu/SMILE-2/<collection folder>"`,
+  open `http://localhost:8080/host`, then **Open TV display** (or `bin/open-tv.sh`).
+  To start it automatically at login: `bin/install-service.sh --library "…"`.
 
-## What was verified (session 2)
+## What was built in session 3
+
+### M5 — artwork & metadata (PLAN §12)
+- `server/artwork/providers.js`: Deezer (search, album → genre/year/label), MusicBrainz +
+  Cover Art Archive, TheAudioDB (artist picture, fanart, logo; key `123`), optional iTunes and
+  Fanart.tv (own key). Images are stored as compact refs (`dz:…`, `caa:<mbid>`, `tadb:…`) and
+  only downloaded from an allow-list of image hosts (no SSRF through provider data).
+- `server/artwork/match.js`: cleans karaoke names (credits like `P!nk`, `feat.`, `(Duet)`),
+  scores candidates (artist ≥ 0.75, title ≥ 0.7, penalties for karaoke/tribute/live/remix/
+  compilations, duration check) and normalises genres.
+- `server/artwork/service.js`: one priority queue per provider (**now** = current/next song,
+  **visible** = what a screen shows, **crawl** = background), token-bucket throttles with
+  back-off (`server/util/throttle.js`), `data/meta.json` (debounced atomic writes),
+  `data/art/` image cache with an LRU size limit (`artwork.maxCacheMB`, custom covers are
+  pinned), a resumable background crawler (popular songs first) and batched `art` events so
+  every screen swaps placeholders for covers as they arrive.
+- UI: covers everywhere, artist pages with pictures/logos, genre and decade browsing (host
+  Collections, guest chips), Settings → Artwork (progress, ETA, providers, keys, "try songs
+  without a cover again"), **Fix artwork** in the song dialog (pick another candidate, "no
+  cover", look up again, upload your own picture), TV artist fanart (Ken Burns), idle cover
+  mosaic in the lobby, cover/logo/year on the intro card.
+- `scripts/artwork-check.js`: live check of every provider — **run it on the PC** (below).
+
+### M6 — party games (PLAN §13), all in `server/games/` + `public/js/games/`
+- Framework: `Game` base class (phases with server-time deadlines, per-role views, timers that
+  die with the game), one game at a time, "exclusive" games keep songs from starting, games
+  can queue or sing songs themselves (`gameQueue`, `gameSing` with snippets that fade out),
+  results go into tonight's recap. Host: **Games** page; phones get a Game tab.
+- **Crowd poll** "What's next?" (4 songs, phones vote, winner queued).
+- **Music quiz** (intro / snippet / name the artist / lyrics peek / cover zoom / helium /
+  slow-mo / reverse / decade rounds, speed scoring, streaks, leaderboard, podium). The TV
+  plays the clips; phones never receive a clip, a media URL or the answer before the reveal.
+- **Battle** (duel, knockout bracket, showcase; same/random/host-picked songs; full, 90 s or
+  60 s; phone voting A/B or 1–10; optional judges).
+- **Roulette wheel** (songs, singers, dares, genres, duet pairs; drawn on the server, the TV
+  animates the spin onto the result; phones only learn it when the wheel stops).
+- **Pass the mic** (during songs the TV flashes the next participant; their phone buzzes).
+- **Applause meter** (the TV page measures the PC microphone for 5 s → 0–100; kiosk TV started
+  with `bin/open-tv.sh` gets the mic without a prompt).
+- **Party recap** (totals, top singers, best rated, most-sung artists, crowd favourite, game
+  winners; auto-advancing slides).
+- **Performance ratings**: after each finished song phones can give 1–5 ★ for 40 s (not for
+  their own song); averages show in history and on the singers page.
+
+### M7 — polish (PLAN §18)
+- **Break music** (`server/room/breakmusic.js`, `public/js/tv/break-player.js`): quiet backing
+  tracks from the library (matching the next song's genre/decade) or a music folder, fading
+  out when the next song starts; skip from the host player bar. Optional **autoplay**: when
+  the queue stays empty (`playback.whenQueueEmpty = autoplay`), a popular sing-along for
+  "Everyone" is queued.
+- **Guest photos** (`server/room/photos.js`): phones upload a resized picture, the host
+  approves it (Photos page; approval can be turned off), the TV flashes it and can use the
+  photos as its background slideshow.
+- **Remote display pairing**: a `/tv` on another machine shows a code; the host approves it
+  (Settings → Displays lists them and can forget them all, which revokes their tokens).
+- **Live TV preview** in the host player bar (a muted mini mirror).
+- **Preview on headphones**: play a song on the host computer's second audio output.
+- **Printable songbook** (Settings → Library: HTML to print to PDF, or CSV; letter/tag/genre/
+  decade/popular filters) — `server/http/songbook.js`.
+- **systemd user service**: `bin/install-service.sh` (`--status`, `--uninstall`).
+- **Playlists** (host), **duet invitations** (a guest invites a partner, who accepts on their
+  phone; the host picks partners directly), **co-hosts** (the host gives a guest the player and
+  queue controls), **"In queue" / "Sung tonight" marks** and **"Most sung here"**, **queue board**
+  layout for a second screen (`/tv?layout=board`), search result cache + per-phone rate limit.
+
+## What was verified (session 3)
 | Check | Result |
 | --- | --- |
-| Unit + integration tests (`npm test`) | 101 pass: parser, catalog, scanner/zip (incl. corrupt/ZIP64), library service, router/range/auth, HTTP + WebSocket integration, CDG decoder (synthetic CDGs), rotation, room state machine, security regressions |
-| `test/e2e/party.mjs` (TV in Chromium, host over WebSocket) | 17/17: lobby → auto-start intro → lyrics drawn → key/tempo → pause → dropped TV connection + resume → song ends → next singer → lobby; TV without autoplay asks for a click and the host is told |
-| `test/e2e/apps.mjs` (host UI desktop, 2 guests on phones, TV) | 26/26: host queues for a phoneless singer, guests join/search/request (key choice), repeat refused, fair rotation order, approval mode via settings, auto-start, up-next banner + "It's your turn!", player bar controls, announcement, reaction on TV, guest removes own song, host removes a guest, no sideways scroll on phones, no console errors |
-| Signalsmith timing | measured in an OfflineAudioContext: input time x is emitted at `output + (x − input)/rate` (see audio-engine.js header) |
-| Independent code review | 15 findings (1 critical crash, several security/state-machine issues) — all fixed with regression tests, see commit "Fix issues found in an independent code review" |
-| Scale | synthetic catalog: search 4–12 ms per request, server RSS ≈110 MB; reviewer measured ≈17 ms search at 90k tracks |
+| Unit + integration tests (`npm test`) | all pass — artwork providers/matching/service against a fake provider network (`test/fake-art.js`, fixtures in `test/fixtures/artwork/`), every game, ratings, photos, pairing, break music, songbook, marks, host-only routes |
+| `npm run e2e` (Chromium) | party 20, apps 26, artwork 17, games 13, polish 29, battle 31, quiz 59, wheel 40, party games 39 — all pass; no console errors, no sideways scrolling on phones |
+| Provider field names | the sandbox could not reach the APIs (WebFetch and curl were blocked), so the field names were confirmed from the providers' published docs/examples; the fixtures are built from those shapes (`test/fixtures/artwork/README.md`) |
+| Independent reviews | M5 review: 36 confirmed findings (≈24 distinct issues); M6/M7 and party-games reviews running — fixes are being merged (this row is updated when they land) |
+| Quiz scale | 30 questions from a synthetic 90,000-song catalog in ≈220 ms |
 
-**Not verified yet (needs the owner's PC):** a full scan of the real USB drive, real CDG files
-from the drive in the TV, real speakers/Bluetooth latency (`playback.lyricOffsetMs`), video
-karaoke files (none on the drive), second-screen placement via `bin/open-tv.sh` / the Window
-Management API on the owner's desktop (GNOME/KDE, X11/Wayland), phones on the real Wi-Fi.
+## Owner checklist — needs the PC
+0. `cd ~/Projects/karaoke && git pull` (nothing to install; still no runtime npm packages).
+1. **Artwork providers, live**: `node scripts/artwork-check.js` — one request per provider,
+   what the parsers make of it and which expected fields are missing. If something is missing,
+   run `node scripts/artwork-check.js --save /tmp/art-fixtures` and copy the raw responses over
+   `test/fixtures/artwork/` (same file names), then commit (or paste the output for the next
+   session).
+2. Start with the real drive and let the crawler run (Settings → Artwork shows progress and
+   ETA). Open a few popular and a few obscure songs: are the covers right? Wrong ones can be
+   fixed in the song dialog (Fix artwork); if many are wrong, note examples for the next
+   session (match thresholds are in `server/artwork/match.js`).
+3. **Real CDGs are still the biggest open risk** (all test CDGs come from our own writer):
+   play 2–3 songs from different brands (Sound Choice, Zoom, Sunfly) and check colours,
+   highlight wipes and page changes. The quiz "lyrics peek" round and the TV mosaic also use them.
+4. **Speakers**: break music volume (Settings → Playback), quiz clips (helium/slow-mo quality,
+   clicks at clip edges), wheel ticks and fanfare, fades between break music and songs,
+   Bluetooth latency (Settings → Playback → Lyrics timing).
+5. **Applause meter**: start the TV with `bin/open-tv.sh` (it passes
+   `--use-fake-ui-for-media-stream`, so Chrome uses the default mic without asking). A quiet room
+   should read ≈10–25 and loud cheering ≈70–95; otherwise adjust `FLOOR_DB`/`CEIL_DB` in
+   `shared/applause.js`. A normal Chrome window asks for the mic once.
+6. **TV legibility** from across the room: game screens, pass-the-mic flash, rating card,
+   photo flash, queue board (`/tv?layout=board`), intro card with cover/logo.
+7. **Phones on the real Wi-Fi**: join, photo upload from an iPhone and an Android phone,
+   game answers (latency, early close), duet invitation, vibration (Android only — iPhones get
+   the toast). Firewall on Fedora: `sudo firewall-cmd --add-port=8080/tcp` (+ `--permanent`).
+8. **Second TV / laptop**: open `http://<PC address>:8080/tv` on it → a pairing code appears →
+   approve it in the host. Check it mirrors without sound.
+9. **Preview on headphones**: in the song dialog pick the headphone output (Chrome shows the
+   device list once it may use audio devices).
+10. **Service**: `bin/install-service.sh --library "/run/media/ruutu/SMILE-2/<folder>"`, reboot
+    or log out/in, check `bin/install-service.sh --status`.
+11. Print the songbook (Settings → Library → Songbook) to PDF once to see page breaks.
 
-**Real CDGs are the biggest open risk.** Every CDG the tests and the demo use comes from our own
-writer (`scripts/lib/cdg-writer.js`), so if the writer and the decoder share a misreading of the
-spec (colour-table packing, XOR tiles, scrolling), only real files will show it. Session 2 could
-not read the drive, so play 2–3 songs from different brands (e.g. Sound Choice, Zoom, Sunfly)
-early on the PC and check colours, highlight wipes and page changes.
+## How it fits together (new in session 3)
+- `server/app.js` wires `ArtworkService` (`server/artwork/service.js`) next to the library;
+  its `art`/`status` events become `{t:'art'}` broadcasts and `{t:'artwork'}` to hosts.
+- `server/room/room.js` gained: game lifecycle (`gameStart/gameInput/gameTv/gameEnd/gameClose`,
+  `gameBlocks()` holds the queue while an exclusive game runs), ratings, pairing, duet
+  invitations, co-host actions (`COHOST_ACTIONS`), playlists, break music (`breakmusic.js`)
+  and photos (`photos.js`). Views stay role-specific: the TV gets clips/answers only when it
+  needs them, phones never get device ids or answers early.
+- Games: `server/games/<type>.js` (server rules) + `public/js/games/<type>.js` (host Setup and
+  Control, TV scene/overlay, phone view) + optional `shared/<type>.js` (rules used on both
+  sides). Registry: `server/games/index.js` and `public/js/games/index.js`.
+- TV: `public/js/tv/main.js` picks the scene (lobby, intro, singing, game scene, board,
+  pairing, preview); `controller.js` owns the media clock and lets a game drive key/tempo while
+  no song is on (quiz clips); `break-player.js` plays break music on a separate `<audio>`.
 
-## First real party — checklist for the owner
-0. Get the new code: `cd ~/Projects/karaoke && git pull`.
-1. `node scripts/scan-report.js "/run/media/ruutu/SMILE-2/<collection folder>"` (sanity check).
-2. `bin/openkaraoke.sh --library "/run/media/ruutu/SMILE-2/<collection folder>"`; the first
-   scan runs in the background (minutes on a USB HDD), later starts reuse `data/library.json`.
-3. Open `http://localhost:8080/host`, then **Open TV display** (or run `bin/open-tv.sh`).
-   A TV page opened by hand needs one click to allow sound — the host player bar says so.
-4. Scan the QR code with a phone on the same Wi-Fi. If phones can't connect, check the
-   firewall (on Fedora: `sudo firewall-cmd --add-port=8080/tcp`, add `--permanent` to keep it) and the join address shown
-   in the invite dialog (Settings → Party has the room code; `server.publicUrl` overrides it).
-5. If lyrics run late with Bluetooth speakers, raise Settings → Playback → Lyrics timing.
+## Decisions made in session 3 (and why)
+1. **Provider order**: Deezer → MusicBrainz/CAA → iTunes (off by default: its terms don't allow
+   caching). Artist graphics from TheAudioDB (free key `123`), Fanart.tv only with your own key.
+   Online lookups can be turned off entirely (Settings → Artwork); they are the only outgoing traffic.
+2. **Guests can't add other people's names to the queue**: a guest duet is an *invitation*
+   the partner accepts on their own phone (keeps the session-2 rule that guests only queue for
+   themselves). The host can still pick partners directly.
+3. **Co-hosts** get player and queue controls only — never settings, PIN, bans, displays or
+   photo moderation.
+4. **Remote TVs need host approval** (pairing code); "forget all displays" bumps a token
+   version so every paired TV has to pair again.
+5. **Game results are drawn on the server** (wheel, quiz answers, battle order) and revealed to
+   phones only at the reveal, so a phone's dev tools can't cheat.
+6. **The applause meter uses the PC's microphone on the TV page** — phones on plain LAN http
+   are not a secure context, so their mics are unavailable.
+7. **Break music on by default, autoplay off**: an empty queue shows the lobby unless the host
+   chooses autoplay.
+8. **Photos need approval by default**, at most 300 are kept (4 MB each, JPEG/PNG/WebP checked
+   by their bytes), files live in `data/photos/`.
+9. Tests create temp folders through `tmpDir()` (removed on exit) and sparse fake CDGs — the
+   sandbox disk filled up with ≈30 GB of leftovers before this was fixed.
 
-## How it fits together (new in session 2)
-- `server/app.js` builds everything (`createApp`), `server/index.js` is the CLI.
-- `server/room/room.js` is the party state machine; every client action is a WebSocket
-  request handled there; views are role-specific and coalesced (≤ every 40 ms).
-  Player states: `idle → intro → (ready) → playing ⇄ paused`. The server decides what plays;
-  the main TV owns the media clock (`tv.ready / tv.status / tv.ended / tv.error / tv.audio`).
-- `public/js/tv/controller.js` + `public/js/lib/audio-engine.js`: decode MP3 → Signalsmith
-  (buffer mode) for key/tempo; `<audio>`/`<video>` element mode for video or undecodable audio.
-- `public/js/lib/cdg-canvas.js` + `shared/cdg.js`: CDG → Scale2x → RGBA with a transparent
-  background over blurred art (placeholder art until M5).
-- Host UI `public/js/host/*`, guest UI `public/js/guest/main.js`, shared components in
-  `public/js/lib/{components,store,icons,ws-client}.js`. Styles: `public/css/{base,host,tv,guest}.css`.
-
-## Decisions made in session 2 (and why)
-1. **Auto-start**: the first song queued while nothing plays starts after the countdown when a
-   TV is connected (`playback.autoStart`, default on) — "the first song starts the party".
-   Never after the host pressed Stop (until Play), never when the queue already had songs.
-2. **Guest identity = signed device token** (`guest.<id>.<hmac>` in localStorage), issued
-   on the first hello; new identities are rate-limited per IP.
-3. **Security model**: host = localhost (trusted Host name + same-site Origin) or PIN token;
-   WebSocket upgrades/POSTs from other sites are refused (CSRF, DNS rebinding). If the owner
-   reaches the app through a custom host name, set it as `server.publicUrl`.
-4. **"Stop" returns the song to the top of the queue** (not logged as sung); "Next" logs it
-   as skipped; songs count as sung when finished or ≥60 % / ≥30 s played.
-5. **Mirrors**: extra `/tv` screens are muted mirrors driven by the main TV's clock
-   (CDG only; basic — pairing of remote TVs is M7).
-6. **Artists are filed under the word after "The"** in A–Z (catalog letter change).
-7. **Fonts are vendored** (Bricolage Grotesque + Figtree, OFL, `public/fonts/`) — no network.
-8. Demo/test CDGs come from `scripts/lib/cdg-writer.js` + a bitmap font generated once from
-   DejaVu Sans Condensed Bold (dev tooling only, not used at runtime).
-
-## Next steps (in order)
-
-### M5 — artwork & metadata (start here)
-- `server/artwork/service.js` + `providers.js` per PLAN §12 (Deezer first, MusicBrainz/CAA
-  fallback, TheAudioDB for artist fanart), cache in `data/art/` + `data/meta.json`, on-demand
-  priority for current/next/visible songs, background crawler (popular first), `art` events.
-- Hook points already exist: `app.artwork.serveSong(ctx, song)` / `serveArtist(ctx, artist)`
-  in `server/http/api.js` (return true when served), `catalog.metaFor` + `metaChanged()`.
-- UI: covers already load from `/api/art/song/:id` everywhere (placeholder SVG today);
-  add genre/decade facets (host Collections, guest chips) once metadata exists.
-- **Verify the Deezer field names with one live request first** (RESEARCH §3). In a cloud
-  sandbox the shell can't reach these APIs: read one sample response per provider with
-  WebFetch, and test the providers against saved JSON fixtures instead of the network.
-
-### M6 — games (PLAN §13), M7 — polish (PLAN §18)
-M7 includes: break music between singers, guest photos, remote display pairing, printable
-songbook, systemd user service, host live preview, duet UI (the server already accepts
-`partners` from the host), playlists, performance ratings.
+## Next steps
+- Owner checklist above, then a real party. Note anything odd for the next session.
+- Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, optional
+  ffmpeg transcoding for AVI/WMV/MPG, mic monitoring with reverb on the PC.
+- README screenshots (the e2e scripts already save screenshots to `test-results/`).
+- Performance pass on the real library: catalog rebuild in a worker thread (below), memory
+  during the first artwork crawl.
 
 ## Known limitations / TODOs
 - Catalog rebuild after a rescan with changes blocks the server ≈3–4 s at 90k tracks (the
   TV keeps playing; host/guest UIs pause). Could move to a worker thread.
-- Guest search runs ≈17 ms CPU per request at 90k tracks; fine for a party, but a
-  per-client debounce/limit on `/api/search` would help with very many phones.
-- Video karaoke (MP4/WEBM) is implemented through element mode but untested with real files;
-  tempo uses `playbackRate`, key change routes through the stretcher (adds ~0.1 s latency).
-- Remote (non-local) TV displays are refused until pairing exists (M7).
-- The host's "Preview on headphones" from PLAN §10 is not implemented.
-- `catalog.js` heap ~200–400 MB while building 90k tracks (unchanged from session 1).
+- Provider parsers are verified against documented shapes only — see checklist item 1.
+- Years come from Deezer album release dates (a compilation or remaster can show a later year).
+- Video karaoke (MP4/WEBM) is implemented through element mode but untested with real files.
+- Phone vibration only works on Android; iPhones get the toast/card only.
+- `catalog.js` heap ~200–400 MB while building 90k tracks (unchanged).
 - Rotation edge case: after Stop re-queues a song of someone who already sang, a newcomer
   can be placed before an earlier newcomer (manual reordering fixes it).
 - `(VR)` annotation meaning still unknown — kept as a version label.
 
-## Starter prompt for the next session (cloud)
-> Read `CLAUDE.md`, `docs/HANDOFF.md` and `docs/PLAN.md` §12. You are in a cloud sandbox with no
-> access to my PC or my karaoke drive. Implement milestone **M5 (artwork & metadata)** as
-> described in HANDOFF "Next steps", following the hard rules in CLAUDE.md (no runtime npm deps,
-> ESM, no build step). Confirm each provider's field names with WebFetch and test the providers
-> against saved JSON fixtures. Keep `npm test` and `npm run e2e` green with new tests (if the
-> e2e script can't find Playwright: `npm i --no-save playwright-core`), update HANDOFF.md, and commit + push to `main`
-> after each working piece. Then continue with M6 (games) and M7 (polish). Anything that needs my
-> PC (real drive, real CDGs, speakers, TV, phones) goes in the owner checklist instead.
+## Starter prompt for the next session
+> Read `CLAUDE.md` and `docs/HANDOFF.md`. I ran the owner checklist: <paste notes, e.g. the
+> output of `node scripts/artwork-check.js`, wrong covers, CDG problems, applause readings>.
+> Fix what I found, keep `npm test` and `npm run e2e` green (if the e2e scripts can't find
+> Playwright: `npm i --no-save playwright-core`), update HANDOFF.md and commit + push to `main`.

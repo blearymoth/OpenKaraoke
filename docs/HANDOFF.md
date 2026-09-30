@@ -1,6 +1,7 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-09-30 (end of the second build session)._
+_Last updated: 2026-09-30 (end of the second build session). Everything is pushed to GitHub
+`main`; the next session can run in the cloud (see the starter prompt at the end)._
 
 ## TL;DR
 - **M0–M4 are done: the first party-ready version works** — server, TV display, host app and
@@ -27,7 +28,14 @@ from the drive in the TV, real speakers/Bluetooth latency (`playback.lyricOffset
 karaoke files (none on the drive), second-screen placement via `bin/open-tv.sh` / the Window
 Management API on the owner's desktop (GNOME/KDE, X11/Wayland), phones on the real Wi-Fi.
 
+**Real CDGs are the biggest open risk.** Every CDG the tests and the demo use comes from our own
+writer (`scripts/lib/cdg-writer.js`), so if the writer and the decoder share a misreading of the
+spec (colour-table packing, XOR tiles, scrolling), only real files will show it. Session 2 could
+not read the drive, so play 2–3 songs from different brands (e.g. Sound Choice, Zoom, Sunfly)
+early on the PC and check colours, highlight wipes and page changes.
+
 ## First real party — checklist for the owner
+0. Get the new code: `cd ~/Projects/karaoke && git pull`.
 1. `node scripts/scan-report.js "/run/media/ruutu/SMILE-2/<collection folder>"` (sanity check).
 2. `bin/openkaraoke.sh --library "/run/media/ruutu/SMILE-2/<collection folder>"`; the first
    scan runs in the background (minutes on a USB HDD), later starts reuse `data/library.json`.
@@ -79,7 +87,9 @@ Management API on the owner's desktop (GNOME/KDE, X11/Wayland), phones on the re
   in `server/http/api.js` (return true when served), `catalog.metaFor` + `metaChanged()`.
 - UI: covers already load from `/api/art/song/:id` everywhere (placeholder SVG today);
   add genre/decade facets (host Collections, guest chips) once metadata exists.
-- **Verify the Deezer field names with one live request from the PC first** (RESEARCH §3).
+- **Verify the Deezer field names with one live request first** (RESEARCH §3). In a cloud
+  sandbox the shell can't reach these APIs: read one sample response per provider with
+  WebFetch, and test the providers against saved JSON fixtures instead of the network.
 
 ### M6 — games (PLAN §13), M7 — polish (PLAN §18)
 M7 includes: break music between singers, guest photos, remote display pairing, printable
@@ -100,9 +110,12 @@ songbook, systemd user service, host live preview, duet UI (the server already a
   can be placed before an earlier newcomer (manual reordering fixes it).
 - `(VR)` annotation meaning still unknown — kept as a version label.
 
-## Starter prompt for the next session
-> Read `CLAUDE.md`, `docs/HANDOFF.md` and `docs/PLAN.md` §12. Implement milestone **M5
-> (artwork & metadata)** as described in HANDOFF "Next steps", following the hard rules in
-> CLAUDE.md (no runtime npm deps, ESM, no build step). First make one live request to each
-> provider from my PC to confirm field names. Keep `npm test` and `npm run e2e` green with new
-> tests, update HANDOFF.md, and commit + push after each working piece. Then continue with M6.
+## Starter prompt for the next session (cloud)
+> Read `CLAUDE.md`, `docs/HANDOFF.md` and `docs/PLAN.md` §12. You are in a cloud sandbox with no
+> access to my PC or my karaoke drive. Implement milestone **M5 (artwork & metadata)** as
+> described in HANDOFF "Next steps", following the hard rules in CLAUDE.md (no runtime npm deps,
+> ESM, no build step). Confirm each provider's field names with WebFetch and test the providers
+> against saved JSON fixtures. Keep `npm test` and `npm run e2e` green with new tests (if the
+> e2e script can't find Playwright: `npm i --no-save playwright-core`), update HANDOFF.md, and commit + push to `main`
+> after each working piece. Then continue with M6 (games) and M7 (polish). Anything that needs my
+> PC (real drive, real CDGs, speakers, TV, phones) goes in the owner checklist instead.

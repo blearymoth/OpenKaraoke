@@ -26,6 +26,12 @@ conn.on('notify', (m) => {
   try { navigator.vibrate?.(m.kind === 'now' ? [300, 120, 300, 120, 300] : [200, 100, 200]); } catch { /* not allowed */ }
   if (m.kind === 'next' || m.kind === 'now') store.set({ notice: m });
 });
+conn.on('game', (m) => {
+  if (m.event !== 'start') return;
+  setTab('home');
+  toast(m.type === 'poll' ? '🗳️ Vote now: what should we sing next?' : '🎡 The roulette wheel is out — watch the TV!', 'ok', 5000);
+  try { navigator.vibrate?.([80, 60, 80]); } catch { /* ignore */ }
+});
 conn.on('denied', (m) => {
   if (m.code === 'banned' || m.code === 'kicked') conn.close();
 });

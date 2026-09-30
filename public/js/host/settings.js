@@ -46,7 +46,7 @@ const FIELDS = {
     { path: 'guests.reactions', label: 'Emoji reactions from phones', type: 'toggle' },
     { path: 'guests.photos', label: 'Guests can send photos to the TV', type: 'toggle', soon: true },
     { path: 'guests.photoApproval', label: 'Approve photos before they are shown', type: 'toggle', soon: true },
-    { path: 'guests.games', label: 'Guests can join party games', type: 'toggle', soon: true },
+    { path: 'guests.games', label: 'Guests can join party games (polls)', type: 'toggle' },
   ],
   playback: [
     { path: 'playback.countdown', label: 'Next-singer countdown', type: 'number', min: 0, max: 60, unit: 's' },

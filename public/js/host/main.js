@@ -9,6 +9,7 @@ import { PlayerBar } from './player-bar.js';
 import { Home, Search, Artists, Artist, Tags, Tag, Popular, Favorites, History, Facet } from './views.js';
 import { Singers, Guests, Displays } from './people.js';
 import { Settings } from './settings.js';
+import { Games } from './games.js';
 
 const NAV = [
   { href: '#/home', icon: 'home', label: 'Home' },
@@ -17,6 +18,7 @@ const NAV = [
   { href: '#/tags', icon: 'tag', label: 'Collections', match: ['tags', 'tag', 'genre', 'decade'] },
   { href: '#/popular', icon: 'star', label: 'Popular' },
   { href: '#/favorites', icon: 'heart', label: 'Favourites' },
+  { href: '#/games', icon: 'sparkle', label: 'Games' },
   { href: '#/queue', icon: 'queue', label: 'Queue', small: true },
   { sep: true },
   { href: '#/singers', icon: 'users', label: 'Singers' },
@@ -91,6 +93,7 @@ function Nav({ route }) {
       <${Icon} name=${n.icon} size=${19} /> <span>${n.label}</span>
       ${n.href === '#/queue' && st?.queue?.length ? html`<span class="count">${st.queue.length}</span>` : null}
       ${n.href === '#/guests' && st ? html`<span class="count">${st.guests.filter((g) => g.online).length || ''}</span>` : null}
+      ${n.href === '#/games' && st?.game ? html`<span class="badge">live</span>` : null}
     </a>`))}
     <div class="nav-foot">
       <button class="btn small ghost" onClick=${() => ui.set({ announce: true })}><${Icon} name="megaphone" size=${16} /> Announce</button>
@@ -111,6 +114,7 @@ function MainView({ route }) {
     case 'popular': return html`<${Popular} />`;
     case 'favorites': return html`<${Favorites} />`;
     case 'history': return html`<${History} />`;
+    case 'games': return html`<${Games} />`;
     case 'singers': return html`<${Singers} />`;
     case 'guests': return html`<${Guests} />`;
     case 'displays': return html`<${Displays} />`;

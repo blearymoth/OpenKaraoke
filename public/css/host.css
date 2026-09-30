@@ -255,3 +255,20 @@ code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-si
 
 .crawl-bar { height: 6px; border-radius: 6px; background: var(--panel-3); overflow: hidden; margin: 12px 0 6px; }
 .crawl-bar > div { height: 100%; background: var(--grad); }
+
+/* games */
+.game-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.game-card h3 { margin: 8px 0 4px; }
+.game-card.soon { opacity: .55; }
+.game-card .big-emoji { font-size: 36px; }
+.active-game h3 { margin: 0; display: flex; align-items: center; gap: 8px; }
+.poll-options { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.poll-opt { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); }
+.poll-opt.win { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--bg-2)); }
+.poll-opt .count { font: 800 22px var(--display); min-width: 36px; text-align: right; }
+.poll-opt .bar { height: 6px; border-radius: 6px; background: var(--panel-3); margin-top: 6px; overflow: hidden; }
+.poll-opt .bar > div { height: 100%; background: var(--grad); transition: width .3s; }
+.shape { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #fff; flex: none; }
+.shape.s0 { background: #e21b3c; } .shape.s1 { background: #1368ce; } .shape.s2 { background: #d89e00; } .shape.s3 { background: #26890c; } .shape.s4 { background: #8b5cff; } .shape.s5 { background: #ff3d8b; }
+.wheel-result { font-size: 20px; padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 16%, var(--bg-2)); }
+.active-game select.input { width: auto; }

@@ -11,6 +11,7 @@ import { insertIndex, etas, shuffleFair } from './rotation.js';
 import { WsError } from '../ws/hub.js';
 import { summaryStatus } from '../library/service.js';
 import { makeRoomCode } from '../config.js';
+import { Games } from '../games/index.js';
 
 const SESSION_IDLE_MS = 8 * 3600 * 1000;
 const RELOAD_GRACE_MS = 15000;
@@ -56,6 +57,7 @@ export class Room {
     this._flushTimer = null;
     this._introTimer = null;
     this._lastGuestTime = 0;
+    this.games = new Games(this);
   }
 
   get s() { return this.doc.data; }
@@ -104,6 +106,7 @@ export class Room {
   }
 
   async close() {
+    this.games.end();
     clearTimeout(this._flushTimer);
     clearTimeout(this._introTimer);
     await this.doc.flush();
@@ -328,7 +331,7 @@ export class Room {
       addedAt: Date.now(),
       key: keyAllowed && msg.key !== undefined ? clampKey(msg.key) : clampKey(pref?.key || 0),
       tempo: !isGuest && msg.tempo !== undefined ? clampTempo(msg.tempo) : clampTempo(pref?.tempo || 1),
-      source: isGuest ? 'guest' : 'host',
+      source: isGuest ? 'guest' : (typeof msg.source === 'string' && msg.source.startsWith('game:') ? msg.source : 'host'),
     };
     if (isGuest && this.settings.get('queue.requireApproval')) {
       entry.status = 'pending';
@@ -881,6 +884,7 @@ export class Room {
       tonight: s.tonight.slice(-100).reverse().map((h) => ({ ...h, singers: h.singerIds.map((id) => this.singerView(id)).filter(Boolean) })),
       favorites: s.hostFavorites,
       artwork: this.app.artwork?.status() || null,
+      game: this.games.publicView(),
       announce: this.announce && this.announce.until > Date.now() ? this.announce : null,
     };
   }
@@ -909,6 +913,7 @@ export class Room {
       queueLength: s.queue.length,
       library: { state: this.library.status().state, songs: this.catalog.songs.size },
       guests: this.onlineDevices().size,
+      game: this.games.publicView(),
       announce: this.announce && this.announce.until > Date.now() ? this.announce : null,
     };
   }
@@ -924,6 +929,7 @@ export class Room {
         maxPerGuest: q.maxPerGuest, maxDuration: q.maxDuration, requireApproval: q.requireApproval,
         guestCanRemoveOwn: q.guestCanRemoveOwn, guestsSeeQueue: q.guestsSeeQueue, guestKeyChange: q.guestKeyChange,
         explicitFilter: q.explicitFilter, allowRepeats: q.allowRepeats, reactions: this.settings.get('guests.reactions'),
+        games: this.settings.get('guests.games'),
       },
       player: { state: s.player.state, entryId: s.player.entryId, key: s.player.key, tempo: s.player.tempo, position: s.player.position, duration: s.player.duration, introEndsAt: s.player.introEndsAt, now: Date.now() },
       current: cur ? { id: cur.id, songId: cur.songId, title: cur.title, artist: cur.artist, dur: cur.dur, singers: cur.singerIds.map((id) => this.singerView(id)).filter(Boolean), singerIds: cur.singerIds } : null,
@@ -957,6 +963,7 @@ export class Room {
         upNext: !!(q[0] && prof?.singerId && q[0].singerIds.includes(prof.singerId)),
         sung: this.singer(prof?.singerId)?.sung || 0,
       },
+      game: this.settings.get('guests.games') ? this.games.guestView(deviceId) : null,
     };
   }
 
@@ -1089,6 +1096,11 @@ export class Room {
     hub.handle('library.rescan', () => { this.library.scan({ reason: 'host' }).catch(() => {}); return true; }, { roles: H });
     hub.handle('display.approve', (c, m) => this.approveDisplay(m.code), { roles: H });
     hub.handle('display.makeMain', (c, m) => this.makeMain(m.clientId), { roles: H });
+
+    hub.handle('game.start', (c, m) => this.games.start(m.type, m.config || {}), { roles: H });
+    hub.handle('game.action', (c, m) => this.games.action(m.action, m), { roles: H });
+    hub.handle('game.end', () => this.games.end(), { roles: H });
+    hub.handle('game.vote', (c, m) => this.games.vote(c, m.option), { roles: HG });
 
     hub.handle('tv.status', (c, m) => this.tvStatus(c, m), { roles: ['tv'] });
     hub.handle('tv.ended', (c, m) => this.tvEnded(c, m), { roles: ['tv'] });

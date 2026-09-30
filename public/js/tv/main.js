@@ -6,6 +6,7 @@ import { qrUrl, artUrl } from '/js/lib/api.js';
 import { SingerBadge, Cover, useNow, names, bumpArt, useArtVersion } from '/js/lib/ui.js';
 import { formatKey, formatTempo } from '/shared/protocol.js';
 import { TvPlayer } from './player.js';
+import { GameScene } from './games.js';
 
 const params = new URLSearchParams(location.search);
 const display = params.get('display') === 'mirror' ? 'mirror' : 'main';
@@ -343,6 +344,7 @@ function App() {
     ${scene === 'stage' && html`<${StageHud} tv=${tv} />`}
     ${scene === 'lobby' && html`<${Lobby} tv=${tv} />`}
     ${scene === 'intro' && html`<${Intro} tv=${tv} />`}
+    ${tv.game && html`<${GameScene} tv=${tv} offset=${conn.offset} />`}
     <${Reactions} />
     ${announce && html`<div class="announce" key=${announce.until}>${announce.text}</div>`}
     ${!tv.main && html`<div class="mirror-badge">Mirror display (muted)</div>`}

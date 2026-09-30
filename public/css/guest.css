@@ -119,3 +119,18 @@ body { min-height: 100dvh; background: radial-gradient(500px 300px at 0% -10%, #
 .g-shelves .shelf-head { padding-right: 14px; }
 .g-shelves .shelf-head h2 { font: 700 18px var(--display); }
 .g-shelves .shelf { margin-bottom: 18px; }
+
+.g-card.game { border-color: color-mix(in srgb, var(--accent) 50%, transparent); background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--panel)), var(--panel)); }
+.g-vote { display: grid; gap: 8px; }
+.g-vote button { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px 14px; border-radius: 16px; border: 3px solid transparent; color: #fff; text-align: left; font: inherit; cursor: pointer; transition: transform .1s, opacity .2s; }
+.g-vote button:active { transform: scale(.98); }
+.g-vote button b { display: block; font-size: 16px; line-height: 1.2; }
+.g-vote button small { opacity: .85; }
+.g-vote .shape { font-size: 22px; width: 26px; text-align: center; flex: none; }
+.g-vote .n { font: 800 18px var(--display); }
+.g-vote .c0 { background: #b3142f; } .g-vote .c1 { background: #0f51a3; } .g-vote .c2 { background: #a87a00; } .g-vote .c3 { background: #1f6d0a; } .g-vote .c4 { background: #6a3fd6; } .g-vote .c5 { background: #c8286a; }
+.g-vote .mine { border-color: #fff; box-shadow: 0 0 0 3px rgba(255, 255, 255, .25); }
+.g-vote .win { border-color: #fff; }
+.g-vote .lose { opacity: .45; }
+.g-vote button:disabled { cursor: default; }
+.g-wheel { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; padding: 6px 0; font-size: 17px; }

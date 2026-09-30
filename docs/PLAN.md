@@ -106,8 +106,8 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ⬜ P1 Music Quiz (phones answer, speed scoring, leaderboard, rounds: intro, name the artist,
   lyrics peek, cover zoom, helium/slow-mo/reverse audio, year/decade, sing-along interlude).
 - ⬜ P1 Battle (2–8 contestants, head-to-head or knockout, phone voting + optional applause meter + judges).
-- ⬜ P1 Roulette wheel (songs / singers / dares / genres / duet roulette).
-- ⬜ P1 Crowd poll "what's next?", Pass-the-mic relay, applause meter, party recap screen.
+- ✅ P1 Roulette wheel (songs / singers / dares / genres / duet roulette).
+- 🟡 P1 Crowd poll "what's next?", Pass-the-mic relay, applause meter, party recap screen.
 
 ### Between songs
 - ⬜ P1 Break music (random instrumentals from the library matching the next song's genre/decade,
@@ -164,7 +164,7 @@ server/
     providers.js        ✅ deezer, itunes, musicbrainz+caa, theaudiodb, fanarttv
     placeholder.js      ✅ deterministic gradient SVG with initials
   games/
-    quiz.js battle.js wheel.js poll.js relay.js   ⬜ (§13)
+    quiz.js battle.js wheel.js poll.js relay.js   🟡 poll + wheel done (§13)
   util/                 ✅ log, jsonfile, net, qr
   vendor/               ✅ ws.mjs, qrcode.mjs
 shared/
@@ -489,7 +489,7 @@ No telemetry. Outbound traffic only to the artwork providers (can be disabled).
 - ✅ **M4 Guest app**: join flow, search/browse, song sheet, queue, reactions, notifications.
   → **first real party possible**.
 - 🟡 **M5 Artwork & metadata**: providers, cache, placeholders, crawler, genres/decades browse.
-- ⬜ **M6 Games**: quiz, battle, wheel, poll, pass-the-mic, applause meter, ratings, recap.
+- 🟡 **M6 Games**: quiz, battle, wheel, poll, pass-the-mic, applause meter, ratings, recap.
 - ⬜ **M7 Polish**: break music/autoplay, photos, mirrors & pairing, printable songbook/QR card,
   systemd service, README screenshots, performance pass.
 

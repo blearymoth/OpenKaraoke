@@ -116,3 +116,34 @@
 .conn-badge { position: absolute; right: 2vh; bottom: 8vh; padding: 1vh 2vh; border-radius: 99vh; background: rgba(255, 84, 112, .9); font-weight: 800; font-size: 2vh; z-index: 30; }
 .mirror-badge { position: absolute; left: 2vh; bottom: 8vh; padding: .6vh 1.6vh; border-radius: 99vh; background: rgba(255, 255, 255, .12); font-weight: 700; font-size: 1.6vh; z-index: 30; }
 .pairing .code { font: 800 16vh/1 var(--display); letter-spacing: .15em; }
+
+/* ---- games ------------------------------------------------------------------------------ */
+.game-scene { position: absolute; inset: 0; z-index: 15; background: radial-gradient(100vh 70vh at 50% 0%, #3c145a, #05040a 70%); padding: 5vh 5vw; display: flex; flex-direction: column; animation: fade .4s; }
+.game-head { display: flex; align-items: flex-start; gap: 4vh; margin-bottom: 4vh; }
+.game-head > div:first-child { flex: 1; min-width: 0; }
+.game-label { text-transform: uppercase; letter-spacing: .3em; font-weight: 800; color: var(--accent); font-size: 2.4vh; }
+.game-head h1 { font: 800 7vh/1.05 var(--display); margin: 1vh 0; }
+.game-head .sub { font-size: 3vh; color: #d6d0f5; }
+.poll-timer { width: 13vh; height: 13vh; border-radius: 50%; border: .9vh solid var(--accent); display: flex; align-items: center; justify-content: center; font: 800 6vh var(--display); flex: none; }
+.poll-grid { flex: 1; display: grid; gap: 2.5vh; grid-template-columns: repeat(2, 1fr); }
+.poll-grid.n2, .poll-grid.n3 { grid-template-columns: repeat(var(--cols, 3), 1fr); }
+.poll-grid.n2 { --cols: 2; }
+.poll-grid.n5, .poll-grid.n6 { grid-template-columns: repeat(3, 1fr); }
+.poll-card { position: relative; overflow: hidden; border-radius: 3vh; display: flex; align-items: center; gap: 3vh; padding: 2.5vh 3vh; color: #fff; transition: transform .4s, opacity .4s; }
+.poll-card.c0 { background: #b3142f; } .poll-card.c1 { background: #0f51a3; } .poll-card.c2 { background: #a87a00; } .poll-card.c3 { background: #1f6d0a; } .poll-card.c4 { background: #6a3fd6; } .poll-card.c5 { background: #c8286a; }
+.poll-card .fill { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(255, 255, 255, .18); transition: height .5s ease-out; }
+.poll-card .shape { position: relative; font-size: 6vh; width: 8vh; text-align: center; flex: none; }
+.poll-card .cover { position: relative; width: 16vh !important; height: 16vh !important; border-radius: 2vh; flex: none; box-shadow: 0 1vh 3vh rgba(0, 0, 0, .4); }
+.poll-card .txt { position: relative; flex: 1; min-width: 0; }
+.poll-card .t { font: 800 4.2vh/1.1 var(--display); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.poll-card .a { font-size: 2.8vh; opacity: .85; margin-top: .6vh; }
+.poll-card .votes { position: relative; font: 800 7vh var(--display); min-width: 9vh; text-align: right; }
+.poll-card.win { transform: scale(1.04); box-shadow: 0 0 0 .6vh #fff, 0 2vh 6vh rgba(0, 0, 0, .5); z-index: 1; }
+.poll-card.lose { opacity: .35; }
+.wheel-scene { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.wheel-scene .game-head { margin-bottom: 1vh; text-align: center; }
+.wheel-wrap { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
+.wheel-wrap .wheel { height: min(68vh, 90vw); width: auto; aspect-ratio: 1; transform-origin: 50% 50%; filter: drop-shadow(0 2vh 5vh rgba(0, 0, 0, .6)); }
+.wheel-wrap .pointer { position: absolute; top: calc(50% - min(34vh, 45vw) - 2.5vh); left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 3vh solid transparent; border-right: 3vh solid transparent; border-top: 6vh solid #fff; z-index: 2; filter: drop-shadow(0 .5vh 1vh rgba(0, 0, 0, .6)); }
+.wheel-wrap.landed .wheel { animation: wheel-pop .6s ease-out; }
+@keyframes wheel-pop { 50% { filter: drop-shadow(0 0 6vh var(--accent)); } }

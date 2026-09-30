@@ -1,12 +1,12 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-09-30 (second build session: M1–M4 done, M5 artwork mostly done)._
+_Last updated: 2026-09-30 (second build session: M1–M4 done, M5 artwork mostly done, M6 started)._
 
 ## TL;DR
 - **M0 foundation, M1 server, M2 TV player, M3 room + host app and M4 guest app are done** —
   this is the first party-ready version: host on the PC, lyrics + audio on the TV, guests
   request songs from their phones via the QR code.
-- `npm test` → 90 tests green. `npm run e2e` (Playwright) → full browser flow green.
+- `npm test` → 95 tests green. `npm run e2e` (Playwright) → full browser flow green.
 - **Not yet run against the real USB library** (the session-2 agent worked in a cloud container
   without the drive). Everything was verified with a synthetic 90k-track tree (performance) and
   a synthetic demo library of real WAV+CDG songs (`npm run demo -- <dir>`). Do the checklist
@@ -15,7 +15,9 @@ _Last updated: 2026-09-30 (second build session: M1–M4 done, M5 artwork mostly
   Favourites, Random picks, top collections; guests get Popular / Try something new / a collection).
 - **M5 artwork & metadata is implemented but only tested against recorded-shape fixtures** — this
   cloud container can't reach Deezer/MusicBrainz/TheAudioDB. Check it on the PC (see checklist).
-- Next: finish M5 on the PC (real API check, "fix artwork" screen), then M6 games, M7 polish.
+- **M6 games started**: crowd poll ("what's next?") and roulette wheel (songs / singers / dares)
+  work across host, TV and phones. Battle and music quiz are next.
+- Next: finish M5 on the PC (real API check, "fix artwork" screen), M6 battle + quiz, M7 polish.
 
 ## First run on the PC (owner checklist)
 ```bash
@@ -34,7 +36,7 @@ Address for guests**), unplugging the USB drive shows "library offline" and repl
 ## What was verified
 | Check | Result |
 | --- | --- |
-| `npm test` (node:test) | 90 pass: parser, catalog, scanner/zip, settings/QR/net, library service, HTTP router/Range/media/zip/API, WebSocket, auth + PIN back-off, CDG decoder (synthetic streams), rotation/ETA, Room over real WebSockets (guest join, rotation, player flow, limits, approvals, TV reload, bans, settings, PIN login), cross-site/DNS-rebinding protection |
+| `npm test` (node:test) | 95 pass: parser, catalog, scanner/zip, settings/QR/net, library service, HTTP router/Range/media/zip/API, WebSocket, auth + PIN back-off, CDG decoder (synthetic streams), rotation/ETA, Room over real WebSockets (guest join, rotation, player flow, limits, approvals, TV reload, bans, settings, PIN login), cross-site/DNS-rebinding protection |
 | `npm run e2e` (headless Chromium) | TV autoplay start, typo search, add-to-queue, intro → lyrics, audio clock advances, key change reaches the TV, 2 phone guests join + request, fair rotation order, reactions on the TV, "your turn" notification |
 | Manual browser runs (screenshots reviewed) | lyrics with word highlighting, tempo 1.2 (2.42 s per 2 s), pause/seek, vocal cut, mirror display in sync with the main TV, click-to-start gate without the autoplay flag, all host views/dialogs, phone layouts, printable QR card |
 | Parser on all 90,479 names from the owner's song list (session 1) | 99% get a label; ~50.5k songs, ~11.8k artists |
@@ -97,11 +99,20 @@ To do:
 - "Fix artwork" screen (choose among candidates / upload a custom image), Fanart.tv provider.
 - TV lobby cover mosaic from popular songs with art.
 
-### M6 — Games (PLAN §13)
-Server state machines in `server/games/*.js` with public views in the tv/guest state
-(`game` field), host "Games" view, TV scenes, guest answer/vote UIs. Start with the **crowd poll**
-and **roulette wheel** (smallest), then **Battle** (voting on phones), then **Music Quiz** (needs
-`pickLyricsFrame` from `shared/cdg.js` — already implemented — and artwork for cover rounds).
+### M6 — Games 🟡 (poll + wheel done in session 2)
+Framework: `server/games/index.js` (`Games` on the Room: one game at a time, `game.start` /
+`game.action` / `game.end` for hosts, `game.vote` for guests and hosts; `game` field in the tv/host
+views, `guestView()` per device hides spoilers; a `{ t: 'game', event: 'start' }` message makes
+phones jump to Home). Games are small classes with `view()`, `action(name)`, `dispose()`.
+- `poll.js` — 2–6 random songs (collection filter, explicit/max-length rules), timed vote, change
+  vote allowed, random tie-break, host queues the winner as the next song (`source: 'game:poll'`).
+- `wheel.js` — songs / singers (online + phone-less) / dares; the server picks result + turns +
+  offset, the TV (`public/js/tv/games.js`) animates an SVG wheel that lands on it; remove segment,
+  queue the song.
+- UIs: host `#/games` (`public/js/host/games.js`), TV scene overlay, guest vote card (Kahoot colours).
+Next: **Battle** (2–8 contestants, phone voting A/B or 1–10, optional applause meter on the PC,
+bracket), then **Music Quiz** (`pickLyricsFrame` in `shared/cdg.js` is ready; the TV needs a
+"quiz clip" playback mode: play N seconds of a track without the CDG, or show a static CDG frame).
 
 ### M7 — Polish
 Break music / autoplay when the queue is empty (`playback.whenQueueEmpty`, `breakMusic.*` are in

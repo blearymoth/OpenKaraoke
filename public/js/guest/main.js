@@ -120,9 +120,48 @@ function Reactions({ st }) {
   </div>`;
 }
 
+const SHAPES = ['▲', '◆', '●', '■', '★', '♥'];
+
+function GameCard({ st }) {
+  const g = st.game;
+  const now = useNow(250);
+  const [busy, setBusy] = useState(false);
+  if (!g) return null;
+  if (g.type === 'poll') {
+    const voting = g.phase === 'voting';
+    const left = Math.max(0, Math.ceil((g.endsAt - (now + conn.offset)) / 1000));
+    const vote = async (i) => {
+      setBusy(true);
+      const r = await act('game.vote', { option: i });
+      setBusy(false);
+      if (!r.ok) toast(r.error, 'error');
+      else try { navigator.vibrate?.(30); } catch { /* ignore */ }
+    };
+    const total = g.counts.reduce((a, b) => a + b, 0);
+    return html`<div class="g-card game">
+      <div class="row"><div class="label grow">${voting ? `Vote! What's next? · ${left} s` : 'Poll result'}</div><span class="dim">${g.voters} vote${g.voters === 1 ? '' : 's'}</span></div>
+      <div class="g-vote">
+        ${g.options.map((o, i) => html`<button key=${o.songId} class=${`c${i}${g.myVote === i ? ' mine' : ''}${!voting && g.winner === i ? ' win' : ''}${!voting && g.winner !== i ? ' lose' : ''}`} disabled=${!voting || busy} onClick=${() => vote(i)}>
+          <span class="shape">${SHAPES[i]}</span>
+          <span class="grow"><b>${o.title}</b><small>${o.artist}</small></span>
+          ${(g.myVote != null || !voting) ? html`<span class="n">${total ? Math.round((g.counts[i] / total) * 100) : 0}%</span>` : null}
+        </button>`)}
+      </div>
+      ${voting && g.myVote != null && html`<div class="dim" style=${{ marginTop: '8px', fontSize: '13px' }}>You can change your vote until time is up.</div>`}
+    </div>`;
+  }
+  const landed = g.phase === 'landed' ? g.segments[g.result] : null;
+  return html`<div class="g-card game">
+    <div class="label">Roulette wheel</div>
+    <div class="g-wheel">${landed ? html`<span class="big-emoji">${g.kind === 'singers' ? landed.sub || '🎤' : g.kind === 'dares' ? '🎭' : '🎵'}</span><b>${landed.label}</b>${g.kind === 'songs' && landed.sub ? html`<span class="muted">${landed.sub}</span>` : null}`
+      : html`<span class="big-emoji">🎡</span><b>${g.phase === 'spinning' ? 'Spinning — watch the TV!' : 'The wheel is out — watch the TV!'}</b>`}</div>
+  </div>`;
+}
+
 function HomeTab({ st }) {
   const upcoming = st.queue.slice(0, 3);
   return html`<div class="g-page">
+    <${GameCard} st=${st} />
     <${MyTurn} st=${st} />
     <${NowSinging} st=${st} />
     <${Reactions} st=${st} />

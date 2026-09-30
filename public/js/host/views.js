@@ -171,6 +171,11 @@ export function Tags() {
     ${!data ? html`<${Spinner} />` : html`<div class="tag-grid">
       ${data.tags.map((t) => html`<a key=${t.tag} class="tag-card card" href=${`#/tag/${encodeURIComponent(t.tag)}`}><b>${t.tag}</b><span class="dim">${t.count.toLocaleString()} songs</span></a>`)}
     </div>`}
+    ${data?.genres?.length > 0 && html`<h2 style=${{ marginTop: '28px' }}>Genres</h2>
+      <div class="chips-wrap">${data.genres.slice(0, 40).map((g) => html`<a class="chip" href=${`#/genre/${encodeURIComponent(g.genre)}`}>${g.genre} <span class="dim">${g.count.toLocaleString()}</span></a>`)}</div>`}
+    ${data?.decades?.length > 0 && html`<h2 style=${{ marginTop: '28px' }}>Decades</h2>
+      <div class="chips-wrap">${data.decades.map((d) => html`<a class="chip" href=${`#/decade/${d.decade}`}>${decadeLabel(d.decade)} <span class="dim">${d.count.toLocaleString()}</span></a>`)}</div>`}
+    ${data && !data.genres?.length && html`<p class="muted" style=${{ marginTop: '24px' }}>Genres and decades appear here once cover art and metadata have been looked up online (Settings → Artwork).</p>`}
     ${data?.brands?.length > 0 && html`<h2 style=${{ marginTop: '28px' }}>Karaoke labels in your library</h2>
       <div class="chips-wrap">${data.brands.map((b) => html`<span class="chip" title=${b.name}>${b.brand} <span class="dim">${b.count.toLocaleString()}</span></span>`)}</div>`}
   </div>`;
@@ -183,6 +188,18 @@ export function Tag({ tag }) {
       <select class="input" style=${{ width: 'auto' }} value=${sort} onChange=${(e) => setSort(e.currentTarget.value)}><option value="popular">Most popular</option><option value="title">A–Z</option></select>
     </div>
     <${SongList} load=${(offset, limit) => api(`/api/browse/tag/${encodeURIComponent(tag)}`, { params: { offset, limit, sort } })} deps=${[tag, sort]} />
+  </div>`;
+}
+
+export const decadeLabel = (d) => (d >= 2000 ? `${d}s` : `${String(d).slice(2)}s`);
+
+/** Songs of one genre or decade (needs online metadata). */
+export function Facet({ kind, value }) {
+  const params = kind === 'genre' ? { genre: value } : { decade: value };
+  const title = kind === 'genre' ? value : `The ${decadeLabel(Number(value))}`;
+  return html`<div class="view">
+    <h2>${title}</h2>
+    <${SongList} load=${(offset, limit) => api('/api/search', { params: { q: '', offset, limit, ...params } })} deps=${[kind, value]} />
   </div>`;
 }
 

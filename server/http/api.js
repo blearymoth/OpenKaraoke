@@ -37,6 +37,10 @@ export function registerApi(router, ctx) {
     if (tag) f.tag = tag;
     if (letter) f.letter = letter.toUpperCase();
     if (artist) f.artist = artist;
+    const genre = query.get('genre');
+    const decade = Number(query.get('decade'));
+    if (genre) f.genre = genre.slice(0, 80);
+    if (decade >= 1900 && decade <= 2100) f.decade = Math.floor(decade / 10) * 10;
     if (settings.get('queue.explicitFilter') && !isHost(req)) f.noExplicit = true;
     const maxDur = settings.get('queue.maxDuration');
     if (maxDur > 0 && query.get('fits') === '1') f.maxDuration = maxDur;
@@ -153,14 +157,14 @@ export function registerApi(router, ctx) {
 
   // Artwork: placeholders until the artwork service (M5) provides real covers.
   router.get('/api/art/song/:id', (req, res, { params, query }) => {
-    if (ctx.art?.song) return ctx.art.song(req, res, params.id);
+    if (ctx.art?.song) return ctx.art.song(req, res, params.id, query);
     const s = cat().song(params.id);
     const svg = placeholderSvg({ artist: s?.artist || '', title: s?.title || '', plain: query.get('plain') === '1' });
     text(res, 200, svg, 'image/svg+xml', { 'cache-control': 'public, max-age=86400' });
   });
 
-  router.get('/api/art/artist/:key', (req, res, { params }) => {
-    if (ctx.art?.artist) return ctx.art.artist(req, res, params.key);
+  router.get('/api/art/artist/:key', (req, res, { params, query }) => {
+    if (ctx.art?.artist) return ctx.art.artist(req, res, params.key, query);
     const a = cat().artist(params.key);
     const svg = placeholderSvg({ artist: a?.name || params.key });
     text(res, 200, svg, 'image/svg+xml', { 'cache-control': 'public, max-age=86400' });
@@ -170,6 +174,22 @@ export function registerApi(router, ctx) {
   router.get('/api/fs/list', async (req, res, { query }) => {
     requireHost(req);
     json(res, 200, await listFolders(query.get('path') || ''));
+  });
+
+  router.get('/api/artwork/status', (req, res) => {
+    requireHost(req);
+    json(res, 200, ctx.artwork ? ctx.artwork.status() : { enabled: false });
+  });
+
+  router.post('/api/artwork/:action', async (req, res, { params }) => {
+    requireHost(req);
+    const a = ctx.artwork;
+    if (!a) throw new HttpError(404, 'Artwork service not available');
+    if (params.action === 'start') a.startCrawl();
+    else if (params.action === 'stop') a.stopCrawl();
+    else if (params.action === 'retry') { a.retryMisses(); a.startCrawl(); }
+    else throw new HttpError(404, 'Unknown action');
+    json(res, 200, a.status());
   });
 
   router.get('/api/settings', (req, res) => {

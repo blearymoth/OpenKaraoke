@@ -6,7 +6,7 @@ import { store, ui, conn, act } from './state.js';
 import { SongDetails, AddDialog, InviteModal, AnnounceModal, PinLogin } from './components.js';
 import { QueuePanel } from './queue.js';
 import { PlayerBar } from './player-bar.js';
-import { Home, Search, Artists, Artist, Tags, Tag, Popular, Favorites, History } from './views.js';
+import { Home, Search, Artists, Artist, Tags, Tag, Popular, Favorites, History, Facet } from './views.js';
 import { Singers, Guests, Displays } from './people.js';
 import { Settings } from './settings.js';
 
@@ -14,7 +14,7 @@ const NAV = [
   { href: '#/home', icon: 'home', label: 'Home' },
   { href: '#/search', icon: 'search', label: 'Search' },
   { href: '#/artists', icon: 'mic', label: 'Artists' },
-  { href: '#/tags', icon: 'tag', label: 'Collections' },
+  { href: '#/tags', icon: 'tag', label: 'Collections', match: ['tags', 'tag', 'genre', 'decade'] },
   { href: '#/popular', icon: 'star', label: 'Popular' },
   { href: '#/favorites', icon: 'heart', label: 'Favourites' },
   { href: '#/queue', icon: 'queue', label: 'Queue', small: true },
@@ -87,7 +87,7 @@ function Nav({ route }) {
   const st = useStore(store, (s) => s.state);
   const open = useStore(ui, (s) => s.navOpen);
   return html`<nav class=${`side-nav${open ? ' open' : ''}`}>
-    ${NAV.map((n, i) => (n.sep ? html`<div key=${i} class="sep"></div>` : html`<a key=${n.href} href=${n.href} class=${`${route.name === n.href.slice(2).split('/')[0] ? 'on' : ''}${n.small ? ' small-only' : ''}`}>
+    ${NAV.map((n, i) => (n.sep ? html`<div key=${i} class="sep"></div>` : html`<a key=${n.href} href=${n.href} class=${`${(n.match || [n.href.slice(2).split('/')[0]]).includes(route.name) ? 'on' : ''}${n.small ? ' small-only' : ''}`}>
       <${Icon} name=${n.icon} size=${19} /> <span>${n.label}</span>
       ${n.href === '#/queue' && st?.queue?.length ? html`<span class="count">${st.queue.length}</span>` : null}
       ${n.href === '#/guests' && st ? html`<span class="count">${st.guests.filter((g) => g.online).length || ''}</span>` : null}
@@ -106,6 +106,8 @@ function MainView({ route }) {
     case 'artist': return html`<${Artist} artistKey=${route.arg} />`;
     case 'tags': return html`<${Tags} />`;
     case 'tag': return html`<${Tag} tag=${route.arg} />`;
+    case 'genre': return html`<${Facet} kind="genre" value=${route.arg} />`;
+    case 'decade': return html`<${Facet} kind="decade" value=${route.arg} />`;
     case 'popular': return html`<${Popular} />`;
     case 'favorites': return html`<${Favorites} />`;
     case 'history': return html`<${History} />`;

@@ -1,17 +1,21 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-09-30 (end of the second build session: M1–M4 done)._
+_Last updated: 2026-09-30 (second build session: M1–M4 done, M5 artwork mostly done)._
 
 ## TL;DR
 - **M0 foundation, M1 server, M2 TV player, M3 room + host app and M4 guest app are done** —
   this is the first party-ready version: host on the PC, lyrics + audio on the TV, guests
   request songs from their phones via the QR code.
-- `npm test` → 80 tests green. `npm run e2e` (Playwright) → full browser flow green.
+- `npm test` → 90 tests green. `npm run e2e` (Playwright) → full browser flow green.
 - **Not yet run against the real USB library** (the session-2 agent worked in a cloud container
   without the drive). Everything was verified with a synthetic 90k-track tree (performance) and
   a synthetic demo library of real WAV+CDG songs (`npm run demo -- <dir>`). Do the checklist
   below on the PC first.
-- Next: **M5 artwork & metadata** (the API hooks are ready), then M6 games, M7 polish.
+- **Home screens have gallery rows** (horizontal cover-art carousels: Popular, Sung tonight,
+  Favourites, Random picks, top collections; guests get Popular / Try something new / a collection).
+- **M5 artwork & metadata is implemented but only tested against recorded-shape fixtures** — this
+  cloud container can't reach Deezer/MusicBrainz/TheAudioDB. Check it on the PC (see checklist).
+- Next: finish M5 on the PC (real API check, "fix artwork" screen), then M6 games, M7 polish.
 
 ## First run on the PC (owner checklist)
 ```bash
@@ -20,7 +24,9 @@ node scripts/scan-report.js "/run/media/ruutu/SMILE-2/<collection folder>" --sea
 npm start -- --library "/run/media/ruutu/SMILE-2/<collection folder>"
 # host:  http://localhost:8080/host        TV:  bin/open-tv.sh   (or http://localhost:8080/tv + click Start)
 ```
-Then check: a real MP3+CDG plays with lyrics in sync (adjust **Settings → Playback → Lyrics
+Then check: covers appear within a few seconds for songs you open/queue (Settings → Artwork shows
+the background lookup progress; if the matches look wrong, note examples for the matching rules in
+`server/artwork/providers.js`), a real MP3+CDG plays with lyrics in sync (adjust **Settings → Playback → Lyrics
 offset** if words are early/late on the TV), key/tempo changes sound fine, a phone can join via
 the QR code (same Wi-Fi; if the join URL shows the wrong address set **Settings → Network →
 Address for guests**), unplugging the USB drive shows "library offline" and replugging recovers.
@@ -28,7 +34,7 @@ Address for guests**), unplugging the USB drive shows "library offline" and repl
 ## What was verified
 | Check | Result |
 | --- | --- |
-| `npm test` (node:test) | 80 pass: parser, catalog, scanner/zip, settings/QR/net, library service, HTTP router/Range/media/zip/API, WebSocket, auth + PIN back-off, CDG decoder (synthetic streams), rotation/ETA, Room over real WebSockets (guest join, rotation, player flow, limits, approvals, TV reload, bans, settings, PIN login), cross-site/DNS-rebinding protection |
+| `npm test` (node:test) | 90 pass: parser, catalog, scanner/zip, settings/QR/net, library service, HTTP router/Range/media/zip/API, WebSocket, auth + PIN back-off, CDG decoder (synthetic streams), rotation/ETA, Room over real WebSockets (guest join, rotation, player flow, limits, approvals, TV reload, bans, settings, PIN login), cross-site/DNS-rebinding protection |
 | `npm run e2e` (headless Chromium) | TV autoplay start, typo search, add-to-queue, intro → lyrics, audio clock advances, key change reaches the TV, 2 phone guests join + request, fair rotation order, reactions on the TV, "your turn" notification |
 | Manual browser runs (screenshots reviewed) | lyrics with word highlighting, tempo 1.2 (2.42 s per 2 s), pause/seek, vocal cut, mirror display in sync with the main TV, click-to-start gate without the autoplay flag, all host views/dialogs, phone layouts, printable QR card |
 | Parser on all 90,479 names from the owner's song list (session 1) | 99% get a label; ~50.5k songs, ~11.8k artists |
@@ -68,21 +74,28 @@ Address for guests**), unplugging the USB drive shows "library offline" and repl
 
 ## Next steps (in order)
 
-### M5 — Artwork & metadata
-1. `server/artwork/providers.js` — Deezer (`https://api.deezer.com/search?q=artist:"…" track:"…"`,
-   `cover_medium/big/xl`, `explicit_lyrics`, `rank`, album → genre/year), MusicBrainz recording
-   search → release-group → Cover Art Archive `front-500` (1 req/s, UA `OpenKaraoke/0.1 ( … )`),
-   TheAudioDB artist search (key `123`): thumb/fanart/logo. Matching rules: PLAN §12.
-2. `server/artwork/service.js` — priority queue (current/next > on-screen > crawl), per-provider
-   token buckets + back-off, images in `data/art/<sha1>.jpg`, metadata in `data/meta.json`
-   (`JsonDoc`), misses retried after 30 days, `settings.artwork.*` respected, cache size limit.
-3. Hook it up: `registerApi(..., { art: { song(req,res,id), artist(req,res,key) } })` already
-   exists in `server/http/api.js` — serve the cached image or the placeholder and queue a fetch;
-   set `catalog.metaFor = (songKey) => meta` and call `catalog.metaChanged()`; broadcast
-   `{ t: 'art', ids }` so clients refresh (`artUrl()` adds `&v=1` when `song.art`).
-4. Crawler for the whole library (popular first, resumable) with progress in Settings → Artwork;
-   genre/decade browse in host + guest (catalog `facets()` and filters already support meta).
-5. TV: artist fanart as stage background when `artwork.background` is on.
+### M5 — Artwork & metadata 🟡 (built in session 2, not yet run against the real APIs)
+Done:
+- `server/artwork/providers.js` — Deezer (strict search → loose fallback, album → genre/year,
+  artist pictures), MusicBrainz recording search → Cover Art Archive (studio album preferred over
+  compilations), TheAudioDB artist thumb/fanart/logo/cutout, optional iTunes (linked, not cached).
+  `scoreMatch()` = artist/title similarity (≥ 0.75/0.7), penalises karaoke/tribute/cover albums,
+  duration within 15 s bonus; `best()` picks the top candidate ≥ 0.6.
+- `server/artwork/service.js` — priority queue (0 stage/next, 1 on screen, 2 crawl), per-provider
+  token buckets (Deezer 8/s, MusicBrainz 1/s, TheAudioDB 0.45/s, iTunes 0.3/s), quota/429 back-off
+  and retry, 5-min pause when providers are unreachable or fail 5× in a row, images in `data/art/`
+  (sha1 names, type sniffed, 8 MB max, LRU eviction at `maxCacheMB`), metadata in `data/meta.json`,
+  misses retried after 30 days, background crawl (popular first, `artwork.crawl`, `--no-crawl`).
+- `/api/art/song/:id?s=` and `/api/art/artist/:key?type=picture|fanart|logo&song=` serve cached
+  images or placeholders (`no-store` while a lookup is pending); `{ t: 'art', ids }` WS events make
+  clients re-request covers (`artVersions` in `public/js/lib/ui.js`); the catalog gets genre/year/
+  explicit/rank via `catalog.metaFor`; genre/decade browse in host (Collections) and guest chips;
+  TV stage background uses artist fanart when `artwork.background` is on; Settings → Artwork shows
+  progress with start/pause/retry.
+To do:
+- Run against the real APIs on the PC; tune `scoreMatch` thresholds with real misses.
+- "Fix artwork" screen (choose among candidates / upload a custom image), Fanart.tv provider.
+- TV lobby cover mosaic from popular songs with art.
 
 ### M6 — Games (PLAN §13)
 Server state machines in `server/games/*.js` with public views in the tv/guest state

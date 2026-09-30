@@ -252,3 +252,6 @@ code { background: var(--panel-2); padding: 1px 6px; border-radius: 5px; font-si
   .search-box input::placeholder { font-size: 13px; }
   select.channel { width: auto; }
 }
+
+.crawl-bar { height: 6px; border-radius: 6px; background: var(--panel-3); overflow: hidden; margin: 12px 0 6px; }
+.crawl-bar > div { height: 100%; background: var(--grad); }

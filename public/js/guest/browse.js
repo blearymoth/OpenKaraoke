@@ -53,6 +53,10 @@ export function SearchTab() {
   const dq = useDebounced(q.trim(), 200);
   const facets = useAsync((signal) => api('/api/browse/facets', { signal }), []);
   const tags = (facets.data?.tags || []).slice(0, 14);
+  const decades = (facets.data?.decades || []).filter((d) => d.count >= 5).map((d) => ({ id: `decade:${d.decade}`, label: d.decade >= 2000 ? `${d.decade}s` : `${String(d.decade).slice(2)}s`, params: { decade: d.decade } }));
+  const genres = (facets.data?.genres || []).slice(0, 8).map((g) => ({ id: `genre:${g.genre}`, label: g.genre, params: { genre: g.genre } }));
+  const facetChips = [...decades, ...genres];
+  const facet = facetChips.find((f) => f.id === chip);
   const input = useRef();
   const page = 40;
   let body;
@@ -70,6 +74,8 @@ export function SearchTab() {
       <div class="g-letters">${LETTERS.map((c) => html`<button class=${c === letter ? 'on' : ''} onClick=${() => setLetter(c)}>${c}</button>`)}</div>
       <${ArtistList} letter=${letter} onPick=${setArtist} />
     </div>`;
+  } else if (facet) {
+    body = html`<${Results} deps=${[chip]} empty="No songs" load=${(offset) => api('/api/search', { params: { q: '', offset, limit: page, fits: 1, ...facet.params } })} />`;
   } else if (chip === 'popular') {
     body = html`<${Results} deps=${['popular']} empty="No songs yet" load=${(offset) => api('/api/browse/popular', { params: { offset, limit: page, fits: 1 } })} />`;
   } else {
@@ -84,6 +90,7 @@ export function SearchTab() {
     ${!dq && html`<div class="g-chips">
       <button class=${`chip${chip === 'popular' ? ' on' : ''}`} onClick=${() => setChip('popular')}>🔥 Popular</button>
       <button class=${`chip${chip === 'artists' ? ' on' : ''}`} onClick=${() => { setChip('artists'); setArtist(null); }}>🎤 Artists</button>
+      ${facetChips.map((f) => html`<button key=${f.id} class=${`chip${chip === f.id ? ' on' : ''}`} onClick=${() => setChip(f.id)}>${f.label}</button>`)}
       ${tags.map((t) => html`<button key=${t.tag} class=${`chip${chip === t.tag ? ' on' : ''}`} onClick=${() => setChip(t.tag)}>${t.tag}</button>`)}
     </div>`}
     ${body}

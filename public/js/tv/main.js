@@ -3,7 +3,7 @@ import { html, render, useEffect, useRef } from '/js/vendor/preact.js';
 import { Connection, deviceId, storage } from '/js/lib/ws-client.js';
 import { createStore, useStore } from '/js/lib/store.js';
 import { qrUrl, artUrl } from '/js/lib/api.js';
-import { SingerBadge, Cover, useNow, names } from '/js/lib/ui.js';
+import { SingerBadge, Cover, useNow, names, bumpArt, useArtVersion } from '/js/lib/ui.js';
 import { formatKey, formatTempo } from '/shared/protocol.js';
 import { TvPlayer } from './player.js';
 
@@ -36,6 +36,7 @@ conn.on('paired', (m) => {
   conn.rehello();
 });
 conn.on('status', ({ status, detail }) => store.set({ conn: status, denied: status === 'denied' ? detail : null }));
+conn.on('art', (m) => bumpArt(m.ids));
 
 let reactionId = 0;
 conn.on('reaction', (m) => {
@@ -98,9 +99,13 @@ function Background({ tv, scene }) {
   const cur = tv.current;
   const bgMode = tv.display?.background || 'art';
   const showArt = scene !== 'lobby' && bgMode === 'art' && cur;
+  const v = useArtVersion(cur?.songId);
+  const url = !showArt ? null : tv.artwork?.background && cur.artistKey
+    ? `/api/art/artist/${encodeURIComponent(cur.artistKey)}?type=fanart&song=${encodeURIComponent(cur.songId)}&r=${v}`
+    : `${artUrl({ id: cur.songId }, 1000, { plain: true })}&r=${v}`;
   return html`<div class="bg">
     <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
-    ${showArt && html`<div class="art" key=${cur.songId} style=${{ backgroundImage: `url("${artUrl({ id: cur.songId }, 1000, { plain: true })}")` }}></div>`}
+    ${showArt && html`<div class="art" key=${cur.songId} style=${{ backgroundImage: `url("${url}")` }}></div>`}
     ${scene !== 'lobby' && bgMode === 'visualizer' && html`<${Visualizer} />`}
     <div class="shade"></div>
   </div>`;

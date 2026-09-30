@@ -1,7 +1,7 @@
 // Guest app: connection and stores.
 import { Connection, deviceId, storage } from '/js/lib/ws-client.js';
 import { createStore } from '/js/lib/store.js';
-import { toast } from '/js/lib/ui.js';
+import { toast, bumpArt } from '/js/lib/ui.js';
 
 export const roomCode = (location.pathname.split('/')[2] || new URLSearchParams(location.search).get('room') || '').toUpperCase();
 
@@ -20,6 +20,7 @@ conn.on('state', (m) => {
 });
 conn.on('status', ({ status, detail }) => store.set({ conn: status, denied: status === 'denied' ? detail : null }));
 conn.on('time', (m) => timeStore.set({ ...m, localAt: performance.now() }));
+conn.on('art', (m) => bumpArt(m.ids));
 conn.on('notify', (m) => {
   toast(m.text, m.kind === 'rejected' ? 'error' : 'ok', 6000);
   try { navigator.vibrate?.(m.kind === 'now' ? [300, 120, 300, 120, 300] : [200, 100, 200]); } catch { /* not allowed */ }

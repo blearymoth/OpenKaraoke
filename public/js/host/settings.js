@@ -80,16 +80,16 @@ const FIELDS = {
     { path: 'display.visualizer', label: 'Visualiser style', type: 'select', options: [['aurora', 'Aurora bars']], show: (s) => s.display.background === 'visualizer' },
   ],
   artwork: [
-    { note: 'Automatic cover art and artist pictures arrive in a later version (milestone M5). Until then songs show generated gradient covers.' },
-    { path: 'artwork.enabled', label: 'Download cover art', type: 'toggle' },
+    { path: 'artwork.enabled', label: 'Look up cover art and song info online', type: 'toggle', help: 'Covers, artist pictures, genre, year and explicit flags from Deezer, MusicBrainz and TheAudioDB. Everything is cached on this PC.' },
+    { path: 'artwork.crawl', label: 'Look up the whole library in the background', type: 'toggle', help: 'Popular songs first. Songs shown on screen are always looked up right away.' },
     { path: 'artwork.providers.deezer', label: 'Deezer', type: 'toggle' },
     { path: 'artwork.providers.musicbrainz', label: 'MusicBrainz / Cover Art Archive', type: 'toggle' },
     { path: 'artwork.providers.theaudiodb', label: 'TheAudioDB (artist pictures)', type: 'toggle' },
     { path: 'artwork.providers.itunes', label: 'iTunes (no caching allowed by its terms)', type: 'toggle' },
-    { path: 'artwork.providers.fanarttv', label: 'Fanart.tv (needs your own API key)', type: 'toggle' },
+    { path: 'artwork.providers.fanarttv', label: 'Fanart.tv (needs your own API key)', type: 'toggle', soon: true },
     { path: 'artwork.background', label: 'Use artist pictures as TV backgrounds', type: 'toggle' },
     { path: 'artwork.theaudiodbKey', label: 'TheAudioDB API key', type: 'text', help: '“123” is the free test key.' },
-    { path: 'artwork.fanartKey', label: 'Fanart.tv API key', type: 'password' },
+    { path: 'artwork.fanartKey', label: 'Fanart.tv API key', type: 'password', soon: true },
     { path: 'artwork.maxCacheMB', label: 'Artwork cache size', type: 'number', min: 100, max: 100000, unit: 'MB' },
   ],
   server: [
@@ -121,6 +121,7 @@ export function Settings({ section = 'library' }) {
       <div class="settings-body card">
         ${section === 'library' && html`<${LibrarySettings} st=${st} />`}
         ${section === 'party' && html`<${PartyExtras} st=${st} />`}
+        ${section === 'artwork' && html`<${ArtworkStatus} st=${st} />`}
         ${(FIELDS[section] || []).map((f, i) => (f.note ? html`<p key=${i} class="note">${f.note}</p>` : (!f.show || f.show(settings)) && html`<${Field} key=${f.path} f=${f} value=${get(settings, f.path)} />`))}
       </div>
     </div>
@@ -161,6 +162,28 @@ function Field({ f, value }) {
   return html`<div class=${`field${inline ? ' inline' : ''}${f.soon ? ' soon' : ''}`}>
     <div class="grow"><div class="label">${f.label}${f.soon ? html` <span class="tag">coming soon</span>` : null}</div>${f.help && html`<div class="help">${f.help}</div>`}</div>
     <div class="control">${control}</div>
+  </div>`;
+}
+
+function ArtworkStatus({ st }) {
+  const a = st.artwork;
+  if (!a) return null;
+  const run = (action) => api(`/api/artwork/${action}`, { method: 'POST', body: {} }).catch((e) => alert(e.message));
+  const pct = a.crawl.total ? Math.min(100, Math.round((a.crawl.index / a.crawl.total) * 100)) : 0;
+  return html`<div class="lib-settings">
+    <div class="label">Artwork & song info</div>
+    <div class="lib-status">
+      <b>${a.known.toLocaleString()}</b> of <b>${a.songs.toLocaleString()}</b> songs have cover art
+      ${a.missing ? html` · ${a.missing.toLocaleString()} not found` : ''} · cache ${a.cacheMB} MB
+      ${a.queue ? html` · ${a.queue} in progress` : ''}
+    </div>
+    ${a.offline && html`<div class="banner warn" style=${{ marginTop: '10px' }}>The artwork services can't be reached right now (no internet?). Retrying in a few minutes.</div>`}
+    ${a.crawling && html`<div class="crawl-bar"><div style=${{ width: `${pct}%` }}></div></div><div class="dim" style=${{ fontSize: '13px' }}>Background lookup ${pct} % — ${a.crawl.found.toLocaleString()} found, ${a.crawl.missed.toLocaleString()} not found</div>`}
+    <div class="row" style=${{ marginTop: '12px', flexWrap: 'wrap' }}>
+      ${a.crawling ? html`<button class="btn" onClick=${() => run('stop')}>Pause background lookup</button>`
+        : html`<button class="btn primary" disabled=${!a.enabled} onClick=${() => run('start')}>Look up the whole library</button>`}
+      ${a.missing > 0 && html`<button class="btn" disabled=${!a.enabled} onClick=${() => run('retry')}>Retry songs not found</button>`}
+    </div>
   </div>`;
 }
 

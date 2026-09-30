@@ -71,9 +71,25 @@ export function Icon({ name, size = 20, class: cls = '', style }) {
 }
 
 // ---- cover art ---------------------------------------------------------------
+/** songId -> version, bumped by the server's `art` events so covers refresh when found. */
+export const artVersions = createStore({});
+export function bumpArt(ids) {
+  if (!ids?.length) return;
+  artVersions.set((s) => {
+    const n = { ...s };
+    for (const id of ids) n[id] = (n[id] || 0) + 1;
+    return n;
+  });
+}
+export function useArtVersion(id) {
+  return useStore(artVersions, (s) => (id ? s[id] || 0 : 0));
+}
+
 export function Cover({ song, size = 44, big = false, class: cls = '' }) {
   const [failed, setFailed] = useState(false);
-  const src = failed ? '/img/icon.svg' : artUrl(song, big ? 500 : 250);
+  const v = useArtVersion(song?.id);
+  useEffect(() => { setFailed(false); }, [v]);
+  const src = failed ? '/img/icon.svg' : `${artUrl(song, big ? 500 : 250)}${v ? `&r=${v}` : ''}`;
   return html`<div class=${`cover ${cls}`} style=${{ width: `${size}px`, height: `${size}px` }}>
     <img src=${src} alt="" loading="lazy" decoding="async" onError=${() => setFailed(true)} />
   </div>`;

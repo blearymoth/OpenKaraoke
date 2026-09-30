@@ -71,6 +71,7 @@ export const DEFAULT_SETTINGS = {
   },
   artwork: {
     enabled: true,
+    crawl: true, // look up the whole library in the background (popular songs first)
     background: true,
     providers: { deezer: true, itunes: false, musicbrainz: true, theaudiodb: true, fanarttv: false },
     theaudiodbKey: '123',
@@ -105,6 +106,7 @@ export function parseArgs(argv) {
     else if (a === '--pin') out.pin = next();
     else if (a === '--log') out.log = next();
     else if (a === '--no-scan') out.noScan = true;
+    else if (a === '--no-crawl') out.noCrawl = true;
     else if (a === '--help' || a === '-h') out.help = true;
     else if (!a.startsWith('-')) out.library.push(a);
   }
@@ -122,6 +124,7 @@ Options:
       --data <dir>      where settings, the library index and art cache live
       --pin <pin>       set the host PIN
       --no-scan         don't rescan the library on start
+      --no-crawl        don't look up artwork for the whole library in the background
       --log <level>     debug | info | warn | error
 
 Environment: OPENKARAOKE_DATA, PORT, LOG_LEVEL`;

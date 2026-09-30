@@ -363,6 +363,7 @@ export class Room {
       });
     }
     s.queue.splice(i, 0, entry);
+    this.wantArt([entry]);
     return i;
   }
 
@@ -450,6 +451,7 @@ export class Room {
     });
     this.displayLost = null;
     this._introTimer = setTimeout(() => this.endIntro(entry.id), countdown * 1000);
+    this.wantArt([entry, ...s.queue.slice(0, 2)]);
     this.notifySingers(entry, { kind: 'now', text: "🎤 It's your turn — grab the mic!" });
     this.touch();
   }
@@ -499,6 +501,18 @@ export class Room {
     Object.assign(p, { state: 'idle', entryId: null, position: 0, duration: 0, introEndsAt: 0 });
     this.touch();
     return cur;
+  }
+
+  /** Artwork for songs that are (about to be) on the TV gets looked up first. */
+  wantArt(entries) {
+    const art = this.app.artwork;
+    if (!art) return;
+    for (const e of entries) {
+      if (!e) continue;
+      art.want(e.songId, 0);
+      const key = this.catalog.song(e.songId)?.artistKeys?.[0];
+      if (key) art.wantArtist(key, 0);
+    }
   }
 
   /** Starts the next queued song, or goes idle. */
@@ -792,6 +806,7 @@ export class Room {
       brand: e.brand, key: e.key, tempo: e.tempo, addedAt: e.addedAt, source: e.source, status: e.status,
       singers: e.singerIds.map((id) => this.singerView(id)).filter(Boolean),
       singerIds: e.singerIds,
+      artistKey: this.catalog.song(e.songId)?.artistKeys?.[0] || null,
     };
     if (eta !== undefined) v.eta = eta;
     return v;
@@ -865,6 +880,7 @@ export class Room {
       settings: this.settings.data,
       tonight: s.tonight.slice(-100).reverse().map((h) => ({ ...h, singers: h.singerIds.map((id) => this.singerView(id)).filter(Boolean) })),
       favorites: s.hostFavorites,
+      artwork: this.app.artwork?.status() || null,
       announce: this.announce && this.announce.until > Date.now() ? this.announce : null,
     };
   }
@@ -879,6 +895,7 @@ export class Room {
       main: client?.id === this.mainDisplay,
       party: { name: this.settings.get('party.name'), roomCode: info.roomCode, joinUrl: info.joinUrl },
       display: this.settings.get('display'),
+      artwork: { background: this.settings.get('artwork.enabled') && this.settings.get('artwork.background') },
       playback: {
         countdown: this.settings.get('playback.countdown'),
         lyricOffsetMs: this.settings.get('playback.lyricOffsetMs'),

@@ -68,7 +68,10 @@ npm run e2e                                # browser E2E (needs Playwright + Chr
 - `server/app.js` — wires everything (tests create apps with `createApp`); `server/index.js` — CLI entry.
 - `server/room/room.js` — the party (queue, rotation, player state machine, guests, displays,
   per-role views, notifications, history); `rotation.js` — pure queue-order/ETA helpers.
-- `server/util/lru.js`, `server/artwork/placeholder.js` (gradient + initials SVG).
+- `server/artwork/` — `providers.js` (Deezer, MusicBrainz/CAA, TheAudioDB, iTunes parsers + `scoreMatch`),
+  `service.js` (`ArtworkService`: rate-limited priority queue, `data/art/` cache, `data/meta.json`,
+  crawler, `/api/art/*` handlers), `placeholder.js` (gradient + initials SVG).
+- `server/util/lru.js`; `public/js/lib/shelf.js` (gallery rows of cover cards).
 - `shared/cdg.js` (CDG decoder), `shared/protocol.js` (channel modes, key/tempo ranges, emojis).
 - `public/js/lib/` — `ws-client.js` (reconnecting WS + `rid` requests + clock offset), `store.js`
   (`createStore`/`useStore`), `api.js`, `ui.js` (icons, Cover, Modal, toasts, hooks),

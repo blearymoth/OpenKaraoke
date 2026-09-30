@@ -37,7 +37,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   drive offline/online detection (poll every 20 s), rescan button, "library offline" banner.
 - ✅ P0 Folder picker in host settings (server lists directories; suggest mounted drives under
   `/run/media/$USER`, `/media/$USER`) + CLI `--library`.
-- ⬜ P1 Genre / decade browse (needs metadata from §12), "Most sung here", "Sung tonight" marks.
+- 🟡 P1 Genre / decade browse (needs metadata from §12), "Most sung here", "Sung tonight" marks.
 - ⬜ P1 Printable songbook (HTML → print to PDF) with filters (letter, tag, popular only).
 - ⬜ P2 Optional ffmpeg transcoding for AVI/WMV/MPG video when `ffmpeg` is installed.
 
@@ -95,11 +95,11 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P1 Keyboard shortcuts (space, arrows, +/- key, [ ] tempo, N next, F fullscreen TV).
 
 ### Artwork & metadata
-- ⬜ P0 On-demand cover art per song (Deezer → Cover Art Archive), cached to `data/art/`,
+- ✅ P0 On-demand cover art per song (Deezer → Cover Art Archive), cached to `data/art/`,
   placeholder SVG (gradient + initials) while missing.
-- ⬜ P1 Background crawler for the whole library (popular first), resumable, rate-limited,
+- ✅ P1 Background crawler for the whole library (popular first), resumable, rate-limited,
   progress + ETA in settings. Artist pictures, genre, year, explicit flag, popularity rank.
-- ⬜ P1 TheAudioDB (key `123`) artist fanart/logo/cutout for TV title cards and backgrounds.
+- 🟡 P1 TheAudioDB (key `123`) artist fanart/logo/cutout for TV title cards and backgrounds.
 - ⬜ P2 "Fix artwork" (choose among candidates / upload custom), optional iTunes & Fanart.tv.
 
 ### Games (§13)
@@ -160,8 +160,8 @@ server/
     rotation.js         ✅ fair insert / ETA helpers (pure, unit tested)
     auth.js             ✅ host PIN, localhost trust, tokens (HMAC with data/secret), display pairing
   artwork/
-    service.js          ⬜ queue with priorities, provider rate limiters, cache, crawler
-    providers.js        ⬜ deezer, itunes, musicbrainz+caa, theaudiodb, fanarttv
+    service.js          ✅ queue with priorities, provider rate limiters, cache, crawler
+    providers.js        ✅ deezer, itunes, musicbrainz+caa, theaudiodb, fanarttv
     placeholder.js      ✅ deterministic gradient SVG with initials
   games/
     quiz.js battle.js wheel.js poll.js relay.js   ⬜ (§13)
@@ -488,7 +488,7 @@ No telemetry. Outbound traffic only to the artwork providers (can be disabled).
   singers, settings, invite modal), open-TV-on-second-screen, kiosk script.
 - ✅ **M4 Guest app**: join flow, search/browse, song sheet, queue, reactions, notifications.
   → **first real party possible**.
-- ⬜ **M5 Artwork & metadata**: providers, cache, placeholders, crawler, genres/decades browse.
+- 🟡 **M5 Artwork & metadata**: providers, cache, placeholders, crawler, genres/decades browse.
 - ⬜ **M6 Games**: quiz, battle, wheel, poll, pass-the-mic, applause meter, ratings, recap.
 - ⬜ **M7 Polish**: break music/autoplay, photos, mirrors & pairing, printable songbook/QR card,
   systemd service, README screenshots, performance pass.

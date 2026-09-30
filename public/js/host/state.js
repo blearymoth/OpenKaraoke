@@ -1,7 +1,7 @@
 // Host app: connection, stores and small action helpers.
 import { Connection, deviceId, storage } from '/js/lib/ws-client.js';
 import { createStore } from '/js/lib/store.js';
-import { toast } from '/js/lib/ui.js';
+import { toast, bumpArt } from '/js/lib/ui.js';
 
 export const store = createStore({ state: null, conn: 'connecting', denied: null });
 export const timeStore = createStore({ entryId: null, pos: 0, dur: 0, playing: false, at: 0, localAt: 0 });
@@ -19,6 +19,7 @@ conn.on('status', ({ status, detail }) => store.set({ conn: status, denied: stat
 conn.on('time', (m) => timeStore.set({ ...m, localAt: performance.now() }));
 conn.on('toast', (m) => toast(m.text, m.level));
 conn.on('lib', (m) => libStore.set({ progress: m.status?.progress || null }));
+conn.on('art', (m) => bumpArt(m.ids));
 
 /** Sends a request and shows errors as toasts. Resolves to the reply (or undefined on error). */
 export async function act(type, payload = {}, { ok } = {}) {

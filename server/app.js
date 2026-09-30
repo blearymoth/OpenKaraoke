@@ -5,6 +5,7 @@ import path from 'node:path';
 import { Settings, PUBLIC_DIR, SHARED_DIR, VERSION, makeRoomCode } from './config.js';
 import { LibraryService, normalizePaths, summaryStatus } from './library/service.js';
 import { Room } from './room/room.js';
+import { ArtworkService } from './artwork/service.js';
 import { Router, text, redirect } from './http/router.js';
 import { serveStatic } from './http/static.js';
 import { MediaService } from './http/media.js';
@@ -21,7 +22,7 @@ const PAGES = { '/': 'index.html', '/host': 'host.html', '/tv': 'tv.html', '/gue
  * @param {string} o.dataDir
  * @param {object} [o.args] parsed CLI args (see config.parseArgs)
  */
-export async function createApp({ dataDir, args = {}, log = logger('server'), watchIntervalMs = 20000 } = {}) {
+export async function createApp({ dataDir, args = {}, log = logger('server'), watchIntervalMs = 20000, fetch = globalThis.fetch, artworkOptions = {} } = {}) {
   const settings = new Settings(dataDir);
   await settings.load();
   if (args.library?.length) settings.update({ library: { paths: normalizePaths(args.library) } });
@@ -31,11 +32,12 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
   const auth = await new Auth({ dataDir, settings }).init();
   const library = new LibraryService({ dataDir, settings, watchIntervalMs });
   const media = new MediaService({ library });
+  const artwork = new ArtworkService({ dataDir, settings, library, fetch, ...artworkOptions });
   const router = new Router();
   let port = Number(args.port || process.env.PORT || settings.get('server.port')) || 8080;
 
   const app = {
-    settings, auth, library, media, router, dataDir, hub: null, server: null, room: null,
+    settings, auth, library, media, artwork, router, dataDir, hub: null, server: null, room: null,
     get port() { return port; },
   };
 
@@ -65,7 +67,11 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
 
   media.register(router);
   registerApi(router, {
-    library, settings, auth,
+    library, settings, auth, artwork,
+    art: {
+      song: (req, res, id, query) => artwork.serveSong(req, res, id, query),
+      artist: (req, res, key, query) => artwork.serveArtist(req, res, key, query),
+    },
     info: (req) => app.info(req),
     decorate: (song) => app.room.decorate(song),
     updateSettings: (patch) => app.room.updateSettings(patch),
@@ -112,6 +118,9 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
   const room = new Room(app);
   app.room = room;
   hub.onHello = (client, msg) => room.hello(client, msg);
+  artwork.on('art', (ids) => hub.broadcast({ t: 'art', ids }));
+  artwork.on('artist', () => room.touch());
+  artwork.on('status', () => room.touch());
 
   // Library progress for host screens (the Room adds richer state later).
   let lastProgress = 0;
@@ -137,6 +146,7 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
   app.start = async ({ scan = !args.noScan && settings.get('library.rescanOnStart') } = {}) => {
     await room.init();
     await library.init({ scan, watch: watchIntervalMs > 0 });
+    await artwork.init({ crawl: args.noCrawl !== true });
     room.syncPlays();
     room.touch();
     return app;
@@ -144,6 +154,7 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
 
   app.close = async () => {
     await room.close();
+    await artwork.close();
     await settings.flush();
     hub.close();
     const closed = new Promise((r) => server.close(() => r()));

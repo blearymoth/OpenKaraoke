@@ -3,11 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OpenKaraoke</title>
+  <meta name="theme-color" content="#150f26">
+  <title>TV · OpenKaraoke</title>
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/tv.css">
+  <link rel="modulepreload" href="/js/vendor/preact.js">
+  <link rel="modulepreload" href="/js/vendor/signalsmith-stretch.mjs">
 </head>
-<body>
-  <div class="empty"><div class="big">🚧</div><h3>This page is being built</h3><p><a href="/">Back to the start page</a></p></div>
+<body class="tv">
+  <div id="bg"></div>
+  <div id="stage">
+    <video id="video" playsinline hidden></video>
+    <canvas id="cdg" width="576" height="384" aria-label="Lyrics"></canvas>
+  </div>
+  <audio id="audio" preload="auto" hidden></audio>
+  <div id="app"></div>
+  <script type="module" src="/js/tv/main.js"></script>
 </body>
 </html>

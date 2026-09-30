@@ -316,7 +316,8 @@ test('websocket hello, roles and ping', async () => {
   const welcome = await guest.next();
   assert.equal(welcome.t, 'welcome');
   assert.equal(welcome.role, 'guest');
-  assert.equal(welcome.info.roomCode, code);
+  assert.equal(welcome.state.info.roomCode, code);
+  assert.ok(welcome.token, 'new guests get a device token');
   guest.json({ t: 'ping', c: 42 });
   const pong = await guest.next((m) => m.t === 'pong');
   assert.equal(pong.c, 42);

@@ -10,11 +10,10 @@ import { serveStatic } from './http/static.js';
 import { apiRoutes } from './http/api.js';
 import { mediaRoutes } from './http/media.js';
 import { Hub } from './ws/hub.js';
+import { Room } from './room/room.js';
 import { lanAddresses, isLocalAddress } from './util/net.js';
 import { HttpError } from './util/errors.js';
-import { logger } from './util/log.js';
 
-const log = logger('server');
 
 /**
  * @param {object} opts
@@ -66,10 +65,19 @@ export async function createApp({ dataDir, args = {}, scan, watch = true } = {})
   server.keepAliveTimeout = 30_000;
   app.server = server;
   hub.attach(server);
-  hub.onHello = async (client, msg) => basicHello(app, client, msg);
 
+  const room = new Room(app);
+  await room.load();
+  app.room = room;
+  hub.onHello = (client, msg) => room.hello(client, msg);
+  hub.onRequest = (client, msg) => room.request(client, msg);
+  hub.on('join', (client) => room.onJoin(client));
+  hub.on('leave', (client) => room.onLeave(client));
+  app.closers.push(() => room.close());
+
+  library.on('changed', () => room.onLibraryChanged());
+  library.on('status', () => room.markDirty());
   library.on('progress', (progress) => hub.broadcast({ t: 'lib', progress }, (c) => c.role === 'host'));
-  library.on('status', (status) => hub.broadcast({ t: 'lib', status }, (c) => c.role === 'host'));
 
   app.listen = (port, host) => new Promise((resolve, reject) => {
     const onError = (e) => {
@@ -158,21 +166,6 @@ function pageRoutes(router) {
     res.writeHead(301, { location: '/img/icon.svg' });
     res.end();
   });
-}
-
-/** Minimal hello used until a Room takes over the hub (role checks per PLAN §7). */
-function basicHello(app, client, msg) {
-  const role = msg.role;
-  if (role === 'host') {
-    if (!app.auth.isHost(client.ip, msg.token)) return { ok: false, reason: app.auth.pin ? 'pin_required' : 'host_only' };
-  } else if (role === 'tv') {
-    if (!client.isLocal) return { ok: false, reason: 'pairing_required' };
-  } else if (role === 'guest') {
-    if (String(msg.room || '').toUpperCase() !== app.settings.get('party.roomCode')) return { ok: false, reason: 'bad_room' };
-  } else {
-    return { ok: false, reason: 'bad_role' };
-  }
-  return { ok: true, role, welcome: { info: app.info() } };
 }
 
 const NOT_FOUND_PAGE = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

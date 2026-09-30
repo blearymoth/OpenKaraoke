@@ -45,6 +45,7 @@ export const DEFAULT_SETTINGS = {
   playback: {
     countdown: 10,
     startPaused: false,
+    autoStart: true, // start the first song as soon as it is queued (when a TV display is on)
     autoAdvance: true,
     volume: 0.9,
     normalize: true,

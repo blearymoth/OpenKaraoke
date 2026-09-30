@@ -1,0 +1,99 @@
+/* Party recap: host controls, TV slides (vh sizes, legible across the room), phone cards. */
+
+/* ---- host ------------------------------------------------------------------------------ */
+.rc-setup-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: end; }
+.rc-toggle { display: flex; align-items: center; gap: 10px; min-height: 42px; }
+@media (max-width: 560px) { .rc-setup-row { grid-template-columns: minmax(0, 1fr); } }
+.rc-slides { display: flex; flex-wrap: wrap; gap: 8px; }
+.rc-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* ---- TV ---------------------------------------------------------------------------------- */
+.g-tv.recap { grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; background: radial-gradient(ellipse at 50% 120%, color-mix(in srgb, var(--neon) 22%, transparent), transparent 60%); }
+.rc-head { display: flex; justify-content: space-between; align-items: center; }
+.rc-head .kicker { font-size: 3vh; }
+.rc-count { font-size: 2.6vh; color: var(--ink-3); }
+.rc-stage { display: grid; min-height: 0; }
+.rc-slide { display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; justify-items: center; gap: 4vh; min-height: 0; text-align: center; animation: rc-in 0.8s var(--ease) both; }
+.rc-slide > h1 { font-size: 9vh; }
+@keyframes rc-in { from { opacity: 0; transform: translateY(4vh) scale(0.98); } }
+@keyframes rc-pop { from { opacity: 0; transform: translateY(3vh) scale(0.9); } }
+.rc-dots { display: flex; justify-content: center; gap: 1.4vh; }
+.rc-dots i { width: 1.6vh; height: 1.6vh; border-radius: 50%; background: rgba(255, 255, 255, 0.18); transition: background 0.3s, transform 0.3s; }
+.rc-dots i.done { background: rgba(255, 255, 255, 0.45); }
+.rc-dots i.on { background: var(--bulb); transform: scale(1.35); }
+.rc-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 0.7vh; background: rgba(255, 255, 255, 0.06); }
+.rc-progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--neon), var(--bulb)); }
+
+/* totals */
+.rc-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2.5vw; width: min(100%, 170vh); }
+.rc-tile { display: grid; justify-items: center; gap: 1vh; padding: 4vh 2vh; border-radius: 3vh; background: linear-gradient(160deg, var(--stage-2), var(--stage)); border: 1px solid var(--line); animation: rc-pop 0.7s var(--ease) both; }
+.rc-tile .emoji { font-size: 7vh; line-height: 1; }
+.rc-tile b { font-size: 13vh; line-height: 1; color: var(--bulb); }
+.rc-tile .label { font-size: 3.2vh; color: var(--ink-2); }
+
+/* top singers */
+.rc-singers .g-podium { margin-top: 2vh; }
+.rc-sub { font-size: 3.4vh; color: var(--ink-2); }
+.rc-more { font-size: 2.8vh; color: var(--ink-3); }
+
+/* best rated */
+.rc-rows { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.8vh; width: min(100%, 150vh); text-align: left; }
+.rc-rows li { display: grid; grid-template-columns: 6vh 11vh minmax(0, 1fr) auto; align-items: center; gap: 2.6vh; padding: 1.4vh 2.6vh; border-radius: 2vh; background: rgba(255, 255, 255, 0.05); animation: rc-pop 0.6s var(--ease) both; }
+.rc-rows li:first-child { background: var(--bulb-soft); border: 1px solid rgba(255, 201, 74, 0.35); }
+.rc-rows .rank { font-family: var(--font-display); font-size: 5vh; font-weight: 800; color: var(--ink-3); text-align: center; }
+.rc-rows li:first-child .rank { color: var(--bulb); }
+.rc-rows .g-art { width: 11vh; }
+.rc-rows .what { display: grid; min-width: 0; gap: 0.4vh; }
+.rc-rows .what b { font-size: 4vh; }
+.rc-rows .what span { font-size: 2.8vh; color: var(--ink-2); }
+.rc-rows .score { display: grid; justify-items: end; gap: 0.4vh; font-size: 2.6vh; color: var(--ink-2); }
+.rc-stars { color: var(--bulb); font-size: 4.2vh; letter-spacing: 0.1em; white-space: nowrap; }
+.rc-stars .off { color: rgba(255, 255, 255, 0.18); }
+
+/* artists */
+.rc-bars { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2vh; width: min(100%, 140vh); }
+.rc-bars li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) 8vh; align-items: center; gap: 3vh; font-size: 4vh; text-align: left; animation: rc-pop 0.6s var(--ease) both; }
+.rc-bars .name { font-weight: 700; }
+.rc-bars .bar { height: 5vh; border-radius: 99vh; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.rc-bars .bar i { display: block; height: 100%; width: var(--w); border-radius: inherit; background: linear-gradient(90deg, var(--neon), var(--bulb)); animation: rc-grow 1s var(--ease) both; }
+.rc-bars b { font-family: var(--font-display); font-size: 5.4vh; color: var(--bulb); text-align: right; }
+@keyframes rc-grow { from { width: 0; } }
+
+/* crowd favourite */
+.rc-fav { grid-template-columns: 50vh minmax(0, 1fr); gap: 6vw; text-align: left; justify-items: start; align-items: center; }
+.rc-fav .g-art { width: 50vh; animation: rc-spin-in 1s var(--ease) both; }
+.rc-fav .what { display: grid; gap: 2vh; min-width: 0; }
+.rc-fav h1 { font-size: 10vh; }
+.rc-fav .song { font-size: 4vh; color: var(--ink-2); }
+.rc-fav .fire { font-size: 5vh; font-weight: 700; }
+.rc-fav .rc-stars { font-size: 5vh; }
+@keyframes rc-spin-in { from { opacity: 0; transform: rotate(-8deg) scale(0.85); } }
+
+/* game winners */
+.rc-trophies { display: flex; flex-wrap: wrap; justify-content: center; gap: 3vh; width: min(100%, 170vh); }
+.rc-trophy { display: grid; justify-items: center; gap: 1.4vh; flex: 0 1 50vh; min-width: 0; padding: 3.6vh 3vh; border-radius: 3vh; background: linear-gradient(160deg, var(--stage-2), var(--stage)); border: 1px solid rgba(255, 201, 74, 0.3); animation: rc-pop 0.6s var(--ease) both; }
+.rc-trophy .emoji { font-size: 9vh; line-height: 1; }
+.rc-trophy .kicker { font-size: 2.6vh; }
+.rc-trophy b { font-size: 5vh; max-width: 100%; }
+
+/* thanks / empty */
+.rc-thanks .emoji, .rc-empty .emoji { font-size: 16vh; line-height: 1; animation: rc-pop 0.8s var(--ease) both; }
+.rc-thanks h1 { font-size: 13vh; background: linear-gradient(90deg, var(--neon), var(--bulb)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.rc-thanks p, .rc-empty p { font-size: 4vh; color: var(--ink-2); }
+
+/* ---- phones -------------------------------------------------------------------------------- */
+.rc-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px; border-radius: 16px; background: linear-gradient(160deg, var(--stage-2), var(--stage)); border: 1px solid var(--line); transition: border-color 0.3s, box-shadow 0.3s; }
+.rc-card.on { border-color: color-mix(in srgb, var(--bulb) 60%, transparent); box-shadow: 0 0 0 3px var(--bulb-soft); }
+.rc-card h2 { font-size: 18px; }
+.g-guest.recap .rc-card .hint, .g-guest.recap .rc-card p { text-align: left; }
+.rc-mini-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; text-align: center; }
+.rc-mini-tiles b { display: block; font-family: var(--font-display); font-size: 26px; color: var(--bulb); }
+.rc-mini-tiles span { font-size: 12px; color: var(--ink-2); }
+.rc-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.rc-list li { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.rc-list li:has(> .what), .rc-list li:not(:has(.avatar)) { grid-template-columns: auto minmax(0, 1fr) auto; }
+.rc-list .rank { font-family: var(--font-display); font-weight: 800; color: var(--ink-3); min-width: 1.4em; text-align: center; }
+.rc-list .what { display: grid; min-width: 0; }
+.rc-list .what small { color: var(--ink-2); }
+.rc-thanks-line { text-align: center; font-weight: 700; color: var(--ink-2); padding: 6px; border-radius: 12px; }
+.rc-thanks-line.on { color: var(--bulb); background: var(--bulb-soft); }

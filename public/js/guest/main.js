@@ -67,6 +67,9 @@ conn.on('notify', (m) => {
     toast(`${m.by} can’t join ${m.title} this time`, 'info', 5000);
   } else if (m.kind === 'photo' && m.status === 'approved') {
     toast('The host put your photo on the TV 📸', 'ok', 5000);
+  } else if (m.kind === 'mic') { // pass the mic (games/relay.js)
+    toast('🎤 You have the mic — sing!', 'ok', 5000);
+    buzz([400, 150, 400, 150, 400]);
   } else if (m.kind === 'cohost') {
     toast('The host made you a co-host: player controls are on your Home tab.', 'ok', 6000);
   }

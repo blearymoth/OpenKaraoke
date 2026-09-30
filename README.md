@@ -35,7 +35,8 @@ Then, on the same computer:
 
 1. Open **http://localhost:8080/host** — the host controls (search, queue, key/tempo, settings).
 2. Click **Open TV display**, or run `bin/open-tv.sh` to open the TV page full screen on the
-   second monitor with sound allowed.
+   second monitor with sound allowed (and the PC's microphone, for the applause meter game,
+   without a permission prompt).
 3. Guests scan the QR code on the TV with their phones (same Wi-Fi) and request songs.
 
 The first scan of a large drive runs in the background and takes a few minutes; songs appear

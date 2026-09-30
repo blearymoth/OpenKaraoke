@@ -10,6 +10,8 @@ import {
 } from '../shared/wheel.js';
 
 const ALL = [...SONGS, ...MORE_SONGS];
+// Most tests need no more than one song (each harness song is a 1.4 MB file on disk).
+const TINY = ['ABBA - Waterloo [SF Karaoke]'];
 const DUET_SONGS = ['Sonny & Cher - I Got You Babe [SF Karaoke]', 'Peabo Bryson & Regina Belle - A Whole New World [SC Karaoke]'];
 
 /** Makes the running wheel's spin finish now (no 6-second waits in tests). */
@@ -22,7 +24,7 @@ function land(room) {
 }
 
 async function party(opts = {}, settings = { playback: { countdown: 0, autoStart: false } }) {
-  const h = await setupRoom(settings, { songs: opts.songs || ALL });
+  const h = await setupRoom(settings, { songs: opts.songs || TINY });
   const host = await h.connect('host');
   const tv = await h.connect('tv');
   return { ...h, host, tv };
@@ -105,7 +107,7 @@ test('wheel: host input is sanitised — kinds, segment count, filters, dares li
 // ---- segments per kind ---------------------------------------------------------------------------
 
 test('wheel: song segments come from the catalog (filters, not already sung), too few → clear error', async () => {
-  const { req, host, view, tv, room, s, song } = await party();
+  const { req, host, view, tv, room, s, song } = await party({ songs: ALL });
   await req(host, 'queue.add', { songId: song('hello').id, singerName: 'Bo' });
   await req(host, 'game.start', { type: 'wheel', config: { kind: 'songs', count: 8 } });
   const g = view(tv).game;
@@ -198,7 +200,7 @@ test('wheel: dare segments are a random pick of the host’s list', async () => 
 });
 
 test('wheel: genre segments need song metadata', async () => {
-  const { req, host, room, view, tv } = await party();
+  const { req, host, room, view, tv } = await party({ songs: SONGS });
   await assert.rejects(req(host, 'game.start', { type: 'wheel', config: { kind: 'genres' } }), /metadata/);
   const catalog = room.catalog;
   const genres = ['Pop', 'Rock', 'Disco', 'Dance'];
@@ -212,7 +214,7 @@ test('wheel: genre segments need song metadata', async () => {
 });
 
 test('wheel: duet pairs — random pairs covering everyone, need 3 singers', async () => {
-  const { req, host, guest, room, view, tv } = await party({ songs: [...ALL, ...DUET_SONGS] });
+  const { req, host, guest, room, view, tv } = await party();
   await guest('Ana');
   await guest('Ben');
   await assert.rejects(req(host, 'game.start', { type: 'wheel', config: { kind: 'duets' } }), /at least 3 singers/);
@@ -240,7 +242,7 @@ test('wheel: duet pairs — random pairs covering everyone, need 3 singers', asy
 test('wheel: the result is drawn before the spin; only the TV knows it until the wheel stops', async () => {
   const { req, host, tv, guest, view, room } = await party();
   const ana = await guest('Ana');
-  await req(host, 'game.start', { type: 'wheel', config: { kind: 'songs', count: 8 } });
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'dares', count: 8 } });
   await assert.rejects(req(ana, 'game.action', { action: 'spin' }), /not allowed/, 'guests can’t spin');
   await assert.rejects(req(ana, 'game.input', { choice: 1 }), /not taking answers/);
   const t0 = Date.now();
@@ -324,7 +326,7 @@ test('wheel: results are drawn fairly (crypto randomness, every segment, roughly
 // ---- host actions ------------------------------------------------------------------------------
 
 test('wheel: a song result is queued next for everyone, a singer or nobody (once)', async () => {
-  const { req, host, room, s, view, tv } = await party();
+  const { req, host, room, s, view, tv } = await party({ songs: SONGS });
   const bo = (await req(host, 'singer.add', { name: 'Bo' })).singer;
   await req(host, 'game.start', { type: 'wheel', config: { kind: 'songs', count: 6 } });
   await req(host, 'game.action', { action: 'spin' });
@@ -356,7 +358,7 @@ test('wheel: a song result is queued next for everyone, a singer or nobody (once
 });
 
 test('wheel: a genre result queues a random song of that genre', async () => {
-  const { req, host, room, s, view } = await party();
+  const { req, host, room, s, view } = await party({ songs: SONGS });
   const catalog = room.catalog;
   const byKey = new Map(catalog.songList.map((x, i) => [x.key, { genre: i % 2 ? 'Rock' : 'Pop' }]));
   catalog.metaFor = (key) => byKey.get(key) || null;
@@ -373,7 +375,7 @@ test('wheel: a genre result queues a random song of that genre', async () => {
 });
 
 test('wheel: a duet result queues a random duet for both (guests get their singer), buzzes their phones', async () => {
-  const { req, host, guest, room, s, view } = await party({ songs: [...ALL, ...DUET_SONGS] });
+  const { req, host, guest, room, s, view } = await party({ songs: [...TINY, ...DUET_SONGS] });
   const ana = await guest('Ana');
   const ben = await guest('Ben');
   await req(host, 'singer.add', { name: 'Cy' });
@@ -408,7 +410,7 @@ test('wheel: a duet result queues a random duet for both (guests get their singe
 });
 
 test('wheel: no duet songs in the library → a clear error, the result stays', async () => {
-  const { req, host, room } = await party({ songs: SONGS });
+  const { req, host, room } = await party();
   for (const name of ['A', 'B', 'C']) await req(host, 'singer.add', { name });
   await req(host, 'game.start', { type: 'wheel', config: { kind: 'duets' } });
   await req(host, 'game.action', { action: 'spin' });
@@ -502,7 +504,7 @@ test('wheel: ending mid-spin never reveals the drawn result; summary for the rec
 });
 
 test('wheel: after the game the queue carries on (auto-start resumes)', async () => {
-  const { req, host, room, s } = await party({}, { playback: { autoStart: true, countdown: 0 } });
+  const { req, host, room, s } = await party({ songs: SONGS }, { playback: { autoStart: true, countdown: 0 } });
   await req(host, 'game.start', { type: 'wheel', config: { kind: 'songs' } });
   await req(host, 'game.action', { action: 'spin' });
   land(room);

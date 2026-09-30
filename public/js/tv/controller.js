@@ -24,6 +24,7 @@ export class TvController extends EventTarget {
     this.cdgCache = new Map();
     this.loadedTrackId = null;
     this.reloadSeen = null;
+    this.gameAudio = null; // { key, tempo, channel } while a game plays clips and no song is on
     this.engine.addEventListener('ended', (e) => {
       // Only the track this entry loaded may end it (a late event from an old track must not).
       if (this.display === 'main' && this.entryId && this.loaded && e.detail?.id === this.loadedTrackId) {
@@ -78,12 +79,14 @@ export class TvController extends EventTarget {
     const cur = state.current;
     this.cdg.setOptions({ smoothing: state.display.cdgSmoothing !== false, transparent: state.display.cdgTransparent !== false });
     this.engine.normalize = state.playback.normalize !== false;
+    // A game playing its own clips between songs (music quiz) sets key/tempo/channels itself.
+    const fx = (!cur && this.gameAudio) || p;
     if (this.engine.ctx) {
       this.engine.setNormalize(state.playback.normalize !== false);
       this.engine.setVolume(this.display === 'main' ? p.volume : 0);
-      this.engine.setKey(p.key);
-      this.engine.setTempo(p.tempo);
-      this.engine.setChannelMode(p.channel);
+      this.engine.setKey(fx.key);
+      this.engine.setTempo(fx.tempo);
+      this.engine.setChannelMode(fx.channel);
     } else {
       Object.assign(this.engine, { volume: p.volume, key: p.key, rate: p.tempo, channelMode: p.channel });
     }

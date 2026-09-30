@@ -1,7 +1,10 @@
 // Roulette wheel (server/games/wheel.js + shared/wheel.js): segments per kind, secret results,
 // fair draws, host actions (queue song / genre / duet, buzz), spin again with removal, input limits.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { setupRoom, SONGS, MORE_SONGS } from './room-harness.js';
 import { Wheel, parseDares, LEAD_SECONDS } from '../server/games/wheel.js';
 import {
@@ -23,8 +26,21 @@ function land(room) {
   room.markDirty();
 }
 
+// Each room writes a library + data folder into the temp dir: remove this file's own ones at the end.
+const apps = [];
+after(async () => {
+  const tmp = os.tmpdir();
+  for (const app of apps) {
+    await app.close().catch(() => {});
+    for (const dir of [...app.library.paths, app.dataDir]) {
+      if (path.dirname(dir) === tmp && /^ok-(lib|data)-/.test(path.basename(dir))) await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+});
+
 async function party(opts = {}, settings = { playback: { countdown: 0, autoStart: false } }) {
   const h = await setupRoom(settings, { songs: opts.songs || TINY });
+  apps.push(h.app);
   const host = await h.connect('host');
   const tv = await h.connect('tv');
   return { ...h, host, tv };

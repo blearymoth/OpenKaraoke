@@ -182,6 +182,10 @@ try {
   check(errors.length === 0, `no browser console errors${errors.length ? `:\n  ${errors.join('\n  ')}` : ''}`);
   await browser.close();
   await app.close();
+  // This run's demo library and data folder (temp dirs made by startParty).
+  for (const dir of [...app.library.paths, app.dataDir]) {
+    if (/^ok-e2e-(lib|data)-/.test(path.basename(dir))) await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed}/${results.length} checks passed. Screenshots: ${out}`);

@@ -19,13 +19,20 @@ export async function tmpDir(prefix = 'openkaraoke-test-') {
   return dir;
 }
 
-/** Writes files described as { 'rel/path': Buffer|string|number(bytes) }. */
+/**
+ * Writes files described as { 'rel/path': Buffer|string|number(bytes) }. A number makes a
+ * sparse file of zeros (reads the same, but takes no disk space: fake CDGs are 1.4 MB each).
+ */
 export async function writeTree(root, files) {
   for (const [rel, content] of Object.entries(files)) {
     const abs = path.join(root, rel);
     await fs.mkdir(path.dirname(abs), { recursive: true });
-    const data = typeof content === 'number' ? Buffer.alloc(content) : content;
-    await fs.writeFile(abs, data);
+    if (typeof content === 'number') {
+      await fs.writeFile(abs, '');
+      await fs.truncate(abs, content);
+    } else {
+      await fs.writeFile(abs, content);
+    }
   }
 }
 

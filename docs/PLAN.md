@@ -388,7 +388,8 @@ mosaic / visualiser, "Up next" if queue has entries, library size.
 - Host "Open TV display": if `'getScreenDetails' in window`, request permission, pick a screen
   that isn't `currentScreen`, `window.open('/tv', 'ok-tv', 'popup,left=…,top=…,width=…,height=…')`.
   The TV page shows one "Click to start" overlay (unlocks audio, requests fullscreen).
-- `bin/open-tv.sh`: `chromium --kiosk --window-position=<x>,0 --autoplay-policy=no-user-gesture-required --user-data-dir=~/.config/openkaraoke-tv http://localhost:8080/tv`.
+- `bin/open-tv.sh`: `chromium --kiosk --window-position=<x>,0 --autoplay-policy=no-user-gesture-required --use-fake-ui-for-media-stream --user-data-dir=~/.config/openkaraoke-tv http://localhost:8080/tv`
+  (the last flag auto-accepts the microphone prompt for the applause meter; the profile is TV-only).
 - Mirrors: `/tv?display=mirror` — muted, fetch CDG only, estimate position from `time` messages
   and a ping/pong clock offset (`serverNow = Date.now() + offset`).
 

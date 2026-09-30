@@ -9,13 +9,17 @@
 #   bin/open-tv.sh --browser chromium   # force a browser
 #
 # Close the TV window with Alt+F4.
+#
+# The window also gets microphone access without a permission prompt
+# (--use-fake-ui-for-media-stream auto-accepts it; the browser profile is used only for the
+# TV): the applause meter game listens with the PC's microphone.
 set -euo pipefail
 
 URL="http://localhost:${PORT:-8080}/tv"
 SCREEN=""
 BROWSER=""
 
-usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -88,6 +92,7 @@ exec "$BROWSER" \
   --window-position="$POS" \
   "${EXTRA[@]}" \
   --autoplay-policy=no-user-gesture-required \
+  --use-fake-ui-for-media-stream \
   --user-data-dir="$HOME/.config/openkaraoke-tv" \
   --no-first-run --no-default-browser-check --noerrdialogs --disable-infobars \
   --disable-session-crashed-bubble --disable-features=Translate --password-store=basic \

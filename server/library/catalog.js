@@ -465,6 +465,17 @@ export class Catalog {
     return { total: list.length, items: list.slice(offset, offset + limit) };
   }
 
+  /** Songs performed at this party place, most performed first ("Most sung here"). */
+  mostSung({ limit = 100, offset = 0, filter = null } = {}) {
+    const list = [];
+    for (const [id, n] of this.plays) {
+      const s = n > 0 && this.songs.get(id);
+      if (s && this._passes(s, filter)) list.push(s);
+    }
+    list.sort((a, b) => (this.plays.get(b.id) || 0) - (this.plays.get(a.id) || 0) || this.popularity(b) - this.popularity(a));
+    return { total: list.length, items: list.slice(offset, offset + limit) };
+  }
+
   byTag(tag, { limit = 100, offset = 0, sort = 'popular', filter = null } = {}) {
     const f = { ...(filter || {}), tag };
     let list = this.songList.filter((s) => this._passes(s, f));

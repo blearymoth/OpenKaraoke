@@ -75,6 +75,7 @@ function SongCards({ items }) {
 export function Home() {
   const { state, lib } = useStore(store);
   const popular = useFetch('/api/browse/popular', { limit: 12 });
+  const mostSung = useFetch('/api/browse/popular', { sort: 'plays', limit: 6 });
   const facets = useFetch('/api/browse/facets');
   const [seed, setSeed] = useState(0);
   const random = useFetch('/api/random', { n: 6, seed }, { ttl: 0 });
@@ -100,6 +101,10 @@ export function Home() {
     ${popular.data?.items.length > 0 && html`<section>
       <h2 class="section-title">Popular in your library</h2>
       <${SongCards} items=${popular.data.items} />
+    </section>`}
+    ${mostSung.data?.items.length > 0 && html`<section>
+      <h2 class="section-title">Most sung here</h2>
+      <${SongList} items=${mostSung.data.items} />
     </section>`}
     ${facets.data?.tags.length > 0 && html`<section>
       <h2 class="section-title">Collections</h2>

@@ -17,7 +17,18 @@ const COLOR_RE = /^#[0-9a-f]{3,8}$/i;
 export function apiRoutes(router, app) {
   const { library, settings, auth } = app;
   const cat = () => library.catalog;
-  const summaries = (list) => list.map((s) => cat().songSummary(s));
+  /** Song summaries marked with the party state: sung tonight (tn), waiting in the queue (qd). */
+  const summaries = (list) => {
+    const room = app.room?.s;
+    const sung = new Set(room?.tonight.sung || []);
+    const queued = new Set(room ? [...room.queue, ...(room.current ? [room.current] : [])].filter((e) => !e.mystery).map((e) => e.songId) : []);
+    return list.map((s) => {
+      const out = cat().songSummary(s);
+      if (sung.has(s.id)) out.tn = 1;
+      if (queued.has(s.id)) out.qd = 1;
+      return out;
+    });
+  };
   const artistSummary = (a) => ({ key: a.key, name: a.name, letter: a.letter, count: a.count, solo: a.solo });
 
   /** Guests never see explicit songs when the explicit filter is on. */
@@ -106,7 +117,8 @@ export function apiRoutes(router, app) {
   });
 
   router.get('/api/browse/popular', (ctx) => {
-    const r = cat().popular({ ...page(ctx.query), filter: filterFor(ctx, queryFilter(ctx.query)) });
+    const args = { ...page(ctx.query), filter: filterFor(ctx, queryFilter(ctx.query)) };
+    const r = ctx.query.get('sort') === 'plays' ? cat().mostSung(args) : cat().popular(args);
     return { total: r.total, items: summaries(r.items) };
   });
 

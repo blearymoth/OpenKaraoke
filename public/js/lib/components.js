@@ -101,7 +101,7 @@ export function Avatar({ singer, size = 32 }) {
 }
 
 export function SongBadges({ song }) {
-  return html`${song.duet ? html`<span class="mini-badge" title="Duet"><${Icon} name="duet" size=${14} /></span>` : null}${song.x ? html`<span class="tag-e" title="Explicit">E</span>` : null}`;
+  return html`${song.duet ? html`<span class="mini-badge" title="Duet"><${Icon} name="duet" size=${14} /></span>` : null}${song.x ? html`<span class="tag-e" title="Explicit">E</span>` : null}${song.qd ? html`<span class="tag-mark queued" title="Waiting in the queue">In queue</span>` : song.tn ? html`<span class="tag-mark" title="Already sung tonight">Sung tonight</span>` : null}`;
 }
 
 /** One song in a list: cover, title, artist, badges, duration and an action area. */

@@ -32,11 +32,14 @@ export function AddDialog({ songId, trackId: initialTrack, singerName = '' }) {
   const [name, setName] = useState(singerName);
   const [key, setKey] = useState(null);
   const [trackId, setTrackId] = useState(initialTrack || '');
+  const [partner, setPartner] = useState('');
+  const [duet, setDuet] = useState(false);
   const [busy, setBusy] = useState(false);
   const submit = async (position) => {
     if (busy) return;
     setBusy(true);
     const body = { songId, singerName: name.trim() || undefined, position };
+    if (duet && partner.trim()) body.partnerName = partner.trim();
     if (key !== null) body.key = key;
     if (trackId) body.trackId = trackId;
     const res = await act('queue.add', body);
@@ -57,6 +60,11 @@ export function AddDialog({ songId, trackId: initialTrack, singerName = '' }) {
         <div><div class="song-head-title">${song.title} <${SongBadges} song=${song} /></div><div class="muted">${song.artist} · ${formatTime(song.dur)}</div></div>
       </div>
       <${SingerPicker} singers=${state.singers} value=${name} onChange=${setName} onSubmit=${() => submit(undefined)} />
+      ${duet
+        ? html`<label class="field"><span>Duet with</span>
+            <input class="input" value=${partner} placeholder="Second singer’s name" maxlength="40" list="ok-singer-names" onInput=${(e) => setPartner(e.currentTarget.value)} />
+            <datalist id="ok-singer-names">${state.singers.map((x) => html`<option value=${x.name} />`)}</datalist></label>`
+        : html`<button class="link duet-link" onClick=${() => setDuet(true)}>+ Add a duet partner</button>`}
       <div class="row-2">
         <div class="field"><span>Key</span>
           <${Stepper} label="Key" value=${key ?? 0} display=${key === null ? 'Auto' : formatKey(key)} min=${KEY_MIN} max=${KEY_MAX} onChange=${setKey} onReset=${() => setKey(null)} />
@@ -95,6 +103,7 @@ export function SongDialog({ songId }) {
           <div class="btn-row">
             <button class="btn primary" onClick=${() => openDialog({ type: 'add', songId })}><${Icon} name="plus" size=${18} /> Add to queue</button>
             <button class=${`btn ${fav ? 'on' : ''}`} onClick=${() => act('favorite.toggle', { songId })}><${Icon} name=${fav ? 'starFill' : 'star'} size=${18} /> ${fav ? 'Favourite' : 'Add to favourites'}</button>
+            <${AddToPlaylist} songId=${songId} playlists=${state.playlists} />
           </div>
         </div>
       </div>
@@ -112,6 +121,28 @@ export function SongDialog({ songId }) {
       <${PreviewOutput} />
     `}
   </${Modal}>`;
+}
+
+/** "Add to playlist ▾" for the song details (creates a playlist when there is none). */
+function AddToPlaylist({ songId, playlists }) {
+  const add = async (value) => {
+    if (!value) return;
+    let id = value;
+    if (value === 'new') {
+      const name = prompt('Name of the new playlist');
+      if (!name?.trim()) return;
+      const r = await act('playlist.save', { name });
+      if (!r) return;
+      id = r.id;
+    }
+    const r = await act('playlist.add', { id, songId });
+    if (r) toast('Added to the playlist', 'ok');
+  };
+  return html`<select class="select playlist-select" value="" onChange=${(e) => { add(e.currentTarget.value); e.currentTarget.value = ''; }} aria-label="Add to playlist">
+    <option value="">Add to playlist…</option>
+    ${playlists.map((p) => html`<option value=${p.id}>${p.name} (${p.songIds.length})</option>`)}
+    <option value="new">New playlist…</option>
+  </select>`;
 }
 
 function artSource(meta) {

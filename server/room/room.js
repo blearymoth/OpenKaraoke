@@ -40,6 +40,13 @@ const DEFAULT_STATE = {
 };
 
 const newId = (bytes = 6) => crypto.randomBytes(bytes).toString('base64url');
+/** What a co-host's phone may do (never settings, bans, games or the library). */
+const COHOST_ACTIONS = new Set([
+  'player.play', 'player.pause', 'player.resume', 'player.toggle', 'player.next', 'player.restart', 'player.seek',
+  'player.key', 'player.tempo', 'player.volume', 'queue.move', 'queue.approve', 'queue.reject', 'announce',
+]);
+const MAX_PLAYLISTS = 100;
+const MAX_PLAYLIST_SONGS = 500;
 const MASK = '••••••';
 const MAX_PROFILES = 1000;
 const validId = (id) => typeof id === 'string' && /^[\w-]{4,64}$/.test(id) && id !== '__proto__' && id !== 'constructor' && id !== 'prototype';
@@ -256,6 +263,13 @@ export class Room {
       'guest.ban': [H, (c, m) => this.guestKick(m, true)],
       'guest.unban': [H, (c, m) => this.guestUnban(m)],
       'favorite.toggle': [HG, (c, m) => this.favoriteToggle(c, m)],
+      'playlist.save': [H, (c, m) => this.playlistSave(m)],
+      'playlist.delete': [H, (c, m) => this.playlistDelete(m)],
+      'playlist.add': [H, (c, m) => this.playlistAdd(m)],
+      'playlist.remove': [H, (c, m) => this.playlistRemove(m)],
+      'playlist.queue': [H, (c, m) => this.playlistQueue(m)],
+      'guest.cohost': [H, (c, m) => this.guestCohost(m)],
+      'duet.answer': [[GUEST], (c, m) => this.duetAnswer(c, m)],
       'settings.update': [H, (c, m) => this.settingsUpdate(m)],
       'library.rescan': [H, () => this.libraryRescan()],
       'library.paths': [H, (c, m) => this.libraryPaths(m)],
@@ -289,14 +303,20 @@ export class Room {
     const h = Object.hasOwn(this.handlers, msg.t) ? this.handlers[msg.t] : null;
     if (!h) fail(`Unknown request: ${String(msg.t).slice(0, 40)}`, 'unknown');
     const [roles, fn] = h;
-    const allowed = roles.includes(client.role) || (roles.includes('tv-local') && client.role === TV && client.isLocal);
+    let actor = client;
+    let allowed = roles.includes(client.role) || (roles.includes('tv-local') && client.role === TV && client.isLocal);
+    // A co-host (a guest the host trusts) may run the player and the queue from their phone.
+    if (!allowed && client.role === GUEST && COHOST_ACTIONS.has(msg.t) && this.profileOf(client.data.deviceId)?.coHost) {
+      allowed = true;
+      actor = { ...client, role: HOST, send: client.send?.bind(client), data: client.data, coHost: true };
+    }
     if (!allowed) fail('You are not allowed to do that', 'forbidden');
     if (client.role === GUEST && !this.limits.guest.take(client.data.deviceId)) fail('Slow down a little — too many taps.', 'rate_limited');
     if (!msg.t.startsWith('tv.')) {
       this.ensureSession();
       this.touch();
     }
-    const out = await fn(client, msg);
+    const out = await fn(actor, msg);
     if (msg.t === 'favorite.toggle' && client.role === GUEST) {
       client.send({ t: 'state', state: this.guestView(client) }); // only this guest's view changed
     } else if (!QUIET.has(msg.t)) {
@@ -349,8 +369,19 @@ export class Room {
     if (isGuest) singerIds = [this.singerForProfile(deviceId).id];
     else if (m.singerId && this.singer(m.singerId)) singerIds = [m.singerId];
     else if (str(m.singerName, 40)) singerIds = [this.findOrCreateSinger(str(m.singerName, 40)).id];
-    for (const pid of !isGuest && Array.isArray(m.partners) ? m.partners.slice(0, 3) : []) {
-      if (this.singer(pid) && !singerIds.includes(pid)) singerIds.push(pid);
+    // Duets: the host adds up to 3 partners (ids or a name). A guest can only *invite* one
+    // other guest, who joins by accepting on their own phone (duet.answer).
+    const partners = Array.isArray(m.partners) ? m.partners.slice(0, isGuest ? 1 : 3) : [];
+    const invites = [];
+    for (const pid of partners) {
+      const partner = typeof pid === 'string' ? this.singer(pid) : null;
+      if (!partner || singerIds.includes(pid)) continue;
+      if (!isGuest) singerIds.push(pid);
+      else if (partner.deviceId && !this.profileOf(partner.deviceId)?.banned) invites.push(pid);
+    }
+    if (!isGuest && str(m.partnerName, 40)) {
+      const partner = this.findOrCreateSinger(str(m.partnerName, 40));
+      if (!singerIds.includes(partner.id)) singerIds.push(partner.id);
     }
 
     const prefs = this.prefsFor(song, singerIds[0]);
@@ -372,6 +403,10 @@ export class Room {
     if (m.mystery) entry.mystery = true;
     const note = str(m.note, 80);
     if (note) entry.note = note;
+    if (invites.length) entry.invites = invites;
+    for (const pid of invites) {
+      this.notifyDevice(this.singer(pid).deviceId, { t: 'notify', kind: 'duet', entryId: entry.id, title: song.title, by: this.singer(singerIds[0])?.name || '' });
+    }
 
     if (isGuest && this.settings.get('queue.requireApproval')) {
       this.s.pending.push(entry);
@@ -941,6 +976,108 @@ export class Room {
     return { favorite: i < 0 };
   }
 
+  // ---- playlists (host) --------------------------------------------------------------------------
+
+  playlist(id) {
+    const p = this.s.playlists.find((x) => x.id === id);
+    if (!p) fail('Playlist not found.', 'not_found');
+    return p;
+  }
+
+  cleanSongIds(ids) {
+    const out = [];
+    for (const id of Array.isArray(ids) ? ids : []) {
+      if (typeof id === 'string' && this.catalog.song(id) && !out.includes(id)) out.push(id);
+      if (out.length >= MAX_PLAYLIST_SONGS) break;
+    }
+    return out;
+  }
+
+  /** Creates (or with `id`, renames/replaces) a playlist; `fromQueue` takes the queued songs. */
+  playlistSave(m) {
+    const name = str(m.name, 60);
+    const songIds = m.fromQueue ? this.cleanSongIds(this.s.queue.map((e) => e.songId)) : m.songIds !== undefined ? this.cleanSongIds(m.songIds) : null;
+    if (m.id) {
+      const p = this.playlist(str(m.id, 40));
+      if (name) p.name = name;
+      if (songIds) p.songIds = songIds;
+      return { id: p.id };
+    }
+    if (!name) fail('Give the playlist a name.', 'bad_request');
+    if (this.s.playlists.length >= MAX_PLAYLISTS) fail(`You can keep up to ${MAX_PLAYLISTS} playlists.`, 'limit');
+    const p = { id: newId(), name, songIds: songIds || [], createdAt: Date.now() };
+    this.s.playlists.push(p);
+    return { id: p.id };
+  }
+
+  playlistDelete(m) {
+    const i = this.s.playlists.findIndex((x) => x.id === m.id);
+    if (i < 0) fail('Playlist not found.', 'not_found');
+    this.s.playlists.splice(i, 1);
+    return { ok: true };
+  }
+
+  playlistAdd(m) {
+    const p = this.playlist(str(m.id, 40));
+    const song = this.catalog.song(str(m.songId, 40));
+    if (!song) fail('Song not found.', 'not_found');
+    if (!p.songIds.includes(song.id)) {
+      if (p.songIds.length >= MAX_PLAYLIST_SONGS) fail(`A playlist holds up to ${MAX_PLAYLIST_SONGS} songs.`, 'limit');
+      p.songIds.push(song.id);
+    }
+    return { count: p.songIds.length };
+  }
+
+  playlistRemove(m) {
+    const p = this.playlist(str(m.id, 40));
+    p.songIds = p.songIds.filter((x) => x !== m.songId);
+    return { count: p.songIds.length };
+  }
+
+  /** Queues every song of a playlist (at the end) for one singer or nobody yet. */
+  playlistQueue(m) {
+    const p = this.playlist(str(m.id, 40));
+    let ids = p.songIds.filter((id) => this.catalog.song(id));
+    if (m.shuffle) ids = shuffled(ids);
+    let added = 0;
+    const errors = [];
+    for (const songId of ids.slice(0, 100)) {
+      try {
+        this.queueAdd({ role: HOST, data: {} }, { songId, singerName: str(m.singerName, 40), position: 'end' });
+        added++;
+      } catch (e) {
+        errors.push(e.message);
+      }
+    }
+    return { added, skipped: ids.length - added };
+  }
+
+  /** A guest accepts or declines a duet invitation (from another guest). */
+  duetAnswer(client, m) {
+    const found = this.findEntry(str(m.entryId, 40));
+    const me = this.profileOf(client.data.deviceId)?.singerId;
+    const e = found?.entry;
+    if (!e || !me || !e.invites?.includes(me)) fail('That invitation is no longer open.', 'not_found');
+    e.invites = e.invites.filter((x) => x !== me);
+    if (!e.invites.length) delete e.invites;
+    if (m.accept && !e.singerIds.includes(me)) e.singerIds.push(me);
+    const inviter = this.singer(e.singerIds[0]);
+    const name = this.singer(me)?.name || 'Your partner';
+    if (inviter?.deviceId) this.notifyDevice(inviter.deviceId, { t: 'notify', kind: m.accept ? 'duet-yes' : 'duet-no', entryId: e.id, title: e.title, by: name });
+    return { accepted: !!m.accept };
+  }
+
+  // ---- co-hosts ------------------------------------------------------------------------------------
+
+  guestCohost(m) {
+    const profile = this.profileOf(m.deviceId);
+    if (!profile) fail('Guest not found.', 'not_found');
+    if (m.on) profile.coHost = true;
+    else delete profile.coHost;
+    this.notifyDevice(m.deviceId, { t: 'notify', kind: m.on ? 'cohost' : 'cohost-off' });
+    return { coHost: !!profile.coHost };
+  }
+
   // ---- settings, library, party ---------------------------------------------------------------
 
   async settingsUpdate(m) {
@@ -1278,7 +1415,7 @@ export class Room {
   profileView(deviceId) {
     const p = this.profileOf(deviceId);
     if (!p) return null;
-    return { name: p.name, emoji: p.emoji, color: p.color, singerId: p.singerId || null, favorites: p.favorites || [] };
+    return { name: p.name, emoji: p.emoji, color: p.color, singerId: p.singerId || null, favorites: p.favorites || [], coHost: !!p.coHost };
   }
 
   entryView(e, { mask = false } = {}) {
@@ -1296,6 +1433,7 @@ export class Room {
       addedAt: e.addedAt,
     };
     if (e.note) out.note = e.note;
+    if (e.invites?.length) out.invites = e.invites.map((id) => this.singerView(id)).filter(Boolean);
     if (e.clipEnd) out.clipEnd = e.clipEnd;
     if (e.game) out.game = e.game;
     if (e.mystery) {
@@ -1388,7 +1526,7 @@ export class Room {
       })),
       guests: Object.entries(s.profiles)
         .filter(([, p]) => p.name)
-        .map(([deviceId, p]) => ({ deviceId, name: p.name, emoji: p.emoji, color: p.color, online: online.has(deviceId), banned: !!p.banned, queued: queuedBy.get(deviceId) || 0, lastSeen: p.lastSeen || 0 }))
+        .map(([deviceId, p]) => ({ deviceId, name: p.name, emoji: p.emoji, color: p.color, online: online.has(deviceId), banned: !!p.banned, coHost: !!p.coHost, queued: queuedBy.get(deviceId) || 0, lastSeen: p.lastSeen || 0 }))
         .sort((a, b) => Number(b.online) - Number(a.online) || b.lastSeen - a.lastSeen)
         .slice(0, 300),
       displays: this.hub.list((c) => c.role === TV).map((c) => ({ id: c.id, display: c.data.display, local: c.isLocal })),
@@ -1458,7 +1596,17 @@ export class Room {
       queue: s.queue.map((e, i) => ({ ...this.entryView(e, { mask: true }), eta: eta[i], _by: e.addedBy })),
       library: { songs: this.catalog.songs.size, offline: this.library.status().offline },
       sungTonight: s.tonight.sung.slice(-500),
+      partners: this.duetPartners(),
     };
+  }
+
+  /** Guests at the party (with a phone) that another guest can invite to a duet. */
+  duetPartners() {
+    const online = new Set(this.hub.list((c) => c.role === GUEST).map((c) => c.data.deviceId));
+    return this.s.singers
+      .filter((x) => x.deviceId && online.has(x.deviceId) && !this.profileOf(x.deviceId)?.banned)
+      .slice(0, 60)
+      .map((x) => ({ id: x.id, name: x.name, emoji: x.emoji, color: x.color }));
   }
 
   guestView(client, base = this.guestBase()) {
@@ -1474,10 +1622,13 @@ export class Room {
     const pending = this.s.pending.filter((e) => e.addedBy === deviceId).map((e) => this.entryView(e));
     const queued = queue.filter((e) => e.mine).length + pending.length;
     const max = base.rules.maxPerGuest;
+    const profile = this.profileOf(deviceId);
     return {
       ...base,
       queue,
       queueLength: base.queue.length,
+      partners: base.partners.filter((x) => x.id !== profile?.singerId),
+      cohost: profile?.coHost ? { pending: this.s.pending.map((e) => this.entryView(e)), player: this.playerView() } : null,
       game: this.game?.view({ role: GUEST, deviceId }) || null,
       rating: this.ratingView(GUEST, deviceId),
       me: {

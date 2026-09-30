@@ -303,7 +303,9 @@ export function Singers() {
           <td><div class="who"><${Avatar} singer=${g} size=${30} /> <b>${g.name}</b></div></td>
           <td>${g.banned ? html`<span class="pill bad">Removed</span>` : html`<span class=${`dot ${g.online ? 'on' : ''}`}></span> ${g.online ? 'Connected' : 'Offline'}`}</td>
           <td class="num">${g.queued}</td>
-          <td class="actions">${g.banned
+          <td class="actions">${!g.banned && html`<button class=${`btn small ${g.coHost ? 'on' : 'ghost'}`} title="A co-host can run the player and approve requests from their phone"
+              onClick=${() => act('guest.cohost', { deviceId: g.deviceId, on: !g.coHost }).then((r) => r && toast(r.coHost ? `${g.name} is now a co-host` : `${g.name} is no longer a co-host`, 'ok'))}>${g.coHost ? '★ Co-host' : 'Make co-host'}</button>`}
+            ${g.banned
             ? html`<button class="btn small ghost" onClick=${() => act('guest.unban', { deviceId: g.deviceId })}>Let back in</button>`
             : html`<button class="btn small ghost danger" onClick=${() => confirm(`Remove ${g.name} from the party? Their queued songs are removed too.`) && act('guest.ban', { deviceId: g.deviceId })}>Remove</button>`}</td>
         </tr>`)}</tbody></table>`

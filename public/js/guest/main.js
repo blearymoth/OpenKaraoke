@@ -58,6 +58,15 @@ conn.on('notify', (m) => {
     toast(`The host added ${m.title} to the queue`, 'ok');
   } else if (m.kind === 'rejected') {
     toast(`The host passed on ${m.title} this time`, 'error', 5000);
+  } else if (m.kind === 'duet') {
+    store.update({ invite: { entryId: m.entryId, title: m.title, by: m.by } });
+    buzz([80, 60, 80]);
+  } else if (m.kind === 'duet-yes') {
+    toast(`${m.by} will sing ${m.title} with you 🎶`, 'ok', 5000);
+  } else if (m.kind === 'duet-no') {
+    toast(`${m.by} can’t join ${m.title} this time`, 'info', 5000);
+  } else if (m.kind === 'cohost') {
+    toast('The host made you a co-host: player controls are on your Home tab.', 'ok', 6000);
   }
 });
 
@@ -228,7 +237,7 @@ function QueueList({ items, state, compact }) {
     <${Avatar} singer=${e.singers[0]} size=${36} />
     <div class="grow">
       <div class="ellipsis"><b>${singersText(e.singers) || 'Anyone'}</b>${e.mine ? html` <span class="you">you</span>` : ''}</div>
-      <div class="ellipsis muted">${e.mystery && !e.mine ? '🎁 Mystery song' : `${e.title} · ${e.artist}`}</div>
+      <div class="ellipsis muted">${e.mystery && !e.mine ? '🎁 Mystery song' : `${e.title} · ${e.artist}`}${e.invites?.length ? ` · invited ${e.invites.map((x) => x.name).join(', ')}` : ''}</div>
     </div>
     ${!compact && html`<span class="eta">${formatEta(e.eta)}</span>`}
     ${e.mine && canRemove && !compact && html`<button class="icon-btn small" aria-label=${`Remove ${e.title}`} onClick=${() => confirm(`Remove ${e.title} from the queue?`) && ask('queue.remove', { entryId: e.id })}><${Icon} name="x" size=${18} /></button>`}
@@ -262,8 +271,43 @@ function GameTab({ state }) {
   </div>`;
 }
 
+/** A duet invitation from another guest: join or decline. */
+function InviteCard({ invite }) {
+  const answer = async (accept) => {
+    await ask('duet.answer', { entryId: invite.entryId, accept });
+    store.update({ invite: null });
+  };
+  return html`<section class="invite-card" role="alert">
+    <div class="big-emoji">🎶</div>
+    <div class="grow"><b>${invite.by} wants to sing “${invite.title}” with you</b>
+      <div class="btn-row"><button class="btn primary" onClick=${() => answer(true)}>Let’s sing!</button><button class="btn ghost" onClick=${() => answer(false)}>No thanks</button></div></div>
+  </section>`;
+}
+
+/** Player and request controls for a guest the host made co-host. */
+function CoHostCard({ cohost, state }) {
+  const p = cohost.player;
+  const playing = p.state === 'playing';
+  return html`<section class="cohost-card">
+    <h2 class="g-h2">Co-host controls</h2>
+    <div class="cohost-buttons">
+      <button class="btn" onClick=${() => ask(playing ? 'player.pause' : state.current ? 'player.resume' : 'player.play')}><${Icon} name=${playing ? 'pause' : 'play'} size=${18} /> ${playing ? 'Pause' : 'Play'}</button>
+      <button class="btn" onClick=${() => ask('player.next')}><${Icon} name="next" size=${18} /> Next singer</button>
+      <span class="key-group"><button class="btn" onClick=${() => ask('player.key', { semitones: p.key - 1 })} aria-label="Key down">Key −</button>
+      <span class="num key">${formatKey(p.key)}</span>
+      <button class="btn" onClick=${() => ask('player.key', { semitones: p.key + 1 })} aria-label="Key up">Key +</button></span>
+    </div>
+    ${cohost.pending.length > 0 && html`<h3 class="g-h3">Requests waiting</h3>
+      <ul class="cohost-pending">${cohost.pending.map((e) => html`<li key=${e.id}><span class="ellipsis"><b>${e.title}</b> <span class="muted">${singersText(e.singers)}</span></span>
+        <button class="btn small primary" onClick=${() => ask('queue.approve', { entryId: e.id })}>Yes</button><button class="btn small ghost" onClick=${() => ask('queue.reject', { entryId: e.id })}>No</button></li>`)}</ul>`}
+  </section>`;
+}
+
 function HomeTab({ state }) {
+  const invite = useStore(store).invite;
   return html`<div class="g-page">
+    ${invite && html`<${InviteCard} invite=${invite} />`}
+    ${state.cohost && html`<${CoHostCard} cohost=${state.cohost} state=${state} />`}
     ${state.rating && !state.rating.own && html`<${RateCard} r=${state.rating} />`}
     <${MyTurn} state=${state} />
     <${NowSinging} state=${state} />
@@ -397,6 +441,7 @@ function SongSheet({ songId, state }) {
   const { data: song, error } = useFetch(`/api/songs/${encodeURIComponent(songId)}`);
   const [key, setKey] = useState(null);
   const [mystery, setMystery] = useState(false);
+  const [partner, setPartner] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
   const [err, setErr] = useState(null);
@@ -414,6 +459,7 @@ function SongSheet({ songId, state }) {
       const body = { songId };
       if (key !== null) body.key = key;
       if (mystery) body.mystery = true;
+      if (partner) body.partners = [partner];
       const r = await conn.request('queue.add', body);
       setDone(r);
       buzz(30);
@@ -445,6 +491,11 @@ function SongSheet({ songId, state }) {
           </div>
           <p class="hint">Lower if it's too high for you. “Auto” is the original key (or the one you used last time).</p>
         </div>`}
+        ${state.partners?.length > 0 && html`<label class="field"><span>Sing it with… <span class="hint">(they get asked on their phone)</span></span>
+          <select class="select" value=${partner} onChange=${(e) => setPartner(e.currentTarget.value)}>
+            <option value="">Just me</option>
+            ${state.partners.map((x) => html`<option value=${x.id}>${x.emoji} ${x.name}</option>`)}
+          </select></label>`}
         <label class="toggle-row"><span><b>Mystery song</b><br /><span class="hint">Everyone else sees a surprise until you start.</span></span>
           <span class="switch"><input type="checkbox" checked=${mystery} onChange=${(e) => setMystery(e.currentTarget.checked)} /><span></span></span>
         </label>

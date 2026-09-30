@@ -379,7 +379,14 @@ test('abuse limits: identities per device, guest duets, favourites broadcast, pr
   const b = await guest('Ben');
   const benSinger = s().profiles[b.welcome.deviceId].singerId;
   await req(a, 'queue.add', { songId: song('waterloo').id, partners: [benSinger] });
-  assert.deepEqual(s().queue.at(-1).singerIds.length, 1, 'guests cannot add duet partners');
+  assert.deepEqual(s().queue.at(-1).singerIds.length, 1, 'guests cannot add duet partners (only invite them)');
+  assert.deepEqual(s().queue.at(-1).invites, [benSinger]);
+  assert.ok(b.inbox.some((m) => m.t === 'notify' && m.kind === 'duet' && m.by === 'Ana'), 'the partner is asked on their phone');
+  await assert.rejects(req(a, 'duet.answer', { entryId: s().queue.at(-1).id, accept: true }), /no longer open/, 'only the invited guest can accept');
+  await req(b, 'duet.answer', { entryId: s().queue.at(-1).id, accept: true });
+  assert.deepEqual(s().queue.at(-1).singerIds, [s().profiles[a.welcome.deviceId].singerId, benSinger]);
+  assert.equal(s().queue.at(-1).invites, undefined);
+  assert.ok(a.inbox.some((m) => m.t === 'notify' && m.kind === 'duet-yes'));
 
   await new Promise((r) => setTimeout(r, 60)); // let pending broadcasts go out
   await req(a, 'favorite.toggle', { songId: song('hello').id });

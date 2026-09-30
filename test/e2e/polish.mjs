@@ -57,6 +57,73 @@ try {
   await host.reload();
   check(await host.waitForSelector('h2:has-text("Most sung here")', { timeout: 8000 }).then(() => true, () => false), 'home shows “Most sung here”');
 
+  // Playlists: create one, add a song from its details, queue it all.
+  await host.goto(`${base}/host#/playlists`);
+  await host.fill('.page-actions .inline-form input', 'Warm-up');
+  await host.click('.page-actions .inline-form .btn.primary');
+  await host.waitForSelector('h1:has-text("Warm-up")');
+  const pl = app.room.s.playlists.find((p) => p.name === 'Warm-up');
+  check(!!pl, 'host created a playlist');
+  await host.fill('.search-box input', 'tempo');
+  await host.waitForSelector('.song-row');
+  await host.click('.song-row');
+  await host.waitForSelector('.playlist-select');
+  await host.selectOption('.playlist-select', pl.id);
+  await sleep(300);
+  check(pl.songIds.length === 1, 'song added to the playlist from its details');
+  await host.keyboard.press('Escape');
+  await host.goto(`${base}/host#/playlists/${pl.id}`);
+  await host.waitForSelector('.playlist-queue .btn.primary');
+  await host.fill('.playlist-queue .input', 'Everyone');
+  const before = app.room.s.queue.length;
+  await host.click('.playlist-queue .btn.primary');
+  await sleep(400);
+  check(app.room.s.queue.length === before + 1, 'playlist queued in one go');
+  await shot(host, 'host-playlist');
+
+  // Duet invitation between two phones, then a co-host.
+  const code = app.settings.get('party.roomCode');
+  const phone = async (name) => {
+    const p = watch(await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }), name);
+    await p.goto(`${base}/j/${code}`);
+    await p.waitForSelector('.profile-form');
+    await p.fill('.profile-form input', name);
+    await p.click('.profile-form .btn.primary');
+    await p.waitForSelector('.g-tabs');
+    return p;
+  };
+  const ann = await phone('Ann');
+  const bob = await phone('Bob');
+  await ann.click('.g-tabs button:has-text("Songs")');
+  await ann.fill('.g-search input', 'kitchen');
+  await ann.click('.g-songs .song-row:has-text("Kitchen")');
+  await ann.waitForSelector('.sheet select');
+  const bobSinger = app.room.s.singers.find((x) => x.name === 'Bob');
+  await ann.selectOption('.sheet select', bobSinger.id);
+  await ann.click('.sheet .btn.primary');
+  await ann.waitForSelector('.sheet-done, .sheet-error');
+  const sheetError = await ann.$('.sheet-error');
+  check(!sheetError, `Ann requested a duet with Bob${sheetError ? ` (${await sheetError.textContent()})` : ''}`);
+  await ann.click(sheetError ? '.sheet-close' : '.sheet-done .btn');
+  await bob.waitForSelector('.invite-card', { timeout: 5000 });
+  await shot(bob, 'bob-invite');
+  await bob.click('.invite-card .btn.primary');
+  await sleep(400);
+  const duet = app.room.s.queue.find((e) => e.title.startsWith('Singing In The Kitchen'));
+  check(duet?.singerIds.length === 2 && duet.singerIds[1] === bobSinger.id, 'Bob accepted the duet invitation');
+  check(await ann.waitForSelector('.toast:has-text("Bob will sing")', { timeout: 5000 }).then(() => true, () => false), 'Ann is told that Bob joined');
+
+  await host.goto(`${base}/host#/singers`);
+  await host.click('tr:has-text("Ann") button:has-text("Make co-host")');
+  await ann.click('.g-tabs button:has-text("Home")');
+  await ann.waitForSelector('.cohost-card', { timeout: 5000 });
+  await ann.click('.cohost-card .btn:has-text("Play")');
+  await sleep(500);
+  check(!!app.room.s.current, 'the co-host started the queue from their phone');
+  await shot(ann, 'ann-cohost');
+  const overflow = await ann.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  check(overflow <= 0, 'phone fits without sideways scrolling');
+
   // Printable songbook from Settings → Library.
   await host.goto(`${base}/host#/settings/library`);
   await host.waitForSelector('a:has-text("Open songbook")');

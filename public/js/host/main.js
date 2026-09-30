@@ -8,6 +8,7 @@ import { PlayerBar, openInvite } from './player.js';
 import { QueuePanel } from './queue.js';
 import { Dialogs } from './dialogs.js';
 import { Home, Search, Artists, Artist, Collections, Tag, Browse, Favorites, Singers, History } from './views.js';
+import { Playlists } from './playlists.js';
 import { Settings } from './settings.js';
 import { Games } from './games.js';
 import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
@@ -18,6 +19,7 @@ const NAV = [
   ['/artists', 'mic', 'Artists'],
   ['/tags', 'tag', 'Collections'],
   ['/favorites', 'star', 'Favourites'],
+  ['/playlists', 'music', 'Playlists'],
   ['/singers', 'users', 'Singers'],
   ['/games', 'game', 'Games'],
   ['/history', 'history', 'History'],
@@ -92,6 +94,7 @@ function Main({ route }) {
     case 'genre': return html`<${Browse} genre=${b} key=${`g:${b}`} />`;
     case 'decade': return html`<${Browse} decade=${b} key=${`d:${b}`} />`;
     case 'favorites': return html`<${Favorites} />`;
+    case 'playlists': return html`<${Playlists} id=${b} key=${b || 'all'} />`;
     case 'singers': return html`<${Singers} />`;
     case 'games': return html`<${Games} />`;
     case 'history': return html`<${History} />`;

@@ -42,7 +42,7 @@ function QueueItem({ e, index, count, menuOpen, setMenu, drag }) {
     <span class="q-pos num">${index + 1}</span>
     <${Avatar} singer=${singer} size=${34} />
     <div class="q-text">
-      <div class="q-singer ellipsis">${singersText(e.singers) || html`<span class="faint">No singer</span>`}</div>
+      <div class="q-singer ellipsis">${singersText(e.singers) || html`<span class="faint">No singer</span>`}${e.invites?.length ? html` <span class="faint">(invited ${e.invites.map((x) => x.name).join(', ')})</span>` : ''}</div>
       <div class="q-song ellipsis" title=${`${e.title} by ${e.artist}`}>${e.title} <span class="faint">· ${e.artist}</span></div>
       <div class="q-meta"><span class="faint">${formatEta(e.eta)}</span><${EntryBadges} e=${e} />${e.addedByName && e.addedByName !== 'Host' ? html`<span class="faint">via ${e.addedByName}</span>` : null}</div>
     </div>

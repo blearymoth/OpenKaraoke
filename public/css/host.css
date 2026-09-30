@@ -348,3 +348,7 @@ body.host .toasts { bottom: 104px; }
 .songbook-form { margin-top: 4px; }
 .versions td.actions { display: flex; gap: 6px; justify-content: flex-end; }
 .preview-output { margin-top: 10px; max-width: 420px; }
+.playlist-queue { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 0 16px; }
+.playlist-queue .input { max-width: 320px; }
+.playlist-select { width: auto; min-height: 40px; border-radius: 999px; }
+.duet-link { justify-self: start; }

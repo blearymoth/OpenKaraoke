@@ -33,69 +33,69 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P0 Parse `Artist - Title [Brand Karaoke]` names incl. typos/truncations; flags & tags (PLAN §5.1).
 - ✅ P0 Group label versions into one song; cluster artist typos; artist pages incl. collaborations.
 - ✅ P0 Typo-tolerant instant search (<30 ms on 90k tracks); popular list; tags; random.
-- ⬜ P0 Library service: on-disk cache (`data/library.json`), background rescan with progress,
+- ✅ P0 Library service: on-disk cache (`data/library.json`), background rescan with progress,
   drive offline/online detection (poll every 20 s), rescan button, "library offline" banner.
-- ⬜ P0 Folder picker in host settings (server lists directories; suggest mounted drives under
+- ✅ P0 Folder picker in host settings (server lists directories; suggest mounted drives under
   `/run/media/$USER`, `/media/$USER`) + CLI `--library`.
 - ⬜ P1 Genre / decade browse (needs metadata from §12), "Most sung here", "Sung tonight" marks.
 - ⬜ P1 Printable songbook (HTML → print to PDF) with filters (letter, tag, popular only).
 - ⬜ P2 Optional ffmpeg transcoding for AVI/WMV/MPG video when `ffmpeg` is installed.
 
 ### Playback (TV display)
-- ⬜ P0 CDG renderer (canvas, all instructions, scroll, transparency) synced to audio (§9.2).
-- ⬜ P0 Audio engine on Web Audio + Signalsmith Stretch: **key change ±6 semitones**,
+- ✅ P0 CDG renderer (canvas, all instructions, scroll, transparency) synced to audio (§9.2).
+- ✅ P0 Audio engine on Web Audio + Signalsmith Stretch: **key change ±6 semitones**,
   **tempo 70–130 %**, seek, pause, fade in/out, volume, loudness normalisation (§9.3).
-- ⬜ P0 Channel modes for multiplex/guide-vocal tracks: stereo, left, right, mono, vocal-cut (L−R).
-- ⬜ P0 "Next singer" intro card with countdown, then auto-start (or start-paused mode).
-- ⬜ P0 Preload next track during the intro; gapless transition to break music.
-- ⬜ P0 Video karaoke (MP4/WEBM) with the same controls (tempo via playbackRate, key via stretch live input).
-- ⬜ P1 Background behind transparent CDG: blurred cover / artist fanart (Ken-Burns), audio
+- ✅ P0 Channel modes for multiplex/guide-vocal tracks: stereo, left, right, mono, vocal-cut (L−R).
+- ✅ P0 "Next singer" intro card with countdown, then auto-start (or start-paused mode).
+- 🟡 P0 Preload next track during the intro ✅; gapless transition to break music ⬜ (M7).
+- 🟡 P0 Video karaoke (MP4/WEBM) with the same controls (tempo via playbackRate, key via stretch live input) — implemented, untested with real video files.
+- 🟡 P1 Background behind transparent CDG (done: blurred art with placeholder art until M5, aurora visualiser, plain, Scale2x; todo: photos, fanart): blurred cover / artist fanart (Ken-Burns), audio
   visualiser, guest photos, or plain colour. CDG smoothing (Scale2x) for crisp text on big TVs.
-- ⬜ P1 Lyric sync offset setting (ms) and automatic output-latency compensation.
+- ✅ P1 Lyric sync offset setting (ms) and automatic output-latency compensation (getOutputTimestamp).
 - ⬜ P2 Mic monitoring with reverb/echo on the PC (localhost only, latency warning).
 
 ### Second screen & displays
-- ⬜ P0 `/tv` page = the player (one **main** display plays audio). Click-to-start overlay
+- ✅ P0 `/tv` page = the player (one **main** display plays audio). Click-to-start overlay
   (autoplay policy) + fullscreen. Keyboard shortcuts for single-screen use.
-- ⬜ P0 Host button "Open TV display": `window.getScreenDetails()` (Window Management API) to place
+- ✅ P0 Host button "Open TV display": `window.getScreenDetails()` (Window Management API) to place
   a popup on the non-primary screen, then fullscreen. Fallback: normal popup + instructions.
-- ⬜ P0 `bin/open-tv.sh`: launches Chromium/Chrome in kiosk mode on the 2nd screen with
+- ✅ P0 `bin/open-tv.sh`: launches Chromium/Chrome in kiosk mode on the 2nd screen with
   `--autoplay-policy=no-user-gesture-required` (no click needed).
-- ⬜ P1 Mirror displays (extra TVs/projectors, muted, clock-synced), host live preview (mini mirror).
+- 🟡 P1 Mirror displays (extra TVs/projectors, muted, clock-synced) ✅ basic; host live preview (mini mirror) ⬜.
 - ⬜ P1 Remote display pairing: a non-local `/tv` shows a pairing code; host approves it.
 - ⬜ P2 Singer "confidence monitor" layout and a "queue board" layout (`/tv?layout=board`).
 
 ### Queue, singers, rotation
-- ⬜ P0 Queue with drag-reorder, play next, remove, edit singer/key/tempo, clear, shuffle.
-- ⬜ P0 Singers (name, emoji, colour), linked to guest devices; host can add singers without phones.
-- ⬜ P0 Fair **rotation** (round-robin by singer, newcomers first) or FIFO mode (§6.3).
-- ⬜ P0 ETA per queue entry; "You're up next!" notification on the singer's phone.
-- ⬜ P0 Request approval mode; per-guest limit; max song length; no repeats tonight; explicit filter.
-- ⬜ P1 Duets (entry with 2+ singers), teams/tables as rotation groups, "mystery song" entries.
-- ⬜ P1 Per-song remembered key/tempo (per singer when known).
-- ⬜ P1 Favourites (host + per guest), playlists (queue a whole playlist), history (tonight + all time), re-queue.
+- ✅ P0 Queue with drag-reorder, play next, remove, edit singer/key/tempo, clear, shuffle.
+- ✅ P0 Singers (name, emoji, colour), linked to guest devices; host can add singers without phones.
+- ✅ P0 Fair **rotation** (round-robin by singer, newcomers first) or FIFO mode (§6.3).
+- ✅ P0 ETA per queue entry; "You're up next!" notification on the singer's phone.
+- ✅ P0 Request approval mode; per-guest limit; max song length; no repeats tonight; explicit filter.
+- 🟡 P1 Duets (server accepts partners from the host; no UI yet), teams/tables ⬜, "mystery song" entries ✅.
+- ✅ P1 Per-song remembered key/tempo (per singer when known).
+- 🟡 P1 Favourites (host + per guest) ✅, playlists ⬜, history (tonight in the UI, all time in `history.jsonl`) ✅, re-queue ✅.
 
 ### Guests (phones)
-- ⬜ P0 QR join → name + emoji → search, browse (popular, artists A–Z, tags), song sheet with
+- ✅ P0 QR join → name + emoji → search, browse (popular, artists A–Z, tags), song sheet with
   versions (labels), optional key, "Sing it" → confirmation with position & ETA.
-- ⬜ P0 Queue view (own entries highlighted, remove own), now-playing, reactions (floating emojis on TV).
+- ✅ P0 Queue view (own entries highlighted, remove own), now-playing, reactions (floating emojis on TV).
 - ⬜ P1 Photo upload (client-side resize, host moderation) → TV photo wall / backgrounds.
 - ⬜ P1 Co-host promotion (host grants playback/queue controls to a guest).
 - ⬜ P1 Rate the performance (1–5 ★) after each song → leaderboards.
-- ⬜ P1 Wi-Fi QR code on the TV lobby (SSID/password from settings).
+- ✅ P1 Wi-Fi QR code on the TV lobby (SSID/password from settings).
 
 ### Host app
-- ⬜ P0 KaraFun-style layout: sidebar nav, top search, main content, right queue panel, bottom
+- ✅ P0 KaraFun-style layout: sidebar nav, top search, main content, right queue panel, bottom
   player bar (transport, seek, key ±, tempo ±, channel mode, volume, TV status).
-- ⬜ P0 Views: Home, Search, Artists (A–Z), Tags/Collections, Popular, Song details (versions,
+- ✅ P0 Views (except song preview on host headphones): Home, Search, Artists (A–Z), Tags/Collections, Popular, Song details (versions,
   preview on host headphones), Singers, Requests (approvals), History, Settings.
-- ⬜ P0 Settings UI for every key in `DEFAULT_SETTINGS` (server/config.js).
-- ⬜ P0 Invite panel: big QR, join URL, room code, printable QR table card (`/print/qr`).
-- ⬜ P1 Announcements (big overlay text on TV), ticker message, "new party" (reset tonight's stats).
-- ⬜ P1 Keyboard shortcuts (space, arrows, +/- key, [ ] tempo, N next, F fullscreen TV).
+- ✅ P0 Settings UI for every implemented key in `DEFAULT_SETTINGS` (keys of unbuilt features are hidden).
+- ✅ P0 Invite panel: big QR, join URL, room code, printable QR table card (print pop-up).
+- ✅ P1 Announcements (big overlay text on TV), ticker message, "new party" (reset tonight's stats).
+- ✅ P1 Keyboard shortcuts (space, arrows, +/- key, [ ] tempo, N next, F fullscreen TV).
 
 ### Artwork & metadata
-- ⬜ P0 On-demand cover art per song (Deezer → Cover Art Archive), cached to `data/art/`,
+- 🟡 P0 (placeholder art done, real art in M5) On-demand cover art per song (Deezer → Cover Art Archive), cached to `data/art/`,
   placeholder SVG (gradient + initials) while missing.
 - ⬜ P1 Background crawler for the whole library (popular first), resumable, rate-limited,
   progress + ETA in settings. Artist pictures, genre, year, explicit flag, popularity rank.
@@ -141,48 +141,48 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 
 ```
 server/
-  index.js              ⬜ entry: args → settings → library → http + ws → room → artwork → games
+  index.js              ✅ entry: args → settings → library → http + ws → room → artwork → games
   config.js             ✅ settings schema/defaults, CLI args, data dir
   library/
     parse.js            ✅ file-name parser
     scanner.js          ✅ directory walk
     zip.js              ✅ zip reader
     catalog.js          ✅ grouping, clustering, search, browse, cache
-    service.js          ⬜ Library: cache load/save, rescan, progress events, online watcher, paths
+    service.js          ✅ Library: cache load/save, rescan, progress events, online watcher, paths
   http/
-    router.js           ⬜ tiny router: routes with :params, json/text helpers, body reader (size limit)
-    static.js           ⬜ static files (ETag, gzip for text, no path traversal), sendFile with Range
-    api.js              ⬜ JSON endpoints (§8)
-    media.js            ⬜ /media/:trackId/(audio|cdg|video), zip entries, content types, gzip CDG
-  ws/hub.js             ⬜ WebSocket transport (vendored ws), heartbeat, per-client send, rate limits
+    router.js           ✅ tiny router: routes with :params, json/text helpers, body reader (size limit)
+    static.js           ✅ static files (ETag, gzip for text, no path traversal), sendFile with Range
+    api.js              ✅ JSON endpoints (§8)
+    media.js            ✅ /media/:trackId/(audio|cdg|video), zip entries, content types, gzip CDG
+  ws/hub.js             ✅ WebSocket transport (vendored ws), heartbeat, per-client send, rate limits
   room/
-    room.js             ⬜ party state + actions + per-role views + broadcast coalescing
-    rotation.js         ⬜ fair insert / ETA helpers (pure, unit tested)
-    auth.js             ⬜ host PIN, localhost trust, tokens (HMAC with data/secret), display pairing
+    room.js             ✅ party state + actions + per-role views + broadcast coalescing
+    rotation.js         ✅ fair insert / ETA helpers (pure, unit tested)
+    auth.js             ✅ host PIN, localhost trust, tokens (HMAC with data/secret), display pairing
   artwork/
     service.js          ⬜ queue with priorities, provider rate limiters, cache, crawler
     providers.js        ⬜ deezer, itunes, musicbrainz+caa, theaudiodb, fanarttv
-    placeholder.js      ⬜ deterministic gradient SVG with initials
+    placeholder.js      ✅ deterministic gradient SVG with initials
   games/
     quiz.js battle.js wheel.js poll.js relay.js   ⬜ (§13)
   util/                 ✅ log, jsonfile, net, qr
   vendor/               ✅ ws.mjs, qrcode.mjs
 shared/
   text.js               ✅ normalisation, ids, distances
-  cdg.js                ⬜ isomorphic CDG decoder (browser renderer + server "lyrics frame" picker)
-  protocol.js           ⬜ message type constants shared by server and clients
+  cdg.js                ✅ isomorphic CDG decoder (browser renderer + server "lyrics frame" picker)
+  protocol.js           ✅ shared constants shared by server and clients
 public/
-  index.html            ⬜ landing: links to Host / TV / Join + QR
-  host.html tv.html guest.html   ⬜ app shells (import maps not needed; import /js/... directly)
-  css/                  ⬜ base.css (tokens, dark theme), host.css, tv.css, guest.css
+  index.html            ✅ landing: links to Host / TV / Join + QR
+  host.html tv.html guest.html   ✅ app shells (import maps not needed; import /js/... directly)
+  css/                  ✅ base.css (tokens, dark theme), host.css, tv.css, guest.css
   js/vendor/            ✅ preact.js (Preact+hooks+htm), signalsmith-stretch.mjs
-  js/lib/               ⬜ ws-client.js, store.js, api.js, format.js, art.js, audio-engine.js,
+  js/lib/               ✅ ws-client.js, store.js, api.js, format.js, art.js, audio-engine.js,
                            cdg-canvas.js, player.js, visualizers.js, confetti.js, sync-clock.js
-  js/host/ js/tv/ js/guest/   ⬜ views/components per app
-  fonts/ img/           ⬜ (optional bundled OFL fonts: Inter + a display face)
+  js/host/ js/tv/ js/guest/   ✅ views/components per app
+  fonts/ img/           ✅ bundled OFL fonts (Bricolage Grotesque + Figtree), app icon
 bin/
-  openkaraoke.sh        ⬜ start script (checks Node version, starts server, prints URLs)
-  open-tv.sh            ⬜ kiosk Chromium on 2nd screen with autoplay allowed
+  openkaraoke.sh        ✅ start script (checks Node version, starts server, prints URLs)
+  open-tv.sh            ✅ kiosk Chromium on 2nd screen with autoplay allowed
   install-service.sh    ⬜ systemd --user unit
 scripts/
   scan-report.js        ✅ validate a library from the CLI
@@ -480,13 +480,13 @@ No telemetry. Outbound traffic only to the artwork providers (can be disabled).
 
 ## 18. Roadmap
 - ✅ **M0 Foundation**: parser, scanner, zip, catalog/search, settings, utils, vendored libs, tests.
-- ⬜ **M1 Server runs**: `library/service.js`, `http/{router,static,api,media}.js`, `ws/hub.js`,
+- ✅ **M1 Server runs**: `library/service.js`, `http/{router,static,api,media}.js`, `ws/hub.js`,
   `server/index.js`, `bin/openkaraoke.sh`; `/api/search` + media streaming work against the real drive.
-- ⬜ **M2 TV player**: `shared/cdg.js` (+ tests), audio engine, `/tv` scenes (idle lobby with QR,
+- ✅ **M2 TV player**: `shared/cdg.js` (+ tests), audio engine, `/tv` scenes (idle lobby with QR,
   intro, singing overlays), click-to-start, keyboard shortcuts.
-- ⬜ **M3 Room + host app**: room/rotation/auth, host UI (search, queue panel, player bar,
+- ✅ **M3 Room + host app**: room/rotation/auth, host UI (search, queue panel, player bar,
   singers, settings, invite modal), open-TV-on-second-screen, kiosk script.
-- ⬜ **M4 Guest app**: join flow, search/browse, song sheet, queue, reactions, notifications.
+- ✅ **M4 Guest app**: join flow, search/browse, song sheet, queue, reactions, notifications.
   → **first real party possible**.
 - ⬜ **M5 Artwork & metadata**: providers, cache, placeholders, crawler, genres/decades browse.
 - ⬜ **M6 Games**: quiz, battle, wheel, poll, pass-the-mic, applause meter, ratings, recap.

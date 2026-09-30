@@ -17,24 +17,45 @@ Everything runs on your PC — no cloud, no accounts, no runtime npm dependencie
 
 ## Status
 
-🚧 Early development. The library engine (scanner, parser, catalog/search) is done and tested;
-the server, TV player and apps are next. See [`docs/HANDOFF.md`](docs/HANDOFF.md) for the
-current status and [`docs/PLAN.md`](docs/PLAN.md) for the full spec and roadmap.
+The first party-ready version works: server, TV display, host controls and guest app
+(milestones M0–M4 in [`docs/PLAN.md`](docs/PLAN.md)). Cover art, party games and extras
+such as break music are next — see [`docs/HANDOFF.md`](docs/HANDOFF.md).
 
-## Try the library engine
+## Quick start
 
-Requires Node.js ≥ 18.17.
+Requires Node.js ≥ 18.17 and Chrome or Chromium for the TV display. No `npm install` needed.
 
 ```bash
 git clone https://github.com/blearymoth/OpenKaraoke.git
 cd OpenKaraoke
-npm test
+bin/openkaraoke.sh --library "/run/media/$USER/DRIVE/Karaoke"   # or: npm start -- --library …
+```
+
+Then, on the same computer:
+
+1. Open **http://localhost:8080/host** — the host controls (search, queue, key/tempo, settings).
+2. Click **Open TV display**, or run `bin/open-tv.sh` to open the TV page full screen on the
+   second monitor with sound allowed.
+3. Guests scan the QR code on the TV with their phones (same Wi-Fi) and request songs.
+
+The first scan of a large drive runs in the background and takes a few minutes; songs appear
+when it finishes, and later starts reuse the saved index.
+No karaoke files at hand? `npm run demo` creates a small demo library in `./demo-library`
+(`npm start -- --library demo-library`).
+
+To use the host controls from a phone or tablet, set a host PIN in Settings → Party.
+
+## Check a library without starting the server
+
+```bash
 node scripts/scan-report.js "/path/to/your/karaoke/folder" --search "someone like you"
 ```
 
 ## Development
 
-- `npm test` — unit tests (Node's built-in test runner)
+- `npm test` — unit and integration tests (Node's built-in test runner)
+- `npm run e2e` — end-to-end tests in Chromium (needs Playwright: `npm i -D playwright-core`)
+- `npm run demo` — build the demo library
 - `npm run vendor` — rebuild vendored browser/server libraries (after `npm install`)
 - Docs: [`CLAUDE.md`](CLAUDE.md) (contributor/agent guide), [`docs/PLAN.md`](docs/PLAN.md),
   [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/LIBRARY.md`](docs/LIBRARY.md)
@@ -42,4 +63,6 @@ node scripts/scan-report.js "/path/to/your/karaoke/folder" --search "someone lik
 ## License
 
 MIT — see [LICENSE](LICENSE). Vendored libraries keep their own licenses
-(Preact MIT, htm Apache-2.0, ws MIT, qrcode-generator MIT, Signalsmith Stretch MIT).
+(Preact MIT, htm Apache-2.0, ws MIT, qrcode-generator MIT, Signalsmith Stretch MIT); the
+bundled fonts (Bricolage Grotesque, Figtree) are under the SIL Open Font License, see
+`public/fonts/`.

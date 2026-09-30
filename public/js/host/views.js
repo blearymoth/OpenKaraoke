@@ -42,7 +42,7 @@ function Onboarding() {
     <div class="hero-emoji">💾</div>
     <div>
       <h2>Add your karaoke songs</h2>
-      <p class="muted">Pick the folder with your CDG+MP3 or video files — for example the karaoke folder on your USB drive. Sub-folders are included. The first scan of a big drive takes a few minutes; you can start using the songs it has found right away.</p>
+      <p class="muted">Pick the folder with your CDG+MP3 or video files — for example the karaoke folder on your USB drive. Sub-folders are included. The first scan of a big drive takes a few minutes; the songs appear when it's done.</p>
       <button class="btn primary large" onClick=${pick}><${Icon} name="folder" /> Choose folder</button>
     </div>
   </section>`;

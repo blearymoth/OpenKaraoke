@@ -66,6 +66,7 @@ if (isMain) {
 
     await host.req('player.key', { semitones: 2 });
     await host.req('player.tempo', { rate: 1.2 });
+    host.inbox = host.inbox.filter((m) => m.t !== 'time');
     const tk = await host.next((m) => m.t === 'time', 3000);
     await sleep(1000);
     const tk2 = await host.next((m) => m.t === 'time' && m.pos > tk.pos, 3000);
@@ -84,10 +85,12 @@ if (isMain) {
     await host.until((s) => s.player.state === 'paused' && s.player.displayLost, 5000);
     await host.until((s) => s.player.hasDisplay && !s.player.displayLost, 15000);
     await sleep(500);
+    const resumeAt = app.room.s.player.pos;
+    host.inbox = host.inbox.filter((m) => m.t !== 'time'); // only reports from after the reconnect
     await host.req('player.resume');
     await host.until((s) => s.player.state === 'playing', 10000);
-    const tr = await host.next((m) => m.t === 'time' && m.playing, 5000);
-    check(tr.pos > 0, 'after a dropped TV connection, playback resumes when the host presses play');
+    const tr = await host.next((m) => m.t === 'time' && m.playing && m.pos > resumeAt + 0.5, 8000);
+    check(tr.pos > resumeAt, `after a dropped TV connection, playback resumes when the host presses play (${resumeAt.toFixed(1)} → ${tr.pos.toFixed(1)} s)`);
 
     const dur = app.room.s.player.dur;
     await host.req('player.seek', { pos: dur - 3 });

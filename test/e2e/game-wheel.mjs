@@ -159,6 +159,9 @@ try {
     await host.click('.wheel-kinds .chip:has-text("Dares")');
     await host.fill('.wheel-dares', dares.join('\n'));
     await host.selectOption('.game-card.open select >> nth=0', '6');
+    check(/3 dares/.test(await host.textContent('.game-card.open .wheel-setup')), 'the setup counts the dares');
+    await host.$eval('.game-card.open', (el) => el.scrollIntoView());
+    await shot(host, 'host-wheel-setup-dares');
   });
   check(room().game?.segments.length === 3 && room().game.segments.every((x) => dares.includes(x.label)), 'the host’s own dares are on the wheel');
   result = await spinAndLand(host, tv, spy, 'Spin the wheel', 'dares');

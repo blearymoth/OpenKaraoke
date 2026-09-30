@@ -44,7 +44,7 @@ function WheelSvg({ segments, kind, win = -1 }) {
   const n = Math.max(1, segments.length);
   const seg = 360 / n;
   const r = R - 6;
-  const font = n <= 6 ? 10 : n <= 8 ? 9.5 : n <= 10 ? 8.6 : 7.8;
+  const font = n <= 3 ? 13 : n <= 4 ? 11.5 : n <= 6 ? 10 : n <= 8 ? 9.5 : n <= 10 ? 8.6 : 7.8;
   const avail = r - HUB - 9;
   const maxChars = 22;
   return html`<svg class="wheel-svg" viewBox="-100 -100 200 200" aria-hidden="true">
@@ -91,11 +91,19 @@ function Wheel({ game, now, onTick, size = 'tv' }) {
   const known = !!spin && spin.to !== undefined;
   const tick = useRef(onTick);
   tick.current = onTick;
+  const whirled = useRef(false); // this wheel whirled blindly (a phone during the spin)
   useEffect(() => {
     const el = rot.current;
     if (!el) return undefined;
     if (!spinning || !known) {
-      el.style.transform = `rotate(${known ? spin.to : spinning && spin ? spin.from : game.rotation}deg)`;
+      const deg = known ? spin.to : spinning && spin ? spin.from : game.rotation;
+      el.style.transform = `rotate(${deg}deg)`;
+      if (spinning && !known) whirled.current = true;
+      else if (whirled.current && known) {
+        // The result is out: let the phone's wheel glide onto it instead of jumping.
+        whirled.current = false;
+        el.animate?.([{ transform: `rotate(${deg - 400}deg)` }, { transform: `rotate(${deg}deg)` }], { duration: 1100, easing: 'cubic-bezier(0.15, 0.8, 0.3, 1)' });
+      }
       return undefined;
     }
     const segDeg = 360 / Math.max(1, n);

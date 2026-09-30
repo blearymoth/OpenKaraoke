@@ -119,7 +119,7 @@ body.guest {
 
 /* ---- bottom tabs ------------------------------------------------------------------------------------ */
 
-.g-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--stage) 94%, transparent); backdrop-filter: blur(12px); border-top: 1px solid var(--line); }
+.g-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--stage) 94%, transparent); backdrop-filter: blur(12px); border-top: 1px solid var(--line); }
 .g-tabs button { position: relative; display: grid; justify-items: center; gap: 2px; padding: 6px 0; border: 0; background: none; color: var(--ink-3); font-size: 12px; font-weight: 700; cursor: pointer; }
 .g-tabs button.on { color: var(--neon); }
 .g-tabs .badge { position: absolute; top: 2px; left: calc(50% + 8px); font-style: normal; }
@@ -157,3 +157,7 @@ body.guest {
 @keyframes pulse-mic { 50% { transform: scale(1.12) rotate(-6deg); } }
 
 .toasts { bottom: calc(86px + env(safe-area-inset-bottom)); }
+
+/* ---- games & ratings --------------------------------------------------------------- */
+.game-tab .kicker { color: var(--bulb); font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; }
+.g-tabs button:first-child .icon { color: inherit; }

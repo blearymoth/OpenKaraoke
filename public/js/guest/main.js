@@ -4,7 +4,8 @@ import { Connection } from '../lib/ws-client.js';
 import { createStore, useStore, toastStore, formatEta, formatTime, singersText, plural, useDebounced, useTick, noteArt } from '../lib/store.js';
 import { Icon } from '../lib/icons.js';
 import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, Toasts, SongBadges } from '../lib/components.js';
-import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, formatKey } from '/shared/protocol.js';
+import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, GAME_LABELS, formatKey } from '/shared/protocol.js';
+import { GAME_UI } from '../games/index.js';
 
 const pathCode = (location.pathname.match(/^\/j\/([A-Za-z]{4})\/?$/) || [])[1];
 const toasts = toastStore();
@@ -28,7 +29,16 @@ conn.on('welcome', (m) => {
   localStorage.setItem('ok.lastRoom', store.get().code);
   store.update({ state: m.state, denied: null });
 });
-conn.on('state', (m) => store.update({ state: m.state }));
+let lastGameId = null;
+conn.on('state', (m) => {
+  const game = m.state.game;
+  const patch = { state: m.state };
+  // A new game starts: jump to the game tab. The game is gone: back home.
+  if (game && !game.ended && game.id !== lastGameId && m.state.rules?.games && GAME_UI[game.type]?.Guest) patch.tab = 'game';
+  else if (!game && store.get().tab === 'game') patch.tab = 'home';
+  lastGameId = game?.id || null;
+  store.update(patch);
+});
 conn.on('time', (m) => store.update({ time: { ...m, recv: performance.now() } }));
 conn.on('status', (status) => store.update({ status }));
 conn.on('denied', (m) => store.update({ denied: m.reason }));
@@ -225,8 +235,34 @@ function QueueList({ items, state, compact }) {
 
 // ---- tabs -----------------------------------------------------------------------------------------
 
+function RateCard({ r }) {
+  const [busy, setBusy] = useState(false);
+  const rate = async (stars) => {
+    setBusy(true);
+    if (await ask('rate', { entryId: r.entryId, stars })) buzz(20);
+    setBusy(false);
+  };
+  return html`<section class="rate-card">
+    <b>How was ${singersText(r.singers) || 'that'}? ⭐</b>
+    <p class="muted ellipsis">${r.title} · ${r.artist}</p>
+    <div class="rate-stars" role="radiogroup" aria-label="Stars">${[1, 2, 3, 4, 5].map((n) => html`<button role="radio" aria-checked=${r.mine === n} aria-label=${`${n} star${n > 1 ? 's' : ''}`} class=${n <= r.mine ? 'on' : ''} disabled=${busy} onClick=${() => rate(n)}>★</button>`)}</div>
+    <p class="hint">${r.mine ? 'Thanks! You can change it for a few more seconds.' : 'Tap the stars to rate the performance.'}</p>
+  </section>`;
+}
+
+function GameTab({ state }) {
+  const game = state.game;
+  const ui = game && GAME_UI[game.type];
+  if (!ui?.Guest) return html`<${HomeTab} state=${state} />`;
+  return html`<div class="g-page game-tab">
+    <p class="kicker">${GAME_LABELS[game.type]}${game.ended ? ' · finished' : ''}</p>
+    <${ui.Guest} game=${game} state=${state} now=${() => conn.serverNow()} send=${(m) => ask('game.input', m)} />
+  </div>`;
+}
+
 function HomeTab({ state }) {
   return html`<div class="g-page">
+    ${state.rating && !state.rating.own && html`<${RateCard} r=${state.rating} />`}
     <${MyTurn} state=${state} />
     <${NowSinging} state=${state} />
     ${state.rules.reactions && state.current && html`<${Reactions} />`}
@@ -441,6 +477,7 @@ function Alert({ alert }) {
 function Tabs({ state, tab }) {
   const mineCount = state.me.queued;
   const items = [['home', 'home', 'Home'], ['search', 'search', 'Songs'], ['queue', 'list', 'Queue'], ['me', 'user', 'Me']];
+  if (state.game && state.rules.games && GAME_UI[state.game.type]?.Guest) items.unshift(['game', 'game', 'Game']);
   return html`<nav class="g-tabs">${items.map(([id, icon, label]) => html`<button class=${tab === id ? 'on' : ''} aria-current=${tab === id ? 'page' : undefined} onClick=${() => setTab(id)}>
     <${Icon} name=${icon} size=${22} /><span>${label}</span>${id === 'queue' && mineCount ? html`<i class="badge neon">${mineCount}</i>` : null}
   </button>`)}</nav>`;
@@ -458,7 +495,8 @@ function App() {
   if (!st) return html`<div class="g-gate"><${Spinner} /><p class="muted">Joining the party…</p></div>`;
   if (!st.me.profile) return html`<${Join} state=${st} /><${Toasts} store=${toasts.store} />`;
   let view;
-  if (s.tab === 'search') view = html`<${SearchTab} state=${st} />`;
+  if (s.tab === 'game') view = html`<${GameTab} state=${st} />`;
+  else if (s.tab === 'search') view = html`<${SearchTab} state=${st} />`;
   else if (s.tab === 'queue') view = html`<${QueueTab} state=${st} />`;
   else if (s.tab === 'me') view = html`<${MeTab} state=${st} />`;
   else view = html`<${HomeTab} state=${st} />`;

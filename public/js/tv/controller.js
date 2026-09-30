@@ -101,6 +101,7 @@ export class TvController extends EventTarget {
     this.loadedTrackId = null;
     this.error = null;
     this.readySent = null;
+    this.clipEnding = null;
     this.seekSeq = p.seek?.seq ?? null;
     this.mirror = null;
     this.engine.unload();
@@ -196,7 +197,9 @@ export class TvController extends EventTarget {
   }
 
   duration() {
-    return (this.loaded && this.display === 'main' ? this.engine.duration : 0) || this.state?.player.dur || this.state?.current?.dur || 0;
+    const dur = (this.loaded && this.display === 'main' ? this.engine.duration : 0) || this.state?.player.dur || this.state?.current?.dur || 0;
+    const clipEnd = this.state?.current?.clipEnd;
+    return clipEnd ? Math.min(dur || clipEnd, clipEnd) : dur;
   }
 
   /** Draws the lyrics for the current time (call every animation frame). */
@@ -208,10 +211,22 @@ export class TvController extends EventTarget {
 
   report() {
     if (this.display !== 'main' || !this.loaded || !this.entryId) return;
+    this.checkClipEnd();
     const playing = this.engine.playing;
     if (!playing && this.lastReportPaused) return;
     this.lastReportPaused = !playing;
     this.conn.send('tv.status', { entryId: this.entryId, pos: Math.round(this.engine.position * 100) / 100, dur: this.engine.duration, playing });
+  }
+
+  /** Song snippets (battle rounds): fade out at `clipEnd` seconds and report the end. */
+  checkClipEnd() {
+    const clipEnd = this.state?.current?.clipEnd;
+    if (!clipEnd || this.clipEnding === this.entryId || !this.engine.playing || this.engine.position < clipEnd) return;
+    const id = this.entryId;
+    this.clipEnding = id;
+    this.engine.fadeOut(2).then(() => {
+      if (this.entryId === id) this.conn.sendReliable('tv.ended', { entryId: id });
+    });
   }
 
   preloadNext(state) {

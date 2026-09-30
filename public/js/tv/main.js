@@ -4,6 +4,7 @@ import { Connection } from '../lib/ws-client.js';
 import { createStore, useStore, useTick, useInterval, singersText, artUrl, artistArtUrl, artStore, noteArt } from '../lib/store.js';
 import { Icon } from '../lib/icons.js';
 import { TvController } from './controller.js';
+import { GAME_UI } from '../games/index.js';
 import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 
 const params = new URLSearchParams(location.search);
@@ -12,6 +13,7 @@ const store = createStore({ status: 'connecting', state: null, display: 'main', 
 const conn = new Connection({
   hello: () => ({ role: 'tv', display: params.get('display') === 'mirror' ? 'mirror' : undefined }),
 });
+const now = () => conn.serverNow();
 const controller = new TvController({
   conn,
   canvas: document.getElementById('cdg'),
@@ -201,12 +203,20 @@ function App() {
   }
   if (!st) return html`<div class="denied"><div class="spinner"></div><p>Connecting to OpenKaraoke…</p></div>`;
   const p = st.player;
+  const game = st.game;
+  const gameUi = game && GAME_UI[game.type];
+  const tv = { conn, controller, main: s.display === 'main', send: (m) => conn.request('tv.game', m).catch(() => null) };
+  // An exclusive game owns the TV; its results stay up until the next song starts.
+  const gameScene = !!(game?.exclusive && gameUi?.Tv && (!game.ended || !st.current));
   let scene;
-  if (!st.current || p.state === 'idle') scene = html`<${Lobby} st=${st} />`;
+  if (gameScene) scene = html`<${gameUi.Tv} game=${game} st=${st} now=${now} tv=${tv} key=${game.id} />`;
+  else if (!st.current || p.state === 'idle') scene = html`<${Lobby} st=${st} />`;
   else if (p.state === 'intro' || p.state === 'ready') scene = html`<${Intro} st=${st} />`;
   else scene = html`<${Singing} st=${st} />`;
   return html`
     ${scene}
+    ${game && gameUi?.TvOverlay && html`<${gameUi.TvOverlay} game=${game} st=${st} now=${now} tv=${tv} />`}
+    ${st.rating && !gameScene && p.state !== 'playing' && p.state !== 'paused' && html`<${RatingOverlay} r=${st.rating} />`}
     ${st.announcement && html`<div class="announce" key=${st.announcement.id}><div>${st.announcement.text}</div></div>`}
     <div class="reactions">${s.reactions.map((r) => html`<div class="reaction" key=${r.id} style=${{ left: `${r.x}%`, '--dx': r.dx }}><b>${r.emoji}</b>${r.name && html`<span>${r.name}</span>`}</div>`)}</div>
     ${s.status !== 'open' && html`<div class="conn-lost">Reconnecting to the server…</div>`}
@@ -222,6 +232,15 @@ function StartOverlay() {
     <div class="big-btn"><${Icon} name="play" /></div>
     <h2>Click to start the TV display</h2>
     <p>Browsers only play sound after a click. This screen plays the music, so put it on the TV connected to the speakers. Press F for full screen, or ? for keyboard shortcuts.</p>
+  </div>`;
+}
+
+function RatingOverlay({ r }) {
+  const who = singersText(r.singers) || 'the singer';
+  const full = Math.round(r.avg);
+  return html`<div class="tv-rating" key=${r.entryId}>
+    <span class="stars" aria-label=${`${r.avg} stars`}>${'★'.repeat(full)}${'☆'.repeat(5 - full)}</span>
+    <div class="ellipsis"><b class="ellipsis">${r.votes ? `${r.avg.toFixed(1)} from ${r.votes} ${r.votes === 1 ? 'vote' : 'votes'}` : 'Rate the performance!'}</b><span>Give ${who} stars for “${r.title}” on your phone</span></div>
   </div>`;
 }
 

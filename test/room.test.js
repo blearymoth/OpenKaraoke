@@ -1,68 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
 import { createApp } from '../server/app.js';
-import { tmpDir, writeTree } from './helpers.js';
+import { setupRoom as setup } from './room-harness.js';
 import { offlineFetch } from './fake-art.js';
-
-const FILES = {};
-const SONGS = [
-  'Adele - Hello [SF Karaoke]',
-  'Adele - Hello [ZM Karaoke]',
-  'Queen - Bohemian Rhapsody [SF Karaoke]',
-  'Queen - Killer Queen (Explicit) [SF Karaoke]',
-  'Blondie - Call Me [SC Karaoke]',
-  'ABBA - Waterloo [SF Karaoke]',
-  'Blondie - Rapture (Explicit) [SF Karaoke]',
-  'Blondie - Rapture [SC Karaoke]',
-];
-for (const name of SONGS) {
-  const letter = name[0];
-  const artist = name.split(' - ')[0];
-  FILES[`${letter}/${artist}/${name}.cdg`] = 7200 * 200;
-  FILES[`${letter}/${artist}/${name}.mp3`] = 100;
-}
-
-async function setup(settings = {}) {
-  const lib = await tmpDir('ok-lib-');
-  await writeTree(lib, FILES);
-  const dataDir = await tmpDir('ok-data-');
-  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch: offlineFetch, crawl: false });
-  await app.library.scan();
-  app.settings.update({ playback: { countdown: 0 }, ...settings });
-  const room = app.room;
-
-  const connect = async (role, hello = {}, { local = true } = {}) => {
-    const c = {
-      id: crypto.randomBytes(4).toString('hex'), role: null, data: {}, isLocal: local, ip: local ? '127.0.0.1' : '192.168.1.50',
-      open: true, inbox: [],
-      send(m) { this.inbox.push(m); },
-      sendRaw(t) { this.inbox.push(JSON.parse(t)); },
-      close() { this.open = false; },
-    };
-    const r = await room.hello(c, { role, room: app.settings.get('party.roomCode'), ...hello });
-    if (!r.ok) return { denied: r.reason };
-    c.role = r.role;
-    c.welcome = r.welcome;
-    app.hub.clients.set(c.id, c);
-    room.onJoin(c);
-    return c;
-  };
-  const leave = (c) => {
-    app.hub.clients.delete(c.id);
-    c.open = false;
-    room.onLeave(c);
-  };
-  const req = (c, t, body = {}) => room.request(c, { t, ...body });
-  const song = (q) => app.library.catalog.search(q).items[0];
-  const guest = async (name) => {
-    const c = await connect('guest');
-    await req(c, 'guest.update', { name, emoji: '🦄' });
-    return c;
-  };
-  const flush = () => room.flush();
-  return { app, room, connect, leave, req, song, guest, flush, s: () => room.s };
-}
 
 test('guest joins, gets a device token and queues a song', async () => {
   const { app, connect, req, song, s } = await setup();

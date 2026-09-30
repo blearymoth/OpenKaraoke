@@ -147,6 +147,27 @@ export class AudioEngine extends EventTarget {
     return this.track;
   }
 
+  /**
+   * Loads sample arrays that are already decoded (at the context's sample rate), e.g. a quiz
+   * clip cut out of a prepared track. The arrays are handed to the worklet (detached here).
+   */
+  async loadChannels(id, channels, { gainDb = 0 } = {}) {
+    await this.init();
+    const seq = ++this.loadSeq;
+    this.stopNow();
+    this.detachElement();
+    this.track = null;
+    await this.stretch.dropBuffers();
+    if (seq !== this.loadSeq) throw Object.assign(new Error('superseded'), { superseded: true });
+    await this.stretch.addBuffers(channels, channels.map((c) => c.buffer));
+    if (seq !== this.loadSeq) throw Object.assign(new Error('superseded'), { superseded: true });
+    this.track = { id, duration: channels[0].length / this.ctx.sampleRate, gainDb, mode: 'buffer' };
+    this.map = { active: false, input: 0, output: 0, rate: this.rate };
+    this.ended = false;
+    this.applyTrackGain();
+    return this.track;
+  }
+
   /** Plays through a media element instead (video, or audio that failed to decode). */
   async loadElement(id, element, url) {
     const seq = ++this.loadSeq;

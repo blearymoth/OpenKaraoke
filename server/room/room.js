@@ -10,7 +10,8 @@ import { RateLimiter } from '../util/ratelimit.js';
 import { wifiPayload } from '../util/qr.js';
 import { mediaUrls } from '../http/media.js';
 import { insertIndex, etas, leadOf, shuffled } from './rotation.js';
-import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, clampKey, clampTempo } from '../../shared/protocol.js';
+import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, RATING_SECONDS, clampKey, clampTempo } from '../../shared/protocol.js';
+import { createGame } from '../games/index.js';
 import { fold } from '../../shared/text.js';
 import { logger } from '../util/log.js';
 
@@ -35,7 +36,7 @@ const DEFAULT_STATE = {
   songPrefs: {},
   trackPrefs: {},
   stats: { plays: {} },
-  tonight: { sung: [], history: [] },
+  tonight: { sung: [], history: [], games: [] },
 };
 
 const newId = (bytes = 6) => crypto.randomBytes(bytes).toString('base64url');
@@ -64,6 +65,9 @@ export class Room {
     this.introTimer = null;
     this.announceTimer = null;
     this.announcement = null;
+    this.game = null; // the running party game (not persisted: a restart ends it)
+    this.rating = null; // guests rating the performance that just ended
+    this.ratingTimer = null;
     this.lastGuestTime = 0;
     this.notified = new Set();
     this.limits = {
@@ -73,6 +77,7 @@ export class Room {
       identity: new RateLimiter({ capacity: 12, perMs: 10 * 60_000 }), // new guest identities per IP
       guest: new RateLimiter({ capacity: 40, perMs: 20_000 }), // any guest request
       favorite: new RateLimiter({ capacity: 30, perMs: 60_000 }),
+      game: new RateLimiter({ capacity: 20, perMs: 10_000 }), // answers/votes per guest
     };
     this.handlers = this.buildHandlers();
   }
@@ -107,6 +112,9 @@ export class Room {
     clearTimeout(this.introTimer);
     clearTimeout(this.flushTimer);
     clearTimeout(this.announceTimer);
+    clearTimeout(this.ratingTimer);
+    this.closeRating();
+    this.game?.dispose();
     await this.doc.flush();
   }
 
@@ -120,8 +128,11 @@ export class Room {
   newSession() {
     const now = Date.now();
     this.s.session = { id: newId(), startedAt: now, lastActivity: now };
-    this.s.tonight = { sung: [], history: [] };
-    for (const singer of this.s.singers) singer.sung = 0;
+    this.s.tonight = { sung: [], history: [], games: [] };
+    for (const singer of this.s.singers) {
+      singer.sung = 0;
+      delete singer.stars;
+    }
     this.notified.clear();
     log.info('new party session started');
   }
@@ -264,6 +275,13 @@ export class Room {
       'tv.ended': [[TV], (c, m) => this.tvEnded(c, m)],
       'tv.error': [[TV], (c, m) => this.tvError(c, m)],
       'tv.audio': [[TV], (c, m) => { c.data.audioUnlocked = !!m.unlocked; }],
+      'tv.game': [[TV], (c, m) => this.gameTv(c, m)],
+      'game.start': [H, (c, m) => this.gameStart(m)],
+      'game.action': [H, (c, m) => this.activeGame().action(c, m)],
+      'game.input': [[GUEST], (c, m) => this.gameInput(c, m)],
+      'game.end': [H, () => this.gameEnd()],
+      'game.close': [H, () => this.gameClose()],
+      rate: [[GUEST], (c, m) => this.rate(c, m)],
     };
   }
 
@@ -349,7 +367,7 @@ export class Room {
       artist: song.artist,
       title: song.title,
       dur: Math.round(track.duration || song.duration || 0),
-      source: isGuest ? 'guest' : 'host',
+      source: isGuest ? 'guest' : typeof m.source === 'string' && /^game:[a-z]{2,12}$/.test(m.source) ? m.source : 'host',
     };
     if (m.mystery) entry.mystery = true;
     const note = str(m.note, 80);
@@ -378,7 +396,7 @@ export class Room {
    */
   maybeAutoStart() {
     const s = this.s;
-    if (s.current || !s.queue.length || s.player.hold || !this.settings.get('playback.autoStart') || !this.mainDisplay()) return false;
+    if (s.current || !s.queue.length || s.player.hold || this.gameBlocks() || !this.settings.get('playback.autoStart') || !this.mainDisplay()) return false;
     this.startEntry(s.queue.shift());
     return true;
   }
@@ -512,6 +530,7 @@ export class Room {
   play(m = {}) {
     const q = this.s.queue;
     let entry = null;
+    if (this.gameBlocks() && !this.s.current) fail('A game is using the TV — end it first.', 'busy');
     if (m.entryId) {
       const i = q.findIndex((e) => e.id === m.entryId);
       if (i < 0) {
@@ -552,10 +571,12 @@ export class Room {
       hold: false,
     });
     if (!CHANNEL_MODES.includes(p.channel)) p.channel = 'stereo';
+    if (entry.clipEnd > 0) p.dur = Math.min(p.dur || entry.clipEnd, entry.clipEnd);
     clearTimeout(this.introTimer);
     this.introTimer = setTimeout(() => this.maybeBegin(), countdown * 1000 + 20);
     this.notifyDevices(entry, { t: 'notify', kind: 'now', entryId: entry.id, title: entry.title });
     log.info(`next up: ${entry.artist} – ${entry.title}`);
+    this.gameHook('onSongStart', entry);
   }
 
   /** Intro → playing once the countdown is over and the TV has the media ready. */
@@ -596,6 +617,7 @@ export class Room {
 
   next() {
     if (!this.s.current && !this.s.queue.length) fail('Nothing to skip to.', 'empty');
+    if (!this.s.current && this.gameBlocks()) fail('A game is using the TV — end it first.', 'busy');
     if (this.s.current) this.finish('skipped', { advance: true, force: true });
     else this.startEntry(this.s.queue.shift());
     return { ok: true };
@@ -688,6 +710,8 @@ export class Room {
       artist: entry.artist, title: entry.title, singers: singers.map((x) => x.name),
       key: p.key, tempo: p.tempo, playedSec, skipped: !completed,
     };
+    if (entry.reactions) record.reactions = entry.reactions;
+    if (entry.source?.startsWith('game:')) record.game = entry.source.slice(5);
     this.appendHistory(record);
     s.tonight.history.unshift({ ...record, entryId: entry.id, singerIds: entry.singerIds });
     s.tonight.history.length = Math.min(s.tonight.history.length, 200);
@@ -704,7 +728,11 @@ export class Room {
     }
     s.current = null;
     this.resetPlayer();
-    if ((advance || force) && s.queue.length) this.startEntry(s.queue.shift());
+    // A game that plays songs itself (battle) decides what comes next.
+    const handled = this.gameHook('onSongEnd', entry, { completed, playedSec, reason }) === true;
+    if (completed && !entry.game && entry.singerIds.length && this.settings.get('playback.ratingAfterSong')) this.openRating(entry);
+    if (handled || this.gameBlocks()) { /* the game carries on */ }
+    else if ((advance || force) && s.queue.length) this.startEntry(s.queue.shift());
     else if (s.queue.length) s.player.hold = true; // auto-advance is off: wait for the host
     this.markDirty();
   }
@@ -730,8 +758,14 @@ export class Room {
   tvStatus(client, m) {
     if (!this.isMainTv(client, m.entryId)) return;
     const p = this.s.player;
+    const clipEnd = this.s.current.clipEnd || 0;
     p.pos = num(m.pos, 0, 36000, p.pos);
-    if (m.dur) p.dur = num(m.dur, 0, 36000, p.dur);
+    if (m.dur) p.dur = Math.min(num(m.dur, 0, 36000, p.dur), clipEnd || Infinity);
+    // A song snippet (battle rounds): the TV fades out at clipEnd; this is the safety net.
+    if (clipEnd && p.pos >= clipEnd + 3) {
+      this.finish('ended');
+      return;
+    }
     const now = Date.now();
     const time = { t: 'time', entryId: m.entryId, pos: p.pos, dur: p.dur, playing: !!m.playing, at: now };
     this.hub.broadcast(time, (c) => c.role === HOST || (c.role === TV && c.data.display === 'mirror'));
@@ -746,7 +780,7 @@ export class Room {
     const p = this.s.player;
     p.tvReady = true;
     p.displayLost = false;
-    if (m.dur) p.dur = num(m.dur, 0, 36000, p.dur);
+    if (m.dur) p.dur = Math.min(num(m.dur, 0, 36000, p.dur), this.s.current.clipEnd || Infinity);
     this.maybeBegin();
   }
 
@@ -970,8 +1004,193 @@ export class Room {
     const key = client.data.deviceId || client.id;
     if (!this.limits.reaction.take(key)) return { ok: false };
     const profile = client.data.deviceId ? this.profileOf(client.data.deviceId) : null;
+    if (this.s.current && ['playing', 'paused'].includes(this.s.player.state)) this.s.current.reactions = (this.s.current.reactions || 0) + 1;
     this.hub.broadcast({ t: 'reaction', emoji: m.emoji, name: profile?.name || '', color: profile?.color || '' }, (c) => c.role === TV || c.role === HOST);
     return { ok: true };
+  }
+
+  // ---- games (PLAN §13) -------------------------------------------------------------------------
+
+  /** An exclusive game is on the TV: songs don't start by themselves (the game may start its own). */
+  gameBlocks() {
+    return !!(this.game && !this.game.ended && this.game.constructor.exclusive);
+  }
+
+  gameStart(m) {
+    if (this.game && !this.game.ended) fail('A game is already running — end it first.', 'busy');
+    const game = createGame(m.type, this, m.config && typeof m.config === 'object' ? m.config : {});
+    if (game.constructor.exclusive && this.s.current) fail('Finish or stop the current song first — the game needs the TV.', 'busy');
+    this.game?.dispose();
+    this.game = game;
+    try {
+      game.start();
+    } catch (e) {
+      game.dispose();
+      this.game = null;
+      throw e;
+    }
+    log.info(`game started: ${game.type}`);
+    return { id: game.id };
+  }
+
+  activeGame() {
+    if (!this.game || this.game.ended) fail('No game is running.', 'no_game');
+    return this.game;
+  }
+
+  gameInput(client, m) {
+    const game = this.activeGame();
+    if (!this.settings.get('guests.games')) fail('The host has turned off games on phones.', 'closed');
+    if (!this.limits.game.take(client.data.deviceId)) fail('Slow down a little!', 'rate_limited');
+    return game.input(client, m);
+  }
+
+  gameTv(client, m) {
+    if (client.data.display !== 'main' || !this.game || this.game.ended) return { ok: false };
+    return this.game.tv(client, m) ?? { ok: true };
+  }
+
+  gameEnd() {
+    if (this.game && !this.game.ended) this.game.end();
+    return { ok: true };
+  }
+
+  gameClose() {
+    if (this.game && !this.game.ended) this.game.end();
+    this.game?.dispose();
+    this.game = null;
+    this.maybeAutoStart();
+    return { ok: true };
+  }
+
+  /** Called by Game.end(): remember the result for the recap, let the party carry on. */
+  onGameEnded(game) {
+    const summary = game.summary?.();
+    if (summary) {
+      const games = (this.s.tonight.games ||= []);
+      games.push({ type: game.type, at: Date.now(), ...summary });
+      if (games.length > 50) games.shift();
+    }
+    this.maybeAutoStart();
+    this.markDirty();
+  }
+
+  gameHook(name, ...args) {
+    const game = this.game;
+    if (!game || game.ended || typeof game[name] !== 'function') return undefined;
+    try {
+      return game[name](...args);
+    } catch (e) {
+      log.warn(`game ${game.type} ${name} failed:`, e.message);
+      return undefined;
+    }
+  }
+
+  /** Queues a song for a game (poll winner, wheel result…): host rules, no guest limits. */
+  gameQueue(song, { singerName = '', singerIds, position = 'next', source = 'game:x' } = {}) {
+    return this.queueAdd({ role: HOST, data: {} }, { songId: song.id, singerName, singerId: singerIds?.[0], partners: singerIds?.slice(1), position, source });
+  }
+
+  /**
+   * Starts a song right away for a game (battle rounds). `clipEnd` (s) fades it out early.
+   * The game's onSongEnd hook decides what happens after it.
+   */
+  gameSing(song, { singerIds = [], clipEnd = 0, gameId = '', source = 'game:x' } = {}) {
+    const track = this.pickTrack(song, { noExplicit: !!this.settings.get('queue.explicitFilter') });
+    if (!track) fail('No playable version of that song was found.', 'not_found');
+    const ids = singerIds.filter((id) => this.singer(id)).slice(0, 4);
+    const prefs = this.prefsFor(song, ids[0]);
+    const entry = {
+      id: newId(), songId: song.id, trackId: track.id, singerIds: ids, addedBy: 'host', addedAt: Date.now(),
+      key: prefs.key, tempo: prefs.tempo, artist: song.artist, title: song.title,
+      dur: Math.round(track.duration || song.duration || 0), source, game: gameId || source,
+    };
+    if (clipEnd > 0) entry.clipEnd = Math.max(15, Math.round(clipEnd));
+    if (this.s.current) this.finish('skipped', { advance: false });
+    this.s.player.hold = false;
+    this.startEntry(entry);
+    this.markDirty();
+    return entry;
+  }
+
+  /** Sends a message to one guest's phones (device id from their signed token). */
+  notifyDevice(deviceId, msg) {
+    if (!deviceId) return;
+    this.hub.broadcast(msg, (c) => c.role === GUEST && c.data.deviceId === deviceId);
+  }
+
+  // ---- performance ratings (PLAN §13.7) ----------------------------------------------------------------
+
+  openRating(entry) {
+    this.closeRating();
+    this.rating = {
+      entryId: entry.id,
+      songId: entry.songId,
+      title: entry.title,
+      artist: entry.artist,
+      singerIds: [...entry.singerIds],
+      endsAt: Date.now() + RATING_SECONDS * 1000,
+      votes: new Map(), // deviceId → stars
+    };
+    clearTimeout(this.ratingTimer);
+    this.ratingTimer = setTimeout(() => {
+      this.closeRating();
+      this.markDirty();
+    }, RATING_SECONDS * 1000);
+    this.ratingTimer.unref?.();
+  }
+
+  rate(client, m) {
+    const r = this.rating;
+    if (!r || r.entryId !== m.entryId || Date.now() > r.endsAt) fail('Rating for this song has closed.', 'closed');
+    const deviceId = client.data.deviceId;
+    const profile = this.profileOf(deviceId);
+    if (!profile?.name) fail('Choose a name first.', 'no_profile');
+    if (profile.singerId && r.singerIds.includes(profile.singerId)) fail('You can’t rate your own performance 😉', 'own');
+    const stars = Math.round(num(m.stars, 1, 5, 0));
+    if (!stars) fail('Give 1 to 5 stars.', 'bad_request');
+    r.votes.set(deviceId, stars);
+    return { stars };
+  }
+
+  /** Ends the rating window: the average goes to tonight's history and the singers' stats. */
+  closeRating() {
+    const r = this.rating;
+    if (!r) return;
+    this.rating = null;
+    clearTimeout(this.ratingTimer);
+    if (!r.votes.size) return;
+    const values = [...r.votes.values()];
+    const avg = Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10;
+    const h = this.s.tonight.history.find((x) => x.entryId === r.entryId);
+    if (h) h.rating = { avg, n: values.length };
+    for (const id of r.singerIds) {
+      const singer = this.singer(id);
+      if (!singer) continue;
+      singer.stars = { sum: (singer.stars?.sum || 0) + avg, n: (singer.stars?.n || 0) + 1 };
+    }
+    this.appendHistory({ at: Date.now(), sessionId: this.s.session.id, type: 'rating', entryId: r.entryId, songId: r.songId, rating: avg, votes: values.length });
+  }
+
+  ratingView(role, deviceId) {
+    const r = this.rating;
+    if (!r || Date.now() > r.endsAt) return null;
+    const values = [...r.votes.values()];
+    const out = {
+      entryId: r.entryId,
+      title: r.title,
+      artist: r.artist,
+      singers: r.singerIds.map((id) => this.singerView(id)).filter(Boolean),
+      endsAt: r.endsAt,
+      votes: values.length,
+      avg: values.length ? Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10 : 0,
+    };
+    if (role === GUEST) {
+      out.mine = r.votes.get(deviceId) || 0;
+      const singerId = this.profileOf(deviceId)?.singerId;
+      out.own = !!singerId && r.singerIds.includes(singerId);
+    }
+    return out;
   }
 
   // ---- artwork --------------------------------------------------------------------------------
@@ -1077,6 +1296,8 @@ export class Room {
       addedAt: e.addedAt,
     };
     if (e.note) out.note = e.note;
+    if (e.clipEnd) out.clipEnd = e.clipEnd;
+    if (e.game) out.game = e.game;
     if (e.mystery) {
       out.mystery = true;
       if (mask) Object.assign(out, { artist: 'Mystery song', title: 'Surprise!', songId: null, trackId: null });
@@ -1163,6 +1384,7 @@ export class Room {
         id: x.id, name: x.name, emoji: x.emoji, color: x.color, sung: x.sung || 0, totalSung: x.totalSung || 0,
         deviceId: x.deviceId || null, online: x.deviceId ? online.has(x.deviceId) : null,
         queued: s.queue.filter((e) => e.singerIds.includes(x.id)).length,
+        stars: x.stars?.n ? Math.round((x.stars.sum / x.stars.n) * 10) / 10 : null,
       })),
       guests: Object.entries(s.profiles)
         .filter(([, p]) => p.name)
@@ -1176,6 +1398,8 @@ export class Room {
       playlists: s.playlists,
       session: s.session,
       tonight: { songs: s.tonight.history.filter((h) => !h.skipped).length, history: s.tonight.history.slice(0, 30) },
+      game: this.game?.view({ role: HOST }) || null,
+      rating: this.ratingView(HOST),
     };
   }
 
@@ -1203,6 +1427,8 @@ export class Room {
       announcement: this.announcement,
       library: { songs: this.catalog.songs.size, offline: this.library.status().offline },
       mosaic: this.s.current ? [] : this.mosaic(),
+      game: this.game?.view({ role: TV }) || null,
+      rating: this.ratingView(TV),
     };
   }
 
@@ -1224,6 +1450,7 @@ export class Room {
         guestsSeeQueue: q.guestsSeeQueue,
         guestKeyChange: q.guestKeyChange,
         reactions: this.settings.get('guests.reactions'),
+        games: this.settings.get('guests.games'),
       },
       current: this.currentView(),
       player: (({ state, pos, dur, entryId, introEndsAt }) => ({ state, pos, dur, entryId, introEndsAt }))(this.playerView()),
@@ -1249,6 +1476,8 @@ export class Room {
       ...base,
       queue,
       queueLength: base.queue.length,
+      game: this.game?.view({ role: GUEST, deviceId }) || null,
+      rating: this.ratingView(GUEST, deviceId),
       me: {
         deviceId,
         profile: this.profileView(deviceId),

@@ -252,7 +252,7 @@ function SingerRow({ s }) {
     if (await act('singer.update', { singerId: s.id, name, emoji })) setEditing(false);
   };
   if (editing) {
-    return html`<tr><td colspan="5"><div class="inline-form">
+    return html`<tr><td colspan="6"><div class="inline-form">
       <select class="select emoji-select" value=${emoji} onChange=${(e) => setEmoji(e.currentTarget.value)} aria-label="Avatar">${AVATARS.map((a) => html`<option value=${a}>${a}</option>`)}</select>
       <input class="input" value=${name} maxlength="40" onInput=${(e) => setName(e.currentTarget.value)} onKeyDown=${(e) => e.key === 'Enter' && save()} aria-label="Name" />
       <button class="btn primary small" onClick=${save}>Save</button><button class="btn ghost small" onClick=${() => setEditing(false)}>Cancel</button>
@@ -261,6 +261,7 @@ function SingerRow({ s }) {
   return html`<tr>
     <td><div class="who"><${Avatar} singer=${s} size=${30} /> <b>${s.name}</b></div></td>
     <td class="num">${s.sung}</td>
+    <td class="num">${s.stars ? html`<span class="stars" title="Average rating from guests">★ ${s.stars.toFixed(1)}</span>` : html`<span class="faint">—</span>`}</td>
     <td class="num">${s.queued}</td>
     <td>${s.deviceId ? html`<span class=${`dot ${s.online ? 'on' : ''}`}></span> ${s.online ? 'Connected' : 'Phone offline'}` : html`<span class="faint">Added by host</span>`}</td>
     <td class="actions">
@@ -322,7 +323,7 @@ export function History() {
           <td class="num faint">${new Date(h.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
           <td>${h.singers.join(' & ') || html`<span class="faint">—</span>`}</td>
           <td><b>${h.title}</b> <span class="faint">${h.artist}</span></td>
-          <td>${h.skipped ? html`<span class="pill">Skipped</span>` : ''}${h.key ? html` <span class="pill">Key ${h.key > 0 ? '+' : ''}${h.key}</span>` : ''}</td>
+          <td>${h.skipped ? html`<span class="pill">Skipped</span>` : ''}${h.key ? html` <span class="pill">Key ${h.key > 0 ? '+' : ''}${h.key}</span>` : ''}${h.rating ? html` <span class="pill bulb" title=${`${h.rating.n} ${h.rating.n === 1 ? 'vote' : 'votes'}`}>★ ${h.rating.avg.toFixed(1)}</span>` : ''}${h.game ? html` <span class="pill">${h.game}</span>` : ''}</td>
           <td class="actions"><button class="btn small" onClick=${() => openDialog({ type: 'add', songId: h.songId, singerName: h.singers[0] || '' })}>Queue again</button></td>
         </tr>`)}</tbody></table>`
       : html`<${Empty} icon="🕘" title="Nothing sung yet tonight" />`}

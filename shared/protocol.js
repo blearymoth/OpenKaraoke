@@ -52,3 +52,22 @@ export const DENIED_MESSAGES = {
   pairing_required: 'This screen needs to be paired with the host first.',
   rate_limited: 'Too many new connections from this device — wait a few minutes and try again.',
 };
+
+// ---- games (PLAN §13) ------------------------------------------------------------------------
+
+export const GAME_TYPES = ['quiz', 'battle', 'wheel', 'poll', 'relay', 'applause', 'recap'];
+export const GAME_LABELS = {
+  quiz: 'Music quiz',
+  battle: 'Battle',
+  wheel: 'Roulette wheel',
+  poll: 'What’s next? poll',
+  relay: 'Pass the mic',
+  applause: 'Applause meter',
+  recap: 'Party recap',
+};
+/** Answer buttons on phones (Kahoot-style colour + shape, so colour-blind players can play). */
+export const ANSWER_COLORS = ['#e21b3c', '#1368ce', '#d89e00', '#26890c'];
+export const ANSWER_SHAPES = ['▲', '◆', '●', '■'];
+
+/** Seconds guests have to rate a performance after it ends. */
+export const RATING_SECONDS = 40;

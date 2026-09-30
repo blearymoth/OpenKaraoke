@@ -1,0 +1,243 @@
+// JSON API (PLAN §8). Handlers return plain objects, which the app sends as JSON.
+import fsp from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { HttpError } from '../util/errors.js';
+import { intParam, readJsonBody, sendText } from './router.js';
+import { qrSvg } from '../util/qr.js';
+import { placeholderSvg } from '../artwork/placeholder.js';
+import { defaultMusicDirs } from '../config.js';
+import { logger } from '../util/log.js';
+
+const log = logger('api');
+const COLOR_RE = /^#[0-9a-f]{3,8}$/i;
+
+export function apiRoutes(router, app) {
+  const { library, settings, auth } = app;
+  const cat = () => library.catalog;
+  const summaries = (list) => list.map((s) => cat().songSummary(s));
+  const artistSummary = (a) => ({ key: a.key, name: a.name, letter: a.letter, count: a.count, solo: a.solo });
+
+  /** Guests never see explicit songs when the explicit filter is on. */
+  const filterFor = (ctx, extra = {}) => {
+    const f = { ...extra };
+    if (!ctx.isHost && settings.get('queue.explicitFilter')) f.noExplicit = true;
+    return Object.keys(f).length ? f : null;
+  };
+  const queryFilter = (q) => {
+    const f = {};
+    const tag = q.get('tag');
+    const letter = q.get('letter');
+    const genre = q.get('genre');
+    const decade = Number(q.get('decade'));
+    if (tag) f.tag = tag.slice(0, 60);
+    if (letter) f.letter = letter.slice(0, 1).toUpperCase();
+    if (genre) f.genre = genre.slice(0, 60);
+    if (decade) f.decade = decade;
+    return f;
+  };
+  const page = (q, def = 60) => ({ limit: intParam(q, 'limit', def, 1, 200), offset: intParam(q, 'offset', 0, 0, 1e6) });
+  const requireHost = (ctx) => {
+    if (ctx.isHost) return;
+    throw new HttpError(auth.pin ? 401 : 403, auth.pin ? 'Host PIN required' : 'Only the computer running OpenKaraoke can do this', { code: auth.pin ? 'pin_required' : 'host_only' });
+  };
+
+  let lettersCache = null;
+  const letterCounts = () => {
+    if (lettersCache?.v === cat().version) return lettersCache.data;
+    const songs = new Map();
+    const artists = new Map();
+    for (const s of cat().songList) songs.set(s.letter, (songs.get(s.letter) || 0) + 1);
+    for (const a of cat().artistList) artists.set(a.letter, (artists.get(a.letter) || 0) + 1);
+    const data = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((l) => ({ letter: l, songs: songs.get(l) || 0, artists: artists.get(l) || 0 }));
+    lettersCache = { v: cat().version, data };
+    return data;
+  };
+
+  router.get('/api/info', () => app.info());
+
+  router.get('/api/search', (ctx) => {
+    const q = (ctx.query.get('q') || '').slice(0, 200);
+    const { limit, offset } = page(ctx.query);
+    if (!q.trim()) return { total: 0, fuzzy: false, items: [], artists: [] };
+    const r = cat().search(q, { limit, offset, filter: filterFor(ctx, queryFilter(ctx.query)) });
+    const out = { total: r.total, fuzzy: r.fuzzy, items: summaries(r.items) };
+    if (offset === 0 && q.trim().length >= 2) {
+      out.artists = cat().listArtists({ q, limit: 200 }).items
+        .sort((a, b) => b.trackCount - a.trackCount)
+        .slice(0, 6)
+        .map(artistSummary);
+    }
+    return out;
+  });
+
+  router.get('/api/songs/:id', (ctx) => {
+    const detail = cat().songDetail(ctx.params.id);
+    if (!detail) throw new HttpError(404, 'Song not found');
+    return detail;
+  });
+
+  router.get('/api/artists', (ctx) => {
+    const { limit, offset } = page(ctx.query, 200);
+    const r = cat().listArtists({
+      letter: (ctx.query.get('letter') || '').slice(0, 1).toUpperCase(),
+      q: (ctx.query.get('q') || '').slice(0, 100),
+      sort: ctx.query.get('sort') === 'count' ? 'count' : 'name',
+      limit,
+      offset,
+    });
+    return { total: r.total, items: r.items.map(artistSummary) };
+  });
+
+  router.get('/api/artists/:key', (ctx) => {
+    const a = cat().artist(ctx.params.key);
+    if (!a) throw new HttpError(404, 'Artist not found');
+    const songs = cat().filterSongs(filterFor(ctx, { artist: a.key }), { limit: 5000, sort: 'title' }).items;
+    return { artist: artistSummary(a), songs: summaries(songs) };
+  });
+
+  router.get('/api/browse/popular', (ctx) => {
+    const r = cat().popular({ ...page(ctx.query), filter: filterFor(ctx, queryFilter(ctx.query)) });
+    return { total: r.total, items: summaries(r.items) };
+  });
+
+  router.get('/api/browse/facets', () => ({
+    ...cat().facets(),
+    letters: letterCounts(),
+    brands: cat().brandCounts.slice(0, 60),
+  }));
+
+  router.get('/api/browse/tag/:tag', (ctx) => {
+    const sort = ctx.query.get('sort') === 'title' ? 'title' : 'popular';
+    const r = cat().byTag(ctx.params.tag, { ...page(ctx.query), sort, filter: filterFor(ctx) });
+    return { total: r.total, items: summaries(r.items) };
+  });
+
+  router.get('/api/browse/letter/:letter', (ctx) => {
+    const sort = ctx.query.get('sort') === 'artist' ? 'artist' : 'title';
+    const r = cat().filterSongs(filterFor(ctx, { letter: ctx.params.letter.slice(0, 1).toUpperCase() }), { ...page(ctx.query, 100), sort });
+    return { total: r.total, items: summaries(r.items) };
+  });
+
+  router.get('/api/random', (ctx) => {
+    const n = intParam(ctx.query, 'n', 10, 1, 50);
+    return { items: summaries(cat().random(n, filterFor(ctx, queryFilter(ctx.query)))) };
+  });
+
+  router.get('/api/qr.svg', (ctx) => {
+    const text = ctx.query.get('text') || app.info().joinUrl;
+    if (text.length > 512) throw new HttpError(400, 'QR text is too long (max 512 characters)');
+    const dark = COLOR_RE.test(ctx.query.get('dark') || '') ? ctx.query.get('dark') : '#000000';
+    const lightParam = ctx.query.get('light') || '';
+    const light = lightParam === 'transparent' || COLOR_RE.test(lightParam) ? lightParam : '#ffffff';
+    const svg = qrSvg(text, { dark, light, margin: intParam(ctx.query, 'margin', 2, 0, 8) });
+    sendText(ctx.res, 200, svg, 'image/svg+xml', { 'cache-control': 'public, max-age=3600' });
+  });
+
+  // Cover art: real artwork arrives with the artwork service (M5); until then (and for every
+  // miss) a deterministic placeholder is served, so an <img> never breaks.
+  router.get('/api/art/song/:id', async (ctx) => {
+    const song = cat().song(ctx.params.id);
+    if (app.artwork && song && (await app.artwork.serveSong(ctx, song))) return;
+    const svg = placeholderSvg({ artist: song?.artist || '', title: song?.title || ctx.params.id });
+    sendText(ctx.res, 200, svg, 'image/svg+xml', { 'cache-control': 'public, max-age=600' });
+  });
+
+  router.get('/api/art/artist/:key', async (ctx) => {
+    const artist = cat().artist(ctx.params.key);
+    if (app.artwork && artist && (await app.artwork.serveArtist(ctx, artist))) return;
+    const svg = placeholderSvg({ artist: artist?.name || ctx.params.key });
+    sendText(ctx.res, 200, svg, 'image/svg+xml', { 'cache-control': 'public, max-age=600' });
+  });
+
+  // ---- library management (host) -------------------------------------------------
+
+  router.get('/api/library', (ctx) => {
+    const st = library.status();
+    if (!ctx.isHost) st.roots = st.roots.map((r) => ({ online: r.online, tracks: r.tracks }));
+    return st;
+  });
+
+  router.post('/api/library/scan', (ctx) => {
+    requireHost(ctx);
+    library.scan({ reason: 'host' }).catch((e) => log.error('scan failed', e));
+    return library.status();
+  });
+
+  router.post('/api/library/paths', async (ctx) => {
+    requireHost(ctx);
+    const body = await readJsonBody(ctx.req);
+    if (!Array.isArray(body.paths) || body.paths.length > 20) throw new HttpError(400, 'Send { "paths": ["/folder", …] }');
+    for (const p of body.paths) {
+      if (typeof p !== 'string' || !path.isAbsolute(p)) throw new HttpError(400, `Not an absolute folder path: ${p}`);
+    }
+    await library.setPaths(body.paths);
+    library.scan({ reason: 'folders changed' }).catch((e) => log.error('scan failed', e));
+    return library.status();
+  });
+
+  router.get('/api/fs/list', async (ctx) => {
+    requireHost(ctx);
+    return listFolders(ctx.query.get('path') || '');
+  });
+
+  router.post('/api/auth/pin', async (ctx) => {
+    const body = await readJsonBody(ctx.req, 4096);
+    const token = auth.loginWithPin(String(body.pin ?? ''), ctx.ip);
+    ctx.res.setHeader('set-cookie', `ok_host=${encodeURIComponent(token)}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`);
+    return { token };
+  });
+}
+
+/** Folder picker data: sub-folders of `p`, or likely drive/music locations when `p` is empty. */
+export async function listFolders(p) {
+  if (!p) {
+    const seen = new Set();
+    const out = [];
+    const add = (dir, label) => {
+      if (seen.has(dir)) return;
+      seen.add(dir);
+      out.push({ name: label || dir, path: dir });
+    };
+    for (const d of defaultMusicDirs()) {
+      const isMountParent = /^\/(?:run\/media|media|mnt)(?:\/|$)/.test(d);
+      try {
+        const entries = await fsp.readdir(d, { withFileTypes: true });
+        if (isMountParent) {
+          for (const e of entries) {
+            if (!e.name.startsWith('.') && (e.isDirectory() || e.isSymbolicLink())) add(path.join(d, e.name), `💾 ${e.name}`);
+          }
+        } else {
+          add(d);
+        }
+      } catch { /* not there */ }
+    }
+    add(os.homedir(), `🏠 ${os.homedir()}`);
+    return { path: '', parent: null, dirs: out, karaokeFiles: 0 };
+  }
+  const abs = path.resolve(p);
+  let entries;
+  try {
+    entries = await fsp.readdir(abs, { withFileTypes: true });
+  } catch (e) {
+    if (e.code === 'ENOENT') throw new HttpError(404, 'Folder not found');
+    throw new HttpError(400, `Cannot open this folder (${e.code || e.message})`);
+  }
+  const dirs = [];
+  let karaokeFiles = 0;
+  for (const e of entries) {
+    if (e.name.startsWith('.')) continue;
+    let isDir = e.isDirectory();
+    if (e.isSymbolicLink()) isDir = await fsp.stat(path.join(abs, e.name)).then((s) => s.isDirectory(), () => false);
+    if (isDir) dirs.push(e.name);
+    else if (/\.(cdg|mp4|webm|mkv|zip)$/i.test(e.name)) karaokeFiles++;
+  }
+  dirs.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  const parent = path.dirname(abs);
+  return {
+    path: abs,
+    parent: parent === abs ? null : parent,
+    dirs: dirs.slice(0, 5000).map((name) => ({ name, path: path.join(abs, name) })),
+    karaokeFiles,
+  };
+}

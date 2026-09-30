@@ -2,6 +2,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { setLogLevel } from '../server/util/log.js';
+
+setLogLevel(process.env.LOG_LEVEL || 'warn');
 
 export async function tmpDir(prefix = 'openkaraoke-test-') {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));

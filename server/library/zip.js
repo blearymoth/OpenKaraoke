@@ -48,18 +48,22 @@ export async function listZip(file) {
   }
 }
 
-/** Returns a readable stream with the (decompressed) data of one entry. */
-export async function openZipEntry(file, entry) {
+/** Absolute file offset where an entry's (possibly compressed) data starts. */
+export async function entryDataOffset(file, entry) {
   const fh = await fs.open(file, 'r');
-  let dataStart;
   try {
     const loc = Buffer.alloc(30);
     await fh.read(loc, 0, 30, entry.offset);
     if (loc.readUInt32LE(0) !== LOC_SIG) throw new Error('Bad zip local header');
-    dataStart = entry.offset + 30 + loc.readUInt16LE(26) + loc.readUInt16LE(28);
+    return entry.offset + 30 + loc.readUInt16LE(26) + loc.readUInt16LE(28);
   } finally {
     await fh.close();
   }
+}
+
+/** Returns a readable stream with the (decompressed) data of one entry. */
+export async function openZipEntry(file, entry) {
+  const dataStart = await entryDataOffset(file, entry);
   if (entry.encrypted) throw new Error('Encrypted zip entries are not supported');
   const raw = entry.csize > 0
     ? createReadStream(file, { start: dataStart, end: dataStart + entry.csize - 1 })

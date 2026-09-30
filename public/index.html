@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#150f26">
+  <title>OpenKaraoke</title>
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/base.css">
+  <style>
+    body { min-height: 100vh; display: grid; place-items: center; padding: 32px 20px 48px;
+      background: radial-gradient(1200px 600px at 15% -10%, #2c1c52 0%, transparent 60%), radial-gradient(900px 500px at 110% 110%, #3a1233 0%, transparent 55%), var(--night); }
+    main { width: min(1040px, 100%); display: grid; gap: 36px; }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .brand img { width: 52px; height: 52px; }
+    .brand h1 { font-size: clamp(34px, 6vw, 58px); font-weight: 800; font-stretch: 85%; letter-spacing: -0.02em; animation: wipe 2.4s var(--ease) 0.2s both; }
+    @keyframes wipe { from { --p: 0%; } to { --p: 100%; } }
+    @property --p { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+    .party { margin-top: 6px; color: var(--ink-2); font-size: 18px; }
+    .grid { display: grid; grid-template-columns: 1.1fr 1fr 1.1fr; gap: 18px; align-items: stretch; }
+    .tile { display: grid; align-content: start; gap: 10px; padding: 26px; border-radius: var(--r-lg); border: 1px solid var(--line);
+      background: linear-gradient(180deg, var(--stage-2), var(--stage)); text-decoration: none; transition: border-color .15s, transform .15s; }
+    a.tile:hover { border-color: color-mix(in srgb, var(--neon) 55%, transparent); transform: translateY(-2px); }
+    .tile h2 { font-size: 26px; }
+    .tile p { color: var(--ink-2); }
+    .tile .go { margin-top: 8px; justify-self: start; }
+    .glyph { font-size: 34px; line-height: 1; }
+    .join { justify-items: center; text-align: center; background: linear-gradient(180deg, #2a1d20, var(--stage)); }
+    .join .marquee { width: min(210px, 70%); margin: 18px 0 12px; }
+    .code { font-family: var(--font-display); font-size: 30px; font-weight: 800; letter-spacing: 0.18em; color: var(--bulb); }
+    .url { font-size: 14px; color: var(--ink-2); word-break: break-all; }
+    footer { color: var(--ink-3); font-size: 14px; }
+    footer strong { color: var(--ink-2); font-weight: 650; }
+    .warn { color: var(--bulb); }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="brand">
+        <img src="/img/icon.svg" alt="">
+        <h1 class="wipe">OpenKaraoke</h1>
+      </div>
+      <p class="party" id="party">&nbsp;</p>
+    </header>
+
+    <section class="grid">
+      <a class="tile" href="/host">
+        <div class="glyph">🎛️</div>
+        <h2>Host controls</h2>
+        <p>Search the library, run the queue, change key and tempo. Open this on the computer running OpenKaraoke.</p>
+        <span class="btn primary go">Open host controls</span>
+      </a>
+      <a class="tile" href="/tv">
+        <div class="glyph">📺</div>
+        <h2>TV display</h2>
+        <p>Lyrics, next-singer cards and the join code. This page plays the music, so open it on the screen connected to the speakers.</p>
+        <span class="btn go">Open TV display</span>
+      </a>
+      <div class="tile join">
+        <h2>Join from a phone</h2>
+        <div class="marquee"><img id="qr" alt="QR code to join the party" width="180" height="180"></div>
+        <div class="code" id="code">····</div>
+        <div class="url" id="url"></div>
+      </div>
+    </section>
+
+    <footer id="lib">Loading library…</footer>
+  </main>
+
+  <script type="module">
+    const $ = (id) => document.getElementById(id);
+    const fmt = (n) => n.toLocaleString();
+    async function load() {
+      try {
+        const info = await (await fetch('/api/info')).json();
+        document.title = `${info.name} · OpenKaraoke`;
+        $('party').textContent = info.name;
+        $('code').textContent = info.roomCode;
+        $('url').textContent = info.joinUrl;
+        $('qr').src = `/api/qr.svg?margin=1&text=${encodeURIComponent(info.joinUrl)}`;
+        const lib = info.library;
+        const lines = [];
+        if (!lib.tracks && !lib.scanning) lines.push('<span class="warn">No songs yet.</span> Add your karaoke folder in the host controls under Settings, Library.');
+        else lines.push(`<strong>${fmt(lib.songs)} songs</strong> by ${fmt(lib.artists)} artists (${fmt(lib.tracks)} tracks).`);
+        if (lib.scanning) lines.push('The library is being scanned right now.');
+        if (lib.offline) lines.push('<span class="warn">The karaoke drive is not connected.</span>');
+        $('lib').innerHTML = lines.join(' ');
+      } catch {
+        $('lib').textContent = 'The OpenKaraoke server is not responding.';
+      }
+    }
+    load();
+  </script>
+</body>
+</html>

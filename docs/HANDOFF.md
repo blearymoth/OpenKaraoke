@@ -5,10 +5,12 @@ _Last updated: 2026-09-30 (end of the first build session)._
 ## TL;DR
 - **Milestone M0 (foundation) is done and tested**: file-name parser, library scanner (CDG
   pairs / video / zip), catalog with version grouping + artist typo clustering + typo-tolerant
-  search, settings schema, utilities, vendored libraries. `npm test` → 35/35 passing.
-- **The server does not run yet** — `server/index.js` doesn't exist. Next is **M1: make the
-  server run** (library service, HTTP API, media streaming, WebSocket hub), then the TV player
-  (M2), room + host app (M3) and guest app (M4). The full spec is in `docs/PLAN.md`.
+  search, settings schema, utilities, vendored libraries.
+- **Milestone M1 (server runs) is done and tested** (session 2): `server/index.js` starts the
+  server (`npm start -- --library "<folder>"` or `bin/openkaraoke.sh`), library service with
+  cache/rescan/offline watcher, JSON API, media streaming with HTTP Range (files and zip
+  entries, gzip CDG), host auth (localhost trust + PIN tokens), WebSocket hub. `npm test` → 63/63.
+- Next: M2 TV player, M3 room + host app, M4 guest app. The full spec is in `docs/PLAN.md`.
 
 ## What was verified
 | Check | Result |

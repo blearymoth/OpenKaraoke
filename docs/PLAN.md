@@ -418,8 +418,15 @@ Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safar
   `100x100bb` with `600x600bb`; ToS: no caching — off by default), optional **Fanart.tv** (user key).
 - Matching: clean artist (primary credit, drop "(Duet)", "feat …") and title (drop variants,
   "karaoke", brackets). Score candidates with `similarity()` on artist & title (≥ 0.75 & ≥ 0.7),
-  prefer original albums (penalise "karaoke", "tribute", "hits", "cover", "in the style of"),
-  prefer duration within ±15 s. Store confidence.
+  prefer original albums (penalise "karaoke", "tribute", "hits", "cover", "in the style of"
+  unless our own title or artist has that word — "Cover Girls"), prefer duration within ±15 s.
+  Duos credited by surname match ("Hall & Oates" = "Daryl Hall & John Oates"), number words
+  match digits ("Jackson Five"). Store confidence.
+- Artists: the catalog splits credits on "&", "+", "/", commas, so band names fall apart
+  ("Sam & Dave" → Sam, Dave). A performer never credited alone is searched by the act it
+  appears in ("Sam & Dave"), never by the fragment (a namesake's photos); the name searched for
+  is stored (`n`) and art found under an old name is dropped. Deezer's "no picture" images
+  (`images/artist//…`, MD5 of "" `d41d8cd9…`) are ignored.
 - Cache: `data/art/<sha1(url)>.jpg` (download 250 px for lists, 1000 px for TV on demand),
   metadata in `data/meta.json` keyed by song key: `{ provider, id, cover:{s,m,l}, artistPic,
   genre, year, explicit, rank, album, confidence, fetchedAt }`; misses retried after 30 days.

@@ -28,3 +28,26 @@ test('song summaries are marked queued / sung tonight; most sung here lists perf
     await app.close();
   }
 });
+
+test('search: identical searches come from a cache; phones are rate limited, the host is not', async () => {
+  const { app } = await setupRoom();
+  await app.listen(0, '127.0.0.1');
+  const base = `http://127.0.0.1:${app.port}`;
+  try {
+    const cat = app.library.catalog;
+    let calls = 0;
+    const orig = cat.search.bind(cat);
+    cat.search = (...a) => { calls++; return orig(...a); };
+    for (let i = 0; i < 5; i++) assert.equal((await fetch(`${base}/api/search?q=queen`)).status, 200);
+    assert.equal(calls, 1, 'answered from the cache');
+    cat.metaChanged();
+    await fetch(`${base}/api/search?q=queen`);
+    assert.equal(calls, 2, 'metadata changes invalidate it');
+    app.auth.isHostRequest = () => false; // a phone
+    let limited = 0;
+    for (let i = 0; i < 60; i++) if ((await fetch(`${base}/api/search?q=q${i}`)).status === 429) limited++;
+    assert.ok(limited >= 15, `phones get 429 after a burst (${limited})`);
+  } finally {
+    await app.close();
+  }
+});

@@ -8,6 +8,8 @@ import { qrSvg } from '../util/qr.js';
 import { placeholderSvg } from '../artwork/placeholder.js';
 import { hash32 } from '../../shared/text.js';
 import { songbookRoutes } from './songbook.js';
+import { RateLimiter } from '../util/ratelimit.js';
+import { Lru } from '../util/lru.js';
 import { defaultMusicDirs } from '../config.js';
 import { logger } from '../util/log.js';
 
@@ -69,11 +71,23 @@ export function apiRoutes(router, app) {
 
   router.get('/api/info', () => app.info());
 
+  // Many phones typing at once on a 90k-track library: identical searches are answered from a
+  // small cache, and each phone gets a generous but finite number of searches.
+  const searchCache = new Lru({ max: 300 });
+  const searchLimit = new RateLimiter({ capacity: 40, perMs: 10_000 });
+  const cachedSearch = (q, opts) => {
+    const key = `${cat().version}:${cat().metaVersion}|${q}|${opts.limit}|${opts.offset}|${JSON.stringify(opts.filter)}`;
+    let r = searchCache.get(key);
+    if (!r) searchCache.set(key, (r = cat().search(q, opts)));
+    return r;
+  };
+
   router.get('/api/search', (ctx) => {
     const q = (ctx.query.get('q') || '').slice(0, 200);
     const { limit, offset } = page(ctx.query);
     if (!q.trim()) return { total: 0, fuzzy: false, items: [], artists: [] };
-    const r = cat().search(q, { limit, offset, filter: filterFor(ctx, queryFilter(ctx.query)) });
+    if (!ctx.isHost && !searchLimit.take(String(ctx.ip))) throw new HttpError(429, 'Too many searches — wait a few seconds.');
+    const r = cachedSearch(q, { limit, offset, filter: filterFor(ctx, queryFilter(ctx.query)) });
     const out = { total: r.total, fuzzy: r.fuzzy, items: summaries(r.items) };
     if (offset === 0 && q.trim().length >= 2) {
       out.artists = cat().listArtists({ q, limit: 200 }).items

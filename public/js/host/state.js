@@ -1,6 +1,6 @@
 // Host app state: one WebSocket connection + a store with the host view from the server.
 import { Connection } from '../lib/ws-client.js';
-import { createStore, toastStore, noteArt } from '../lib/store.js';
+import { createStore, toastStore, noteArt, setMarks } from '../lib/store.js';
 import { apiPost, clearFetchCache } from '../lib/components.js';
 
 export const toasts = toastStore();
@@ -22,12 +22,14 @@ export const conn = new Connection({
 
 let lastLibVersion = null;
 conn.on('welcome', (m) => {
+  setMarks(m.state);
   store.update({ state: m.state, denied: null });
 });
 conn.on('state', (m) => {
   const v = m.state.library?.builtAt;
   if (lastLibVersion !== null && v !== lastLibVersion) clearFetchCache();
   lastLibVersion = v;
+  setMarks(m.state);
   store.update({ state: m.state });
 });
 conn.on('time', (m) => store.update({ time: { ...m, recv: performance.now() } }));

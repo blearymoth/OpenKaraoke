@@ -101,6 +101,24 @@ export const artUrl = (songId, size = 250) => (songId ? `/api/art/song/${encodeU
 /** Artist image: type = picture | fanart | logo | cutout | banner (`i` picks one of several fanarts). */
 export const artistArtUrl = (key, type = 'picture', { i = 0, size } = {}) => `/api/art/artist/${encodeURIComponent(key)}?type=${type}${i ? `&i=${i}` : ''}${size ? `&s=${size}` : ''}${ver(`a:${key}`)}`;
 
+/**
+ * Live "In queue" / "Sung tonight" marks for song lists, fed from the party state so they
+ * update without refetching the lists.
+ */
+export const marksStore = createStore({ ready: false, queued: new Set(), sung: new Set() });
+
+export function setMarks(state) {
+  if (!state) return;
+  const queued = new Set();
+  for (const e of state.queue || []) if (e.songId && !(e.mystery && !e.mine)) queued.add(e.songId);
+  if (state.current?.songId && !state.current.mystery) queued.add(state.current.songId);
+  const sung = new Set(state.sungTonight || []);
+  const prev = marksStore.get();
+  const same = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
+  if (prev.ready && same(prev.queued, queued) && same(prev.sung, sung)) return;
+  marksStore.set({ ready: true, queued, sung });
+}
+
 export function toastStore() {
   const store = createStore([]);
   let n = 0;

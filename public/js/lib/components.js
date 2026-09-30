@@ -1,7 +1,7 @@
 // UI pieces shared by the host and guest apps.
 import { html, useEffect, useRef, useState, useCallback } from '../vendor/preact.js';
 import { Icon } from './icons.js';
-import { artUrl, artistArtUrl, artStore, formatTime, useStore } from './store.js';
+import { artUrl, artistArtUrl, artStore, marksStore, formatTime, useStore } from './store.js';
 
 /** JSON fetch helper; adds the host token when there is one. */
 export async function apiGet(path, params) {
@@ -101,7 +101,10 @@ export function Avatar({ singer, size = 32 }) {
 }
 
 export function SongBadges({ song }) {
-  return html`${song.duet ? html`<span class="mini-badge" title="Duet"><${Icon} name="duet" size=${14} /></span>` : null}${song.x ? html`<span class="tag-e" title="Explicit">E</span>` : null}${song.qd ? html`<span class="tag-mark queued" title="Waiting in the queue">In queue</span>` : song.tn ? html`<span class="tag-mark" title="Already sung tonight">Sung tonight</span>` : null}`;
+  const marks = useStore(marksStore);
+  const qd = marks.ready ? marks.queued.has(song.id) : song.qd;
+  const tn = marks.ready ? marks.sung.has(song.id) : song.tn;
+  return html`${song.duet ? html`<span class="mini-badge" title="Duet"><${Icon} name="duet" size=${14} /></span>` : null}${song.x ? html`<span class="tag-e" title="Explicit">E</span>` : null}${qd ? html`<span class="tag-mark queued" title="Waiting in the queue">In queue</span>` : tn ? html`<span class="tag-mark" title="Already sung tonight">Sung tonight</span>` : null}`;
 }
 
 /** One song in a list: cover, title, artist, badges, duration and an action area. */

@@ -1400,6 +1400,7 @@ export class Room {
       tonight: { songs: s.tonight.history.filter((h) => !h.skipped).length, history: s.tonight.history.slice(0, 30) },
       game: this.game?.view({ role: HOST }) || null,
       rating: this.ratingView(HOST),
+      sungTonight: s.tonight.sung.slice(-500),
     };
   }
 
@@ -1456,6 +1457,7 @@ export class Room {
       player: (({ state, pos, dur, entryId, introEndsAt }) => ({ state, pos, dur, entryId, introEndsAt }))(this.playerView()),
       queue: s.queue.map((e, i) => ({ ...this.entryView(e, { mask: true }), eta: eta[i], _by: e.addedBy })),
       library: { songs: this.catalog.songs.size, offline: this.library.status().offline },
+      sungTonight: s.tonight.sung.slice(-500),
     };
   }
 

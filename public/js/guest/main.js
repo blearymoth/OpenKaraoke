@@ -1,7 +1,7 @@
 // Guest app (/j/<ROOM>): join with a name, find songs, request them, follow the queue, react.
 import { html, render, useEffect, useMemo, useRef, useState } from '../vendor/preact.js';
 import { Connection } from '../lib/ws-client.js';
-import { createStore, useStore, toastStore, formatEta, formatTime, singersText, plural, useDebounced, useTick, noteArt } from '../lib/store.js';
+import { createStore, useStore, toastStore, formatEta, formatTime, singersText, plural, useDebounced, useTick, noteArt, setMarks } from '../lib/store.js';
 import { Icon } from '../lib/icons.js';
 import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, Toasts, SongBadges } from '../lib/components.js';
 import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, GAME_LABELS, formatKey } from '/shared/protocol.js';
@@ -27,6 +27,7 @@ const conn = new Connection({
 conn.on('welcome', (m) => {
   if (m.token) localStorage.setItem('ok.guestToken', m.token);
   localStorage.setItem('ok.lastRoom', store.get().code);
+  setMarks(m.state);
   store.update({ state: m.state, denied: null });
 });
 let lastGameId = null;
@@ -37,6 +38,7 @@ conn.on('state', (m) => {
   if (game && !game.ended && game.id !== lastGameId && m.state.rules?.games && GAME_UI[game.type]?.Guest) patch.tab = 'game';
   else if (!game && store.get().tab === 'game') patch.tab = 'home';
   lastGameId = game?.id || null;
+  setMarks(m.state);
   store.update(patch);
 });
 conn.on('time', (m) => store.update({ time: { ...m, recv: performance.now() } }));

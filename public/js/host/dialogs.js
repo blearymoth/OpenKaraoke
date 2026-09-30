@@ -4,6 +4,7 @@ import { Icon } from '../lib/icons.js';
 import { useStore, formatTime, artStore } from '../lib/store.js';
 import { Modal, Cover, Spinner, Stepper, useFetch, apiGet, copyText, SongBadges, go, clearFetchCache } from '../lib/components.js';
 import { store, act, closeDialog, openDialog, toast } from './state.js';
+import { PreviewButton, PreviewOutput } from './preview.js';
 import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 
 function versionLabel(v) {
@@ -105,9 +106,10 @@ export function SongDialog({ songId }) {
           <td>${v.variant || html`<span class="faint">Standard</span>`}${v.flags?.mpx ? html` <span class="pill">Multiplex</span>` : ''}${v.flags?.vocals ? html` <span class="pill">Guide vocal</span>` : ''}</td>
           <td class="num">${formatTime(v.dur)}</td>
           <td class="file ellipsis" title=${v.file}>${v.file}</td>
-          <td><button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
+          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
         </tr>`)}</tbody>
       </table>
+      <${PreviewOutput} />
     `}
   </${Modal}>`;
 }

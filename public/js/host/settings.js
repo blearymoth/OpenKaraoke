@@ -190,7 +190,31 @@ function LibrarySection({ state, lib }) {
         onBlur=${() => save('library.brandPriority', brands.split(',').map((b) => b.trim()).filter(Boolean))} /></div>
     </div>
     <${Field} f=${{ path: 'library.rescanOnStart', label: 'Look for new songs every time OpenKaraoke starts', type: 'bool' }} settings=${state.settings} />
+    <${SongbookBlock} />
   `;
+}
+
+/** Printable songbook: opens an A4 page (print or save as PDF) or downloads a CSV. */
+function SongbookBlock() {
+  const [sort, setSort] = useState('artist');
+  const [popular, setPopular] = useState('0');
+  const [columns, setColumns] = useState('3');
+  const [explicit, setExplicit] = useState(true);
+  const url = (format) => `/api/export/songbook?${new URLSearchParams({ format, sort, popular, columns, explicit: explicit ? '1' : '0' })}`;
+  return html`<div class="setting column">
+    <div class="setting-text"><b>Printable songbook</b><p class="hint">A list of every song for the tables, with the join QR code on top. Opens in a new tab: print it or save it as a PDF. The whole library is many pages — “most popular” keeps it short.</p></div>
+    <div class="row-3 songbook-form">
+      <label class="field"><span>Order</span><select class="select" value=${sort} onChange=${(e) => setSort(e.currentTarget.value)}><option value="artist">By artist</option><option value="title">By title</option></select></label>
+      <label class="field"><span>Songs</span><select class="select" value=${popular} onChange=${(e) => setPopular(e.currentTarget.value)}>
+        <option value="0">All songs</option><option value="250">250 most popular</option><option value="1000">1,000 most popular</option><option value="5000">5,000 most popular</option></select></label>
+      <label class="field"><span>Columns</span><select class="select" value=${columns} onChange=${(e) => setColumns(e.currentTarget.value)}><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+    </div>
+    <label class="check-row"><${Switch} checked=${explicit} label="Include explicit songs" onChange=${setExplicit} /> Include explicit songs</label>
+    <div class="btn-row">
+      <a class="btn primary" href=${url('html')} target="_blank" rel="noopener"><${Icon} name="printer" size=${16} /> Open songbook</a>
+      <a class="btn" href=${url('csv')} download="songbook.csv"><${Icon} name="list" size=${16} /> Download CSV</a>
+    </div>
+  </div>`;
 }
 
 const CRAWL_STATE = {

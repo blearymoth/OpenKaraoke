@@ -7,6 +7,7 @@ import { intParam, readJsonBody, sendText } from './router.js';
 import { qrSvg } from '../util/qr.js';
 import { placeholderSvg } from '../artwork/placeholder.js';
 import { hash32 } from '../../shared/text.js';
+import { songbookRoutes } from './songbook.js';
 import { defaultMusicDirs } from '../config.js';
 import { logger } from '../util/log.js';
 
@@ -215,6 +216,8 @@ export function apiRoutes(router, app) {
     requireHost(ctx);
     return listFolders(ctx.query.get('path') || '');
   });
+
+  songbookRoutes(router, app, { requireHost });
 
   router.post('/api/auth/pin', async (ctx) => {
     const body = await readJsonBody(ctx.req, 4096);

@@ -343,3 +343,6 @@ body.host .toasts { bottom: 104px; }
   .song-detail { flex-direction: column; }
   .row-2 { grid-template-columns: 1fr; }
 }
+
+.check-row { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-2); }
+.songbook-form { margin-top: 4px; }

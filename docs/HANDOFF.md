@@ -1,13 +1,14 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-09-30 (second build session: M1 + M2 done)._
+_Last updated: 2026-09-30 (second build session: M1–M3 done)._
 
 ## TL;DR
-- **M0 (foundation)**, **M1 (server runs)** and **M2 (TV player)** are done and tested.
-  `npm start -- --library <folder>` serves the API/media/WebSocket; `/tv` plays CDG+audio with
-  key/tempo/channel modes, shows the QR lobby, next-singer intro, lyrics stage and overlays.
-- The **Room** (queue, rotation, player state machine, guests, displays) already exists on the
-  server with tests — M3 adds the host UI on top of it, M4 the guest UI.
+- **M0 foundation**, **M1 server**, **M2 TV player** and **M3 room + host app** are done and tested.
+  `npm start -- --library <folder>`, open `http://localhost:8080/host` on the PC and `/tv` on the
+  TV (or `bin/open-tv.sh`). The host app searches the library, runs the queue with fair rotation,
+  controls playback (key/tempo/channels/volume/seek) and has settings for everything.
+- Next: **M4 guest app** (`/j/<code>` is served but `public/guest.html` is still missing) — the
+  server side for guests (profiles, limits, approvals, notifications, reactions) already exists.
 - No real library in the cloud session: use `node scripts/make-demo-library.js <dir>` (7 synthetic
   songs incl. multiplex, duet, explicit and a zipped track) to try everything.
 
@@ -88,7 +89,27 @@ What exists now (see the code map in `CLAUDE.md`):
 - **Still to verify on the PC**: real MP3+CDG files from the drive, audio output latency vs.
   lyrics (tune `playback.lyricOffsetMs` if needed), a real second screen with `bin/open-tv.sh`.
 
-### M3 → M7
+### M3 — Room + host app ✅ (done in session 2)
+- `server/room/room.js` — party state (`data/state.json`), Room actions for queue/player/singers/
+  guests/displays/settings, per-role views (host, tv, guest + per-device `me`), 30 ms broadcast
+  coalescing, `time` relay (hosts/mirrors 4 Hz, guests 1 Hz), notifications ("up next", "your
+  turn", approved/rejected), history (`data/history.jsonl`), plays → `catalog.plays`, per-singer
+  key/tempo memory (`songPrefs`), main-display election + 15 s auto-resume after a TV reload,
+  remote display pairing (4-digit code), kick/ban, new party / new room code, auto new party after
+  8 h idle. `rotation.js` — fair insert + newcomers first + ETAs + fair shuffle (pure, tested).
+- `server/room/auth.js` + `POST /api/auth/pin` — remote host login; PIN change rotates tokens.
+- Host UI (`public/host.html`, `js/host/*.js`, `css/host.css`): top bar with instant search (`/`),
+  nav (Home, Search, Artists A–Z, Collections, Popular, Favourites, Singers, Guests, History,
+  Displays, Settings), queue panel (drag reorder, play now/next, edit key/tempo/singers, requests
+  approval, tonight), player bar (transport, seek, key, tempo, channel mode, volume, TV status),
+  add-to-queue dialog (singer pick/new, key, tempo, version, position, play now), song details
+  (versions table, headphone preview), invite modal + `/print/qr` table card, announcements,
+  schema-driven settings incl. folder picker (`/api/fs/list`), PIN login for remote hosts,
+  keyboard shortcuts (space, N, +/−, [ ]), responsive layout for tablets/phones.
+- "Open TV display" uses the Window Management API (`getScreenDetails`) to place `/tv` on the
+  second screen; `bin/open-tv.sh` is the no-click kiosk alternative.
+
+### M4 → M7
 See `docs/PLAN.md` §18. M4 completes the first party-ready version (host + TV + guests).
 
 ## Known limitations / TODOs in existing code

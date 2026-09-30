@@ -165,7 +165,7 @@ export function useAsync(fn, deps) {
 // ---- formatting --------------------------------------------------------------------
 export function formatEta(sec) {
   if (sec == null) return '';
-  if (sec < 60) return 'now';
+  if (sec < 60) return '< 1 min';
   const m = Math.round(sec / 60);
   if (m < 60) return `~${m} min`;
   const h = Math.floor(m / 60);

@@ -35,7 +35,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P0 Typo-tolerant instant search (<30 ms on 90k tracks); popular list; tags; random.
 - ✅ P0 Library service: on-disk cache (`data/library.json`), background rescan with progress,
   drive offline/online detection (poll every 20 s), rescan button, "library offline" banner.
-- ⬜ P0 Folder picker in host settings (server lists directories; suggest mounted drives under
+- ✅ P0 Folder picker in host settings (server lists directories; suggest mounted drives under
   `/run/media/$USER`, `/media/$USER`) + CLI `--library`.
 - ⬜ P1 Genre / decade browse (needs metadata from §12), "Most sung here", "Sung tonight" marks.
 - ⬜ P1 Printable songbook (HTML → print to PDF) with filters (letter, tag, popular only).
@@ -57,22 +57,22 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 ### Second screen & displays
 - ✅ P0 `/tv` page = the player (one **main** display plays audio). Click-to-start overlay
   (autoplay policy) + fullscreen. Keyboard shortcuts for single-screen use.
-- ⬜ P0 Host button "Open TV display": `window.getScreenDetails()` (Window Management API) to place
+- ✅ P0 Host button "Open TV display": `window.getScreenDetails()` (Window Management API) to place
   a popup on the non-primary screen, then fullscreen. Fallback: normal popup + instructions.
 - ✅ P0 `bin/open-tv.sh`: launches Chromium/Chrome in kiosk mode on the 2nd screen with
   `--autoplay-policy=no-user-gesture-required` (no click needed).
-- ⬜ P1 Mirror displays (extra TVs/projectors, muted, clock-synced), host live preview (mini mirror).
-- ⬜ P1 Remote display pairing: a non-local `/tv` shows a pairing code; host approves it.
+- 🟡 P1 Mirror displays (extra TVs/projectors, muted, clock-synced), host live preview (mini mirror).
+- ✅ P1 Remote display pairing: a non-local `/tv` shows a pairing code; host approves it.
 - ⬜ P2 Singer "confidence monitor" layout and a "queue board" layout (`/tv?layout=board`).
 
 ### Queue, singers, rotation
-- ⬜ P0 Queue with drag-reorder, play next, remove, edit singer/key/tempo, clear, shuffle.
-- ⬜ P0 Singers (name, emoji, colour), linked to guest devices; host can add singers without phones.
-- ⬜ P0 Fair **rotation** (round-robin by singer, newcomers first) or FIFO mode (§6.3).
-- ⬜ P0 ETA per queue entry; "You're up next!" notification on the singer's phone.
-- ⬜ P0 Request approval mode; per-guest limit; max song length; no repeats tonight; explicit filter.
+- ✅ P0 Queue with drag-reorder, play next, remove, edit singer/key/tempo, clear, shuffle.
+- ✅ P0 Singers (name, emoji, colour), linked to guest devices; host can add singers without phones.
+- ✅ P0 Fair **rotation** (round-robin by singer, newcomers first) or FIFO mode (§6.3).
+- ✅ P0 ETA per queue entry; "You're up next!" notification on the singer's phone.
+- ✅ P0 Request approval mode; per-guest limit; max song length; no repeats tonight; explicit filter.
 - ⬜ P1 Duets (entry with 2+ singers), teams/tables as rotation groups, "mystery song" entries.
-- ⬜ P1 Per-song remembered key/tempo (per singer when known).
+- ✅ P1 Per-song remembered key/tempo (per singer when known).
 - ⬜ P1 Favourites (host + per guest), playlists (queue a whole playlist), history (tonight + all time), re-queue.
 
 ### Guests (phones)
@@ -82,17 +82,17 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ⬜ P1 Photo upload (client-side resize, host moderation) → TV photo wall / backgrounds.
 - ⬜ P1 Co-host promotion (host grants playback/queue controls to a guest).
 - ⬜ P1 Rate the performance (1–5 ★) after each song → leaderboards.
-- ⬜ P1 Wi-Fi QR code on the TV lobby (SSID/password from settings).
+- ✅ P1 Wi-Fi QR code on the TV lobby (SSID/password from settings).
 
 ### Host app
-- ⬜ P0 KaraFun-style layout: sidebar nav, top search, main content, right queue panel, bottom
+- ✅ P0 KaraFun-style layout: sidebar nav, top search, main content, right queue panel, bottom
   player bar (transport, seek, key ±, tempo ±, channel mode, volume, TV status).
-- ⬜ P0 Views: Home, Search, Artists (A–Z), Tags/Collections, Popular, Song details (versions,
+- ✅ P0 Views: Home, Search, Artists (A–Z), Tags/Collections, Popular, Song details (versions,
   preview on host headphones), Singers, Requests (approvals), History, Settings.
-- ⬜ P0 Settings UI for every key in `DEFAULT_SETTINGS` (server/config.js).
-- ⬜ P0 Invite panel: big QR, join URL, room code, printable QR table card (`/print/qr`).
-- ⬜ P1 Announcements (big overlay text on TV), ticker message, "new party" (reset tonight's stats).
-- ⬜ P1 Keyboard shortcuts (space, arrows, +/- key, [ ] tempo, N next, F fullscreen TV).
+- ✅ P0 Settings UI for every key in `DEFAULT_SETTINGS` (server/config.js).
+- ✅ P0 Invite panel: big QR, join URL, room code, printable QR table card (`/print/qr`).
+- 🟡 P1 Announcements (big overlay text on TV), ticker message, "new party" (reset tonight's stats).
+- ✅ P1 Keyboard shortcuts (space, arrows, +/- key, [ ] tempo, N next, F fullscreen TV).
 
 ### Artwork & metadata
 - ⬜ P0 On-demand cover art per song (Deezer → Cover Art Archive), cached to `data/art/`,
@@ -158,7 +158,7 @@ server/
   room/
     room.js             ✅ party state + actions + per-role views + broadcast coalescing
     rotation.js         ✅ fair insert / ETA helpers (pure, unit tested)
-    auth.js             🟡 host PIN, localhost trust, tokens (HMAC with data/secret), display pairing
+    auth.js             ✅ host PIN, localhost trust, tokens (HMAC with data/secret), display pairing
   artwork/
     service.js          ⬜ queue with priorities, provider rate limiters, cache, crawler
     providers.js        ⬜ deezer, itunes, musicbrainz+caa, theaudiodb, fanarttv
@@ -484,7 +484,7 @@ No telemetry. Outbound traffic only to the artwork providers (can be disabled).
   `server/index.js`, `bin/openkaraoke.sh`; `/api/search` + media streaming work against the real drive.
 - ✅ **M2 TV player**: `shared/cdg.js` (+ tests), audio engine, `/tv` scenes (idle lobby with QR,
   intro, singing overlays), click-to-start, keyboard shortcuts.
-- ⬜ **M3 Room + host app**: room/rotation/auth, host UI (search, queue panel, player bar,
+- ✅ **M3 Room + host app**: room/rotation/auth, host UI (search, queue panel, player bar,
   singers, settings, invite modal), open-TV-on-second-screen, kiosk script.
 - ⬜ **M4 Guest app**: join flow, search/browse, song sheet, queue, reactions, notifications.
   → **first real party possible**.

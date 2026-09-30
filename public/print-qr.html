@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenKaraoke · QR table card</title>
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <style>
+    @page { size: A4 portrait; margin: 10mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: #15121f; background: #eee; }
+    .toolbar { position: sticky; top: 0; display: flex; gap: 12px; justify-content: center; align-items: center; padding: 12px; background: #15121f; color: #fff; }
+    .toolbar button { font: inherit; font-weight: 700; padding: 8px 18px; border-radius: 99px; border: 0; background: linear-gradient(135deg, #ff3d8b, #8b5cff); color: #fff; cursor: pointer; }
+    .sheet { width: 190mm; margin: 12px auto; display: flex; flex-direction: column; gap: 8mm; }
+    .card { height: 134mm; background: #fff; border-radius: 6mm; border: 0.4mm dashed #bbb; padding: 10mm 12mm; display: grid; grid-template-columns: 1fr 70mm; gap: 8mm; align-items: center; position: relative; overflow: hidden; }
+    .card::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 4mm; background: linear-gradient(180deg, #ff3d8b, #8b5cff); }
+    h1 { font-size: 10.5mm; line-height: 1.05; margin: 0 0 2.5mm; }
+    .sub { font-size: 5mm; font-weight: 700; margin: 0 0 4mm; color: #ff3d8b; }
+    ol { margin: 0; padding-left: 6mm; font-size: 3.9mm; line-height: 1.45; }
+    .qr img { width: 70mm; height: 70mm; display: block; }
+    .url { font-size: 3.6mm; text-align: center; margin-top: 2mm; word-break: break-all; }
+    .code { text-align: center; font-size: 4mm; margin-top: 1mm; }
+    .code b { font-size: 7mm; letter-spacing: .25em; }
+    .wifi { display: flex; gap: 4mm; align-items: center; margin-top: 4mm; font-size: 3.6mm; }
+    .wifi img { width: 22mm; height: 22mm; }
+    @media print { body { background: #fff; } .toolbar { display: none; } .sheet { margin: 0; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar"><span>Two cards per A4 page — print and cut along the dashed line.</span><button onclick="print()">Print</button></div>
+  <div class="sheet" id="sheet"></div>
+  <script type="module">
+    const info = await (await fetch('/api/info')).json();
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const qr = (text) => `/api/qr.svg?${new URLSearchParams({ text, margin: '1' })}`;
+    const wifiEsc = (s) => String(s).replace(/([\\;,:"])/g, '\\$1');
+    const w = info.wifi;
+    const wifiBlock = w ? `<div class="wifi"><img src="${qr(`WIFI:T:${w.password ? (w.security || 'WPA') : 'nopass'};S:${wifiEsc(w.ssid)};${w.password ? `P:${wifiEsc(w.password)};` : ''}${w.hidden ? 'H:true;' : ''};`)}" alt="">
+      <div>Wi-Fi<br><b>${esc(w.ssid)}</b>${w.password ? `<br>Password: <b>${esc(w.password)}</b>` : ''}</div></div>` : '';
+    const card = `<div class="card">
+      <div>
+        <h1>${esc(info.name)}</h1>
+        <p class="sub">🎤 Pick a song from your phone!</p>
+        <ol>
+          ${w ? '<li>Join the Wi-Fi (scan the small code)</li>' : '<li>Connect to the party Wi-Fi</li>'}
+          <li>Scan the big QR code with your camera</li>
+          <li>Enter your name, search a song and tap <b>Sing it!</b></li>
+          <li>Watch the TV — you'll get a buzz when you're up next</li>
+        </ol>
+        ${wifiBlock}
+      </div>
+      <div class="qr"><img src="${qr(info.joinUrl)}" alt="Join QR code"><div class="url">${esc(info.joinUrl.replace(/^https?:\/\//, ''))}</div><div class="code">Party code <b>${esc(info.roomCode)}</b></div></div>
+    </div>`;
+    document.getElementById('sheet').innerHTML = card + card;
+    document.title = `${info.name} · QR card`;
+  </script>
+</body>
+</html>

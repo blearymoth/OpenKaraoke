@@ -26,7 +26,7 @@ const SONGS = [
     file: 'D/Demo Band/Demo Band - Hello Karaoke [OK Karaoke]',
     title: 'HELLO KARAOKE', artist: 'DEMO BAND', key: 'C', bpm: 104, seed: 1,
     lines: ['HELLO HELLO KARAOKE', 'SING IT LOUD TONIGHT', 'EVERY VOICE IS WELCOME', 'UNDER PARTY LIGHTS',
-      'TAKE THE MIC AND SHINE', 'THE WORDS ARE ON THE SCREEN', 'HELLO HELLO KARAOKE', 'BEST NIGHT WE HAVE SEEN'],
+      'TAKE THE MIC AND SHINE', 'THE WORDS ARE ON SCREEN', 'HELLO HELLO KARAOKE', 'BEST NIGHT WE HAVE SEEN'],
   },
   {
     file: 'D/Demo Band/Demo Band - Hello Karaoke [SF Karaoke]',

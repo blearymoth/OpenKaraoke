@@ -46,7 +46,7 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
     const publicUrl = String(settings.get('server.publicUrl') || '').replace(/\/+$/, '');
     const base = publicUrl || lanUrls[0] || `http://localhost:${port}`;
     const roomCode = settings.get('party.roomCode');
-    return {
+    const out = {
       name: settings.get('party.name'),
       version: VERSION,
       roomCode,
@@ -58,6 +58,9 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
       host: req ? auth.isHostRequest(req) : false,
       pinSet: auth.pinConfigured(),
     };
+    const wifi = settings.get('party.wifi');
+    if (out.host && wifi?.ssid) out.wifi = { ssid: wifi.ssid, password: wifi.password, security: wifi.security, hidden: wifi.hidden };
+    return out;
   };
 
   media.register(router);
@@ -75,6 +78,7 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
   router.get('/j', (req, res) => redirect(res, `/j/${settings.get('party.roomCode')}`));
   router.get('/join', (req, res) => redirect(res, `/j/${settings.get('party.roomCode')}`));
   router.get('/j/:code', (req, res) => serveStatic(req, res, PUBLIC_DIR, 'guest.html'));
+  router.get('/print/qr', (req, res) => serveStatic(req, res, PUBLIC_DIR, 'print-qr.html'));
   for (const dir of ['js', 'css', 'img', 'fonts']) {
     router.get(`/${dir}/*`, (req, res, { params }) => serveStatic(req, res, path.join(PUBLIC_DIR, dir), params.rest));
   }

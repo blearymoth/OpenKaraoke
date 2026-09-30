@@ -264,3 +264,27 @@ test('guests cannot use host commands; reactions reach the TV', async () => {
   tv.close();
   g.close();
 });
+
+test('remote host access needs the PIN (token via /api/auth/pin)', async () => {
+  app.settings.update({ party: { trustLocalhost: false, adminPin: '' } });
+  try {
+    const noPin = await host();
+    assert.equal(noPin.welcome.t, 'denied');
+    assert.equal(noPin.welcome.code, 'pin');
+    app.settings.update({ party: { adminPin: '1357' } });
+    const post = (pin) => fetch(`http://127.0.0.1:${app.port}/api/auth/pin`, { method: 'POST', body: JSON.stringify({ pin }) });
+    assert.equal((await post('0000')).status, 403);
+    const ok = await post('1357');
+    assert.equal(ok.status, 200);
+    const { token } = await ok.json();
+    const settingsRes = await fetch(`http://127.0.0.1:${app.port}/api/settings`);
+    assert.equal(settingsRes.status, 403, 'no token -> no settings');
+    const withToken = await fetch(`http://127.0.0.1:${app.port}/api/settings`, { headers: { authorization: `Bearer ${token}` } });
+    assert.equal(withToken.status, 200);
+    const h = await connect({ role: 'host', deviceId: 'remote-host', token });
+    assert.equal(h.welcome.t, 'welcome');
+    h.close();
+  } finally {
+    app.settings.update({ party: { trustLocalhost: true, adminPin: '' } });
+  }
+});

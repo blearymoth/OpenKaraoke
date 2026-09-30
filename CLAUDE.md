@@ -64,7 +64,15 @@ npm run vendor                             # rebuild vendored libs after `npm in
 - `server/ws/hub.js` — WebSocket hub (hello → `hub.onHello`, heartbeat, `hub.handle(type, fn, {roles})`
   with `rid` replies, `broadcast`). `server/room/auth.js` — HMAC tokens, localhost trust, PIN back-off.
 - `server/app.js` — wires everything (tests create apps with `createApp`); `server/index.js` — CLI entry.
+- `server/room/room.js` — the party (queue, rotation, player state machine, guests, displays,
+  per-role views, notifications, history); `rotation.js` — pure queue-order/ETA helpers.
 - `server/util/lru.js`, `server/artwork/placeholder.js` (gradient + initials SVG).
+- `shared/cdg.js` (CDG decoder), `shared/protocol.js` (channel modes, key/tempo ranges, emojis).
+- `public/js/lib/` — `ws-client.js` (reconnecting WS + `rid` requests + clock offset), `store.js`
+  (`createStore`/`useStore`), `api.js`, `ui.js` (icons, Cover, Modal, toasts, hooks),
+  `audio-engine.js` (Signalsmith Stretch), `cdg-canvas.js`.
+- `public/js/tv/` (TV app + `player.js` reconciler), `public/js/host/` (host app).
+- `scripts/make-demo-library.js` — synthetic demo library (WAV + CDG) for trying things without the drive.
 - `test/` — node:test suites + helpers (`makeZip`, `writeTree`, `rawTracks`).
 
 Planned modules and their responsibilities are specified in `docs/PLAN.md` §4.

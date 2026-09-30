@@ -1,7 +1,7 @@
 // UI pieces shared by the host and guest apps.
 import { html, useEffect, useRef, useState, useCallback } from '../vendor/preact.js';
 import { Icon } from './icons.js';
-import { artUrl, formatTime, useStore } from './store.js';
+import { artUrl, artistArtUrl, artStore, formatTime, useStore } from './store.js';
 
 /** JSON fetch helper; adds the host token when there is one. */
 export async function apiGet(path, params) {
@@ -84,9 +84,16 @@ export function go(path) {
 }
 
 export function Cover({ songId, size = 48, big = false }) {
+  useStore(artStore); // new artwork → new URL
   return html`<div class="cover" style=${{ width: `${size}px` }}>
     <img src=${artUrl(songId, big ? 500 : 250)} alt="" loading="lazy" decoding="async" />
   </div>`;
+}
+
+/** Round artist picture (falls back to a placeholder on the server). */
+export function ArtistImage({ artistKey, size = 44, class: cls = '' }) {
+  useStore(artStore);
+  return html`<img class=${cls} src=${artistArtUrl(artistKey, 'picture', { size: size > 200 ? 500 : 250 })} alt="" loading="lazy" decoding="async" width=${size} height=${size} />`;
 }
 
 export function Avatar({ singer, size = 32 }) {

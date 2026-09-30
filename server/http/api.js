@@ -100,6 +100,7 @@ export function apiRoutes(router, app) {
     const a = cat().artist(ctx.params.key);
     if (!a) throw new HttpError(404, 'Artist not found');
     const songs = cat().filterSongs(filterFor(ctx, { artist: a.key }), { limit: 5000, sort: 'title' }).items;
+    app.artwork?.request('artist', a, 'visible', 'all'); // the artist page shows fanart and the logo
     return { artist: { ...artistSummary(a), art: app.artwork?.publicArtist(a.key) || null }, songs: summaries(songs) };
   });
 
@@ -167,6 +168,13 @@ export function apiRoutes(router, app) {
     if (app.artwork && artist && (await app.artwork.serveArtist(ctx, artist))) return;
     if (ctx.query.get('type') && ctx.query.get('type') !== 'picture') throw new HttpError(404, 'No image of this kind');
     placeholder(ctx, { artist: artist?.name || ctx.params.key });
+  });
+
+  router.get('/api/art/candidate/:songId/:cid', async (ctx) => {
+    requireHost(ctx);
+    const song = cat().song(ctx.params.songId);
+    if (song && (await app.artwork.serveCandidate(ctx, song, ctx.params.cid))) return;
+    placeholder(ctx, { artist: song?.artist || '', title: song?.title || '' });
   });
 
   router.get('/api/artwork', (ctx) => {

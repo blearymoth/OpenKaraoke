@@ -1,7 +1,7 @@
 // TV display app (/tv): lobby with join QR, next-singer intro, lyrics with overlays.
 import { html, render, useEffect, useRef, useState } from '../vendor/preact.js';
 import { Connection } from '../lib/ws-client.js';
-import { createStore, useStore, useTick, singersText, artUrl } from '../lib/store.js';
+import { createStore, useStore, useTick, useInterval, singersText, artUrl, artistArtUrl, artStore, noteArt } from '../lib/store.js';
 import { Icon } from '../lib/icons.js';
 import { TvController } from './controller.js';
 import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
@@ -37,6 +37,7 @@ conn.on('time', (m) => controller.onTime(m));
 conn.on('status', (status) => store.update({ status }));
 conn.on('denied', (m) => store.update({ denied: m.reason }));
 conn.on('reaction', (m) => addReaction(m));
+conn.on('art', (m) => noteArt(m));
 controller.addEventListener('change', () => store.update({ unlocked: controller.unlocked }));
 
 let reactionId = 0;
@@ -158,14 +159,35 @@ requestAnimationFrame(loop);
 
 function Background() {
   const { state } = useStore(store);
+  useStore(artStore);
   const mode = state?.display?.background || 'art';
   const cur = state?.current;
   const singing = cur && ['playing', 'paused', 'intro', 'ready'].includes(state.player.state);
   if (mode === 'plain') return html`<div class="plain-bg" style=${{ background: 'var(--night)' }}></div>`;
   if (mode === 'art' && singing) {
-    return html`<div class="art-bg" key=${cur.songId} style=${{ backgroundImage: `url(${artUrl(cur.songId, 500)})` }}></div><div class="scrim"></div>`;
+    const art = cur.art || {};
+    const fanart = art.fanart && state.display.fanart !== false && !cur.mystery;
+    return html`
+      <div class="art-bg" key=${cur.songId} style=${{ backgroundImage: `url(${artUrl(cur.mystery ? null : cur.songId, 500)})` }}></div>
+      ${fanart && html`<${FanartShow} artistKey=${art.fanart} count=${art.fanartCount || 1} key=${art.fanart} />`}
+      <div class="scrim"></div>`;
   }
+  if (mode === 'art' && !cur && state?.mosaic?.length >= 4) return html`<${Mosaic} ids=${state.mosaic} />`;
   return html`<div class="aurora"><i></i><i></i><i></i></div>`;
+}
+
+/** The artist's photos, one after the other, slowly zooming (Ken Burns). */
+function FanartShow({ artistKey, count }) {
+  const [i, setI] = useState(0);
+  useInterval(() => setI((x) => (x + 1) % count), count > 1 ? 20000 : null);
+  return html`<div class="fanart-bg" key=${i} style=${{ backgroundImage: `url(${artistArtUrl(artistKey, 'fanart', { i, size: 1000 })})` }}></div>`;
+}
+
+/** Idle lobby: a slowly drifting wall of covers from the library. */
+function Mosaic({ ids }) {
+  const tiles = [];
+  while (tiles.length < 60) tiles.push(...ids);
+  return html`<div class="mosaic" aria-hidden="true">${tiles.slice(0, 60).map((id, i) => html`<img key=${i} src=${artUrl(id, 250)} alt="" decoding="async" />`)}</div><div class="mosaic-scrim"></div>`;
 }
 
 function App() {
@@ -267,11 +289,16 @@ function Intro({ st }) {
   else if (p.state === 'ready') status = 'Ready when you are — the host starts the song';
   else if (left === 0) status = 'Here we go!';
   const circ = 2 * Math.PI * 44;
+  const cover = cur.art?.cover && !cur.mystery;
+  const logo = cur.art?.logo && !cur.mystery;
   return html`<div class="scene intro fade-in" key=${cur.id}>
     <div class="kicker">${cur.mystery ? 'Mystery song!' : 'Next singer'}</div>
-    <div class="avatar-big" style=${{ '--c': singer?.color }}>${singer?.emoji || '🎤'}</div>
+    ${cover
+      ? html`<div class="intro-art"><img class="intro-cover" src=${artUrl(cur.songId, 500)} alt="" /><div class="avatar-big" style=${{ '--c': singer?.color }}>${singer?.emoji || '🎤'}</div></div>`
+      : html`<div class="avatar-big" style=${{ '--c': singer?.color }}>${singer?.emoji || '🎤'}</div>`}
     <div class="name display">${singersText(cur.singers) || 'Grab the mic!'}</div>
-    <div class="song"><b>${cur.title}</b> by ${cur.artist}</div>
+    <div class="song"><b>${cur.title}</b> by ${cur.artist}${cur.year && !cur.mystery ? html` <span class="year">(${cur.year})</span>` : ''}</div>
+    ${logo && html`<img class="artist-logo" src=${artistArtUrl(cur.art.logo, 'logo', { size: 500 })} alt="" />`}
     ${(p.key !== 0 || p.tempo !== 1) && html`<div class="meta">
       ${p.key !== 0 && html`<span class="chip">Key ${formatKey(p.key)}</span>`}
       ${p.tempo !== 1 && html`<span class="chip">Tempo ${formatTempo(p.tempo)}</span>`}
@@ -296,6 +323,7 @@ function Singing({ st }) {
   const ticker = d.showTicker !== false && (st.queue.length || d.tickerMessage);
   return html`<div class=${`scene ${ticker ? 'with-ticker' : ''}`}>
     ${d.showTitleCard !== false && pos < 12 && html`<div class="titlecard" key=${cur.id}>
+      ${cur.art?.cover && !cur.mystery && html`<img class="tc-cover" src=${artUrl(cur.songId, 250)} alt="" />`}
       <span class="avatar" style=${{ '--avatar': cur.singers[0]?.color }}>${cur.singers[0]?.emoji || '🎤'}</span>
       <div class="ellipsis"><b class="display ellipsis">${singersText(cur.singers) || 'Sing along!'}</b><span>${cur.title} by ${cur.artist}</span></div>
     </div>`}

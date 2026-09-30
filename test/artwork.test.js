@@ -419,7 +419,7 @@ test('service: fix artwork — candidates, choose one, or no cover at all', asyn
   const { items, errors } = await art.candidates(s);
   assert.deepEqual(errors, []);
   assert.ok(items.length >= 1);
-  assert.match(items[0].thumb, /250x250/);
+  assert.match(items[0].thumb, /^\/api\/art\/candidate\/.*\/deezer%3A/, 'thumbnails are served by our server, not the CDN');
   await assert.rejects(art.choose(s, 'deezer:nope'), /expired/);
   await art.choose(s, items[0].id);
   const e = art.songs.get(s.key);

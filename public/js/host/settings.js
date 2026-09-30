@@ -49,7 +49,8 @@ const SECTIONS = [
   },
   {
     id: 'display', title: 'TV display', icon: 'tv', fields: [
-      { path: 'display.background', label: 'Background', type: 'select', options: [['art', 'Blurred cover art'], ['visualizer', 'Moving lights'], ['plain', 'Plain']] },
+      { path: 'display.background', label: 'Background', type: 'select', options: [['art', 'Cover art and artist photos'], ['visualizer', 'Moving lights'], ['plain', 'Plain']] },
+      { path: 'display.fanart', label: 'Artist photos behind the lyrics', type: 'bool', help: 'Slowly moving photos of the artist when there are some (see Artwork); otherwise the blurred cover.', when: (s) => s.display.background === 'art' },
       { path: 'display.cdgTransparent', label: 'Show the background behind the lyrics', type: 'bool' },
       { path: 'display.cdgSmoothing', label: 'Smooth lyrics text', type: 'bool', help: 'Rounder, sharper-looking letters on big screens.' },
       { path: 'display.showQr', label: 'QR code in the corner while singing', type: 'bool' },
@@ -62,6 +63,7 @@ const SECTIONS = [
       { path: 'display.accent', label: 'Accent colour', type: 'color' },
     ],
   },
+  { id: 'artwork', title: 'Artwork', icon: 'disc', custom: 'artwork' },
   { id: 'about', title: 'About', icon: 'music', custom: 'about' },
 ];
 
@@ -191,6 +193,68 @@ function LibrarySection({ state, lib }) {
   `;
 }
 
+const CRAWL_STATE = {
+  running: 'Looking songs up…',
+  waiting: 'Waiting: a service asked us to slow down, or the internet is not reachable. It carries on by itself.',
+  done: 'Everything has been looked up.',
+  paused: 'Background lookups are paused.',
+  off: 'Off.',
+  idle: 'Starts shortly after OpenKaraoke starts.',
+};
+const PROVIDER_NOTES = {
+  deezer: 'Covers, artist pictures, genre, year, explicit flag and popularity. No key needed.',
+  musicbrainz: 'Fallback for songs Deezer doesn’t know: covers from the Cover Art Archive and the year. Slow (one request a second).',
+  theaudiodb: 'Artist photos, logos and cut-outs for the TV and artist pages.',
+  itunes: 'Extra fallback. Apple’s terms don’t allow keeping its artwork, so it is off by default.',
+  fanarttv: 'HD artist backgrounds and logos. Needs your own API key (below).',
+};
+const STATUS_TEXT = { ok: 'OK', offline: 'Not reachable', limited: 'Asked us to slow down', error: 'Problem' };
+
+function hoursMinutes(sec) {
+  const m = Math.max(1, Math.round(sec / 60));
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+function ArtworkSection({ state }) {
+  const { artwork: st } = useStore(store);
+  useEffect(() => {
+    act('artwork.status', {}, { quiet: true }).then((r) => r && store.update({ artwork: r }));
+  }, []);
+  const settings = state.settings;
+  const on = settings.artwork.enabled;
+  const pct = (n) => (st?.songs.total ? `${(n / st.songs.total) * 100}%` : '0%');
+  return html`
+    <${Field} f=${{ path: 'artwork.enabled', label: 'Find cover art and song information online', type: 'bool', help: 'Covers, artist photos, genres and years come from Deezer, MusicBrainz and TheAudioDB. Only song and artist names are sent; images are kept in the data folder so they also work without internet later.' }} settings=${settings} />
+    <${Field} f=${{ path: 'artwork.crawl', label: 'Look up the whole library in the background', type: 'bool', help: 'Most popular songs first, a few per second. Songs on screen and the next singers are always looked up straight away.', when: () => on }} settings=${settings} />
+    ${st && on && html`<div class="setting column">
+      <div class="setting-text"><b>Progress</b><p class="hint">${CRAWL_STATE[st.state] || st.state}</p></div>
+      <div class="art-progress" role="img" aria-label=${`${st.songs.found} of ${st.songs.total} songs have a cover`}>
+        <i class="found" style=${{ width: pct(st.songs.found) }}></i><i class="missed" style=${{ width: pct(st.songs.missed) }}></i>
+      </div>
+      <p class="hint">
+        <b>${st.songs.found.toLocaleString()}</b> of ${plural(st.songs.total, 'song')} have a cover · ${st.songs.missed.toLocaleString()} not found online · ${st.songs.pending.toLocaleString()} still to look up${st.perMin ? ` · ${st.perMin.toLocaleString()} a minute` : ''}${st.etaSec ? ` · about ${hoursMinutes(st.etaSec)} left` : ''}.
+      </p>
+      <p class="hint">${st.artists.pictures.toLocaleString()} of ${plural(st.artists.total, 'artist')} have a picture. Image cache: ${st.cache.mb.toLocaleString()} MB of ${st.cache.maxMb.toLocaleString()} MB (${plural(st.cache.files, 'image')}).</p>
+      <div class="btn-row"><button class="btn small" onClick=${() => act('artwork.retry').then((r) => r && toast(r.cleared ? `Looking up ${plural(r.cleared, 'song')} again` : 'Trying again', 'ok'))}><${Icon} name="refresh" size=${14} /> Try songs without a cover again</button></div>
+    </div>`}
+    ${on && html`<div class="setting column">
+      <div class="setting-text"><b>Sources</b></div>
+      <div class="providers">${(st?.providers || []).map((p) => html`<div class="provider-row">
+        <${Switch} checked=${!!settings.artwork.providers[p.name]} label=${p.label} onChange=${(v) => save(`artwork.providers.${p.name}`, v)} />
+        <div class="grow">
+          <b>${p.label}</b>
+          ${p.on && html` <span class=${`pill ${p.status === 'ok' ? '' : 'bad'}`}>${STATUS_TEXT[p.status] || p.status}${p.pausedSec ? ` · retry in ${p.pausedSec} s` : ''}</span>`}
+          <p class="hint">${PROVIDER_NOTES[p.name] || ''}${p.on && p.status !== 'ok' && p.lastError ? ` Last problem: ${p.lastError}` : ''}</p>
+        </div>
+      </div>`)}</div>
+    </div>`}
+    ${on && html`
+      <${Field} f=${{ path: 'artwork.theaudiodbKey', label: 'TheAudioDB key', type: 'text', placeholder: '123', help: '123 is the free key (30 lookups a minute). Supporters of TheAudioDB get a faster personal key.' }} settings=${settings} />
+      <${Field} f=${{ path: 'artwork.fanartKey', label: 'Fanart.tv API key', type: 'text', placeholder: 'Optional', help: 'Get a free key at fanart.tv to add HD artist backgrounds and logos.' }} settings=${settings} />
+      <${Field} f=${{ path: 'artwork.maxCacheMB', label: 'Image cache limit (MB)', type: 'number', min: 50, max: 200000, help: 'The least recently shown images are removed when the cache is full. About 20 KB per song thumbnail.' }} settings=${settings} />`}
+  `;
+}
+
 function About({ state }) {
   const shortcuts = [['Space', 'Play / pause'], ['N', 'Next singer'], ['/', 'Search'], ['← →', 'Seek 5 seconds'], ['+ −', 'Key up / down'], ['[ ]', 'Tempo down / up']];
   return html`<div class="about">
@@ -214,6 +278,7 @@ export function Settings({ section = 'party' }) {
         <h2>${current.title}</h2>
         ${current.custom === 'library' && html`<${LibrarySection} state=${state} lib=${lib} />`}
         ${current.custom === 'about' && html`<${About} state=${state} />`}
+        ${current.custom === 'artwork' && html`<${ArtworkSection} state=${state} />`}
         ${current.fields?.map((f) => html`<${Field} key=${f.path} f=${f} settings=${state.settings} hasPin=${state.hasPin} />`)}
       </section>
     </div>

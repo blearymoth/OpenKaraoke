@@ -1,8 +1,8 @@
 // Host dialogs: add to queue, song details, edit queue entry, invite, folder picker.
 import { html, useEffect, useMemo, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
-import { useStore, formatTime } from '../lib/store.js';
-import { Modal, Cover, Spinner, Stepper, useFetch, apiGet, copyText, SongBadges, go } from '../lib/components.js';
+import { useStore, formatTime, artStore } from '../lib/store.js';
+import { Modal, Cover, Spinner, Stepper, useFetch, apiGet, copyText, SongBadges, go, clearFetchCache } from '../lib/components.js';
 import { store, act, closeDialog, openDialog, toast } from './state.js';
 import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 
@@ -73,7 +73,8 @@ export function AddDialog({ songId, trackId: initialTrack, singerName = '' }) {
 
 export function SongDialog({ songId }) {
   const { state } = useStore(store);
-  const { data: song, error } = useFetch(`/api/songs/${encodeURIComponent(songId)}`, null, { ttl: 2000 });
+  const { data: song, error, reload } = useFetch(`/api/songs/${encodeURIComponent(songId)}`, null, { ttl: 2000 });
+  useEffect(() => artStore.subscribe((ev) => { if (ev.songs.includes(songId)) reload(); }), [songId]);
   const fav = state.favorites.includes(songId);
   return html`<${Modal} title="Song details" wide onClose=${closeDialog}>
     ${error && html`<p class="warn-text">${error.message}</p>`}
@@ -84,8 +85,12 @@ export function SongDialog({ songId }) {
         <div class="song-detail-text">
           <h3>${song.title} <${SongBadges} song=${song} /></h3>
           <div class="artist-links">${song.artists.map((a, i) => html`${i ? ' & ' : ''}<a href=${`#/artist/${encodeURIComponent(a.key)}`} onClick=${closeDialog}>${a.name}</a>`)}</div>
-          <div class="chips">${song.tags.map((t) => html`<a class="chip" href=${`#/tag/${encodeURIComponent(t)}`} onClick=${closeDialog}>${t}</a>`)}</div>
+          <div class="chips">${song.tags.map((t) => html`<a class="chip" href=${`#/tag/${encodeURIComponent(t)}`} onClick=${closeDialog}>${t}</a>`)}
+            ${song.meta?.genre && html`<a class="chip" href=${`#/genre/${encodeURIComponent(song.meta.genre)}`} onClick=${closeDialog}>${song.meta.genre}</a>`}
+            ${song.meta?.year > 0 && html`<a class="chip" href=${`#/decade/${Math.floor(song.meta.year / 10) * 10}`} onClick=${closeDialog}>${song.meta.year}</a>`}</div>
+          ${song.meta?.album && html`<p class="muted ellipsis" title=${song.meta.album}>From the album <b>${song.meta.album}</b></p>`}
           <p class="muted">${song.plays ? `Sung ${song.plays} time${song.plays === 1 ? '' : 's'} here.` : 'Never sung here yet.'} ${formatTime(song.dur)} long.</p>
+          <p class="hint art-source">${artSource(song.meta)} <button class="link" onClick=${() => openDialog({ type: 'artwork', songId })}>Change cover</button></p>
           <div class="btn-row">
             <button class="btn primary" onClick=${() => openDialog({ type: 'add', songId })}><${Icon} name="plus" size=${18} /> Add to queue</button>
             <button class=${`btn ${fav ? 'on' : ''}`} onClick=${() => act('favorite.toggle', { songId })}><${Icon} name=${fav ? 'starFill' : 'star'} size=${18} /> ${fav ? 'Favourite' : 'Add to favourites'}</button>
@@ -104,6 +109,53 @@ export function SongDialog({ songId }) {
         </tr>`)}</tbody>
       </table>
     `}
+  </${Modal}>`;
+}
+
+function artSource(meta) {
+  if (!meta) return 'Cover: not looked up yet.';
+  if (meta.manual) return meta.cover ? 'Cover chosen by you.' : 'No cover (your choice).';
+  if (meta.cover) return `Cover and details from ${meta.provider}${meta.confidence ? ` (${Math.round(meta.confidence * 100)} % match)` : ''}.`;
+  return 'No cover found online.';
+}
+
+/** "Fix artwork": pick one of the candidates the providers know, no cover, or look up again. */
+export function ArtworkDialog({ songId }) {
+  const { data: song } = useFetch(`/api/songs/${encodeURIComponent(songId)}`, null, { ttl: 0 });
+  const [found, setFound] = useState({ loading: true, items: [], errors: [] });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    act('artwork.candidates', { songId }).then((r) => setFound({ loading: false, items: r?.items || [], errors: r?.errors || [] }));
+  }, [songId]);
+  const back = () => openDialog({ type: 'song', songId });
+  const run = async (t, body, done) => {
+    setBusy(true);
+    const r = await act(t, { songId, ...body });
+    setBusy(false);
+    if (r) {
+      toast(typeof done === 'function' ? done(r) : done, 'ok');
+      clearFetchCache(); // song details, lists and facets show the new metadata
+      back();
+    }
+  };
+  return html`<${Modal} title="Choose the cover" wide onClose=${closeDialog} footer=${html`
+      <button class="btn ghost danger" disabled=${busy} onClick=${() => run('artwork.none', {}, 'This song shows no cover now')}>No cover</button>
+      <button class="btn ghost" disabled=${busy} onClick=${() => run('artwork.refresh', {}, (r) => (r.found ? 'Found a cover' : 'Still no cover found'))}><${Icon} name="refresh" size=${16} /> Look up again</button>
+      <button class="btn" onClick=${back}>Back</button>`}>
+    ${song && html`<div class="song-head">
+      <${Cover} songId=${songId} size=${64} />
+      <div><div class="song-head-title">${song.title}</div><div class="muted">${song.artist}</div></div>
+    </div>`}
+    ${found.loading && html`<${Spinner} />`}
+    ${found.errors.map((e) => html`<p class="warn-text">${e}</p>`)}
+    ${!found.loading && !found.items.length && html`<p class="muted">No covers found for this song. Check the internet connection, or use “No cover”.</p>`}
+    <div class="art-candidates">${found.items.map((c) => html`<button class=${`art-candidate ${c.current ? 'on' : ''}`} disabled=${busy} onClick=${() => run('artwork.choose', { candidateId: c.id }, 'Cover saved')}>
+      <img src=${c.thumb} alt="" loading="lazy" referrerpolicy="no-referrer" />
+      <b class="ellipsis" title=${`${c.title} ${c.version}`}>${c.title} <span class="faint">${c.version}</span></b>
+      <span class="ellipsis muted">${c.artist}</span>
+      <span class="ellipsis faint" title=${c.album}>${[c.album, c.year || ''].filter(Boolean).join(' · ')}</span>
+      <span class="art-candidate-foot"><span class="pill">${c.provider}</span> <span class=${c.confidence >= 0.62 ? 'good' : 'faint'}>${Math.round(c.confidence * 100)} %</span>${c.current ? html` <span class="pill neon">Current</span>` : ''}</span>
+    </button>`)}</div>
   </${Modal}>`;
 }
 
@@ -263,6 +315,7 @@ export function Dialogs() {
   switch (dialog.type) {
     case 'add': return html`<${AddDialog} ...${dialog} key=${dialog.songId} />`;
     case 'song': return html`<${SongDialog} songId=${dialog.songId} key=${dialog.songId} />`;
+    case 'artwork': return html`<${ArtworkDialog} songId=${dialog.songId} key=${dialog.songId} />`;
     case 'edit': return html`<${EditDialog} entryId=${dialog.entryId} />`;
     case 'invite': return html`<${InviteDialog} />`;
     case 'folder': return html`<${FolderDialog} onPick=${dialog.onPick} />`;

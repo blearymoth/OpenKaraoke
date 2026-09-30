@@ -423,7 +423,10 @@ export class ArtworkService extends EventEmitter {
     await fsp.writeFile(tmp, buf);
     await fsp.rename(tmp, abs);
     const prev = this.files.get(key);
-    if (prev) this.bytes -= prev.size;
+    if (prev) {
+      this.bytes -= prev.size;
+      if (prev.ext !== ext) fsp.unlink(path.join(this.artDir, `${key}.${prev.ext}`)).catch(() => {});
+    }
     this.files.set(key, { ext, size: buf.length, used: this.now() });
     this.bytes += buf.length;
     this.evict();
@@ -744,7 +747,10 @@ export class ArtworkService extends EventEmitter {
     const out = { cover: !!this.songs.get(song.key)?.cover };
     for (const key of song.artistKeys || []) {
       const a = this.artists.get(key);
-      if (a?.fanart?.length && !out.fanart) out.fanart = key;
+      if (a?.fanart?.length && !out.fanart) {
+        out.fanart = key;
+        out.fanartCount = a.fanart.length;
+      }
       if (a?.logo && !out.logo) out.logo = key;
     }
     return out;
@@ -859,11 +865,20 @@ export class ArtworkService extends EventEmitter {
         year: c.year || 0,
         duration: Math.round(c.duration || 0),
         confidence: c.confidence,
-        thumb: imageUrls(c.cover)?.s || '',
+        thumb: `/api/art/candidate/${encodeURIComponent(song.id)}/${encodeURIComponent(`${c.provider}:${c.id}`)}`,
         current: !!cur && cur.p === c.provider && cur.id === c.id,
       })),
       errors,
     };
+  }
+
+  /** Thumbnail of a "fix artwork" candidate, downloaded by the server (the browser never goes online). */
+  async serveCandidate(ctx, song, candidateId) {
+    const c = (this.candidateCache.get(song.key) || []).find((x) => `${x.provider}:${x.id}` === candidateId);
+    const img = c ? await this.image(c.cover, 's', PRIO.now) : null;
+    if (!img) return false;
+    await sendFile(ctx.req, ctx.res, img.abs, { contentType: img.type, cacheControl: 'private, max-age=600' });
+    return true;
   }
 
   async choose(song, candidateId) {

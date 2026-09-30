@@ -58,6 +58,7 @@ export const DEFAULT_SETTINGS = {
   },
   display: {
     background: 'art', // 'art' | 'visualizer' | 'photos' | 'plain'
+    fanart: true, // artist photos (from TheAudioDB / Fanart.tv) instead of the blurred cover when there are some
     visualizer: 'aurora',
     cdgSmoothing: true,
     cdgTransparent: true,

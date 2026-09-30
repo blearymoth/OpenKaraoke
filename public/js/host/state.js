@@ -1,6 +1,6 @@
 // Host app state: one WebSocket connection + a store with the host view from the server.
 import { Connection } from '../lib/ws-client.js';
-import { createStore, toastStore } from '../lib/store.js';
+import { createStore, toastStore, noteArt } from '../lib/store.js';
 import { apiPost, clearFetchCache } from '../lib/components.js';
 
 export const toasts = toastStore();
@@ -12,6 +12,7 @@ export const store = createStore({
   denied: null,
   time: null, // latest { entryId, pos, dur, playing, at } from the TV, with local receive time
   lib: null, // scan progress
+  artwork: null, // artwork crawler / provider status (Settings → Artwork)
   dialog: null,
 });
 
@@ -33,6 +34,8 @@ conn.on('time', (m) => store.update({ time: { ...m, recv: performance.now() } })
 conn.on('lib', (m) => {
   if (m.progress) store.update({ lib: m.progress });
 });
+conn.on('art', (m) => noteArt(m));
+conn.on('artwork', (m) => store.update({ artwork: m.status }));
 conn.on('status', (status) => store.update({ status }));
 conn.on('denied', (m) => store.update({ denied: m.reason }));
 conn.on('toast', (m) => toast(m.text, m.level === 'error' ? 'error' : 'info'));

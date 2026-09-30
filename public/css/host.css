@@ -113,8 +113,13 @@ body.host { overflow: hidden; }
 .artist-tile:hover { background: var(--stage-2); }
 .artist-tile img { grid-row: span 2; width: 44px; height: 44px; border-radius: 50%; }
 .artist-tile span { font-weight: 650; }
-.artist-head { display: flex; align-items: center; gap: 24px; }
-.artist-head img { width: 132px; height: 132px; border-radius: 50%; box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.7); }
+.artist-head { position: relative; display: flex; align-items: center; gap: 24px; isolation: isolate; }
+.artist-head > img { width: 132px; height: 132px; border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.7); }
+.artist-head-text { min-width: 0; }
+.artist-head.with-fanart { padding: 32px 28px; border-radius: 18px; overflow: hidden; min-height: 220px; margin-bottom: 8px; }
+.artist-fanart { position: absolute; inset: 0; z-index: -2; background-size: cover; background-position: center 25%; }
+.artist-head.with-fanart::before { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(90deg, rgba(14, 11, 22, 0.92) 20%, rgba(14, 11, 22, 0.35)); }
+.artist-logo img { display: block; height: 76px; width: auto; max-width: 100%; object-fit: contain; object-position: left center; filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.6)); }
 .artist-head h1 { font-size: 44px; font-stretch: 85%; }
 .artist-chips .chip { background: var(--stage-2); }
 
@@ -256,6 +261,23 @@ table.versions .num { text-align: right; }
 .code-input { font-family: var(--font-display); font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; width: 110px !important; flex: none !important; }
 .color-input { width: 56px; height: 36px; padding: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--stage-2); cursor: pointer; }
 .folders { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.art-progress { display: flex; height: 10px; border-radius: 99px; overflow: hidden; background: var(--stage-3); }
+.art-progress i { display: block; height: 100%; transition: width 0.6s var(--ease); }
+.art-progress .found { background: var(--neon); }
+.art-progress .missed { background: var(--ink-3); opacity: 0.6; }
+.providers { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.provider-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--night); border: 1px solid var(--line); }
+.provider-row .grow { min-width: 0; }
+.art-source .link { margin-left: 6px; }
+.art-candidates { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
+.art-candidate { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; padding: 8px; border-radius: 12px; background: var(--stage); border: 2px solid transparent; text-align: left; font-size: 13px; cursor: pointer; color: var(--ink); }
+.art-candidate:hover { border-color: color-mix(in srgb, var(--neon) 45%, transparent); }
+.art-candidate.on { border-color: var(--neon); }
+.art-candidate img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; background: var(--stage-3); margin-bottom: 4px; }
+.art-candidate-foot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.art-candidate .good { color: var(--ok); font-weight: 700; }
+.pill.neon { background: var(--neon-soft); color: var(--ink); }
+.tag-tile.decade b { font-size: 26px; }
 .folder-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: var(--night); border: 1px solid var(--line); }
 .about { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .kbd-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; }

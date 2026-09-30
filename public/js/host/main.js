@@ -7,7 +7,7 @@ import { store, conn, toasts, act, loginWithPin, livePosition } from './state.js
 import { PlayerBar, openInvite } from './player.js';
 import { QueuePanel } from './queue.js';
 import { Dialogs } from './dialogs.js';
-import { Home, Search, Artists, Artist, Collections, Tag, Favorites, Singers, History } from './views.js';
+import { Home, Search, Artists, Artist, Collections, Tag, Browse, Favorites, Singers, History } from './views.js';
 import { Settings } from './settings.js';
 import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
 
@@ -61,7 +61,8 @@ function TopBar({ route }) {
 
 function Nav({ route }) {
   const { state } = useStore(store);
-  const active = `/${route.parts[0] || ''}`;
+  const section = { artist: 'artists', tag: 'tags', genre: 'tags', decade: 'tags' }[route.parts[0]] || route.parts[0] || '';
+  const active = `/${section}`;
   return html`<nav class="nav" aria-label="Main">
     ${NAV.map(([path, icon, label, cls]) => html`<a class=${`${active === path ? 'on' : ''} ${cls || ''}`} href=${`#${path}`} aria-current=${active === path ? 'page' : undefined}>
       <${Icon} name=${icon} /> <span>${label}</span>
@@ -85,6 +86,8 @@ function Main({ route }) {
     case 'artist': return html`<${Artist} artistKey=${b} key=${b} />`;
     case 'tags': return html`<${Collections} />`;
     case 'tag': return html`<${Tag} tag=${b} sort=${route.query.get('sort')} key=${`${b}:${route.query.get('sort')}`} />`;
+    case 'genre': return html`<${Browse} genre=${b} key=${`g:${b}`} />`;
+    case 'decade': return html`<${Browse} decade=${b} key=${`d:${b}`} />`;
     case 'favorites': return html`<${Favorites} />`;
     case 'singers': return html`<${Singers} />`;
     case 'history': return html`<${History} />`;

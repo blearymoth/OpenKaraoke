@@ -2,8 +2,8 @@
 // singers & guests, history.
 import { html, useEffect, useMemo, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
-import { useStore, plural, singersText, useDebounced } from '../lib/store.js';
-import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, go } from '../lib/components.js';
+import { useStore, plural, singersText, useDebounced, artistArtUrl, artStore } from '../lib/store.js';
+import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, go, ArtistImage } from '../lib/components.js';
 import { store, act, openDialog, toast } from './state.js';
 import { openTvWindow, openInvite } from './player.js';
 import { AVATARS } from '/shared/protocol.js';
@@ -105,10 +105,23 @@ export function Home() {
       <h2 class="section-title">Collections</h2>
       <div class="chips">${facets.data.tags.slice(0, 16).map((t) => html`<a class="chip" href=${`#/tag/${encodeURIComponent(t.tag)}`}>${t.tag} <span class="faint">${t.count.toLocaleString()}</span></a>`)}</div>
     </section>`}
+    ${facets.data?.genres?.length > 0 && html`<section>
+      <h2 class="section-title">Genres & decades</h2>
+      <${GenreChips} facets=${facets.data} />
+    </section>`}
     ${random.data?.items.length > 0 && html`<section>
       <h2 class="section-title with-action">Random picks <button class="btn small ghost" onClick=${() => setSeed((x) => x + 1)}><${Icon} name="refresh" size=${16} /> Shuffle</button></h2>
       <${SongList} items=${random.data.items} />
     </section>`}
+  </div>`;
+}
+
+export const decadeLabel = (d) => (d >= 2000 ? `${d}s` : `’${String(d).slice(2)}s`);
+
+function GenreChips({ facets, limit = 12 }) {
+  return html`<div class="chips">
+    ${facets.genres.slice(0, limit).map((g) => html`<a class="chip" href=${`#/genre/${encodeURIComponent(g.genre)}`}>${g.genre} <span class="faint">${g.count.toLocaleString()}</span></a>`)}
+    ${facets.decades.map((d) => html`<a class="chip" href=${`#/decade/${d.decade}`}>${decadeLabel(d.decade)} <span class="faint">${d.count.toLocaleString()}</span></a>`)}
   </div>`;
 }
 
@@ -144,7 +157,7 @@ export function Artists({ letter = 'A' }) {
     </${PageHead}>
     <nav class="letters" aria-label="First letter">${letters.map((l) => html`<a class=${`letter ${l.letter === letter && !f ? 'on' : ''} ${l.artists ? '' : 'none'}`} href=${`#/artists/${encodeURIComponent(l.letter)}`} onClick=${() => setFilter('')}>${l.letter}</a>`)}</nav>
     <div class="artist-grid">${page.items.map((a) => html`<a class="artist-tile" href=${`#/artist/${encodeURIComponent(a.key)}`} key=${a.key}>
-      <img src=${`/api/art/artist/${encodeURIComponent(a.key)}`} alt="" loading="lazy" />
+      <${ArtistImage} artistKey=${a.key} size=${44} />
       <span class="ellipsis">${a.name}</span><small class="faint">${plural(a.count, 'song')}</small>
     </a>`)}</div>
     ${!page.items.length && !page.loading && html`<${Empty} icon="🎙️" title="No artists here" />`}
@@ -153,13 +166,22 @@ export function Artists({ letter = 'A' }) {
 }
 
 export function Artist({ artistKey }) {
-  const { data, error, loading } = useFetch(`/api/artists/${encodeURIComponent(artistKey)}`);
+  useStore(artStore);
+  const { data, error, loading, reload } = useFetch(`/api/artists/${encodeURIComponent(artistKey)}`);
+  // The first visit asks TheAudioDB for fanart and logos: reload the header when they arrive.
+  useEffect(() => artStore.subscribe((ev) => { if (ev.artists.includes(artistKey)) reload(); }), [artistKey]);
   if (error) return html`<div class="page"><${Empty} icon="🤷" title="Artist not found">${error.message}</${Empty}></div>`;
-  if (!data || loading) return html`<div class="page"><${Spinner} /></div>`;
+  if (!data || (loading && !data)) return html`<div class="page"><${Spinner} /></div>`;
+  const art = data.artist.art || {};
   return html`<div class="page">
-    <header class="artist-head">
-      <img src=${`/api/art/artist/${encodeURIComponent(artistKey)}`} alt="" />
-      <div><p class="muted">Artist</p><h1>${data.artist.name}</h1><p class="muted">${plural(data.songs.length, 'song')}</p></div>
+    <header class=${`artist-head ${art.fanart ? 'with-fanart' : ''}`}>
+      ${art.fanart > 0 && html`<div class="artist-fanart" style=${{ backgroundImage: `url(${artistArtUrl(artistKey, 'fanart', { size: 1000 })})` }}></div>`}
+      <${ArtistImage} artistKey=${artistKey} size=${132} />
+      <div class="artist-head-text">
+        <p class="muted">Artist${art.genre ? ` · ${art.genre}` : ''}</p>
+        ${art.logo ? html`<h1 class="artist-logo"><img src=${artistArtUrl(artistKey, 'logo', { size: 500 })} alt=${data.artist.name} /></h1>` : html`<h1>${data.artist.name}</h1>`}
+        <p class="muted">${plural(data.songs.length, 'song')}</p>
+      </div>
     </header>
     <${SongList} items=${data.songs} />
   </div>`;
@@ -168,12 +190,18 @@ export function Artist({ artistKey }) {
 // ---- collections -----------------------------------------------------------------------------
 
 export function Collections() {
-  const { data } = useFetch('/api/browse/facets');
+  const { data } = useFetch('/api/browse/facets', null, { ttl: 3000 }); // genres fill in while the library is looked up
   if (!data) return html`<div class="page"><${Spinner} /></div>`;
   return html`<div class="page">
     <${PageHead} title="Collections" sub="Groups found in your file names: duets, languages, holidays, musicals and more." />
     <div class="tag-grid">${data.tags.map((t) => html`<a class="tag-tile" href=${`#/tag/${encodeURIComponent(t.tag)}`}><b>${t.tag}</b><span class="faint">${plural(t.count, 'song')}</span></a>`)}</div>
     ${!data.tags.length && html`<${Empty} icon="🏷️" title="No collections yet">Collections appear once the library is scanned.</${Empty}>`}
+    <h2 class="section-title">Genres</h2>
+    ${data.genres?.length
+      ? html`<div class="tag-grid">${data.genres.map((g) => html`<a class="tag-tile genre" href=${`#/genre/${encodeURIComponent(g.genre)}`}><b>${g.genre}</b><span class="faint">${plural(g.count, 'song')}</span></a>`)}</div>`
+      : html`<p class="muted">Genres and decades come from the online song information — they fill in while OpenKaraoke looks up your library (Settings → Artwork).</p>`}
+    ${data.decades?.length > 0 && html`<h2 class="section-title">Decades</h2>
+      <div class="tag-grid decades">${data.decades.map((d) => html`<a class="tag-tile decade" href=${`#/decade/${d.decade}`}><b>${decadeLabel(d.decade)}</b><span class="faint">${plural(d.count, 'song')}</span></a>`)}</div>`}
     ${data.brands?.length > 0 && html`<h2 class="section-title">Karaoke labels</h2>
       <div class="chips">${data.brands.slice(0, 40).map((b) => html`<span class="chip static" title=${b.name}>${b.brand} <span class="faint">${b.count.toLocaleString()}</span></span>`)}</div>`}
   </div>`;
@@ -188,6 +216,16 @@ export function Tag({ tag, sort }) {
       </div>
     </${PageHead}>
     <${PagedSongs} path=${`/api/browse/tag/${encodeURIComponent(tag)}`} params=${{ sort: sort || 'popular' }} />
+  </div>`;
+}
+
+/** Songs of one genre or decade (from online metadata), most popular first. */
+export function Browse({ genre, decade }) {
+  const title = genre || decadeLabel(Number(decade));
+  return html`<div class="page">
+    <${PageHead} title=${title} sub=${genre ? 'Genre' : 'Songs released in this decade'} />
+    <${PagedSongs} path="/api/browse/popular" params=${genre ? { genre } : { decade }}
+      empty=${html`<${Empty} icon="🎼" title="No songs here yet">More appear while the library is looked up online.</${Empty}>`} />
   </div>`;
 }
 

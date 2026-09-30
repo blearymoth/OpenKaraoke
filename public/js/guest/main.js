@@ -1,7 +1,7 @@
 // Guest app (/j/<ROOM>): join with a name, find songs, request them, follow the queue, react.
 import { html, render, useEffect, useMemo, useRef, useState } from '../vendor/preact.js';
 import { Connection } from '../lib/ws-client.js';
-import { createStore, useStore, toastStore, formatEta, formatTime, singersText, plural, useDebounced, useTick } from '../lib/store.js';
+import { createStore, useStore, toastStore, formatEta, formatTime, singersText, plural, useDebounced, useTick, noteArt } from '../lib/store.js';
 import { Icon } from '../lib/icons.js';
 import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, Toasts, SongBadges } from '../lib/components.js';
 import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, formatKey } from '/shared/protocol.js';
@@ -33,6 +33,7 @@ conn.on('time', (m) => store.update({ time: { ...m, recv: performance.now() } })
 conn.on('status', (status) => store.update({ status }));
 conn.on('denied', (m) => store.update({ denied: m.reason }));
 conn.on('toast', (m) => toast(m.text, m.level === 'error' ? 'error' : 'info'));
+conn.on('art', (m) => noteArt(m));
 conn.on('notify', (m) => {
   if (m.kind === 'next') {
     store.update({ alert: { kind: 'next', title: m.title } });
@@ -253,11 +254,15 @@ function SearchTab({ state }) {
   const query = useDebounced(q, 150);
   const facets = useFetch('/api/browse/facets');
   const tags = (facets.data?.tags || []).filter((t) => t.tag !== 'Explicit' || !state.rules.explicitFilter).slice(0, 14);
+  const genres = (facets.data?.genres || []).slice(0, 8);
+  const decades = facets.data?.decades || [];
   let path = null;
   let params = {};
   if (query.trim()) { path = '/api/search'; params = { q: query }; }
   else if (mode.kind === 'popular') path = '/api/browse/popular';
   else if (mode.kind === 'tag') { path = `/api/browse/tag/${encodeURIComponent(mode.tag)}`; }
+  else if (mode.kind === 'genre') { path = '/api/browse/popular'; params = { genre: mode.genre }; }
+  else if (mode.kind === 'decade') { path = '/api/browse/popular'; params = { decade: mode.decade }; }
   else if (mode.kind === 'artist') path = null;
   const page = usePaged(path, params, 40);
   return html`<div class="g-page search">
@@ -271,6 +276,8 @@ function SearchTab({ state }) {
       <button class=${`chip ${mode.kind === 'popular' ? 'on' : ''}`} onClick=${() => setMode({ kind: 'popular' })}>Popular</button>
       <button class=${`chip ${mode.kind === 'artist' ? 'on' : ''}`} onClick=${() => setMode({ kind: 'artist', letter: 'A' })}>Artists A–Z</button>
       ${tags.map((t) => html`<button class=${`chip ${mode.kind === 'tag' && mode.tag === t.tag ? 'on' : ''}`} onClick=${() => setMode({ kind: 'tag', tag: t.tag })}>${t.tag}</button>`)}
+      ${decades.map((d) => html`<button class=${`chip ${mode.kind === 'decade' && mode.decade === d.decade ? 'on' : ''}`} onClick=${() => setMode({ kind: 'decade', decade: d.decade })}>${d.decade >= 2000 ? `${d.decade}s` : `’${String(d.decade).slice(2)}s`}</button>`)}
+      ${genres.map((g) => html`<button class=${`chip ${mode.kind === 'genre' && mode.genre === g.genre ? 'on' : ''}`} onClick=${() => setMode({ kind: 'genre', genre: g.genre })}>${g.genre}</button>`)}
     </div>`}
     ${!query.trim() && mode.kind === 'artist'
       ? html`<${ArtistBrowser} mode=${mode} setMode=${setMode} letters=${facets.data?.letters || []} />`
@@ -389,6 +396,7 @@ function SongSheet({ songId, state }) {
           <div class="grow">
             <h2>${song.title} <${SongBadges} song=${song} /></h2>
             <p class="muted">${song.artist}</p>
+            ${(song.meta?.year || song.meta?.genre) && html`<p class="faint">${[song.meta.year, song.meta.genre].filter(Boolean).join(' · ')}</p>`}
             <p class="faint">${formatTime(song.dur)}${song.plays ? ` · sung ${plural(song.plays, 'time')} here` : ''}</p>
           </div>
         </div>

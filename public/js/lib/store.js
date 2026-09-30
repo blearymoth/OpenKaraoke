@@ -81,7 +81,25 @@ export function singersText(singers) {
   return `${singers.slice(0, -1).map((s) => s.name).join(', ')} & ${singers.at(-1).name}`;
 }
 
-export const artUrl = (songId, size = 250) => (songId ? `/api/art/song/${encodeURIComponent(songId)}?s=${size}` : '/img/icon.svg');
+// Artwork that changes while a page is open (the server sends `art` events) gets a new URL,
+// so the browser loads the new image instead of its cached placeholder.
+const artVersions = new Map();
+/** The latest `art` event (components re-render; the URLs of changed images differ). */
+export const artStore = createStore({ n: 0, songs: [], artists: [] });
+
+/** Handles an `art` event: { songs: [songId], artists: [artistKey] }. */
+export function noteArt({ songs = [], artists = [] } = {}) {
+  for (const id of songs) artVersions.set(`s:${id}`, (artVersions.get(`s:${id}`) || 0) + 1);
+  for (const key of artists) artVersions.set(`a:${key}`, (artVersions.get(`a:${key}`) || 0) + 1);
+  if (songs.length || artists.length) artStore.set({ n: artStore.get().n + 1, songs, artists });
+}
+
+const ver = (k) => (artVersions.has(k) ? `&v=${artVersions.get(k)}` : '');
+
+export const artUrl = (songId, size = 250) => (songId ? `/api/art/song/${encodeURIComponent(songId)}?s=${size}${ver(`s:${songId}`)}` : '/img/icon.svg');
+
+/** Artist image: type = picture | fanart | logo | cutout | banner (`i` picks one of several fanarts). */
+export const artistArtUrl = (key, type = 'picture', { i = 0, size } = {}) => `/api/art/artist/${encodeURIComponent(key)}?type=${type}${i ? `&i=${i}` : ''}${size ? `&s=${size}` : ''}${ver(`a:${key}`)}`;
 
 export function toastStore() {
   const store = createStore([]);

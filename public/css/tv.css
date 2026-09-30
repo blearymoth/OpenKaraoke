@@ -42,6 +42,21 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 
 .art-bg { position: absolute; inset: -8vh; background-size: cover; background-position: center; filter: blur(7vh) saturate(1.35) brightness(0.5); transform: scale(1.1); transition: opacity 1.2s ease; }
 .scrim { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(8, 5, 18, 0.25), rgba(8, 5, 18, 0.72)); }
+.fanart-bg {
+  position: absolute; inset: 0; background-size: cover; background-position: center 30%;
+  filter: brightness(0.62) saturate(1.1);
+  animation: kenburns 24s ease-in-out both, fanart-in 1.8s ease both;
+}
+@keyframes kenburns { from { transform: scale(1.03); } to { transform: scale(1.16) translate(-1.5vw, -1.2vh); } }
+@keyframes fanart-in { from { opacity: 0; } }
+.mosaic {
+  position: absolute; inset: -18vh -14vw; display: grid; grid-template-columns: repeat(10, 1fr); gap: 1.4vh;
+  transform: rotate(-9deg); opacity: 0.38; animation: mosaic-drift 120s linear infinite alternate;
+}
+.mosaic img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 1.2vh; background: rgba(255, 255, 255, 0.04); }
+.mosaic-scrim { position: absolute; inset: 0; background: radial-gradient(ellipse at 35% 45%, rgba(7, 4, 15, 0.5), rgba(7, 4, 15, 0.93) 75%); }
+@keyframes mosaic-drift { to { translate: -8vw -10vh; } }
+@media (prefers-reduced-motion: reduce) { .fanart-bg, .mosaic { animation: none; } }
 .plain-bg { position: absolute; inset: 0; }
 
 /* ---- shared ------------------------------------------------------------------------- */
@@ -97,6 +112,12 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .countdown .arc { stroke: var(--neon); stroke-linecap: round; transition: stroke-dashoffset 0.25s linear; }
 .countdown b { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-display); font-size: 7vh; font-weight: 800; }
 .intro .status { font-size: 3vh; color: var(--ink-2); min-height: 4vh; }
+.intro-art { position: relative; margin-bottom: 2vh; }
+.intro-cover { display: block; width: 28vh; height: 28vh; object-fit: cover; border-radius: 2vh; box-shadow: 0 3vh 8vh -2vh rgba(0, 0, 0, 0.85); animation: cover-in 0.8s var(--ease) both; }
+.intro-art .avatar-big { position: absolute; right: -6vh; bottom: -4vh; width: 12vh; height: 12vh; font-size: 7vh; }
+@keyframes cover-in { from { transform: rotate(-6deg) scale(0.9); opacity: 0; } }
+.intro .artist-logo { display: block; max-height: 9vh; max-width: 40vw; object-fit: contain; filter: drop-shadow(0 0.4vh 1vh rgba(0, 0, 0, 0.8)); animation: tv-fade 0.8s var(--ease) 0.3s both; }
+.intro .year { color: var(--ink-3, var(--ink-2)); }
 .intro .status.warn { color: var(--bulb); }
 
 /* ---- singing overlays ------------------------------------------------------------------------ */
@@ -108,6 +129,8 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
   animation: card-in 0.7s var(--ease) both, card-out 0.6s ease 6.5s forwards;
 }
 .titlecard .avatar { width: 9vh; height: 9vh; font-size: 5.4vh; }
+.titlecard .tc-cover { width: 11vh; height: 11vh; border-radius: 1.2vh; object-fit: cover; flex: none; box-shadow: 0 1vh 3vh rgba(0, 0, 0, 0.6); }
+.titlecard .tc-cover + .avatar { margin-left: -5vh; align-self: flex-end; width: 6.5vh; height: 6.5vh; font-size: 4vh; }
 .titlecard b { display: block; font-size: 6vh; }
 .titlecard span { font-size: 3.2vh; color: var(--ink-2); }
 @keyframes card-in { from { transform: translateX(-100%); opacity: 0; } }

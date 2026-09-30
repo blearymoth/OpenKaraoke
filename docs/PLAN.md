@@ -37,7 +37,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   drive offline/online detection (poll every 20 s), rescan button, "library offline" banner.
 - ✅ P0 Folder picker in host settings (server lists directories; suggest mounted drives under
   `/run/media/$USER`, `/media/$USER`) + CLI `--library`.
-- ⬜ P1 Genre / decade browse (needs metadata from §12), "Most sung here", "Sung tonight" marks.
+- 🟡 P1 Genre / decade browse ✅ (host Collections + genre/decade pages, guest chips; metadata from §12), "Most sung here", "Sung tonight" marks ⬜.
 - ⬜ P1 Printable songbook (HTML → print to PDF) with filters (letter, tag, popular only).
 - ⬜ P2 Optional ffmpeg transcoding for AVI/WMV/MPG video when `ffmpeg` is installed.
 
@@ -49,7 +49,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P0 "Next singer" intro card with countdown, then auto-start (or start-paused mode).
 - 🟡 P0 Preload next track during the intro ✅; gapless transition to break music ⬜ (M7).
 - 🟡 P0 Video karaoke (MP4/WEBM) with the same controls (tempo via playbackRate, key via stretch live input) — implemented, untested with real video files.
-- 🟡 P1 Background behind transparent CDG (done: blurred art with placeholder art until M5, aurora visualiser, plain, Scale2x; todo: photos, fanart): blurred cover / artist fanart (Ken-Burns), audio
+- 🟡 P1 Background behind transparent CDG (done: blurred cover art, artist fanart with Ken Burns, idle cover mosaic, aurora visualiser, plain, Scale2x; todo: guest photos): blurred cover / artist fanart (Ken-Burns), audio
   visualiser, guest photos, or plain colour. CDG smoothing (Scale2x) for crisp text on big TVs.
 - ✅ P1 Lyric sync offset setting (ms) and automatic output-latency compensation (getOutputTimestamp).
 - ⬜ P2 Mic monitoring with reverb/echo on the PC (localhost only, latency warning).
@@ -95,12 +95,15 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P1 Keyboard shortcuts (space, arrows, +/- key, [ ] tempo, N next, F fullscreen TV).
 
 ### Artwork & metadata
-- 🟡 P0 (placeholder art done, real art in M5) On-demand cover art per song (Deezer → Cover Art Archive), cached to `data/art/`,
-  placeholder SVG (gradient + initials) while missing.
-- ⬜ P1 Background crawler for the whole library (popular first), resumable, rate-limited,
+- ✅ P0 On-demand cover art per song (Deezer → MusicBrainz/Cover Art Archive → iTunes), cached to
+  `data/art/`, placeholder SVG (gradient + initials) while missing; live refresh via `art` events.
+- ✅ P1 Background crawler for the whole library (popular first), resumable, rate-limited,
   progress + ETA in settings. Artist pictures, genre, year, explicit flag, popularity rank.
-- ⬜ P1 TheAudioDB (key `123`) artist fanart/logo/cutout for TV title cards and backgrounds.
-- ⬜ P2 "Fix artwork" (choose among candidates / upload custom), optional iTunes & Fanart.tv.
+- ✅ P1 TheAudioDB (key `123`) artist fanart/logo/cutout for TV backgrounds, intro card and artist pages.
+- 🟡 P2 "Fix artwork" ✅ (choose among candidates, "no cover", look up again), optional iTunes & Fanart.tv ✅;
+  upload a custom cover ⬜.
+- ⬜ Live verification against the real APIs (the cloud session could not reach them): run
+  `node scripts/artwork-check.js` on the PC.
 
 ### Games (§13)
 - ⬜ P1 Music Quiz (phones answer, speed scoring, leaderboard, rounds: intro, name the artist,
@@ -160,8 +163,9 @@ server/
     rotation.js         ✅ fair insert / ETA helpers (pure, unit tested)
     auth.js             ✅ host PIN, localhost trust, tokens (HMAC with data/secret), display pairing
   artwork/
-    service.js          ⬜ queue with priorities, provider rate limiters, cache, crawler
-    providers.js        ⬜ deezer, itunes, musicbrainz+caa, theaudiodb, fanarttv
+    service.js          ✅ per-provider priority queues, rate limiters/back-off, meta.json, image cache, crawler
+    providers.js        ✅ deezer, musicbrainz+caa, theaudiodb, itunes, fanarttv (pure parsers, image refs, host allow-list)
+    match.js            ✅ search-title/credit cleanup, candidate scoring, genre normalisation
     placeholder.js      ✅ deterministic gradient SVG with initials
   games/
     quiz.js battle.js wheel.js poll.js relay.js   ⬜ (§13)
@@ -488,7 +492,8 @@ No telemetry. Outbound traffic only to the artwork providers (can be disabled).
   singers, settings, invite modal), open-TV-on-second-screen, kiosk script.
 - ✅ **M4 Guest app**: join flow, search/browse, song sheet, queue, reactions, notifications.
   → **first real party possible**.
-- ⬜ **M5 Artwork & metadata**: providers, cache, placeholders, crawler, genres/decades browse.
+- ✅ **M5 Artwork & metadata**: providers, cache, placeholders, crawler, genres/decades browse
+  (provider parsers tested against documented-shape fixtures; live check pending on the PC).
 - ⬜ **M6 Games**: quiz, battle, wheel, poll, pass-the-mic, applause meter, ratings, recap.
 - ⬜ **M7 Polish**: break music/autoplay, photos, mirrors & pairing, printable songbook/QR card,
   systemd service, README screenshots, performance pass.

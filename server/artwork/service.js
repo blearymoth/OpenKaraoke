@@ -180,6 +180,7 @@ export class ArtworkService extends EventEmitter {
     } catch {
       return;
     }
+    const pinned = this.customKeys();
     for (const name of names) {
       if (name.endsWith('.tmp')) {
         fsp.unlink(path.join(this.artDir, name)).catch(() => {});
@@ -189,7 +190,7 @@ export class ArtworkService extends EventEmitter {
       if (!m || this.files.has(m[1])) continue;
       try {
         const st = await fsp.stat(path.join(this.artDir, name));
-        this.files.set(m[1], { ext: m[2], size: st.size, used: st.mtimeMs });
+        this.files.set(m[1], { ext: m[2], size: st.size, used: st.mtimeMs, pinned: pinned.has(m[1]) || undefined });
         this.bytes += st.size;
       } catch { /* removed meanwhile */ }
     }
@@ -438,7 +439,7 @@ export class ArtworkService extends EventEmitter {
     const max = Math.max(20, Number(this.cfg().maxCacheMB) || 3072) * 1024 * 1024;
     if (this.bytes <= max) return;
     const target = max * 0.9;
-    const list = [...this.files].sort((a, b) => a[1].used - b[1].used);
+    const list = [...this.files].filter(([, f]) => !f.pinned).sort((a, b) => a[1].used - b[1].used);
     for (const [key, f] of list) {
       if (this.bytes <= target) break;
       this.files.delete(key);
@@ -761,7 +762,7 @@ export class ArtworkService extends EventEmitter {
     const e = this.songs.get(key);
     if (!e) return null;
     return compactEntry({
-      provider: e.p ? PROVIDERS[e.p]?.label || e.p : '',
+      provider: e.p === 'custom' ? 'your own picture' : e.p ? PROVIDERS[e.p]?.label || e.p : '',
       album: e.album,
       year: e.year,
       genre: e.genre,
@@ -891,6 +892,34 @@ export class ArtworkService extends EventEmitter {
       confidence: 1, manual: true, at: this.now(), v: MATCH_VERSION,
     });
     await this.image(c.cover, 's', PRIO.now);
+    return { ok: true };
+  }
+
+  /** Cache keys of covers the host uploaded (never evicted). */
+  customKeys() {
+    const keys = new Set();
+    for (const e of this.songs.values()) if (e.p === 'custom' && e.cover) keys.add(this.fileKey(imageUrls(e.cover).s));
+    return keys;
+  }
+
+  /** The host's own picture as the cover (stored with the image cache, never evicted). */
+  async setCustomCover(song, buf) {
+    const ext = sniff(buf);
+    if (!ext) throw new UserError('Send a JPEG, PNG, WebP or GIF picture.', { status: 415, code: 'bad_type' });
+    const url = `custom://${encodeURIComponent(song.key)}/${crypto.createHash('sha1').update(buf).digest('hex').slice(0, 16)}`;
+    const key = this.fileKey(url);
+    const abs = path.join(this.artDir, `${key}.${ext}`);
+    await fsp.mkdir(this.artDir, { recursive: true });
+    await fsp.writeFile(abs, buf);
+    const prevFile = this.files.get(key);
+    if (prevFile) this.bytes -= prevFile.size;
+    this.files.set(key, { ext, size: buf.length, used: this.now(), pinned: true });
+    this.bytes += buf.length;
+    const prev = this.songs.get(song.key);
+    this.setSong(song, {
+      p: 'custom', cover: `url:${url}`, album: prev?.album, genre: prev?.genre, year: prev?.year, explicit: prev?.explicit, rank: prev?.rank,
+      confidence: 1, manual: true, at: this.now(), v: MATCH_VERSION,
+    });
     return { ok: true };
   }
 

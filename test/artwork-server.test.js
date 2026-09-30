@@ -179,3 +179,26 @@ test('the TV: current song is looked up first, its art flags and a lobby mosaic 
   tv.close();
   host.close();
 });
+
+test('the host can upload their own cover; it is kept (never evicted) and served', async () => {
+  const id = songId('Hello');
+  const song = app.library.catalog.song(id);
+  const png = (await import('./fake-art.js')).pngImage('custom-cover', 64);
+  const bad = await fetch(`${base}/api/art/song/${id}/cover`, { method: 'POST', headers: { 'content-type': 'image/png' }, body: Buffer.from('<svg/>') });
+  assert.equal(bad.status, 415);
+  const res = await fetch(`${base}/api/art/song/${id}/cover`, { method: 'POST', headers: { 'content-type': 'image/png' }, body: png });
+  assert.equal(res.status, 200);
+  const e = app.artwork.songs.get(song.key);
+  assert.equal(e.p, 'custom');
+  assert.equal(e.manual, true);
+  const img = await fetch(`${base}/api/art/song/${id}?s=1000`);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await img.arrayBuffer()), png);
+  assert.equal((await (await fetch(`${base}/api/songs/${id}`)).json()).meta.provider, 'your own picture');
+  // Eviction never removes it.
+  app.artwork.bytes += 1e12;
+  app.artwork.evict();
+  assert.ok(app.artwork.anyImage(e.cover), 'still cached');
+  app.artwork.bytes -= 1e12;
+  assert.equal(app.artwork.customKeys().size, 1);
+});

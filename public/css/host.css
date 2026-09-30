@@ -365,3 +365,4 @@ body.host .toasts { bottom: 104px; }
 .photo-tile img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; background: var(--stage-2); }
 .photo-tile figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; min-width: 0; }
 .photo-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.upload-cover { margin-top: 12px; cursor: pointer; }

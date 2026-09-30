@@ -206,6 +206,16 @@ export function apiRoutes(router, app) {
     placeholder(ctx, { artist: song?.artist || '', title: song?.title || '' });
   });
 
+  // The host's own cover picture for a song (resized in the browser).
+  router.post('/api/art/song/:id/cover', async (ctx) => {
+    requireHost(ctx);
+    if (!/^image\//i.test(ctx.req.headers['content-type'] || '')) throw new HttpError(415, 'Send a picture');
+    const song = cat().song(ctx.params.id);
+    if (!song) throw new HttpError(404, 'Song not found');
+    const buf = await readBody(ctx.req, 8 * 1024 * 1024);
+    return app.artwork.setCustomCover(song, buf);
+  });
+
   router.get('/api/artwork', (ctx) => {
     requireHost(ctx);
     return app.artwork.status();

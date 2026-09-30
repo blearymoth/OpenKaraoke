@@ -152,6 +152,27 @@ function artSource(meta) {
   return 'No cover found online.';
 }
 
+/** Downsizes a picture in the browser (JPEG, longest side `max` px). */
+async function resizeImage(file, max) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('That file is not a picture.'));
+      i.src = url;
+    });
+    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /** "Fix artwork": pick one of the candidates the providers know, no cover, or look up again. */
 export function ArtworkDialog({ songId }) {
   const { data: song } = useFetch(`/api/songs/${encodeURIComponent(songId)}`, null, { ttl: 0 });
@@ -179,6 +200,27 @@ export function ArtworkDialog({ songId }) {
       <${Cover} songId=${songId} size=${64} />
       <div><div class="song-head-title">${song.title}</div><div class="muted">${song.artist}</div></div>
     </div>`}
+    <label class="btn upload-cover">
+      <input type="file" accept="image/*" hidden disabled=${busy} onChange=${async (e) => {
+        const file = e.currentTarget.files[0];
+        e.currentTarget.value = '';
+        if (!file) return;
+        setBusy(true);
+        try {
+          const blob = await resizeImage(file, 1200);
+          const res = await fetch(`/api/art/song/${encodeURIComponent(songId)}/cover`, { method: 'POST', headers: { 'content-type': 'image/jpeg', ...(localStorage.getItem('ok.hostToken') ? { authorization: `Bearer ${localStorage.getItem('ok.hostToken')}` } : {}) }, body: blob });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
+          toast('Your picture is the cover now', 'ok');
+          clearFetchCache();
+          back();
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+        setBusy(false);
+      }} />
+      <${Icon} name="plus" size=${16} /> Upload your own picture
+    </label>
     ${found.loading && html`<${Spinner} />`}
     ${found.errors.map((e) => html`<p class="warn-text">${e}</p>`)}
     ${!found.loading && !found.items.length && html`<p class="muted">No covers found for this song. Check the internet connection, or use “No cover”.</p>`}

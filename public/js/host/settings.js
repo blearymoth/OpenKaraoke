@@ -306,7 +306,7 @@ function DisplaysSection({ state }) {
     </div>
     <div class="setting column">
       <div class="setting-text"><b>Screens waiting to be paired</b>
-        <p class="hint">To use a TV or projector attached to another computer (or a smart TV browser), open <code>${lan}/tv</code> on it. It shows a four-digit code: approve it here if the code matches.</p></div>
+        <p class="hint">To use a TV or projector attached to another computer (or a smart TV browser), open <code>${lan}/tv</code> on it. It shows a four-digit code: approve it here if the code matches. For a big list of who sings next (by the bar or the stage) open <code>${lan}/tv?layout=board</code> instead.</p></div>
       ${state.pairings.length
         ? html`<div class="folders">${state.pairings.map((p) => html`<div class="folder-row pairing-row">
             <div class="pair-code-small">${p.code}</div>

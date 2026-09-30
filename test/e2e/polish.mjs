@@ -167,6 +167,16 @@ try {
   check(!!(await remote.evaluate(() => localStorage.getItem('ok.tvToken'))), 'the screen keeps its token');
   app.hub.onHello = hello;
 
+  // Queue board layout for a second screen.
+  const boardPage = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'board');
+  await boardPage.goto(`${base}/tv?layout=board`);
+  await boardPage.waitForSelector('.board');
+  const rows = await boardPage.$$eval('.board-list li', (l) => l.length);
+  check(rows === Math.min(8, app.room.s.queue.length), `queue board lists who sings next (${rows})`);
+  check(!(await boardPage.$('.start')), 'the board needs no click (it is muted)');
+  await shot(boardPage, 'tv-board');
+  await boardPage.close();
+
   // Live preview of the TV in the host.
   await host.click('.player button[title="Live preview of the TV"]');
   const frame = await (await host.waitForSelector('.tv-preview iframe')).contentFrame();

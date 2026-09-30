@@ -1,7 +1,7 @@
 // TV display app (/tv): lobby with join QR, next-singer intro, lyrics with overlays.
 import { html, render, useEffect, useRef, useState } from '../vendor/preact.js';
 import { Connection } from '../lib/ws-client.js';
-import { createStore, useStore, useTick, useInterval, singersText, artUrl, artistArtUrl, artStore, noteArt } from '../lib/store.js';
+import { createStore, useStore, useTick, useInterval, singersText, formatEta, artUrl, artistArtUrl, artStore, noteArt } from '../lib/store.js';
 import { Icon } from '../lib/icons.js';
 import { TvController } from './controller.js';
 import { GAME_UI } from '../games/index.js';
@@ -12,11 +12,13 @@ const params = new URLSearchParams(location.search);
 const store = createStore({ status: 'connecting', state: null, display: 'main', denied: null, unlocked: false, help: false, reactions: [], toast: null });
 
 const preview = params.get('display') === 'preview'; // the host's small live preview
+const board = params.get('layout') === 'board'; // a queue board for a second screen (muted)
+if (board) document.body.classList.add('board-layout');
 if (preview) document.body.classList.add('preview');
 const conn = new Connection({
   hello: () => ({
     role: 'tv',
-    display: preview ? 'preview' : params.get('display') === 'mirror' ? 'mirror' : undefined,
+    display: preview ? 'preview' : board || params.get('display') === 'mirror' ? 'mirror' : undefined,
     token: localStorage.getItem('ok.tvToken') || undefined, // a screen paired by the host
     hostToken: preview ? localStorage.getItem('ok.hostToken') || undefined : undefined,
   }),
@@ -246,7 +248,8 @@ function App() {
   // sings songs itself (`showSongs`: battle) lets the karaoke scene show while its song is on.
   const gameScene = !!(game?.exclusive && gameUi?.Tv && (!game.ended || !st.current) && !(game.showSongs && st.current));
   let scene;
-  if (gameScene) scene = html`<${gameUi.Tv} game=${game} st=${st} now=${now} tv=${tv} key=${game.id} />`;
+  if (board) scene = html`<${Board} st=${st} />`;
+  else if (gameScene) scene = html`<${gameUi.Tv} game=${game} st=${st} now=${now} tv=${tv} key=${game.id} />`;
   else if (!st.current || p.state === 'idle') scene = html`<${Lobby} st=${st} />`;
   else if (p.state === 'intro' || p.state === 'ready') scene = html`<${Intro} st=${st} />`;
   else scene = html`<${Singing} st=${st} />`;
@@ -258,7 +261,7 @@ function App() {
     ${st.announcement && html`<div class="announce" key=${st.announcement.id}><div>${st.announcement.text}</div></div>`}
     <div class="reactions">${s.reactions.map((r) => html`<div class="reaction" key=${r.id} style=${{ left: `${r.x}%`, '--dx': r.dx }}><b>${r.emoji}</b>${r.name && html`<span>${r.name}</span>`}</div>`)}</div>
     ${s.status !== 'open' && html`<div class="conn-lost">Reconnecting to the server…</div>`}
-    ${s.display === 'mirror' && !preview && html`<div class="mirror-badge">Mirror display (muted)</div>`}
+    ${s.display === 'mirror' && !preview && !board && html`<div class="mirror-badge">Mirror display (muted)</div>`}
     ${s.toast && html`<div class="conn-lost" style="background:var(--stage-3);color:var(--ink)">${s.toast}</div>`}
     ${s.help && html`<${Help} />`}
     ${!s.unlocked && s.display === 'main' && !preview && html`<${StartOverlay} />`}
@@ -343,6 +346,32 @@ function Help() {
 function Clock() {
   useTick(10000);
   return html`<div class="clock">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>`;
+}
+
+/** /tv?layout=board — who's singing and who's next, big, for a screen by the bar or the stage. */
+function Board({ st }) {
+  useTick(5000);
+  const cur = st.current;
+  const qr = `/api/qr.svg?margin=0&dark=%231b1230&light=%23fff8e6&text=${encodeURIComponent(st.info.joinUrl)}`;
+  return html`<div class="scene board fade-in">
+    <header class="board-head"><img src="/img/icon.svg" alt="" /><h1 class="display">${st.info.name}</h1><${Clock} /></header>
+    <section class="board-now">
+      ${cur
+        ? html`<img class="board-cover" src=${artUrl(cur.mystery ? null : cur.songId, 250)} alt="" />
+          <div class="ellipsis"><small>${st.player.state === 'playing' || st.player.state === 'paused' ? 'Singing now' : 'Getting ready'}</small>
+            <b class="display ellipsis">${cur.singers[0]?.emoji || '🎤'} ${singersText(cur.singers) || 'Sing along'}</b><span class="ellipsis">${cur.title} · ${cur.artist}</span></div>`
+        : html`<div><small>Nobody is singing</small><b class="display">Pick a song — you could be next!</b></div>`}
+    </section>
+    <ol class="board-list">${st.queue.slice(0, 8).map((e, i) => html`<li key=${e.id}>
+      <span class="pos num">${i + 1}</span>
+      <span class="avatar" style=${{ '--avatar': e.singers[0]?.color }}>${e.singers[0]?.emoji || '🎤'}</span>
+      <div class="ellipsis"><b class="ellipsis">${singersText(e.singers) || 'Anyone'}</b><span class="ellipsis">${e.mystery ? '🎁 Mystery song' : `${e.title} · ${e.artist}`}</span></div>
+      <span class="eta">${formatEta(e.eta)}</span>
+    </li>`)}</ol>
+    ${st.queueLength > 8 && html`<p class="board-more">+ ${st.queueLength - 8} more in the queue</p>`}
+    ${!st.queue.length && html`<p class="board-more">The queue is empty.</p>`}
+    <footer class="board-join"><img src=${qr} alt="" /><div><b>Scan to sing</b><span>${st.info.joinUrl.replace(/^https?:\/\//, '')} · room ${st.info.roomCode}</span></div></footer>
+  </div>`;
 }
 
 function Lobby({ st }) {

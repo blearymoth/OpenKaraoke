@@ -219,3 +219,27 @@ body.preview .conn-lost, body.preview .corner-qr { display: none; }
 @keyframes photo-in { from { opacity: 0; transform: translate(-50%, -40%) rotate(8deg) scale(0.8); } }
 @keyframes photo-in-corner { from { opacity: 0; transform: translateY(10vh) rotate(10deg); } }
 @keyframes photo-out { to { opacity: 0; } }
+
+/* ---- queue board (/tv?layout=board) ------------------------------------------------------ */
+.board { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; gap: 2.4vh; padding: 4vh 5vw; }
+.board-head { display: flex; align-items: center; gap: 2vh; }
+.board-head img { width: 6vh; height: 6vh; }
+.board-head h1 { flex: 1; font-size: 6vh; }
+.board-head .clock { font-family: var(--font-display); font-size: 4vh; color: var(--ink-2); }
+.board-now { display: flex; align-items: center; gap: 3vh; padding: 2.4vh 3vh; border-radius: 2.4vh; background: linear-gradient(120deg, var(--neon-soft), rgba(255, 255, 255, 0.04)); border: 1px solid color-mix(in srgb, var(--neon) 40%, transparent); min-width: 0; }
+.board-now small { display: block; font-size: 2.6vh; color: var(--bulb); font-weight: 700; }
+.board-now b { display: block; font-size: 6vh; }
+.board-now span { font-size: 3vh; color: var(--ink-2); }
+.board-cover { width: 14vh; height: 14vh; border-radius: 1.6vh; object-fit: cover; flex: none; }
+.board-list { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-rows: min-content; gap: 1.2vh; overflow: hidden; }
+.board-list li { display: grid; grid-template-columns: 5vh 6.5vh minmax(0, 1fr) auto; align-items: center; gap: 2vh; padding: 1.2vh 2vh; border-radius: 1.6vh; background: rgba(255, 255, 255, 0.05); }
+.board-list .pos { font-family: var(--font-display); font-size: 3.6vh; font-weight: 800; color: var(--ink-3); text-align: center; }
+.board-list .avatar { width: 6.5vh; height: 6.5vh; font-size: 3.8vh; }
+.board-list b { display: block; font-size: 3.4vh; }
+.board-list span { font-size: 2.6vh; color: var(--ink-2); }
+.board-list .eta { font-size: 2.8vh; color: var(--bulb); font-weight: 700; white-space: nowrap; }
+.board-more { font-size: 2.6vh; color: var(--ink-3); text-align: center; }
+.board-join { display: flex; align-items: center; gap: 2vh; font-size: 2.6vh; color: var(--ink-2); }
+.board-join img { width: 11vh; height: 11vh; background: #fff8e6; padding: 0.8vh; border-radius: 1vh; }
+.board-join b { display: block; font-size: 3.4vh; color: var(--ink); }
+body.board-layout #stage { display: none; }

@@ -35,7 +35,7 @@ and artwork-API facts; `docs/LIBRARY.md` describes the owner's karaoke collectio
 ```bash
 npm test                                   # unit tests (node:test), must stay green
 node scripts/scan-report.js "<karaoke folder>" [--search "text"]   # validate parser/catalog on a real library
-npm start                                  # server (entry point server/index.js — see HANDOFF for status)
+npm start -- --library "<karaoke folder>"  # server on :8080 (entry point server/index.js)
 npm run vendor                             # rebuild vendored libs after `npm install`
 ```
 
@@ -57,6 +57,14 @@ npm run vendor                             # rebuild vendored libs after `npm in
   sanitised updates), CLI `parseArgs`, room codes, data dir resolution.
 - `server/util/{log,jsonfile,net,qr}.js` — logger, atomic JSON persistence (`JsonDoc`),
   LAN address detection / localhost check, QR SVG + Wi-Fi QR payload.
+- `server/library/service.js` — `LibraryService`: cache load/save (`data/library.json`), single-flight
+  background `scan()`, rebuild only when the track signature changes, drive offline watcher, `absPath()`.
+- `server/http/` — `router.js` (tiny router + `json`/`readBody`), `static.js` (ETag, gzip, Range),
+  `media.js` (`/media/:trackId/audio|cdg|video`, zip entries), `api.js` (PLAN §8 endpoints).
+- `server/ws/hub.js` — WebSocket hub (hello → `hub.onHello`, heartbeat, `hub.handle(type, fn, {roles})`
+  with `rid` replies, `broadcast`). `server/room/auth.js` — HMAC tokens, localhost trust, PIN back-off.
+- `server/app.js` — wires everything (tests create apps with `createApp`); `server/index.js` — CLI entry.
+- `server/util/lru.js`, `server/artwork/placeholder.js` (gradient + initials SVG).
 - `test/` — node:test suites + helpers (`makeZip`, `writeTree`, `rawTracks`).
 
 Planned modules and their responsibilities are specified in `docs/PLAN.md` §4.

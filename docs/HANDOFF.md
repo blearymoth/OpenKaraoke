@@ -1,26 +1,29 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-09-30 (end of the first build session)._
+_Last updated: 2026-09-30 (second build session: M1 done)._
 
 ## TL;DR
-- **Milestone M0 (foundation) is done and tested**: file-name parser, library scanner (CDG
-  pairs / video / zip), catalog with version grouping + artist typo clustering + typo-tolerant
-  search, settings schema, utilities, vendored libraries. `npm test` → 35/35 passing.
-- **The server does not run yet** — `server/index.js` doesn't exist. Next is **M1: make the
-  server run** (library service, HTTP API, media streaming, WebSocket hub), then the TV player
-  (M2), room + host app (M3) and guest app (M4). The full spec is in `docs/PLAN.md`.
+- **M0 (foundation)** and **M1 (server runs)** are done and tested. `npm start -- --library <folder>`
+  starts the server: it loads the cached index, rescans in the background, serves the JSON API,
+  streams media with HTTP Range, and accepts WebSocket clients. `npm test` → all green.
+- Next: **M2 TV player**, **M3 room + host app**, **M4 guest app** (full spec in `docs/PLAN.md`).
 
 ## What was verified
 | Check | Result |
 | --- | --- |
-| Unit tests (`npm test`) | 35 pass: parser table, grouping keys, catalog grouping/clustering/search/cache, scanner + zip fixtures, settings, QR, net |
+| Unit tests (`npm test`) | parser, catalog, scanner/zip, settings/QR/net, library service, HTTP router/Range/media/zip/API, WebSocket hello/ping/rid, auth tokens + PIN back-off |
 | Parser on all 90,479 names from the owner's song list | 99% get a label; ~50.5k songs, ~11.8k artists; typos merged (e.g. Morisette → Morissette) |
-| Scanner + catalog on real files from the drive (4 real MP3+CDG pairs) | durations from CDG size match the MP3 length; search works (`scripts/scan-report.js`) |
-| Performance (90k simulated tracks) | build 2.5–3.5 s, search 3–20 ms, fuzzy ≤ 100 ms |
-| GitHub | `main` pushed to blearymoth/OpenKaraoke |
+| Scanner + catalog on real files from the drive (4 real MP3+CDG pairs, session 1) | durations from CDG size match the MP3 length; search works (`scripts/scan-report.js`) |
+| **Server on a synthetic 90k-track tree** (11.6k folders, sparse files, session 2) | first scan 4.1 s + build 4.1 s; restart: cache load 3.0 s + no-change rescan 1.3 s; `/api/search` 12–35 ms over HTTP (fuzzy typo query ≈130 ms incl. building the vocabulary once); RSS ≈ 475 MB; `library.json` 33 MB |
+| Media endpoint | `curl -r 0-99 …/media/<id>/audio` → `206`; CDG gzip; stored + deflated zip entries with Range |
 
-Not yet verified: a full scan of the real USB drive (run `scripts/scan-report.js` on the PC
-first — it's the fastest way to validate everything against 90k real files).
+**Not yet verified on the real USB drive** — the session-2 agent ran in a cloud container without
+access to `/run/media/ruutu/SMILE-2/`. First thing to do on the PC:
+```bash
+node scripts/scan-report.js "/run/media/ruutu/SMILE-2/<collection folder>" --search "someone like you"
+npm start -- --library "/run/media/ruutu/SMILE-2/<collection folder>"
+curl 'localhost:8080/api/search?q=hello'
+```
 
 ## Decisions already made (and why)
 1. **Node server + browser clients, all local.** Owner wants it to run on Linux, offline-capable.
@@ -44,32 +47,22 @@ first — it's the fastest way to validate everything against 90k real files).
 
 ## Next steps (in order)
 
-### M1 — server runs (start here)
-1. `server/library/service.js` — `LibraryService extends EventEmitter`
-   - `init()`: load `data/library.json` → `Catalog.rawFromCache()` → `catalog.load()`; then, if
-     `settings.library.rescanOnStart` and a root exists, `scan()` in the background.
-   - `scan()`: single-flight; `previous` map from current tracks (`previousKey(t)`);
-     `scanLibrary(paths, { previous, onProgress })` → emit `progress`; rebuild + save cache
-     **only if the track set changed** (compare a signature of keys + sizes); emit `changed`.
-   - `absPath(track, part)`: `path.join(paths[track.root], track.dir, track[part])` — only for
-     indexed tracks, never user-supplied paths.
-   - Online watcher (20 s): roots appearing/disappearing (USB unplugged) → `status` events,
-     auto-scan when a root comes back and was never scanned.
-2. `server/http/router.js` (routes with `:params`, `json()`, `readBody(limit)`), `static.js`
-   (ETag, gzip text, traversal-safe, `sendFile` with **HTTP Range** → 206), `media.js`
-   (`/media/:trackId/audio|cdg|video`, zip entries via `openZipEntry`, gzip CDG with a small LRU),
-   `api.js` (PLAN §8: info, search, songs, artists, browse, random, qr.svg, fs/list for host).
-3. `server/ws/hub.js` — `WebSocketServer({ noServer: true })` on `/ws`, hello handshake,
-   heartbeat (ping every 20 s, drop dead sockets), JSON messages, `rid` request/response helper.
-4. `server/index.js` — args (`--help`), data dir, `Settings` + CLI overrides (port, `--library`
-   paths saved to settings, `--pin`), room code (generate once), `LibraryService`, HTTP server
-   (API, media, static `/js /css /shared`, app shells `/host /tv /j/:code`), hub, prints
-   `http://localhost:PORT/host`, the LAN join URL, and flushes state on SIGINT/SIGTERM.
-5. `bin/openkaraoke.sh` — checks `node -v` ≥ 18.17, runs the server with the given args.
-6. **Done when**: `npm start -- --library "/run/media/ruutu/SMILE-2/<collection folder>"` logs
-   scan progress; `curl 'localhost:8080/api/search?q=hello'` returns songs;
-   `curl -r 0-99 -o /dev/null -w '%{http_code}' localhost:8080/media/<trackId>/audio` → `206`;
-   tests still green (add tests for router/range/media using the zip + tmp fixtures).
+### M1 — server runs ✅ (done in session 2)
+What exists now (see the code map in `CLAUDE.md`):
+- `server/library/service.js` — `LibraryService`: cache load (roots remapped by path), single-flight
+  `scan()` with progress events, rebuild + save **only when the track signature changed**, parse
+  results reused across rescans, tracks of an unplugged drive are kept (state `offline`/`partial`),
+  20 s online watcher that rescans a drive that comes back, `setPaths()`, `absPath()`.
+- `server/http/router.js` (params, `*` wildcard, 405, `readBody` limit), `static.js` (ETag/304,
+  gzip text, traversal-safe, `sendFile`/`sendBuffer` with Range → 206/416), `media.js`
+  (`/media/:trackId/audio|cdg|video`, stored zip entries streamed as a byte slice, deflated ones
+  via an LRU, CDG gzip LRU), `api.js` (PLAN §8 + `/api/settings`, `/api/library/*`).
+- `server/ws/hub.js` — hello handshake (delegated to `hub.onHello`), heartbeat, `rid` replies,
+  per-client token bucket, `broadcast(msg, filter)`.
+- `server/room/auth.js` — HMAC tokens (`data/secret.json`), localhost trust, PIN with back-off.
+- `server/artwork/placeholder.js` — gradient + initials SVG (`/api/art/*` until M5).
+- `server/app.js` (wiring, testable) + `server/index.js` (CLI) + `bin/openkaraoke.sh`.
+- `--library` **replaces** the saved library folders; `--port`/`--host` are not saved; `--pin` is.
 
 ### M2 — TV player
 `shared/cdg.js` (spec PLAN §9.2, write a synthetic-CDG unit test), `public/js/lib/audio-engine.js`
@@ -105,8 +98,8 @@ See `docs/PLAN.md` §18. M4 completes the first party-ready version (host + TV +
 - `(VR)` annotation meaning unknown — kept as a version label.
 
 ## Starter prompt for your Claude Code agent
-> Read `CLAUDE.md`, `docs/HANDOFF.md` and `docs/PLAN.md`. Implement milestone **M1 (server
-> runs)** exactly as described in HANDOFF "Next steps", following the hard rules in CLAUDE.md
+> Read `CLAUDE.md`, `docs/HANDOFF.md` and `docs/PLAN.md`. Continue with the next unfinished
+> milestone as described in HANDOFF "Next steps", following the hard rules in CLAUDE.md
 > (no runtime npm deps, ESM, no build step). Validate against my real library at
 > `/run/media/ruutu/SMILE-2/` (run `node scripts/scan-report.js` on it first), keep `npm test`
 > green with new tests, update HANDOFF.md status, and commit + push after each working piece.

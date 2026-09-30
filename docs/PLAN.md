@@ -33,7 +33,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P0 Parse `Artist - Title [Brand Karaoke]` names incl. typos/truncations; flags & tags (PLAN §5.1).
 - ✅ P0 Group label versions into one song; cluster artist typos; artist pages incl. collaborations.
 - ✅ P0 Typo-tolerant instant search (<30 ms on 90k tracks); popular list; tags; random.
-- ⬜ P0 Library service: on-disk cache (`data/library.json`), background rescan with progress,
+- ✅ P0 Library service: on-disk cache (`data/library.json`), background rescan with progress,
   drive offline/online detection (poll every 20 s), rescan button, "library offline" banner.
 - ⬜ P0 Folder picker in host settings (server lists directories; suggest mounted drives under
   `/run/media/$USER`, `/media/$USER`) + CLI `--library`.
@@ -141,28 +141,28 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 
 ```
 server/
-  index.js              ⬜ entry: args → settings → library → http + ws → room → artwork → games
+  index.js              ✅ entry: args → settings → library → http + ws → room → artwork → games
   config.js             ✅ settings schema/defaults, CLI args, data dir
   library/
     parse.js            ✅ file-name parser
     scanner.js          ✅ directory walk
     zip.js              ✅ zip reader
     catalog.js          ✅ grouping, clustering, search, browse, cache
-    service.js          ⬜ Library: cache load/save, rescan, progress events, online watcher, paths
+    service.js          ✅ Library: cache load/save, rescan, progress events, online watcher, paths
   http/
-    router.js           ⬜ tiny router: routes with :params, json/text helpers, body reader (size limit)
-    static.js           ⬜ static files (ETag, gzip for text, no path traversal), sendFile with Range
-    api.js              ⬜ JSON endpoints (§8)
-    media.js            ⬜ /media/:trackId/(audio|cdg|video), zip entries, content types, gzip CDG
-  ws/hub.js             ⬜ WebSocket transport (vendored ws), heartbeat, per-client send, rate limits
+    router.js           ✅ tiny router: routes with :params, json/text helpers, body reader (size limit)
+    static.js           ✅ static files (ETag, gzip for text, no path traversal), sendFile with Range
+    api.js              ✅ JSON endpoints (§8)
+    media.js            ✅ /media/:trackId/(audio|cdg|video), zip entries, content types, gzip CDG
+  ws/hub.js             ✅ WebSocket transport (vendored ws), heartbeat, per-client send, rate limits
   room/
     room.js             ⬜ party state + actions + per-role views + broadcast coalescing
     rotation.js         ⬜ fair insert / ETA helpers (pure, unit tested)
-    auth.js             ⬜ host PIN, localhost trust, tokens (HMAC with data/secret), display pairing
+    auth.js             🟡 host PIN, localhost trust, tokens (HMAC with data/secret), display pairing
   artwork/
     service.js          ⬜ queue with priorities, provider rate limiters, cache, crawler
     providers.js        ⬜ deezer, itunes, musicbrainz+caa, theaudiodb, fanarttv
-    placeholder.js      ⬜ deterministic gradient SVG with initials
+    placeholder.js      ✅ deterministic gradient SVG with initials
   games/
     quiz.js battle.js wheel.js poll.js relay.js   ⬜ (§13)
   util/                 ✅ log, jsonfile, net, qr
@@ -181,7 +181,7 @@ public/
   js/host/ js/tv/ js/guest/   ⬜ views/components per app
   fonts/ img/           ⬜ (optional bundled OFL fonts: Inter + a display face)
 bin/
-  openkaraoke.sh        ⬜ start script (checks Node version, starts server, prints URLs)
+  openkaraoke.sh        ✅ start script (checks Node version, starts server, prints URLs)
   open-tv.sh            ⬜ kiosk Chromium on 2nd screen with autoplay allowed
   install-service.sh    ⬜ systemd --user unit
 scripts/
@@ -480,7 +480,7 @@ No telemetry. Outbound traffic only to the artwork providers (can be disabled).
 
 ## 18. Roadmap
 - ✅ **M0 Foundation**: parser, scanner, zip, catalog/search, settings, utils, vendored libs, tests.
-- ⬜ **M1 Server runs**: `library/service.js`, `http/{router,static,api,media}.js`, `ws/hub.js`,
+- ✅ **M1 Server runs**: `library/service.js`, `http/{router,static,api,media}.js`, `ws/hub.js`,
   `server/index.js`, `bin/openkaraoke.sh`; `/api/search` + media streaming work against the real drive.
 - ⬜ **M2 TV player**: `shared/cdg.js` (+ tests), audio engine, `/tv` scenes (idle lobby with QR,
   intro, singing overlays), click-to-start, keyboard shortcuts.

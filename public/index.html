@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenKaraoke</title>
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/base.css">
+  <style>
+    body { display: flex; align-items: center; justify-content: center; min-height: 100%; padding: 24px;
+      background: radial-gradient(1200px 600px at 20% -10%, #3b1350 0%, transparent 60%), radial-gradient(900px 500px at 110% 110%, #13294a 0%, transparent 60%), var(--bg); }
+    main { width: min(880px, 100%); display: grid; grid-template-columns: 1fr auto; gap: 32px; align-items: center; }
+    h1 { font: 800 44px/1.05 var(--display); margin: 0 0 6px; }
+    .links { display: grid; gap: 12px; margin-top: 26px; }
+    .link { display: flex; gap: 14px; align-items: center; padding: 16px 18px; text-decoration: none; }
+    .link:hover { background: var(--panel-2); }
+    .link b { display: block; font-size: 17px; }
+    .link .ico { font-size: 28px; width: 40px; text-align: center; }
+    .qr { background: #fff; border-radius: 18px; padding: 14px; width: 260px; }
+    .qr img { width: 100%; }
+    .code { text-align: center; margin-top: 10px; font: 800 28px var(--display); letter-spacing: .2em; }
+    @media (max-width: 700px) { main { grid-template-columns: 1fr; } .qr { margin: 0 auto; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1><span class="gradient-text">Open</span>Karaoke</h1>
+      <div class="muted" id="status">Loading…</div>
+      <nav class="links">
+        <a class="card link" href="/host"><span class="ico">🎛️</span><span><b>Host</b><span class="muted">Search the library, run the queue and control playback</span></span></a>
+        <a class="card link" href="/tv"><span class="ico">📺</span><span><b>TV display</b><span class="muted">Lyrics, cover art and the guest QR code — open it on the big screen</span></span></a>
+        <a class="card link" id="join" href="/j"><span class="ico">📱</span><span><b>Join as a guest</b><span class="muted">Request songs and react from your phone</span></span></a>
+      </nav>
+    </section>
+    <aside>
+      <div class="qr"><img id="qr" alt="Join QR code" src="/api/qr.svg"></div>
+      <div class="code" id="code"></div>
+      <div class="muted" style="text-align:center" id="url"></div>
+    </aside>
+  </main>
+  <script type="module">
+    const info = await (await fetch('/api/info')).json();
+    document.title = `${info.name} · OpenKaraoke`;
+    document.getElementById('code').textContent = info.roomCode;
+    document.getElementById('url').textContent = info.joinUrl.replace(/^https?:\/\//, '');
+    document.getElementById('join').href = `/j/${info.roomCode}`;
+    const lib = info.library;
+    document.getElementById('status').textContent = `${info.name} · ${lib.songs.toLocaleString()} songs`
+      + (lib.state === 'scanning' ? ' · scanning library…' : lib.state === 'offline' ? ' · library drive offline' : lib.state === 'unconfigured' ? ' · no library folder yet' : '');
+  </script>
+</body>
+</html>

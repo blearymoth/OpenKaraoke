@@ -2,10 +2,13 @@
 // providers, caches metadata in data/meta.json and images in data/art/, and serves them.
 //
 // - Every provider has its own queue (3 priorities: now > visible > crawl), worker count and
-//   rate limiter; errors back off exponentially and never count as "not found".
+//   rate limiter; errors back off exponentially and never count as "not found". Urgent lookups
+//   never wait for crawl jobs: those only use idle workers and don't sit out a back-off.
 // - A song lookup walks SONG_CHAIN (Deezer → MusicBrainz/CAA → iTunes) until one matches;
 //   misses remember which providers were asked and are retried after 30 days.
 // - An artist lookup collects a picture (Deezer), fanart/logo/cutout (TheAudioDB, Fanart.tv).
+// - Image downloads have their own prioritised queue; an image host that fails is left alone
+//   for a while (the cached sizes or the placeholder are served meanwhile).
 // - The background crawler walks the catalogue, most popular songs first.
 //
 // Events: 'art' { songs: [songId], artists: [artistKey] } — images became available/changed;
@@ -14,13 +17,14 @@ import { EventEmitter } from 'node:events';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { readJson, writeJsonAtomic } from '../util/jsonfile.js';
+import { readJson } from '../util/jsonfile.js';
 import { Throttle } from '../util/throttle.js';
 import { Lru } from '../util/lru.js';
+import { RateLimiter } from '../util/ratelimit.js';
 import { UserError } from '../util/errors.js';
 import { sendFile } from '../http/static.js';
 import { logger } from '../util/log.js';
-import { PROVIDERS, SONG_CHAIN, USER_AGENT, imageUrls, allowedImageUrl } from './providers.js';
+import { PROVIDERS, SONG_CHAIN, ARTIST_CHAIN, USER_AGENT, imageUrls, allowedImageUrl } from './providers.js';
 import { songQuery, pickBest, pickArtist, rankCandidates, artistSimilarity, creditsOf } from './match.js';
 
 const log = logger('artwork');
@@ -30,8 +34,19 @@ export const MATCH_VERSION = 1;
 const DAY = 86_400_000;
 const RETRY_MISS_MS = 30 * DAY;
 export const PRIO = { now: 0, visible: 1, crawl: 2 };
-const MAX_WAIT = [20_000, 5_000, Infinity]; // how long a lookup may wait for a rate-limited provider
+// How long a lookup may wait for a rate-limited provider. Longer waits mean a back-off: urgent
+// lookups try the next provider, crawl jobs step aside (see CRAWL_HOLD_MS).
+const MAX_WAIT = [20_000, 5_000, 10_000];
+const CRAWL_HOLD_MS = 30_000; // crawl jobs wait (queued) through shorter back-offs; longer ones drop them until the next pass
 const VISIBLE_CAP = 120; // on-demand lookups kept (newest first)
+const IMAGE_WORKERS = 4; // parallel image downloads (urgent ones may use as many again)
+const IMAGE_VISIBLE_CAP = 60; // on-demand image downloads kept (newest first), ≈5 s of downloads
+const IMAGE_TIMEOUT_MS = 20_000; // a whole download, redirects included
+const HOST_BACKOFF_MS = [30_000, 10 * 60_000]; // an image host that failed: first and longest pause
+const BIG_FILE = 64 * 1024; // cached images above this size are evicted before list thumbnails
+const SAVE_MS = 10_000; // meta.json is written this long after a change…
+const SAVE_CRAWL_MS = 120_000; // …or this long while the crawler is filling it
+const SAVE_SLICE = 2000; // entries serialised per slice (the event loop runs in between)
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const IMAGE_TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
 const ARTIST_TYPES = ['picture', 'fanart', 'logo', 'cutout', 'banner'];
@@ -72,6 +87,23 @@ const compactEntry = (e) => {
   return e;
 };
 
+/** "Couldn't ask right now" (offline, back-off, turned off): never recorded as "not found". */
+const unavailable = (message) => Object.assign(new Error(message), { code: 'unavailable' });
+const busy = (message) => Object.assign(new Error(message), { code: 'busy' });
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
+
+async function writeAll(fh, text) {
+  const buf = Buffer.from(text);
+  for (let off = 0; off < buf.length;) off += (await fh.write(buf, off, buf.length - off)).bytesWritten;
+}
+
 export class ArtworkService extends EventEmitter {
   /**
    * @param {object} opts
@@ -97,8 +129,15 @@ export class ArtworkService extends EventEmitter {
     this.albums = new Map(); // "provider:id" → { genre, year, type }
     this.files = new Map(); // sha1(url) → { ext, size, used }
     this.bytes = 0;
-    this.downloads = new Map();
+    this.indexing = null; // the image index being read from disk (image() waits for it)
+    this.downloads = new Map(); // sha1(url) → { url, key, prio, queued, promise }
+    this.imageQueues = [[], [], []];
+    this.imageRunning = 0;
+    this.imageRunningCrawl = 0;
+    this.imageHosts = new Map(); // image host → { fails, until } while it is failing
     this.badUrls = new Map(); // url → time of a 404 (not asked again for a day)
+    // Guests (not the host) may start only so many lookups and downloads (per address).
+    this.guestLimit = new RateLimiter({ capacity: 120, perMs: 60_000 });
     this.throttles = {};
     this.health = {};
     this.queues = {};
@@ -157,11 +196,13 @@ export class ArtworkService extends EventEmitter {
     this.installMeta();
     this.library.on('changed', () => {
       this.installMeta();
-      this.crawl.list = null;
-      this.crawl.artistList = null;
+      this.wakeCrawl(); // new songs: a new pass now, not after the pause between passes
     });
     this.loaded = true;
-    this.indexFiles().catch((e) => log.warn('could not index the artwork cache', e.message));
+    // Serving starts right away; image() waits for the index so cached files aren't missed.
+    this.indexing = this.indexFiles()
+      .catch((e) => log.warn('could not index the artwork cache', e.message))
+      .finally(() => { this.indexing = null; });
     if (crawl) this.timers.crawl = setTimeout(() => this.crawlTick(), this.crawlDelayMs);
     this.timers.crawl?.unref?.();
     log.info(`${this.songs.size} songs and ${this.artists.size} artists with metadata`);
@@ -181,19 +222,21 @@ export class ArtworkService extends EventEmitter {
       return;
     }
     const pinned = this.customKeys();
-    for (const name of names) {
+    const index = async (name) => {
       if (name.endsWith('.tmp')) {
         fsp.unlink(path.join(this.artDir, name)).catch(() => {});
-        continue;
+        return;
       }
       const m = FILE_RE.exec(name);
-      if (!m || this.files.has(m[1])) continue;
+      if (!m || this.files.has(m[1])) return;
       try {
         const st = await fsp.stat(path.join(this.artDir, name));
+        if (this.files.has(m[1])) return; // downloaded meanwhile
         this.files.set(m[1], { ext: m[2], size: st.size, used: st.mtimeMs, pinned: pinned.has(m[1]) || undefined });
         this.bytes += st.size;
       } catch { /* removed meanwhile */ }
-    }
+    };
+    for (let i = 0; i < names.length; i += 64) await Promise.all(names.slice(i, i + 64).map(index));
     this.evict();
   }
 
@@ -203,33 +246,61 @@ export class ArtworkService extends EventEmitter {
     clearTimeout(this.crawl.timer);
     for (const job of [...this.jobs.values()]) this.settle(job, null);
     for (const qs of Object.values(this.queues)) for (const q of qs) q.length = 0;
-    if (this.dirty) await this.save();
+    for (const q of this.imageQueues) for (const d of q.splice(0)) this.dropImage(d, unavailable('closed'));
+    for (const t of [...Object.values(this.throttles), this.imageThrottle]) t.cancel();
+    if (this.dirty) this.save();
+    await this.saving?.catch((e) => log.error('could not save meta.json', e));
   }
 
   // ---- persistence -------------------------------------------------------------------------
 
-  saveSoon() {
+  /** Writes meta.json after `ms` (an earlier pending write is kept; a later one is brought forward). */
+  saveSoon(ms = this.crawl.state === 'running' ? SAVE_CRAWL_MS : SAVE_MS) {
     this.dirty = true;
-    if (this.timers.save) return;
+    const due = Date.now() + ms;
+    if (this.timers.save && this.saveDue <= due) return;
+    clearTimeout(this.timers.save);
+    this.saveDue = due;
     this.timers.save = setTimeout(() => {
       this.timers.save = null;
       this.save().catch((e) => log.error('could not save meta.json', e));
-    }, 10_000);
+    }, ms);
     this.timers.save.unref?.();
   }
 
   async save() {
     this.dirty = false;
-    const data = {
-      version: 1,
-      savedAt: this.now(),
-      songs: Object.fromEntries(this.songs),
-      artists: Object.fromEntries(this.artists),
-      albums: Object.fromEntries(this.albums),
-    };
     const prev = this.saving || Promise.resolve();
-    this.saving = prev.catch(() => {}).then(() => writeJsonAtomic(this.metaFile, data));
+    this.saving = prev.catch(() => {}).then(() => this.writeMeta());
     return this.saving;
+  }
+
+  /**
+   * Writes meta.json (tens of MB for a big library) in slices, so the event loop keeps serving
+   * the party in between, then renames it into place.
+   */
+  async writeMeta() {
+    const sections = { songs: [...this.songs], artists: [...this.artists], albums: [...this.albums] };
+    await fsp.mkdir(path.dirname(this.metaFile), { recursive: true });
+    const tmp = `${this.metaFile}.${process.pid}.tmp`;
+    const fh = await fsp.open(tmp, 'w');
+    try {
+      await writeAll(fh, `{"version":1,"savedAt":${this.now()}`);
+      for (const [name, entries] of Object.entries(sections)) {
+        let text = `,${JSON.stringify(name)}:{`;
+        for (let i = 0; i < entries.length; i += SAVE_SLICE) {
+          text += entries.slice(i, i + SAVE_SLICE).map(([k, v]) => `${JSON.stringify(k)}:${JSON.stringify(v)}`).join(',');
+          if (i + SAVE_SLICE < entries.length) text += ',';
+          await writeAll(fh, text);
+          text = '';
+        }
+        await writeAll(fh, `${text}}`);
+      }
+      await writeAll(fh, '}');
+    } finally {
+      await fh.close();
+    }
+    await fsp.rename(tmp, this.metaFile);
   }
 
   /** Rankings / facets in the catalog use the metadata: tell it (at most every 3 s). */
@@ -268,7 +339,7 @@ export class ArtworkService extends EventEmitter {
   setSong(song, entry) {
     const prev = this.songs.get(song.key);
     this.songs.set(song.key, compactEntry(entry));
-    this.saveSoon();
+    this.saveSoon(entry.manual ? SAVE_MS : undefined); // the host's own choices are written soon
     this.metaChangedSoon();
     if ((prev?.cover || null) !== (entry.cover || null)) this.artChanged({ songs: [song.id] });
     this.statusChanged();
@@ -286,9 +357,10 @@ export class ArtworkService extends EventEmitter {
 
   // ---- provider requests -------------------------------------------------------------------------
 
-  async getJson(name, url, prio) {
-    await this.throttles[name].wait({ maxWaitMs: MAX_WAIT[prio] ?? Infinity });
-    if (this.closed) throw Object.assign(new Error('closed'), { code: 'unavailable' });
+  async getJson(name, url, prio, { maxWaitMs = MAX_WAIT[prio] ?? Infinity } = {}) {
+    await this.throttles[name].wait({ maxWaitMs, prio });
+    // Turned off (or shut down) while waiting: nothing more goes out.
+    if (!this.providerOn(name)) throw unavailable(`${PROVIDERS[name].label} is turned off`);
     let res;
     try {
       res = await this.fetch(url, { headers: { 'user-agent': this.ua, accept: 'application/json' }, signal: AbortSignal.timeout(15_000) });
@@ -324,16 +396,28 @@ export class ArtworkService extends EventEmitter {
 
   failed(name, status, message, retryMs = 0) {
     const h = this.health[name];
-    h.fails++;
+    const th = this.throttles[name];
+    // Requests that were already on their way when the back-off began don't lengthen it.
+    if (!th.pausedFor()) h.fails++;
     h.status = status;
     h.lastError = String(message || 'error').slice(0, 200);
     h.at = this.now();
     const base = status === 'offline' ? 30_000 : status === 'limited' ? 5_000 : 60_000;
     const cap = status === 'limited' ? 120_000 : 15 * 60_000;
-    this.throttles[name].pause(retryMs || Math.min(cap, base * 2 ** Math.min(8, h.fails - 1)));
+    th.pause(retryMs || Math.min(cap, base * 2 ** Math.min(8, Math.max(0, h.fails - 1))));
     if (h.fails === 1 || h.fails % 10 === 0) log.warn(`${PROVIDERS[name].label}: ${h.lastError} — backing off`);
+    // Crawl jobs don't sit out a long back-off (it would hold up the crawler): the next pass asks again.
+    if (th.pausedFor() > CRAWL_HOLD_MS) this.dropCrawl(name);
     this.statusChanged();
-    return Object.assign(new Error(`${PROVIDERS[name].label}: ${h.lastError}`), { code: 'unavailable' });
+    return unavailable(`${PROVIDERS[name].label}: ${h.lastError}`);
+  }
+
+  dropCrawl(name) {
+    for (const job of this.queues[name][PRIO.crawl].splice(0)) {
+      job.queued = null;
+      job.skipped = true;
+      this.settle(job, job.found ? true : null);
+    }
   }
 
   ok(name) {
@@ -366,59 +450,166 @@ export class ArtworkService extends EventEmitter {
     return this.cached(urls.m) || this.cached(urls.l) || this.cached(urls.s);
   }
 
-  /** The image file for `ref` at `size` ('s' | 'm' | 'l'), downloading it when needed. */
-  async image(ref, size = 's', prio = PRIO.visible) {
-    const urls = imageUrls(ref);
-    const url = urls?.[size];
+  /**
+   * The image file for `ref` at `size` ('s' | 'm' | 'l'), downloading it when needed; null when
+   * there is none. Options:
+   * - `strict`: a download that failed for a passing reason (network, server error, back-off,
+   *   queue full, turned off) rejects with `code: 'unavailable' | 'busy'` instead of giving
+   *   null, so a lookup can tell "this image doesn't exist" from "couldn't ask".
+   * - `mayDownload()`: asked before a new download starts (guests have a budget).
+   */
+  async image(ref, size = 's', prio = PRIO.visible, { strict = false, mayDownload } = {}) {
+    if (this.indexing) await this.indexing;
+    const url = imageUrls(ref)?.[size];
     if (!url) return null;
     const hit = this.cached(url);
     if (hit) return hit;
-    if (!this.enabled()) return null;
-    const bad = this.badUrls.get(url);
-    if (bad && this.now() - bad < DAY) return null;
-    const key = this.fileKey(url);
-    let p = this.downloads.get(key);
-    if (!p) {
-      p = this.download(url, key, prio).catch((e) => {
-        log.debug(`image download failed: ${e.message}`);
-        return null;
-      }).finally(() => this.downloads.delete(key));
-      this.downloads.set(key, p);
-    }
-    return p;
+    const p = this.fetchImage(url, prio, mayDownload);
+    if (strict) return p;
+    return p.catch((e) => {
+      log.debug(`image download failed: ${e.message}`);
+      return null;
+    });
   }
 
-  async download(url, key, prio) {
+  fetchImage(url, prio, mayDownload) {
+    if (!this.enabled()) return Promise.reject(unavailable('Online artwork is turned off'));
+    const bad = this.badUrls.get(url);
+    if (bad && this.now() - bad < DAY) return Promise.resolve(null);
+    const key = this.fileKey(url);
+    let d = this.downloads.get(key);
+    if (d) {
+      const q = this.imageQueues[d.prio];
+      if (prio < d.prio && d.queued && q.includes(d)) {
+        q.splice(q.indexOf(d), 1);
+        d.prio = prio;
+        this.queueImage(d);
+      }
+      return d.promise;
+    }
+    const host = hostOf(url);
+    if (this.hostHold(host)) return Promise.reject(unavailable(`${host} is not answering`));
+    if (mayDownload && !mayDownload()) return Promise.resolve(null);
+    d = { url, key, prio, queued: false };
+    d.promise = new Promise((resolve, reject) => { d.resolve = resolve; d.reject = reject; });
+    this.downloads.set(key, d);
+    this.queueImage(d);
+    return d.promise;
+  }
+
+  queueImage(d) {
+    const q = this.imageQueues[d.prio];
+    d.queued = true;
+    if (d.prio === PRIO.visible) {
+      q.unshift(d); // newest first: what is on screen now
+      while (q.length > IMAGE_VISIBLE_CAP) this.dropImage(q.pop(), busy('Too many pictures are waiting'));
+    } else {
+      q.push(d);
+    }
+    this.pumpImages();
+  }
+
+  dropImage(d, err) {
+    d.queued = false;
+    if (this.downloads.get(d.key) === d) this.downloads.delete(d.key);
+    d.reject(err);
+  }
+
+  pumpImages() {
+    while (!this.closed) {
+      // Like the providers: urgent downloads never wait for crawl downloads to finish.
+      const urgent = this.imageRunning - this.imageRunningCrawl < IMAGE_WORKERS;
+      const idle = this.imageRunning < IMAGE_WORKERS;
+      const [now, visible, crawl] = this.imageQueues;
+      const q = urgent && now.length ? now : urgent && visible.length ? visible : idle && crawl.length ? crawl : null;
+      if (!q) return;
+      const d = q.shift();
+      d.queued = false;
+      const isCrawl = d.prio === PRIO.crawl;
+      this.imageRunning++;
+      if (isCrawl) this.imageRunningCrawl++;
+      this.download(d).then(d.resolve, d.reject).finally(() => {
+        if (this.downloads.get(d.key) === d) this.downloads.delete(d.key);
+        this.imageRunning--;
+        if (isCrawl) this.imageRunningCrawl--;
+        this.pumpImages();
+      });
+    }
+  }
+
+  /** Milliseconds an image host is still left alone after failing (0 = ask it). */
+  hostHold(host) {
+    const h = this.imageHosts.get(host);
+    return h ? Math.max(0, h.until - this.now()) : 0;
+  }
+
+  /** An image host failed (network, timeout, server error): leave it alone for a while. */
+  hostFailed(host, message) {
+    const h = this.imageHosts.get(host) || { fails: 0, until: 0 };
+    if (h.until <= this.now()) h.fails++; // downloads already on their way don't lengthen the pause
+    h.until = this.now() + Math.min(HOST_BACKOFF_MS[1], HOST_BACKOFF_MS[0] * 2 ** Math.min(8, h.fails - 1));
+    this.imageHosts.set(host, h);
+    if (h.fails === 1 || h.fails % 10 === 0) log.warn(`pictures from ${host}: ${message} — backing off`);
+    return unavailable(`${host}: ${message}`);
+  }
+
+  /**
+   * Downloads `d.url` into the cache. Resolves to the file, or null when there is no such image
+   * (404, not an image, not allowed, too big: remembered in badUrls); rejects with
+   * `code: 'unavailable'` when it couldn't be fetched now.
+   */
+  async download(d) {
+    const { url, key } = d;
+    const signal = AbortSignal.timeout(IMAGE_TIMEOUT_MS);
     let current = url;
     let res = null;
+    let host = '';
     for (let hop = 0; hop < 4; hop++) {
       if (!allowedImageUrl(current)) {
         this.badUrls.set(url, this.now());
         return null;
       }
-      await this.imageThrottle.wait({ maxWaitMs: MAX_WAIT[prio] ?? Infinity });
-      res = await this.fetch(current, { redirect: 'manual', headers: { 'user-agent': this.ua, accept: 'image/*' }, signal: AbortSignal.timeout(20_000) });
+      host = hostOf(current);
+      if (this.hostHold(host)) throw unavailable(`${host} is not answering`);
+      await this.imageThrottle.wait({ prio: d.prio });
+      if (!this.enabled()) throw unavailable('Online artwork is turned off');
+      try {
+        res = await this.fetch(current, { redirect: 'manual', headers: { 'user-agent': this.ua, accept: 'image/*' }, signal });
+      } catch (e) {
+        throw this.hostFailed(host, e.cause?.code || e.message);
+      }
       const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
       if (!location) break;
       res.body?.cancel?.().catch?.(() => {});
       current = new URL(location, current).href;
       res = null;
     }
-    if (!res || !res.ok) {
-      if (res && [403, 404, 410].includes(res.status)) this.badUrls.set(url, this.now());
-      res?.body?.cancel?.().catch?.(() => {});
-      return null;
+    if (!res) throw unavailable('Too many redirects');
+    if (!res.ok) {
+      res.body?.cancel?.().catch?.(() => {});
+      if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+        this.badUrls.set(url, this.now()); // there is no such image
+        return null;
+      }
+      throw this.hostFailed(host, `HTTP ${res.status}`);
     }
     if (Number(res.headers.get('content-length')) > MAX_IMAGE_BYTES) {
       res.body?.cancel?.().catch?.(() => {});
+      this.badUrls.set(url, this.now());
       return null;
     }
-    const buf = await readLimited(res, MAX_IMAGE_BYTES);
+    let buf;
+    try {
+      buf = await readLimited(res, MAX_IMAGE_BYTES);
+    } catch (e) {
+      throw this.hostFailed(host, e.cause?.code || e.message);
+    }
     const ext = buf && sniff(buf);
     if (!ext) {
       this.badUrls.set(url, this.now());
       return null;
     }
+    this.imageHosts.delete(host);
     const abs = path.join(this.artDir, `${key}.${ext}`);
     const tmp = `${abs}.${process.pid}.${crypto.randomBytes(3).toString('hex')}.tmp`;
     await fsp.writeFile(tmp, buf);
@@ -434,12 +625,20 @@ export class ArtworkService extends EventEmitter {
     return { abs, type: IMAGE_TYPES[ext] };
   }
 
-  /** Keeps the image cache under `artwork.maxCacheMB` (least recently used files go first). */
+  cacheMax() {
+    return Math.max(20, Number(this.cfg().maxCacheMB) || 3072) * 1024 * 1024;
+  }
+
+  /**
+   * Keeps the image cache under `artwork.maxCacheMB`: least recently used files go first, big
+   * pictures (TV, song sheets) before the small list thumbnails that keep lists working offline.
+   */
   evict() {
-    const max = Math.max(20, Number(this.cfg().maxCacheMB) || 3072) * 1024 * 1024;
+    const max = this.cacheMax();
     if (this.bytes <= max) return;
     const target = max * 0.9;
-    const list = [...this.files].filter(([, f]) => !f.pinned).sort((a, b) => a[1].used - b[1].used);
+    const big = (f) => (f.size > BIG_FILE ? 0 : 1);
+    const list = [...this.files].filter(([, f]) => !f.pinned).sort((a, b) => big(a[1]) - big(b[1]) || a[1].used - b[1].used);
     for (const [key, f] of list) {
       if (this.bytes <= target) break;
       this.files.delete(key);
@@ -447,6 +646,18 @@ export class ArtworkService extends EventEmitter {
       fsp.unlink(path.join(this.artDir, `${key}.${f.ext}`)).catch(() => {});
     }
     this.statusChanged();
+  }
+
+  /** Downloads `ref` at `size` in the background unless it is cached or can't be fetched now; true when started. */
+  prefetch(ref, size, prio = PRIO.crawl) {
+    const url = imageUrls(ref)?.[size];
+    // A full cache is not topped up in the background (it would evict and fetch again forever).
+    if (!url || !this.enabled() || this.indexing || this.bytes > this.cacheMax() * 0.85) return false;
+    const key = this.fileKey(url);
+    const bad = this.badUrls.get(url);
+    if (this.files.has(key) || this.downloads.has(key) || (bad && this.now() - bad < DAY) || this.hostHold(hostOf(url))) return false;
+    this.image(ref, size, prio);
+    return true;
   }
 
   // ---- lookups -----------------------------------------------------------------------------------------
@@ -483,8 +694,14 @@ export class ArtworkService extends EventEmitter {
     const id = `${kind}:${obj.key}`;
     let job = this.jobs.get(id);
     if (job) {
-      if (kind === 'artist' && want === 'all' && job.want !== 'all') job.upgrade = true;
       if (p < job.prio) this.reprioritize(job, p);
+      if (kind === 'artist' && want === 'all' && job.want !== 'all') {
+        // A picture-only lookup is running: the fanart/logo lookup follows it, at the priority of
+        // whoever asked for it, and this caller hears about that one.
+        job.upgradePrio = Math.min(job.upgradePrio ?? p, p);
+        job.upgraded ||= new Promise((resolve) => { job.resolveUpgrade = resolve; });
+        return job.upgraded;
+      }
       return job.promise;
     }
     const chain = kind === 'song' ? this.songChain(obj.key) : this.artistChain(obj.key, want);
@@ -502,14 +719,20 @@ export class ArtworkService extends EventEmitter {
   }
 
   enqueue(job) {
+    while (job.chain.length && !this.providerOn(job.chain[0])) job.chain.shift(); // turned off meanwhile
     const name = job.chain[0];
+    if (!name) return this.settle(job, job.found ? true : null);
+    if (job.prio === PRIO.crawl && this.throttles[name].pausedFor() > CRAWL_HOLD_MS) {
+      job.skipped = true; // backing off for long: the next pass asks again
+      return this.settle(job, job.found ? true : null);
+    }
     const q = this.queues[name][job.prio];
     if (job.prio === PRIO.visible) {
       q.unshift(job);
       while (q.length > VISIBLE_CAP) {
         const old = q.pop();
         old.queued = null;
-        this.settle(old, null);
+        this.settle(old, null, { dropped: true });
       }
     } else {
       q.push(job);
@@ -532,51 +755,71 @@ export class ArtworkService extends EventEmitter {
     }
   }
 
+  /**
+   * Starts queued jobs. Urgent (now/visible) jobs may use every worker whatever the crawler is
+   * doing, so they never wait for a crawl step to finish; crawl jobs only use idle workers, and
+   * none while the provider backs off (they would sit on a worker for the whole pause).
+   */
   pump(name) {
     const workers = PROVIDERS[name].workers || 1;
-    while (!this.closed && this.running[name] < workers) {
-      const job = this.takeJob(name);
-      if (!job) break;
+    const [now, visible, crawl] = this.queues[name];
+    while (!this.closed) {
+      const urgent = this.running[name] - this.runningCrawl[name] < workers;
+      const idle = this.running[name] < workers && !this.throttles[name].pausedFor();
+      const q = urgent && now.length ? now : urgent && visible.length ? visible : idle && crawl.length ? crawl : null;
+      if (!q) break;
+      const job = q.shift();
+      job.queued = null;
+      const isCrawl = job.prio === PRIO.crawl;
       this.running[name]++;
-      const crawl = job.prio === PRIO.crawl;
-      if (crawl) this.runningCrawl[name]++;
+      if (isCrawl) this.runningCrawl[name]++;
       this.run(job, name).finally(() => {
         this.running[name]--;
-        if (crawl) this.runningCrawl[name]--;
+        if (isCrawl) this.runningCrawl[name]--;
         this.pump(name);
       });
     }
-  }
-
-  takeJob(name) {
-    for (const q of this.queues[name]) {
-      if (q.length) {
-        const job = q.shift();
-        job.queued = null;
-        return job;
-      }
+    // Crawl jobs held back by a pause start when it ends.
+    const paused = this.throttles[name].pausedFor();
+    const timer = `pump:${name}`;
+    if (paused && crawl.length && !this.closed && !this.timers[timer]) {
+      this.timers[timer] = setTimeout(() => {
+        delete this.timers[timer];
+        this.pump(name);
+      }, paused + 50);
+      this.timers[timer].unref?.();
     }
-    return null;
   }
 
   async run(job, name) {
     let result;
-    try {
-      result = job.kind === 'song' ? await this.songStep(job, name) : await this.artistStep(job, name);
-    } catch (e) {
-      if (e.code !== 'unavailable' && e.code !== 'busy') log.warn(`${name} lookup of ${job.key} failed:`, e.message);
-      result = 'unavailable';
+    if (!this.providerOn(name)) {
+      result = 'off'; // turned off since the job was queued
+    } else {
+      try {
+        result = job.kind === 'song' ? await this.songStep(job, name) : await this.artistStep(job, name);
+      } catch (e) {
+        if (e.code !== 'unavailable' && e.code !== 'busy' && !this.closed) log.warn(`${name} lookup of ${job.key} failed:`, e.message);
+        result = e.code === 'busy' ? 'busy' : 'unavailable';
+      }
     }
     if (this.closed) return this.settle(job, null);
     if (result === 'found') return this.settle(job, true);
+    // A crawl job that met a short back-off waits for it in the queue (not on a worker).
+    if (result === 'busy' && job.prio === PRIO.crawl && this.providerOn(name) && this.throttles[name].pausedFor() <= CRAWL_HOLD_MS) {
+      this.queues[name][PRIO.crawl].unshift(job);
+      job.queued = name;
+      return;
+    }
     job.chain.shift();
-    if (result === 'unavailable') job.skipped = true;
+    if (result === 'unavailable' || result === 'busy') job.skipped = true;
     // Busy providers are skipped by urgent lookups; the crawler asks them again later.
-    if (job.chain.length && (result === 'next' || job.prio < PRIO.crawl)) return this.enqueue(job);
+    if (job.chain.length && (result === 'next' || result === 'off' || job.prio < PRIO.crawl)) return this.enqueue(job);
     this.settle(job, job.found ? true : job.skipped ? null : false);
   }
 
-  settle(job, value) {
+  /** `dropped`: pushed out of a full queue (nothing was asked; no follow-up lookup either). */
+  settle(job, value, { dropped = false } = {}) {
     if (this.jobs.get(job.id) !== job) return;
     this.jobs.delete(job.id);
     if (job.prio === PRIO.crawl) {
@@ -584,7 +827,10 @@ export class ArtworkService extends EventEmitter {
       this.crawl.recent.push(this.now());
     }
     job.resolve(value);
-    if (job.upgrade && !this.closed) this.request('artist', job.obj, 'now', 'all');
+    if (job.upgraded) {
+      const prio = Object.keys(PRIO).find((k) => PRIO[k] === job.upgradePrio) || 'visible';
+      job.resolveUpgrade(dropped || this.closed ? null : this.request('artist', job.obj, prio, 'all'));
+    }
     this.statusChanged();
   }
 
@@ -600,12 +846,13 @@ export class ArtworkService extends EventEmitter {
     }
     const c = best?.candidate;
     if (c && !c.cover && c.covers?.length) {
-      // Cover Art Archive: take the first release group that really has a front cover.
-      for (const ref of c.covers) {
-        if (await this.image(ref, 's', job.prio)) {
-          c.cover = ref;
-          break;
-        }
+      // Cover Art Archive: take the first release group that really has a front cover. If the
+      // archive couldn't be asked, nothing is known yet: no miss is recorded.
+      try {
+        c.cover = await this.coverOf(c, job.prio);
+      } catch (e) {
+        if (e.code === 'busy' || !this.providerOn(name)) throw e;
+        throw this.failed(name, 'error', `Cover Art Archive: ${e.message}`);
       }
     }
     const prev = this.songs.get(song.key);
@@ -623,7 +870,12 @@ export class ArtworkService extends EventEmitter {
     }
     let album = null;
     if (prov.albumUrl && c.albumId) {
-      album = await this.album(name, c.albumId, job.prio).catch(() => null);
+      album = await this.album(name, c.albumId, job.prio).catch((e) => {
+        if (e.code === 'busy' && job.prio === PRIO.crawl) throw e; // back-off: the crawler comes back for genre and year
+        return null;
+      });
+      const cur = this.songs.get(song.key);
+      if (cur && cur !== prev && (cur.manual || !cur.miss)) return 'found'; // chosen by the host meanwhile
     }
     this.setSong(song, {
       p: name,
@@ -643,6 +895,24 @@ export class ArtworkService extends EventEmitter {
     job.found = true;
     if (job.prio === PRIO.crawl) await this.image(c.cover, 's', job.prio); // list thumbnails work offline later
     return 'found';
+  }
+
+  /**
+   * The first of a candidate's covers that really has an image (Cover Art Archive release
+   * groups often have none), or null when none has. Throws `code: 'unavailable' | 'busy'` when
+   * none was found but some couldn't be checked (archive down, offline, back-off).
+   */
+  async coverOf(c, prio) {
+    let failure = null;
+    for (const ref of new Set([c.cover, ...(c.covers || [])].filter(Boolean))) {
+      try {
+        if (await this.image(ref, 's', prio, { strict: true })) return ref;
+      } catch (e) {
+        failure ||= e;
+      }
+    }
+    if (failure) throw failure;
+    return null;
   }
 
   async album(name, id, prio) {
@@ -712,7 +982,10 @@ export class ArtworkService extends EventEmitter {
     const changed = signature(e) !== before;
     this.setArtist(artist.key, e, changed);
     if (changed) job.found = true;
-    if (job.want !== 'all' && e.picture) return 'found';
+    if (job.want !== 'all' && e.picture) {
+      if (job.prio === PRIO.crawl) await this.image(e.picture, 's', job.prio); // artist lists work offline later
+      return 'found';
+    }
     return 'next';
   }
 
@@ -735,8 +1008,8 @@ export class ArtworkService extends EventEmitter {
         if (!artist) continue;
         this.request('artist', artist, 'now', 'all').then(() => {
           const a = this.artists.get(key);
-          if (a?.fanart?.[0]) this.image(a.fanart[0], 'l', PRIO.now);
-          if (a?.logo) this.image(a.logo, 'l', PRIO.now);
+          if (a?.fanart?.[0]) this.image(a.fanart[0], 'l', PRIO.now); // the sizes the TV asks for
+          if (a?.logo) this.image(a.logo, 'm', PRIO.now);
         });
       }
     });
@@ -782,12 +1055,27 @@ export class ArtworkService extends EventEmitter {
 
   // ---- serving -----------------------------------------------------------------------------------
 
+  /**
+   * Guests may start only so many lookups and downloads per minute (per address): a phone
+   * script can't make the server download everything or push the TV's lookups back.
+   */
+  mayFetch(ctx) {
+    return !!ctx.isHost || this.guestLimit.take(String(ctx.ip));
+  }
+
+  /** An on-demand lookup for an HTTP request (joining one that is queued anyway is free). */
+  lookupFor(ctx, kind, obj, want) {
+    const job = this.jobs.get(`${kind}:${obj.key}`);
+    const free = job && !(want === 'all' && job.want !== 'all' && !job.upgraded);
+    if (free || this.mayFetch(ctx)) this.request(kind, obj, 'visible', want);
+  }
+
   /** Sends the cover of `song`; false when there is none (the caller sends a placeholder). */
   async serveSong(ctx, song) {
     const e = this.songs.get(song.key);
-    if (this.songChain(song.key).length) this.request('song', song, 'visible');
+    if (this.songChain(song.key).length) this.lookupFor(ctx, 'song', song);
     if (!e?.cover) return false;
-    const img = (await this.image(e.cover, sizeKey(ctx.query.get('s')), PRIO.visible)) || this.anyImage(e.cover);
+    const img = (await this.image(e.cover, sizeKey(ctx.query.get('s')), PRIO.visible, { mayDownload: () => this.mayFetch(ctx) })) || this.anyImage(e.cover);
     if (!img) return false;
     await sendFile(ctx.req, ctx.res, img.abs, { contentType: img.type, cacheControl: 'public, max-age=3600' });
     return true;
@@ -797,7 +1085,7 @@ export class ArtworkService extends EventEmitter {
   async serveArtist(ctx, artist) {
     const type = ARTIST_TYPES.includes(ctx.query.get('type')) ? ctx.query.get('type') : 'picture';
     const want = type === 'picture' ? 'picture' : 'all';
-    if (this.artistChain(artist.key, want).length) this.request('artist', artist, 'visible', want);
+    if (this.artistChain(artist.key, want).length) this.lookupFor(ctx, 'artist', artist, want);
     const e = this.artists.get(artist.key);
     let ref = null;
     if (type === 'fanart') {
@@ -809,7 +1097,7 @@ export class ArtworkService extends EventEmitter {
     if (!ref && type === 'picture') ref = this.artistCoverFallback(artist);
     if (!ref) return false;
     const size = sizeKey(ctx.query.get('s'), type === 'picture' ? 'm' : 'l');
-    const img = (await this.image(ref, size, PRIO.visible)) || this.anyImage(ref);
+    const img = (await this.image(ref, size, PRIO.visible, { mayDownload: () => this.mayFetch(ctx) })) || this.anyImage(ref);
     if (!img) return false;
     await sendFile(ctx.req, ctx.res, img.abs, { contentType: img.type, cacheControl: 'public, max-age=3600' });
     return true;
@@ -835,26 +1123,28 @@ export class ArtworkService extends EventEmitter {
   async candidates(song) {
     if (!this.enabled()) throw new UserError('Online artwork is turned off in the settings.');
     const q = songQuery(song);
+    const cur = this.songs.get(song.key);
     const all = [];
     const errors = [];
-    for (const name of SONG_CHAIN) {
-      if (!this.providerOn(name)) continue;
+    // All providers at once, none waiting out a back-off: the host is watching a spinner.
+    await Promise.all(SONG_CHAIN.filter((name) => this.providerOn(name)).map(async (name) => {
       const prov = PROVIDERS[name];
       const urls = prov.songUrls(q);
       try {
-        const json = await this.getJson(name, urls[urls.length - 1], PRIO.now);
+        const json = await this.getJson(name, urls[urls.length - 1], PRIO.now, { maxWaitMs: MAX_WAIT[PRIO.visible] });
         for (const c of rankCandidates(json ? prov.parseSongs(json) : [], q)) {
-          if (!c.cover && c.covers?.length) c.cover = c.covers[0];
-          if (c.cover) all.push(c);
+          // Cover Art Archive candidates: which release group has a cover is checked when the
+          // thumbnail is shown or the candidate chosen (the current one is known already).
+          if (!c.cover && cur?.cover && cur.p === c.provider && cur.id === c.id) c.cover = cur.cover;
+          if (c.cover || c.covers?.length) all.push(c);
         }
       } catch (e) {
-        errors.push(e.message);
+        errors.push(e.code === 'busy' ? `${prov.label} is busy — try again in a minute.` : e.message);
       }
-    }
+    }));
     all.sort((a, b) => b.confidence - a.confidence);
     const list = all.slice(0, 24);
     this.candidateCache.set(song.key, list);
-    const cur = this.songs.get(song.key);
     return {
       items: list.map((c) => ({
         id: `${c.provider}:${c.id}`,
@@ -876,7 +1166,9 @@ export class ArtworkService extends EventEmitter {
   /** Thumbnail of a "fix artwork" candidate, downloaded by the server (the browser never goes online). */
   async serveCandidate(ctx, song, candidateId) {
     const c = (this.candidateCache.get(song.key) || []).find((x) => `${x.provider}:${x.id}` === candidateId);
-    const img = c ? await this.image(c.cover, 's', PRIO.now) : null;
+    const ref = c && (await this.coverOf(c, PRIO.now).catch(() => null));
+    if (ref) c.cover = ref;
+    const img = ref ? await this.image(ref, 's', PRIO.now) : null;
     if (!img) return false;
     await sendFile(ctx.req, ctx.res, img.abs, { contentType: img.type, cacheControl: 'private, max-age=600' });
     return true;
@@ -885,13 +1177,21 @@ export class ArtworkService extends EventEmitter {
   async choose(song, candidateId) {
     const c = (this.candidateCache.get(song.key) || []).find((x) => `${x.provider}:${x.id}` === candidateId);
     if (!c) throw new UserError('That choice has expired — search again.', { code: 'expired' });
+    // Only a cover that really downloads is kept (a manual choice is never looked at again).
+    let cover;
+    try {
+      cover = await this.coverOf(c, PRIO.now);
+    } catch {
+      throw new UserError('That cover can’t be downloaded right now — try again in a moment.', { code: 'unavailable', status: 503 });
+    }
+    if (!cover) throw new UserError('That one has no picture — pick another cover.', { code: 'no_image' });
+    c.cover = cover;
     const album = PROVIDERS[c.provider].albumUrl && c.albumId ? await this.album(c.provider, c.albumId, PRIO.now).catch(() => null) : null;
     this.setSong(song, {
-      p: c.provider, id: c.id, cover: c.cover, album: c.album, albumId: c.albumId,
+      p: c.provider, id: c.id, cover, album: c.album, albumId: c.albumId,
       genre: album?.genre || c.genre, year: album?.year || c.year, explicit: c.explicit, rank: c.rank,
       confidence: 1, manual: true, at: this.now(), v: MATCH_VERSION,
     });
-    await this.image(c.cover, 's', PRIO.now);
     return { ok: true };
   }
 
@@ -949,8 +1249,8 @@ export class ArtworkService extends EventEmitter {
     }
     for (const t of Object.values(this.throttles)) t.resume();
     for (const h of Object.values(this.health)) Object.assign(h, { status: 'ok', fails: 0 });
-    this.crawl.list = null;
-    this.crawl.artistList = null;
+    this.imageHosts.clear();
+    this.wakeCrawl();
     this.saveSoon();
     this.metaChangedSoon();
     this.statusChanged();
@@ -958,10 +1258,37 @@ export class ArtworkService extends EventEmitter {
   }
 
   settingsChanged() {
-    this.crawl.list = null;
-    this.crawl.artistList = null;
+    // Queued lookups for providers that are off now move on to the next provider (or end), so
+    // nothing more is sent to them; with artwork off nothing is sent at all.
+    for (const [name, qs] of Object.entries(this.queues)) {
+      if (this.providerOn(name)) continue;
+      for (const q of qs) {
+        const jobs = q.splice(0);
+        if (q === qs[PRIO.visible]) jobs.reverse(); // enqueue() puts visible jobs first: keep their order
+        for (const job of jobs) {
+          job.queued = null;
+          this.enqueue(job);
+        }
+      }
+    }
+    if (!this.enabled()) for (const q of this.imageQueues) for (const d of q.splice(0)) this.dropImage(d, unavailable('Online artwork is turned off'));
+    if (!this.cfg().crawl) for (const name of Object.keys(this.queues)) this.dropCrawl(name); // crawler paused
+    this.wakeCrawl();
     this._status = null;
     this.statusChanged();
+  }
+
+  /** Starts a new crawl pass right away (new songs, retried misses, providers turned on). */
+  wakeCrawl() {
+    const c = this.crawl;
+    c.list = null;
+    c.artistList = null;
+    c.restartAt = 0;
+    if (c.timer && !this.closed) {
+      clearTimeout(c.timer);
+      c.timer = setTimeout(() => this.crawlTick(), 0);
+      c.timer.unref?.();
+    }
   }
 
   // ---- background crawler -------------------------------------------------------------------------------
@@ -993,8 +1320,9 @@ export class ArtworkService extends EventEmitter {
   fillCrawl(primary) {
     const c = this.crawl;
     const now = this.now();
+    if (this.indexing) return 1000; // what is cached decides what to prefetch
     if (!c.list || c.version !== this.catalog.version) {
-      if (now < c.restartAt) return Math.min(30_000, c.restartAt - now);
+      if (c.version === this.catalog.version && now < c.restartAt) return Math.min(30_000, c.restartAt - now);
       c.list = this.catalog.popular({ limit: Infinity }).items;
       c.artistList = [...this.catalog.artistList].sort((a, b) => b.trackCount - a.trackCount);
       c.index = 0;
@@ -1002,21 +1330,33 @@ export class ArtworkService extends EventEmitter {
       c.version = this.catalog.version;
       c.requested = 0;
     }
-    // Keep the primary provider busy, but don't let fallback queues (1 request/s) grow without bound.
-    const load = () => this.queues[primary][PRIO.crawl].length + this.runningCrawl[primary];
-    const backlog = () => SONG_CHAIN.filter((n) => n !== primary).reduce((sum, n) => sum + this.queues[n][PRIO.crawl].length, 0);
-    while (load() < 6 && backlog() < 200 && c.index < c.list.length) {
+    // Keep the primary provider busy, but don't let fallback queues (1 request/s) grow without
+    // bound. Providers that are off don't count (long back-offs drop their crawl jobs anyway).
+    const crawlLoad = (names) => names.reduce((n, p) => n + this.queues[p][PRIO.crawl].length + this.runningCrawl[p], 0);
+    const load = () => crawlLoad([primary]);
+    const fallbacks = SONG_CHAIN.filter((n) => n !== primary && this.providerOn(n));
+    const backlog = () => fallbacks.reduce((sum, n) => sum + this.queues[n][PRIO.crawl].length, 0);
+    const imagesFree = () => this.imageQueues[PRIO.crawl].length < 8;
+    while (load() < 6 && backlog() < 200 && imagesFree() && c.index < c.list.length) {
       const song = c.list[c.index++];
-      if (!this.songChain(song.key).length) continue;
-      c.requested++;
-      this.request('song', song, 'crawl');
+      if (this.songChain(song.key).length) {
+        c.requested++;
+        this.request('song', song, 'crawl');
+      } else if (this.prefetch(this.songs.get(song.key)?.cover, 's')) {
+        c.requested++; // found while on screen: the list thumbnail (offline) too
+      }
     }
     if (c.index >= c.list.length) {
-      while (load() < 4 && c.artistIndex < c.artistList.length) {
+      // Every artist provider's queue counts: TheAudioDB answers only 30 times a minute.
+      const artistLoad = () => crawlLoad(ARTIST_CHAIN);
+      while (artistLoad() < 6 && imagesFree() && c.artistIndex < c.artistList.length) {
         const artist = c.artistList[c.artistIndex++];
-        if (!this.artistChain(artist.key, 'picture').length) continue;
-        c.requested++;
-        this.request('artist', artist, 'crawl', 'picture');
+        if (this.artistChain(artist.key, 'picture').length) {
+          c.requested++;
+          this.request('artist', artist, 'crawl', 'picture');
+        } else if (this.prefetch(this.artists.get(artist.key)?.picture, 's')) {
+          c.requested++; // pictures that came with song results
+        }
       }
     }
     const done = c.index >= c.list.length && c.artistIndex >= c.artistList.length;

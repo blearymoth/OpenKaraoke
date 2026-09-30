@@ -86,6 +86,14 @@ try {
   await host.goto(`${base}/host#/artist/${encodeURIComponent(artistKey)}`);
   check(await until(async () => !!(await host.$('.artist-head.with-fanart .artist-logo img'))), 'artist page shows fanart and the logo once TheAudioDB answers');
   await shot(host, 'host-artist');
+  // A logo that can't be loaded (dead link, offline): the name as text, no broken image.
+  const tadb = app.artwork.artists.get(artistKey);
+  const goodLogo = tadb.logo;
+  tadb.logo = 'url:https://logos.example.invalid/gone.png';
+  app.artwork.artChanged({ artists: [artistKey] });
+  check(await until(async () => !(await host.$('.artist-logo img')) && /Pixel Parade/.test(await host.textContent('.artist-head h1'))), 'artist page falls back to the name when the logo is missing');
+  tadb.logo = goodLogo;
+  app.artwork.artChanged({ artists: [artistKey] });
 
   // Changed covers reach pages that are opened later: a reload shows "No cover", not the
   // image the browser loaded before.
@@ -115,7 +123,17 @@ try {
   await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'queue.add', songId: song.id, singerName: 'Eve' });
   await tv.waitForSelector('.intro-cover', { timeout: 10000 });
   check(await until(async () => !!(await tv.$('.intro .artist-logo'))), 'intro card shows the cover and the artist logo');
+  await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'player.key', semitones: 2 });
+  await tv.waitForSelector('.intro .chip');
+  await sleep(900);
+  const fit = await tv.evaluate(() => {
+    const name = document.querySelector('.intro .name');
+    const box = (sel) => document.querySelector(sel).getBoundingClientRect();
+    return { name: name.clientHeight / name.scrollHeight, top: box('.intro .kicker').top, bottom: box('.intro .status').bottom };
+  });
+  check(fit.name >= 0.9 && fit.top >= 0 && fit.bottom <= 720, `the singer’s name keeps its full size next to cover, logo and key chip (${Math.round(fit.name * 100)} %)`);
   await shot(tv, 'tv-intro');
+  await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'player.key', semitones: 0 });
   check(await until(async () => !!(await tv.$('#bg .fanart-bg')), 15000), 'artist photos move behind the lyrics while singing');
   await sleep(600);
   await shot(tv, 'tv-singing-fanart');

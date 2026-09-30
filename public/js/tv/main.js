@@ -427,14 +427,23 @@ function Intro({ st }) {
   const circ = 2 * Math.PI * 44;
   const cover = cur.art?.cover && !cur.mystery;
   const logo = cur.art?.logo && !cur.mystery;
+  const avatar = html`<div class="avatar-big" style=${{ '--c': singer?.color }}>${singer?.emoji || '🎤'}</div>`;
+  const who = html`
+    <div class="name display">${singersText(cur.singers) || 'Grab the mic!'}</div>
+    <div class="song"><b>${cur.title}</b> by ${cur.artist}${cur.year && !cur.mystery ? html` <span class="year">(${cur.year})</span>` : ''}</div>`;
+  // With artwork the cover (or the singer) sits beside the name, so everything still fits on
+  // the screen with the countdown and key/tempo chips, and the name keeps its full size.
   return html`<div class="scene intro fade-in" key=${cur.id}>
     <div class="kicker">${cur.mystery ? 'Mystery song!' : 'Next singer'}</div>
-    ${cover
-      ? html`<div class="intro-art"><img class="intro-cover" src=${artUrl(cur.songId, 500)} alt="" /><div class="avatar-big" style=${{ '--c': singer?.color }}>${singer?.emoji || '🎤'}</div></div>`
-      : html`<div class="avatar-big" style=${{ '--c': singer?.color }}>${singer?.emoji || '🎤'}</div>`}
-    <div class="name display">${singersText(cur.singers) || 'Grab the mic!'}</div>
-    <div class="song"><b>${cur.title}</b> by ${cur.artist}${cur.year && !cur.mystery ? html` <span class="year">(${cur.year})</span>` : ''}</div>
-    ${logo && html`<img class="artist-logo" src=${artistArtUrl(cur.art.logo, 'logo', { size: 500 })} alt="" />`}
+    ${cover || logo
+      ? html`<div class="intro-main">
+          ${cover ? html`<div class="intro-art"><img class="intro-cover" src=${artUrl(cur.songId, 500)} alt="" />${avatar}</div>` : avatar}
+          <div class="intro-text">
+            ${who}
+            ${logo && html`<img class="artist-logo" src=${artistArtUrl(cur.art.logo, 'logo', { size: 500 })} alt="" />`}
+          </div>
+        </div>`
+      : html`${avatar}${who}`}
     ${(p.key !== 0 || p.tempo !== 1) && html`<div class="meta">
       ${p.key !== 0 && html`<span class="chip">Key ${formatKey(p.key)}</span>`}
       ${p.tempo !== 1 && html`<span class="chip">Tempo ${formatTempo(p.tempo)}</span>`}

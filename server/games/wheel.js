@@ -5,7 +5,7 @@
 // Fairness and secrecy: the server draws the result with crypto randomness *before* the spin
 // and tells only the TV where the wheel will stop (it needs that to animate). Phones and the
 // host screen learn the result when the spin is over (phase 'result').
-import { Game, fail, intIn, randomInt, shuffle } from './base.js';
+import { Game, decadeIn, fail, intIn, randomInt, shuffle } from './base.js';
 import { fold } from '../../shared/text.js';
 import {
   WHEEL_KINDS, WHEEL_KIND_LABELS, WHEEL_MIN_SEGMENTS, WHEEL_MAX_SEGMENTS, MAX_DARES, MAX_DARE_LENGTH,
@@ -74,7 +74,7 @@ export class Wheel extends Game {
       // songs: optional filters (like the poll)
       tag: songs ? str(c.tag) : '',
       genre: songs ? str(c.genre) : '',
-      decade: songs && c.decade ? Math.floor(intIn(c.decade, 1900, 2100, 0) / 10) * 10 : 0,
+      decade: songs ? decadeIn(c.decade) : 0,
       // singers / duets: everybody known tonight, or only guests whose phone is here now
       who: c.who === 'online' ? 'online' : 'all',
       dares: kind === 'dares' ? parseDares(c.dares) : [],

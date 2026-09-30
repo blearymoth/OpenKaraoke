@@ -8,7 +8,7 @@
 //
 // Privacy: phones and the TV never get the right answer before the reveal; the clip (track,
 // URLs, positions) is only in the TV view; scores change only when a question closes.
-import { Game, fail, intIn, newId, randomInt, shuffle } from './base.js';
+import { Game, decadeIn, fail, intIn, newId, randomInt, shuffle } from './base.js';
 import { mediaUrls } from '../http/media.js';
 import { fold } from '../../shared/text.js';
 import {
@@ -51,7 +51,7 @@ export class Quiz extends Game {
       rounds: rounds.length ? rounds : [...QUIZ_ROUNDS],
       tag: str(c.tag),
       genre: str(c.genre),
-      decade: intIn(c.decade, 1900, 2100, 0),
+      decade: decadeIn(c.decade),
       popular: c.popular === true,
     };
   }

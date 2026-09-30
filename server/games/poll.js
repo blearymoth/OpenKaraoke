@@ -1,6 +1,6 @@
 // "What's next?" crowd poll (PLAN §13.4): four songs, the phones vote for 20 s, the winner is
 // queued next (as a sing-along for everyone, or for the host to hand out).
-import { Game, fail, intIn, randomInt } from './base.js';
+import { Game, decadeIn, fail, intIn, randomInt } from './base.js';
 
 const str = (v, max = 60) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
@@ -15,7 +15,7 @@ export class Poll extends Game {
       songIds: (Array.isArray(c.songIds) ? c.songIds : []).filter((id) => typeof id === 'string' && room.catalog.song(id)).slice(0, 4),
       tag: str(c.tag),
       genre: str(c.genre),
-      decade: intIn(c.decade, 1900, 2100, 0),
+      decade: decadeIn(c.decade),
       singer: c.singer === 'nobody' ? 'nobody' : 'everyone', // who the winner is queued for
     };
   }

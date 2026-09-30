@@ -23,6 +23,12 @@ export function intIn(v, min, max, def) {
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : def;
 }
 
+/** A decade filter from game setup (1980 for "the 80s"); 0 = any (empty, missing or out of range). */
+export function decadeIn(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 1900 && n <= 2100 ? Math.floor(n / 10) * 10 : 0;
+}
+
 /** Uniformly random integer in [0, n) (crypto quality — results must not be guessable). */
 export function randomInt(n) {
   return n > 1 ? crypto.randomInt(n) : 0;

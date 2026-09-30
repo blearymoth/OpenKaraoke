@@ -26,7 +26,7 @@
 // `showSongs`; onSongEnd returns true so the room doesn't move on) → [score, after each
 // performance] → … → vote (A/B, after both) → result (7 s) → vs (next match) … → final (podium,
 // 12 s) → done. A skipped performance loses its match (walkover) or scores 0 in a showcase.
-import { Game, fail, intIn, randomInt, shuffle, newId } from './base.js';
+import { Game, decadeIn, fail, intIn, randomInt, shuffle, newId } from './base.js';
 import { fold } from '../../shared/text.js';
 
 export const FORMATS = ['duel', 'knockout', 'showcase'];
@@ -110,7 +110,7 @@ export class Battle extends Game {
     if (contestants.length < 2) fail('Pick at least 2 contestants.', 'bad_request');
     if (contestants.length > MAX_CONTESTANTS) fail(`A battle has room for ${MAX_CONTESTANTS} contestants at most.`, 'bad_request');
     if (format === 'duel' && contestants.length !== 2) fail('A duel is for exactly 2 contestants — choose knockout or showcase for more.', 'bad_request');
-    const decade = c.decade ? intIn(c.decade, 1900, 2100, 0) : 0;
+    const decade = decadeIn(c.decade);
     return {
       contestants,
       format,

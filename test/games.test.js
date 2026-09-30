@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupRoom, SONGS, MORE_SONGS } from './room-harness.js';
-import { Game } from '../server/games/base.js';
+import { Game, decadeIn } from '../server/games/base.js';
 import { GAMES } from '../server/games/index.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -81,6 +81,21 @@ test('poll: nobody votes → drawn by lot; guests without a name can’t vote; g
   const r = await req(host, 'game.action', { action: 'close' });
   assert.ok(r.winner >= 0 && r.winner < 4);
   assert.equal(app.room.s.queue[0].singerIds.length, 0, '"nobody": the host assigns a singer later');
+});
+
+test('game setup: "Any" decade means no decade filter (not the 1900s)', async () => {
+  assert.equal(decadeIn(''), 0);
+  assert.equal(decadeIn(null), 0);
+  assert.equal(decadeIn(undefined), 0);
+  assert.equal(decadeIn('abc'), 0);
+  assert.equal(decadeIn(1500), 0);
+  assert.equal(decadeIn(1987), 1980);
+  assert.equal(decadeIn('1990'), 1990);
+  const { req, connect } = await setupRoom({}, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 20, decade: '' } });
+  const r = await req(host, 'game.action', { action: 'close' });
+  assert.ok(r.winner >= 0, 'songs were found without a decade');
 });
 
 test('poll: the timer closes the vote, then the game ends and the queue carries on', async () => {

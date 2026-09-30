@@ -29,11 +29,19 @@ const str = (v, max = 200) => (typeof v === 'string' ? v.trim().slice(0, max) : 
 // ---- image refs ------------------------------------------------------------------------------
 
 const DEEZER_SIZE_RE = /\/\d+x\d+-[^/]*$/;
+// Deezer marks "no picture" with an empty image id (".../artist//250x250-…") or with the MD5
+// of the empty string (".../artist/d41d8cd9…/…"): a grey silhouette / blank cover, not art.
+const DEEZER_EMPTY_RE = /\/images\/(?:cover|artist)\/(?:d41d8cd98f00b204e9800998ecf8427e)?\//i;
 
-/** Deezer image URL → ref, or null for Deezer's empty placeholders (".../artist//250x250-…"). */
+/** Deezer image URL → ref, or null for Deezer's "no picture" placeholders. */
 function deezerRef(url) {
-  if (typeof url !== 'string' || !url || /\/images\/(?:cover|artist)\/\//.test(url)) return null;
+  if (typeof url !== 'string' || !url || DEEZER_EMPTY_RE.test(url)) return null;
   return allowedImageUrl(url) ? `dz:${url}` : null;
+}
+
+/** True for a ref to a provider's "no picture" placeholder (saved before it was recognised). */
+export function placeholderRef(ref) {
+  return typeof ref === 'string' && ref.startsWith('dz:') && DEEZER_EMPTY_RE.test(ref);
 }
 
 function plainRef(prefix, url) {

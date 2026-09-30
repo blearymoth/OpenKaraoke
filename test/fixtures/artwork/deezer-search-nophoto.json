@@ -1,0 +1,45 @@
+{
+  "data": [
+    {
+      "id": 3129407,
+      "readable": true,
+      "title": "Smooth Operator",
+      "title_short": "Smooth Operator",
+      "title_version": "",
+      "link": "https://www.deezer.com/track/3129407",
+      "duration": 298,
+      "rank": 812345,
+      "explicit_lyrics": false,
+      "explicit_content_lyrics": 0,
+      "explicit_content_cover": 0,
+      "preview": "https://cdnt-preview.dzcdn.net/api/1/1/d/4/1/0/d41abc3129407.mp3",
+      "md5_image": "d41d8cd98f00b204e9800998ecf8427e",
+      "artist": {
+        "id": 1520,
+        "name": "Sade",
+        "link": "https://www.deezer.com/artist/1520",
+        "picture": "https://api.deezer.com/artist/1520/image",
+        "picture_small": "https://e-cdns-images.dzcdn.net/images/artist/d41d8cd98f00b204e9800998ecf8427e/56x56-000000-80-0-0.jpg",
+        "picture_medium": "https://e-cdns-images.dzcdn.net/images/artist/d41d8cd98f00b204e9800998ecf8427e/250x250-000000-80-0-0.jpg",
+        "picture_big": "https://e-cdns-images.dzcdn.net/images/artist/d41d8cd98f00b204e9800998ecf8427e/500x500-000000-80-0-0.jpg",
+        "picture_xl": "https://e-cdns-images.dzcdn.net/images/artist/d41d8cd98f00b204e9800998ecf8427e/1000x1000-000000-80-0-0.jpg",
+        "tracklist": "https://api.deezer.com/artist/1520/top?limit=50",
+        "type": "artist"
+      },
+      "album": {
+        "id": 300512,
+        "title": "Diamond Life",
+        "cover": "https://api.deezer.com/album/300512/image",
+        "cover_small": "https://e-cdns-images.dzcdn.net/images/cover/d41d8cd98f00b204e9800998ecf8427e/56x56-000000-80-0-0.jpg",
+        "cover_medium": "https://e-cdns-images.dzcdn.net/images/cover/d41d8cd98f00b204e9800998ecf8427e/250x250-000000-80-0-0.jpg",
+        "cover_big": "https://e-cdns-images.dzcdn.net/images/cover/d41d8cd98f00b204e9800998ecf8427e/500x500-000000-80-0-0.jpg",
+        "cover_xl": "https://e-cdns-images.dzcdn.net/images/cover/d41d8cd98f00b204e9800998ecf8427e/1000x1000-000000-80-0-0.jpg",
+        "md5_image": "d41d8cd98f00b204e9800998ecf8427e",
+        "tracklist": "https://api.deezer.com/album/300512/tracks",
+        "type": "album"
+      },
+      "type": "track"
+    }
+  ],
+  "total": 1
+}

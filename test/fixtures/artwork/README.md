@@ -15,6 +15,10 @@ client-library references via web search:
 | iTunes | `search?entity=song` → `results[].{trackId, trackName, artistName, collectionName, artworkUrl100, releaseDate, primaryGenreName, trackExplicitness, trackTimeMillis}` |
 | Fanart.tv | `webservice.fanart.tv/v3/music/<mbid>?api_key=` → `artistbackground, artistthumb, hdmusiclogo, musiclogo, musicbanner` lists of `{ id, url, likes }` |
 
+Deezer marks a missing artist picture or album cover with an empty image id
+(`images/artist//…`) or with the MD5 of the empty string (`images/artist/d41d8cd98f00b204e9800998ecf8427e/…`,
+a grey silhouette); `deezer-search-artist.json` and `deezer-search-nophoto.json` have both forms.
+
 Ids, hashes and image paths are made up. **Replace them with real captures** on a machine
 with internet access:
 

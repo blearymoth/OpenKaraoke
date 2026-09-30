@@ -16,17 +16,18 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { readJson, writeJsonAtomic } from '../util/jsonfile.js';
 import { Throttle } from '../util/throttle.js';
-import { Lru } from '../util/lru.js';
+import { Lru, memoPromise } from '../util/lru.js';
 import { UserError } from '../util/errors.js';
 import { sendFile } from '../http/static.js';
 import { logger } from '../util/log.js';
-import { PROVIDERS, SONG_CHAIN, USER_AGENT, imageUrls, allowedImageUrl } from './providers.js';
-import { songQuery, pickBest, pickArtist, rankCandidates, artistSimilarity, creditsOf } from './match.js';
+import { PROVIDERS, SONG_CHAIN, USER_AGENT, imageUrls, allowedImageUrl, placeholderRef } from './providers.js';
+import { songQuery, pickBest, pickArtist, rankCandidates, artistNameScore, artistSearchName, sameSearchName } from './match.js';
+import { compact } from '../../shared/text.js';
 
 const log = logger('artwork');
 
 /** Bump when matching improves: older misses are retried. */
-export const MATCH_VERSION = 1;
+export const MATCH_VERSION = 2;
 const DAY = 86_400_000;
 const RETRY_MISS_MS = 30 * DAY;
 export const PRIO = { now: 0, visible: 1, crawl: 2 };
@@ -93,7 +94,9 @@ export class ArtworkService extends EventEmitter {
     this.ua = USER_AGENT(version);
     this.crawlDelayMs = crawlDelayMs;
     this.songs = new Map(); // song key → { p, id, cover, album, genre, year, explicit, rank, confidence, at, v } | { miss, tried[], at, v }
-    this.artists = new Map(); // artist key → { picture, fanart[], logo, cutout, banner, mbid, genre, tried[], at, v }
+    // artist key → { picture, pictureFrom?: 'song', fanart[], logo, cutout, banner, mbid, genre, n: name searched for, tried[], at, v }
+    this.artists = new Map();
+    this.nameSearches = new Lru({ max: 64 }); // "provider|name" → artist search result (band members share one)
     this.albums = new Map(); // "provider:id" → { genre, year, type }
     this.files = new Map(); // sha1(url) → { ext, size, used }
     this.bytes = 0;
@@ -153,6 +156,7 @@ export class ArtworkService extends EventEmitter {
       load(this.songs, data.songs);
       load(this.artists, data.artists);
       load(this.albums, data.albums);
+      this.dropPlaceholders();
     }
     this.installMeta();
     this.library.on('changed', () => {
@@ -171,6 +175,31 @@ export class ArtworkService extends EventEmitter {
   installMeta() {
     this.catalog.metaFor = (key) => this.songs.get(key) || null;
     this.catalog.metaChanged();
+    // Artists found under a name that no longer applies (see artistEntry) lose that art now.
+    for (const key of [...this.artists.keys()]) {
+      const artist = this.catalog.artist(key);
+      if (artist) this.artistEntry(artist);
+    }
+  }
+
+  /** Deezer's "no picture" images saved as art before they were recognised: look those up again. */
+  dropPlaceholders() {
+    let n = 0;
+    for (const [key, e] of this.songs) {
+      if (e.manual || !placeholderRef(e.cover)) continue;
+      this.songs.set(key, compactEntry({ miss: true, year: e.year, genre: e.genre, v: MATCH_VERSION })); // no `at`: retried
+      n++;
+    }
+    for (const [key, e] of this.artists) {
+      if (!placeholderRef(e.picture)) continue;
+      const { picture, pictureFrom, tried, ...rest } = e;
+      this.artists.set(key, rest); // nothing tried: TheAudioDB is asked for a picture too
+      n++;
+    }
+    if (n) {
+      log.info(`${n} placeholder pictures dropped`);
+      this.saveSoon();
+    }
   }
 
   async indexFiles() {
@@ -460,7 +489,8 @@ export class ArtworkService extends EventEmitter {
   }
 
   artistChain(key, want = 'picture') {
-    const e = this.artists.get(key);
+    const artist = this.catalog.artist(key);
+    const e = artist ? this.artistEntry(artist) : this.artists.get(key);
     const tried = e && !this.stale(e) ? new Set(e.tried || []) : new Set();
     const steps = [];
     if (this.providerOn('deezer') && !tried.has('deezer') && !e?.picture) steps.push('deezer');
@@ -663,17 +693,61 @@ export class ArtworkService extends EventEmitter {
     if (!c.artistPicture) return;
     for (const key of song.artistKeys || []) {
       const artist = this.catalog.artist(key);
-      const e = this.artists.get(key);
+      const e = artist && this.artistEntry(artist);
       if (!artist || e?.picture) continue;
-      const q = { artist: artist.name.replace(/^the\s+/i, ''), credits: creditsOf(artist.name) };
-      if (artistSimilarity(c.artist, q) < 0.9) continue;
-      this.setArtist(key, { ...(e || { tried: [], at: this.now(), v: MATCH_VERSION }), picture: c.artistPicture }, true);
+      // The track's artist must be the one we'd search for: "Sam & Dave" for Sam, but a track
+      // credited to "Elton John & Kiki Dee" is not a picture of Elton John alone.
+      if (artistNameScore(c.artist, this.searchName(artist)) < 0.9) continue;
+      this.setArtist(key, { ...(e || { tried: [], at: this.now(), v: MATCH_VERSION }), picture: c.artistPicture, pictureFrom: 'song' }, true);
     }
+  }
+
+  /** The name artist databases are searched for (see artistSearchName), cached per catalog version. */
+  searchName(artist) {
+    const { catalog } = this;
+    const memo = this._searchNames;
+    if (memo?.catalog !== catalog || memo.version !== catalog.version) this._searchNames = { catalog, version: catalog.version, map: new Map() };
+    const map = this._searchNames.map;
+    let name = map.get(artist.key);
+    if (name === undefined) {
+      const credits = (artist.songIds || []).map((id) => this.catalog.song(id)?.artist).filter(Boolean);
+      name = artistSearchName(artist, credits);
+      map.set(artist.key, name);
+    }
+    return name;
+  }
+
+  /**
+   * The stored entry of a catalog artist. What was found by searching for another name (a band
+   * member's own name before, or the library changed) is dropped first; pictures that came with
+   * matched songs stay. Entries saved without `n` were searched for the artist's own name.
+   */
+  artistEntry(artist) {
+    const e = this.artists.get(artist.key);
+    if (!e) return null;
+    const searched = e.n || (e.tried?.length ? artist.name : '');
+    if (!searched || sameSearchName(searched, this.searchName(artist))) return e;
+    const keep = e.pictureFrom === 'song' ? { picture: e.picture, pictureFrom: 'song', at: e.at, v: e.v } : {};
+    this.setArtist(artist.key, keep, true);
+    return this.artists.get(artist.key);
+  }
+
+  /** Searches provider `name`'s artist database for `query`; null when no artist matches. */
+  searchArtist(name, query, prio) {
+    return memoPromise(this.nameSearches, `${name}|${compact(query)}`, async () => {
+      const prov = PROVIDERS[name];
+      for (const url of prov.artistUrls(query, { key: this.cfg().theaudiodbKey })) {
+        const json = await this.getJson(name, url, prio);
+        const info = pickArtist(json ? prov.parseArtists(json) : [], query);
+        if (info) return info;
+      }
+      return null;
+    });
   }
 
   async artistStep(job, name) {
     const artist = job.obj;
-    const prev = this.artists.get(artist.key);
+    const prev = this.artistEntry(artist);
     const fresh = prev && !this.stale(prev);
     const e = { ...(prev || {}), tried: fresh ? [...(prev.tried || [])] : [] };
     const signature = (x) => JSON.stringify([x.picture, x.fanart, x.logo, x.cutout, x.banner, x.mbid, x.genre]);
@@ -689,13 +763,8 @@ export class ArtworkService extends EventEmitter {
         e.banner ||= info.banner;
       }
     } else {
-      const prov = PROVIDERS[name];
-      let info = null;
-      for (const url of prov.artistUrls(artist.name, { key: this.cfg().theaudiodbKey })) {
-        const json = await this.getJson(name, url, job.prio);
-        info = pickArtist(json ? prov.parseArtists(json) : [], artist.name);
-        if (info) break;
-      }
+      e.n = this.searchName(artist);
+      const info = await this.searchArtist(name, e.n, job.prio);
       if (info) {
         e.picture ||= info.picture;
         if (info.fanart?.length) e.fanart = [...new Set([...(e.fanart || []), ...info.fanart])].slice(0, 8);

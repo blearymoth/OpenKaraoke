@@ -9,6 +9,7 @@ import { QueuePanel } from './queue.js';
 import { Dialogs } from './dialogs.js';
 import { Home, Search, Artists, Artist, Collections, Tag, Browse, Favorites, Singers, History } from './views.js';
 import { Playlists } from './playlists.js';
+import { Photos } from './photos.js';
 import { Settings } from './settings.js';
 import { Games } from './games.js';
 import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
@@ -22,6 +23,7 @@ const NAV = [
   ['/playlists', 'music', 'Playlists'],
   ['/singers', 'users', 'Singers'],
   ['/games', 'game', 'Games'],
+  ['/photos', 'eye', 'Photos'],
   ['/history', 'history', 'History'],
   ['/settings', 'settings', 'Settings'],
   ['/queue', 'list', 'Queue', 'mobile-only'],
@@ -73,6 +75,7 @@ function Nav({ route }) {
       <${Icon} name=${icon} /> <span>${label}</span>
       ${path === '/queue' && state.queue.length ? html`<span class="badge neon">${state.queue.length}</span>` : null}
       ${path === '/games' && state.game && !state.game.ended ? html`<span class="badge neon">live</span>` : null}
+      ${path === '/photos' && state.photos?.some((p) => p.status === 'pending') ? html`<span class="badge neon">${state.photos.filter((p) => p.status === 'pending').length}</span>` : null}
     </a>`)}
   </nav>`;
 }
@@ -98,6 +101,7 @@ function Main({ route }) {
     case 'playlists': return html`<${Playlists} id=${b} key=${b || 'all'} />`;
     case 'singers': return html`<${Singers} />`;
     case 'games': return html`<${Games} />`;
+    case 'photos': return html`<${Photos} />`;
     case 'history': return html`<${History} />`;
     case 'settings': return html`<${Settings} section=${b} />`;
     case 'queue': return html`<div class="page queue-page"><${QueuePanel} /></div>`;

@@ -111,6 +111,6 @@ button.g-answer:active:not(:disabled) { transform: scale(0.97); }
 .rate-stars button { flex: 1; min-height: 52px; border: 0; border-radius: 12px; background: var(--stage-3); color: var(--ink-3); font-size: 28px; cursor: pointer; transition: transform 0.1s, background 0.15s, color 0.15s; }
 .rate-stars button.on { color: var(--bulb); background: var(--bulb-soft); }
 .rate-stars button:active { transform: scale(0.94); }
-.tv-rating { position: absolute; right: 3vw; top: 15vh; display: flex; align-items: center; gap: 2vh; max-width: 60vw; padding: 1.8vh 2.6vh; border-radius: 2vh; background: rgba(21, 15, 38, 0.9); border: 1px solid rgba(255, 201, 74, 0.35); font-size: 2.6vh; animation: tv-fade 0.6s var(--ease) both; z-index: 5; }
+.tv-rating { position: absolute; right: 3vw; top: 15vh; display: flex; flex-direction: column; align-items: flex-start; gap: 1vh; max-width: 24vw; padding: 1.8vh 2.6vh; border-radius: 2vh; background: rgba(21, 15, 38, 0.9); border: 1px solid rgba(255, 201, 74, 0.35); font-size: 2.6vh; animation: tv-fade 0.6s var(--ease) both; z-index: 5; }
 .tv-rating .stars { font-size: 3.6vh; color: var(--bulb); white-space: nowrap; }
 .tv-rating b { display: block; font-size: 3vh; }

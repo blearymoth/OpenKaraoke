@@ -191,6 +191,8 @@ function Background() {
       ${fanart && html`<${FanartShow} artistKey=${art.fanart} count=${art.fanartCount || 1} key=${art.fanart} />`}
       <div class="scrim"></div>`;
   }
+  const photos = state?.photos?.list || [];
+  if (mode === 'photos' && photos.length) return html`<${PhotoShow} photos=${photos} singing=${!!singing} /><div class="scrim"></div>`;
   if (mode === 'art' && !cur && state?.mosaic?.length >= 4) return html`<${Mosaic} ids=${state.mosaic} />`;
   return html`<div class="aurora"><i></i><i></i><i></i></div>`;
 }
@@ -200,6 +202,22 @@ function FanartShow({ artistKey, count }) {
   const [i, setI] = useState(0);
   useInterval(() => setI((x) => (x + 1) % count), count > 1 ? 20000 : null);
   return html`<div class="fanart-bg" key=${i} style=${{ backgroundImage: `url(${artistArtUrl(artistKey, 'fanart', { i, size: 1000 })})` }}></div>`;
+}
+
+/** Guests' photos, one after the other with a slow zoom (the newest first). */
+function PhotoShow({ photos }) {
+  const [i, setI] = useState(0);
+  useInterval(() => setI((x) => x + 1), photos.length > 1 ? 12000 : null);
+  const p = photos[(photos.length - 1 - (i % photos.length) + photos.length) % photos.length];
+  return html`<div class="photo-bg" key=${p.id} style=${{ backgroundImage: `url(/api/photos/${encodeURIComponent(p.id)})` }}></div>`;
+}
+
+/** A newly approved photo, big for a few seconds (small in a corner while someone sings). */
+function PhotoFlash({ flash, singing }) {
+  return html`<figure class=${`photo-flash ${singing ? 'corner' : ''}`} key=${flash.id}>
+    <img src=${`/api/photos/${encodeURIComponent(flash.id)}`} alt="" />
+    <figcaption>📸 ${flash.name}</figcaption>
+  </figure>`;
 }
 
 /** Idle lobby: a slowly drifting wall of covers from the library. */
@@ -235,6 +253,7 @@ function App() {
     ${scene}
     ${game && gameUi?.TvOverlay && html`<${gameUi.TvOverlay} game=${game} st=${st} now=${now} tv=${tv} />`}
     ${st.rating && !gameScene && p.state !== 'playing' && p.state !== 'paused' && html`<${RatingOverlay} r=${st.rating} />`}
+    ${st.photos?.flash && !gameScene && html`<${PhotoFlash} flash=${st.photos.flash} singing=${!!st.current && p.state !== 'idle'} />`}
     ${st.announcement && html`<div class="announce" key=${st.announcement.id}><div>${st.announcement.text}</div></div>`}
     <div class="reactions">${s.reactions.map((r) => html`<div class="reaction" key=${r.id} style=${{ left: `${r.x}%`, '--dx': r.dx }}><b>${r.emoji}</b>${r.name && html`<span>${r.name}</span>`}</div>`)}</div>
     ${s.status !== 'open' && html`<div class="conn-lost">Reconnecting to the server…</div>`}
@@ -305,7 +324,7 @@ function RatingOverlay({ r }) {
   const full = Math.round(r.avg);
   return html`<div class="tv-rating" key=${r.entryId}>
     <span class="stars" aria-label=${`${r.avg} stars`}>${'★'.repeat(full)}${'☆'.repeat(5 - full)}</span>
-    <div class="ellipsis"><b class="ellipsis">${r.votes ? `${r.avg.toFixed(1)} from ${r.votes} ${r.votes === 1 ? 'vote' : 'votes'}` : 'Rate the performance!'}</b><span>Give ${who} stars for “${r.title}” on your phone</span></div>
+    <div><b>${r.votes ? `${r.avg.toFixed(1)} from ${r.votes} ${r.votes === 1 ? 'vote' : 'votes'}` : 'Rate the performance!'}</b><span>Give ${who} stars for “${r.title}” on your phone</span></div>
   </div>`;
 }
 

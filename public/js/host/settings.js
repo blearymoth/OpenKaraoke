@@ -34,6 +34,9 @@ const SECTIONS = [
       { path: 'queue.guestsSeeQueue', label: 'Guests see the whole queue', type: 'bool', help: 'When off, guests only see their own songs.' },
       { path: 'queue.guestKeyChange', label: 'Guests can choose a key', type: 'bool' },
       { path: 'guests.reactions', label: 'Guests can send reactions to the TV', type: 'bool' },
+      { path: 'guests.photos', label: 'Guests can send photos to the TV', type: 'bool' },
+      { path: 'guests.photoApproval', label: 'Approve photos before they appear', type: 'bool', when: (s) => s.guests.photos },
+      { path: 'guests.games', label: 'Guests can play games on their phones', type: 'bool' },
     ],
   },
   {
@@ -57,7 +60,7 @@ const SECTIONS = [
   },
   {
     id: 'display', title: 'TV display', icon: 'tv', fields: [
-      { path: 'display.background', label: 'Background', type: 'select', options: [['art', 'Cover art and artist photos'], ['visualizer', 'Moving lights'], ['plain', 'Plain']] },
+      { path: 'display.background', label: 'Background', type: 'select', options: [['art', 'Cover art and artist photos'], ['photos', 'Guests’ photos'], ['visualizer', 'Moving lights'], ['plain', 'Plain']] },
       { path: 'display.fanart', label: 'Artist photos behind the lyrics', type: 'bool', help: 'Slowly moving photos of the artist when there are some (see Artwork); otherwise the blurred cover.', when: (s) => s.display.background === 'art' },
       { path: 'display.cdgTransparent', label: 'Show the background behind the lyrics', type: 'bool' },
       { path: 'display.cdgSmoothing', label: 'Smooth lyrics text', type: 'bool', help: 'Rounder, sharper-looking letters on big screens.' },

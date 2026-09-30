@@ -13,6 +13,7 @@ import { insertIndex, etas, leadOf, shuffled } from './rotation.js';
 import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, RATING_SECONDS, clampKey, clampTempo } from '../../shared/protocol.js';
 import { createGame } from '../games/index.js';
 import { BreakMusic } from './breakmusic.js';
+import { Photos } from './photos.js';
 import { fold } from '../../shared/text.js';
 import { logger } from '../util/log.js';
 
@@ -38,6 +39,7 @@ const DEFAULT_STATE = {
   trackPrefs: {},
   stats: { plays: {} },
   tonight: { sung: [], history: [], games: [] },
+  photos: [],
 };
 
 const newId = (bytes = 6) => crypto.randomBytes(bytes).toString('base64url');
@@ -91,6 +93,7 @@ export class Room {
     };
     this.handlers = this.buildHandlers();
     this.breakMusic = new BreakMusic(this);
+    this.photos = new Photos(this);
   }
 
   get s() {
@@ -127,6 +130,7 @@ export class Room {
     this.closeRating();
     this.game?.dispose();
     this.breakMusic.close();
+    this.photos.close();
     await this.doc.flush();
   }
 
@@ -304,6 +308,10 @@ export class Room {
       'tv.game': [[TV], (c, m) => this.gameTv(c, m)],
       'tv.break': [[TV], (c, m) => { if (c.data.display === 'main') this.breakMusic.ended(str(m.id, 40)); }],
       'break.skip': [PLAYER, () => this.breakMusic.skip()],
+      'photo.approve': [H, (c, m) => this.photos.approve(str(m.id, 40))],
+      'photo.reject': [H, (c, m) => this.photos.reject(str(m.id, 40))],
+      'photo.remove': [H, (c, m) => this.photos.remove(str(m.id, 40))],
+      'photo.clear': [H, () => this.photos.removeAll()],
       'game.start': [H, (c, m) => this.gameStart(m)],
       'game.action': [H, (c, m) => this.activeGame().action(c, m)],
       'game.input': [[GUEST], (c, m) => this.gameInput(c, m)],
@@ -1620,6 +1628,7 @@ export class Room {
       rating: this.ratingView(HOST),
       sungTonight: s.tonight.sung.slice(-500),
       breakMusic: (({ title, artist } = {}) => (title ? { title, artist } : null))(this.breakMusic.view() || {}),
+      photos: this.photos.hostView(),
     };
   }
 
@@ -1648,6 +1657,7 @@ export class Room {
       library: { songs: this.catalog.songs.size, offline: this.library.status().offline },
       mosaic: this.s.current ? [] : this.mosaic(),
       breakMusic: this.breakMusic.view(),
+      photos: { list: this.photos.approved(40), flash: this.photos.flash },
       game: this.game?.view({ role: TV }) || null,
       rating: this.ratingView(TV),
     };
@@ -1672,6 +1682,8 @@ export class Room {
         guestKeyChange: q.guestKeyChange,
         reactions: this.settings.get('guests.reactions'),
         games: this.settings.get('guests.games'),
+        photos: this.settings.get('guests.photos'),
+        photoApproval: this.settings.get('guests.photoApproval'),
       },
       current: this.currentView(),
       player: (({ state, pos, dur, entryId, introEndsAt }) => ({ state, pos, dur, entryId, introEndsAt }))(this.playerView()),
@@ -1716,6 +1728,7 @@ export class Room {
       me: {
         deviceId,
         profile: this.profileView(deviceId),
+        photos: this.photos.mine(deviceId),
         pending,
         queued,
         left: max > 0 ? Math.max(0, max - queued) : null,

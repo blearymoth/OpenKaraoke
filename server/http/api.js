@@ -3,7 +3,8 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { HttpError } from '../util/errors.js';
-import { intParam, readJsonBody, sendText } from './router.js';
+import { intParam, readJsonBody, readBody, sendText } from './router.js';
+import { MAX_PHOTO_BYTES } from '../room/photos.js';
 import { sendFile } from './static.js';
 import { qrSvg } from '../util/qr.js';
 import { placeholderSvg } from '../artwork/placeholder.js';
@@ -245,6 +246,26 @@ export function apiRoutes(router, app) {
   });
 
   songbookRoutes(router, app, { requireHost });
+
+  // Guest photos: raw image body (resized on the phone), identified by the signed guest token.
+  router.post('/api/photos', async (ctx) => {
+    if (!/^image\/(?:jpeg|png|webp)$/i.test(ctx.req.headers['content-type'] || '')) throw new HttpError(415, 'Send a JPEG, PNG or WebP picture');
+    const deviceId = auth.verify(String(ctx.req.headers['x-guest-token'] || ''), 'guest')?.id;
+    if (!deviceId) throw new HttpError(401, 'Join the party first');
+    const body = await readBody(ctx.req, MAX_PHOTO_BYTES);
+    return { photo: await app.room.photos.add(deviceId, body) };
+  });
+
+  router.get('/api/photos/:id', async (ctx) => {
+    const f = app.room.photos.fileFor(ctx.params.id, { host: ctx.isHost });
+    if (!f) throw new HttpError(404, 'Photo not found');
+    try {
+      await sendFile(ctx.req, ctx.res, f.abs, { contentType: f.type, cacheControl: 'private, max-age=86400' });
+    } catch (e) {
+      if (e.code === 'ENOENT') throw new HttpError(404, 'Photo not found');
+      throw e;
+    }
+  });
 
   // Break music from the music folder (only files found by the break-music scan).
   router.get('/media/break/:id', async (ctx) => {

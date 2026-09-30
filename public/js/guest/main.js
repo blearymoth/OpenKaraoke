@@ -65,6 +65,8 @@ conn.on('notify', (m) => {
     toast(`${m.by} will sing ${m.title} with you 🎶`, 'ok', 5000);
   } else if (m.kind === 'duet-no') {
     toast(`${m.by} can’t join ${m.title} this time`, 'info', 5000);
+  } else if (m.kind === 'photo' && m.status === 'approved') {
+    toast('The host put your photo on the TV 📸', 'ok', 5000);
   } else if (m.kind === 'cohost') {
     toast('The host made you a co-host: player controls are on your Home tab.', 'ok', 6000);
   }
@@ -271,6 +273,58 @@ function GameTab({ state }) {
   </div>`;
 }
 
+/** Resizes a picture on the phone (max 1600 px, JPEG) before it is sent. */
+async function resizeImage(file, max = 1600) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('That file is not a picture this phone can read.'));
+      i.src = url;
+    });
+    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** "Send a photo to the TV": pick or take a picture, it's resized and uploaded. */
+function PhotoCard({ state }) {
+  const [busy, setBusy] = useState(false);
+  const send = async (file) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const blob = await resizeImage(file);
+      const res = await fetch('/api/photos', { method: 'POST', headers: { 'content-type': 'image/jpeg', 'x-guest-token': localStorage.getItem('ok.guestToken') || '' }, body: blob });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
+      toast(data.photo.status === 'approved' ? 'Your photo is on the TV!' : 'Sent! The host will put it on the TV.', 'ok', 5000);
+      buzz(20);
+    } catch (e) {
+      toast(e.message, 'error', 5000);
+    }
+    setBusy(false);
+  };
+  const mine = state.me.photos || [];
+  const label = { pending: 'Waiting for the host', approved: 'On the TV', rejected: 'Not shown' };
+  return html`<section class="photo-card">
+    <h2 class="g-h2">Send a photo to the TV 📸</h2>
+    <label class=${`btn primary block ${busy ? 'disabled' : ''}`}>
+      <input type="file" accept="image/*" hidden disabled=${busy} onChange=${(e) => { send(e.currentTarget.files[0]); e.currentTarget.value = ''; }} />
+      <${Icon} name="plus" size=${18} /> ${busy ? 'Sending…' : 'Choose or take a photo'}
+    </label>
+    ${state.rules.photoApproval && html`<p class="hint">The host checks photos before they appear.</p>`}
+    ${mine.length > 0 && html`<ul class="my-photos">${mine.map((p) => html`<li key=${p.id}><span class=${`pill ${p.status === 'rejected' ? 'bad' : ''}`}>${label[p.status] || p.status}</span> <span class="faint">${new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></li>`)}</ul>`}
+  </section>`;
+}
+
 /** A duet invitation from another guest: join or decline. */
 function InviteCard({ invite }) {
   const answer = async (accept) => {
@@ -424,6 +478,7 @@ function MeTab({ state }) {
           <div class="grow"><h1 class="g-h1">${me.profile.name}</h1><p class="muted">${me.queued ? `${plural(me.queued, 'song')} waiting` : 'No songs waiting'}${me.left !== null ? ` · ${me.left} more allowed` : ''}</p></div>
           <button class="btn small" onClick=${() => setEditing(true)}><${Icon} name="edit" size=${16} /> Edit</button>
         </section>`}
+    ${state.rules.photos && html`<${PhotoCard} state=${state} />`}
     <section>
       <h2 class="g-h2">Your favourites</h2>
       ${!favIds.length && html`<p class="muted">Tap the star on a song to keep it here for next time.</p>`}

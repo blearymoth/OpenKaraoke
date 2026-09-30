@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
 import { loadPlaywright, startParty, check, results, sleep } from './lib.mjs';
+import { pngImage } from '../fake-art.js';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
 const out = path.resolve(process.argv[2] || 'test-results/e2e-polish');
@@ -124,6 +125,28 @@ try {
   const overflow = await ann.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(overflow <= 0, 'phone fits without sideways scrolling');
 
+  // Guest photo: phone upload (resized in the browser) → host approves → TV shows it.
+  await ann.click('.g-tabs button:has(span:text-is("Me"))');
+  await ann.waitForSelector('.photo-card input[type=file]', { state: 'attached' });
+  await ann.setInputFiles('.photo-card input[type=file]', { name: 'party.png', mimeType: 'image/png', buffer: pngImage('party-photo', 400) });
+  check(await ann.waitForSelector('.toast:has-text("host will put it on the TV")', { timeout: 8000 }).then(() => true, () => false), 'a guest sent a photo');
+  const photoId = app.room.s.photos.at(-1)?.id;
+  await host.goto(`${base}/host#/photos`);
+  await host.waitForSelector('.photo-tile.pending img');
+  const loaded = await host.$eval('.photo-tile.pending img', (img) => new Promise((r) => (img.complete ? r(img.naturalWidth) : img.addEventListener('load', () => r(img.naturalWidth)))));
+  check(loaded > 0, `host sees the pending photo (${loaded}px wide, resized on the phone)`);
+  const tv2 = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'tv2');
+  await tv2.goto(`${base}/tv?display=mirror`);
+  await tv2.waitForSelector('.scene, .lobby');
+  await host.click('.photo-tile.pending .btn.primary');
+  check(await tv2.waitForSelector('.photo-flash img', { timeout: 5000 }).then(() => true, () => false), 'the approved photo pops up on the TV');
+  await shot(tv2, 'tv-photo-flash');
+  app.settings.update({ display: { background: 'photos' } });
+  app.room.markDirty();
+  check(await tv2.waitForSelector('#bg .photo-bg', { timeout: 5000 }).then(() => true, () => false), 'photos can be the TV background');
+  app.settings.update({ display: { background: 'art' } });
+  check(!!photoId, 'photo stored');
+
   // A screen on another computer: pairing code on the TV, approval in Settings → Displays.
   // (Everything runs on this machine here, so TV connections are marked as remote.)
   const hello = app.hub.onHello;
@@ -149,7 +172,7 @@ try {
   const frame = await (await host.waitForSelector('.tv-preview iframe')).contentFrame();
   check(await frame.waitForSelector('.scene, .lobby', { timeout: 10000 }).then(() => true, () => false), 'host shows a live preview of the TV');
   const tvs = app.hub.list((c) => c.role === 'tv').length;
-  check(tvs === 2 && app.room.hostView().displays.length === 1, 'the preview is not listed as a display');
+  check(app.room.hostView().displays.length === tvs - 1, 'the preview is not listed as a display');
   await shot(host, 'host-tv-preview');
   await host.click('.tv-preview .icon-btn');
 

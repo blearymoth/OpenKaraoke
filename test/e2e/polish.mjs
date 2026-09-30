@@ -15,7 +15,8 @@ await fs.mkdir(out, { recursive: true });
 
 const { chromium } = loadPlaywright();
 const { app, base } = await startParty();
-const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+// Fake microphone and sound outputs; permission prompts are accepted (preview on headphones).
+const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
 const errors = [];
 const watch = (page, name) => {
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`${name}: ${m.text()}`); });
@@ -38,6 +39,15 @@ try {
   await shot(host, 'host-preview');
   await host.click('.versions .btn:has-text("Stop")');
   check(await host.waitForSelector('.versions .btn:has-text("Stop")', { state: 'detached', timeout: 5000 }).then(() => true, () => false), 'preview stops');
+  // Headphones: the browser names its sound outputs once asked; the choice is kept.
+  const pick = await host.$('.preview-output button:has-text("Choose headphones")');
+  await pick?.click();
+  const outputs = await host.waitForSelector('.preview-output select', { timeout: 5000 }).then(() => host.$$eval('.preview-output option', (l) => l.map((o) => o.value)), () => []);
+  check(outputs.length > 1, `preview can play on another sound output (${outputs.length - 1} found)`);
+  if (outputs[1]) {
+    await host.selectOption('.preview-output select', outputs[1]);
+    check(await host.evaluate(() => localStorage.getItem('ok.previewSink')) === outputs[1], 'the chosen output is remembered');
+  }
   await host.keyboard.press('Escape');
 
   // Queue it: search shows "In queue"; after it is sung: "Sung tonight" + "Most sung here".

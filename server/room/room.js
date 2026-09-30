@@ -157,7 +157,13 @@ export class Room {
   onJoin(client) {
     if (client.role === 'tv') {
       const main = this.mainClient();
-      if (!main && client.meta.display !== 'mirror') this.mainDisplay = client.id;
+      if (main && main.id !== client.id && main.deviceId === client.deviceId && client.meta.display !== 'mirror') {
+        // Same display reconnected before its old (half-open) socket timed out: hand over.
+        this.mainDisplay = client.id;
+        main.ws.terminate();
+      } else if (!main && client.meta.display !== 'mirror') {
+        this.mainDisplay = client.id;
+      }
       // the main display came back after a reload: continue where it stopped
       if (this.mainDisplay === client.id && this.displayLost && client.deviceId === this.displayLost.deviceId
         && Date.now() - this.displayLost.at < RELOAD_GRACE_MS && this.s.player.state === 'paused'
@@ -614,7 +620,7 @@ export class Room {
     if (!next || !s.current || this.notified.has(next.id)) return;
     const p = s.player;
     const remaining = (p.duration || s.current.dur || 0) - (p.position || 0);
-    if (p.state === 'playing' && remaining > 75) return;
+    if (p.state !== 'idle' && remaining > 75) return;
     this.notified.add(next.id);
     this.notifySingers(next, { kind: 'next', text: "⏭️ You're up next — get ready!" });
   }
@@ -668,7 +674,7 @@ export class Room {
     if (!silent) this.touch();
   }
 
-  async updateSettings(patch) {
+  async updateSettings(patch, byClient = null) {
     const before = { pin: this.settings.get('party.adminPin'), paths: JSON.stringify(this.library.paths) };
     const p = patch && typeof patch === 'object' ? structuredClone(patch) : {};
     if (p.party && 'roomCode' in p.party) {
@@ -683,9 +689,25 @@ export class Room {
       await this.library.setPaths(paths);
       applied.library = { ...(applied.library || {}), paths: this.library.paths };
     }
-    if (this.settings.get('party.adminPin') !== before.pin) await this.auth.rotate();
+    if (this.settings.get('party.adminPin') !== before.pin) {
+      await this.auth.rotate();
+      this.signOutRemoteHosts(byClient);
+    }
     this.touch();
     return applied;
+  }
+
+  /** After a PIN change: remote host devices must log in again (the PC stays trusted). */
+  signOutRemoteHosts(keep = null) {
+    for (const c of this.hub.byRole('host')) {
+      if (c.local) continue;
+      if (keep && c.id === keep.id) {
+        c.send({ t: 'token', token: this.auth.sign('host', c.deviceId) });
+        continue;
+      }
+      c.send({ t: 'denied', reason: 'The host PIN was changed — enter the new PIN', code: 'pin' });
+      setTimeout(() => c.ws.close(4003, 'pin changed'), 100);
+    }
   }
 
   newRoomCode() {
@@ -1027,7 +1049,8 @@ export class Room {
       const i = s.singers.findIndex((x) => x.id === m.singerId);
       if (i < 0) throw err('Unknown singer');
       s.queue = s.queue.filter((e) => e.singerIds[0] !== m.singerId);
-      for (const e of s.queue) e.singerIds = e.singerIds.filter((id) => id !== m.singerId);
+      s.pending = s.pending.filter((e) => e.singerIds[0] !== m.singerId);
+      for (const e of [...s.queue, ...s.pending]) e.singerIds = e.singerIds.filter((id) => id !== m.singerId);
       const [sg] = s.singers.splice(i, 1);
       if (sg.deviceId && s.profiles[sg.deviceId]) s.profiles[sg.deviceId].singerId = null;
       this.touch();
@@ -1045,7 +1068,7 @@ export class Room {
     hub.handle('announce', (c, m) => this.setAnnouncement(m.text, m.seconds), { roles: H });
     hub.handle('party.new', () => this.newParty(), { roles: H });
     hub.handle('party.newCode', () => this.newRoomCode(), { roles: H });
-    hub.handle('settings.update', (c, m) => this.updateSettings(m.patch), { roles: H });
+    hub.handle('settings.update', (c, m) => this.updateSettings(m.patch, c), { roles: H });
     hub.handle('library.rescan', () => { this.library.scan({ reason: 'host' }).catch(() => {}); return true; }, { roles: H });
     hub.handle('display.approve', (c, m) => this.approveDisplay(m.code), { roles: H });
     hub.handle('display.makeMain', (c, m) => this.makeMain(m.clientId), { roles: H });

@@ -143,12 +143,13 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
   };
 
   app.close = async () => {
-    hub.close();
-    await new Promise((r) => server.close(() => r()));
-    server.closeAllConnections?.();
-    await library.close();
     await room.close();
     await settings.flush();
+    hub.close();
+    const closed = new Promise((r) => server.close(() => r()));
+    server.closeAllConnections?.(); // Node 18 would otherwise wait for idle keep-alive sockets
+    await closed;
+    await library.close();
   };
 
   return app;

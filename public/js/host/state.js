@@ -13,6 +13,7 @@ export const conn = new Connection({
 });
 
 conn.on('welcome', (m) => { if (m.token) storage('ok.hostToken', m.token); });
+conn.on('token', (m) => { if (m.token) storage('ok.hostToken', m.token); });
 conn.on('state', (m) => { if (m.role === 'host') store.set({ state: m }); });
 conn.on('status', ({ status, detail }) => store.set({ conn: status, denied: status === 'denied' ? detail : null }));
 conn.on('time', (m) => timeStore.set({ ...m, localAt: performance.now() }));

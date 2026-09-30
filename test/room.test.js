@@ -288,3 +288,72 @@ test('remote host access needs the PIN (token via /api/auth/pin)', async () => {
     app.settings.update({ party: { trustLocalhost: true, adminPin: '' } });
   }
 });
+
+test('"up next" is announced in the last 75 s of the song on stage, not during its intro', async () => {
+  app.settings.update({ playback: { countdown: 5 } });
+  const h = await host();
+  const tv = await connect({ role: 'tv', deviceId: 'tv-device-next' });
+  await h.request('queue.add', { songId: songId('bohemian'), singerName: 'Alpha' });
+  const g = await guest('guest-ffff-1', 'Gina');
+  await g.request('queue.add', { songId: songId('song 2') });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(g.inbox.some((m) => m.t === 'notify' && m.kind === 'next'), false, 'not during the intro');
+  const st = await tv.settle();
+  tv.send('tv.status', { entryId: st.current.id, pos: 30, dur: 100, playing: true });
+  const n = await g.waitFor((m) => m.t === 'notify' && m.kind === 'next');
+  assert.match(n.text, /up next/);
+  await h.request('player.stop');
+  for (const c of [h, tv, g]) c.close();
+});
+
+test('a TV that reconnects before its old socket times out stays the main display', async () => {
+  const h = await host();
+  const tv1 = await connect({ role: 'tv', deviceId: 'tv-device-dup' });
+  await h.request('queue.add', { songId: songId('hello'), singerName: 'Hana' });
+  assert.equal((await tv1.settle()).main, true);
+  const closed = new Promise((r) => tv1.ws.on('close', r));
+  const tv2 = await connect({ role: 'tv', deviceId: 'tv-device-dup' });
+  await closed;
+  const st = await tv2.settle();
+  assert.equal(st.main, true, 'the new connection took over');
+  assert.equal(st.player.state, 'playing', 'no pause for a quick reconnect');
+  await h.request('player.stop');
+  h.close();
+  tv2.close();
+});
+
+test('removing a singer also removes their pending requests', async () => {
+  app.settings.update({ queue: { requireApproval: true } });
+  const h = await host();
+  const g = await guest('guest-gggg-1', 'Ivan');
+  await g.request('queue.add', { songId: songId('bohemian') });
+  let st = await h.settle();
+  assert.equal(st.pending.length, 1);
+  const singer = st.singers.find((x) => x.name === 'Ivan');
+  await h.request('singer.remove', { singerId: singer.id });
+  st = await h.settle();
+  assert.equal(st.pending.length, 0);
+  h.close();
+  g.close();
+});
+
+test('changing the PIN signs out other remote hosts; the one who changed it keeps working', async () => {
+  app.settings.update({ party: { trustLocalhost: false, adminPin: '2468' } });
+  try {
+    const res = await fetch(`http://127.0.0.1:${app.port}/api/auth/pin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin: '2468' }) });
+    const { token } = await res.json();
+    const h1 = await connect({ role: 'host', deviceId: 'remote-host-1', token });
+    const h2 = await connect({ role: 'host', deviceId: 'remote-host-2', token });
+    assert.equal(h1.welcome.t, 'welcome');
+    assert.equal(h2.welcome.t, 'welcome');
+    await h1.request('settings.update', { patch: { party: { adminPin: '9999' } } });
+    const bye = await h2.waitFor((m) => m.t === 'denied');
+    assert.equal(bye.code, 'pin');
+    const fresh = await h1.waitFor((m) => m.t === 'token');
+    assert.equal(app.auth.verify(fresh.token, 'host'), 'remote-host-1');
+    assert.equal(app.auth.verify(token, 'host'), null);
+    h1.close();
+  } finally {
+    app.settings.update({ party: { trustLocalhost: true, adminPin: '' } });
+  }
+});

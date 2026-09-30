@@ -6,7 +6,7 @@ _Last updated: 2026-09-30 (end of the second build session: M1–M4 done)._
 - **M0 foundation, M1 server, M2 TV player, M3 room + host app and M4 guest app are done** —
   this is the first party-ready version: host on the PC, lyrics + audio on the TV, guests
   request songs from their phones via the QR code.
-- `npm test` → 76 tests green. `npm run e2e` (Playwright) → full browser flow green.
+- `npm test` → 80 tests green. `npm run e2e` (Playwright) → full browser flow green.
 - **Not yet run against the real USB library** (the session-2 agent worked in a cloud container
   without the drive). Everything was verified with a synthetic 90k-track tree (performance) and
   a synthetic demo library of real WAV+CDG songs (`npm run demo -- <dir>`). Do the checklist
@@ -28,7 +28,7 @@ Address for guests**), unplugging the USB drive shows "library offline" and repl
 ## What was verified
 | Check | Result |
 | --- | --- |
-| `npm test` (node:test) | 76 pass: parser, catalog, scanner/zip, settings/QR/net, library service, HTTP router/Range/media/zip/API, WebSocket, auth + PIN back-off, CDG decoder (synthetic streams), rotation/ETA, Room over real WebSockets (guest join, rotation, player flow, limits, approvals, TV reload, bans, settings, PIN login), cross-site/DNS-rebinding protection |
+| `npm test` (node:test) | 80 pass: parser, catalog, scanner/zip, settings/QR/net, library service, HTTP router/Range/media/zip/API, WebSocket, auth + PIN back-off, CDG decoder (synthetic streams), rotation/ETA, Room over real WebSockets (guest join, rotation, player flow, limits, approvals, TV reload, bans, settings, PIN login), cross-site/DNS-rebinding protection |
 | `npm run e2e` (headless Chromium) | TV autoplay start, typo search, add-to-queue, intro → lyrics, audio clock advances, key change reaches the TV, 2 phone guests join + request, fair rotation order, reactions on the TV, "your turn" notification |
 | Manual browser runs (screenshots reviewed) | lyrics with word highlighting, tempo 1.2 (2.42 s per 2 s), pause/seek, vocal cut, mirror display in sync with the main TV, click-to-start gate without the autoplay flag, all host views/dialogs, phone layouts, printable QR card |
 | Parser on all 90,479 names from the owner's song list (session 1) | 99% get a label; ~50.5k songs, ~11.8k artists |
@@ -61,8 +61,10 @@ Address for guests**), unplugging the USB drive shows "library offline" and repl
 10. **Rotation**: round-robin by lead singer, newcomers first, the singer who was already told
     "you're up next" is never bumped. A skipped song counts as sung only after 45 s.
 11. **A TV reload during a song** pauses the party; the same display coming back within 15 s
-    resumes automatically. If the server restarts mid-song, that song goes back to the top of
-    the queue.
+    resumes automatically (and a display that reconnects while its old socket still looks alive
+    simply takes over). If the server restarts mid-song, that song goes back to the top of the queue.
+12. **"You're up next"** is sent in the last 75 s of the song on stage; that singer is then
+    protected from being bumped by newcomers. Changing the host PIN signs out remote hosts.
 
 ## Next steps (in order)
 

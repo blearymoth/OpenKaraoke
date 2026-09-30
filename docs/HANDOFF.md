@@ -104,7 +104,8 @@ songbook, systemd user service, host live preview, duet UI (the server already a
 - Video karaoke (MP4/WEBM) is implemented through element mode but untested with real files;
   tempo uses `playbackRate`, key change routes through the stretcher (adds ~0.1 s latency).
 - Remote (non-local) TV displays are refused until pairing exists (M7).
-- The host's "Preview on headphones" from PLAN §10 is not implemented.
+- "Preview on headphones" (Song details → Choose headphones…) needs the browser's
+  permission once (Chrome: microphone, to name the outputs); check it on the party PC.
 - `catalog.js` heap ~200–400 MB while building 90k tracks (unchanged from session 1).
 - Rotation edge case: after Stop re-queues a song of someone who already sang, a newcomer
   can be placed before an earlier newcomer (manual reordering fixes it).

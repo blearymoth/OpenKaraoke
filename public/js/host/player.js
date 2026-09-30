@@ -76,6 +76,8 @@ export function PlayerBar() {
   const idle = !cur;
   const playing = p.state === 'playing';
   const tvCount = state.displays.filter((d) => d.display === 'main').length;
+  const [previewOpen, setPreviewOpen] = useState(() => localStorage.getItem('ok.tvPreview') === '1');
+  useEffect(() => { localStorage.setItem('ok.tvPreview', previewOpen ? '1' : '0'); }, [previewOpen]);
   const togglePlay = () => {
     if (idle) act('player.play');
     else if (playing) act('player.pause');
@@ -126,8 +128,20 @@ export function PlayerBar() {
       <button class=${`tv-status ${tvCount ? 'on' : 'off'}`} onClick=${openTvWindow} title=${tvCount ? 'TV display connected — click to open another' : 'No TV display — click to open one'}>
         <${Icon} name="tv" size=${18} /><span>${tvCount ? 'TV on' : 'Open TV'}</span>
       </button>
+      <button class=${`icon-btn ${previewOpen ? 'active' : ''}`} onClick=${() => setPreviewOpen(!previewOpen)} aria-pressed=${previewOpen} title="Live preview of the TV">
+        <${Icon} name="eye" size=${18} />
+      </button>
+      ${previewOpen && html`<${TvPreview} onClose=${() => setPreviewOpen(false)} />`}
     </div>
   </footer>`;
+}
+
+/** A small live copy of the TV screen (a muted mirror that doesn't count as a display). */
+function TvPreview({ onClose }) {
+  return html`<div class="tv-preview" role="dialog" aria-label="TV preview">
+    <iframe src="/tv?display=preview&fullscreen=0" title="TV preview" tabindex="-1"></iframe>
+    <button class="icon-btn small" onClick=${onClose} aria-label="Close the preview"><${Icon} name="x" size=${16} /></button>
+  </div>`;
 }
 
 export function openInvite() {

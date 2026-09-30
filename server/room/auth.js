@@ -1,6 +1,7 @@
 // Who may do what (PLAN §7):
 //  - host: this computer (when party.trustLocalhost) or a host token obtained with the PIN
-//  - tv:   this computer, or (later) a display paired by the host
+//  - tv:   this computer, or a display paired by the host (TV tokens carry a version, so
+//          "forget paired screens" logs every remote display out)
 //  - guest: anyone with the room code; identified by a signed device token
 // Tokens are "<role>.<id>.<hmac>" signed with a per-install secret in data/secret.json.
 // Host tokens include a hash of the PIN, so changing the PIN logs out every remote host.
@@ -25,6 +26,7 @@ export class Auth {
     this.file = path.join(dataDir, 'secret.json');
     this.settings = settings;
     this.secret = null;
+    this.tvVersion = 1;
     this.pinLimiter = new RateLimiter({ capacity: 5, perMs: 60_000 });
     this.pinLimiterAll = new RateLimiter({ capacity: 20, perMs: 5 * 60_000 }); // across all addresses
   }
@@ -52,11 +54,22 @@ export class Auth {
     const data = await readJson(this.file, null);
     if (typeof data?.secret === 'string' && data.secret.length >= 32) {
       this.secret = data.secret;
+      this.tvVersion = Number.isInteger(data.tvVersion) && data.tvVersion > 0 ? data.tvVersion : 1;
       return;
     }
     this.secret = crypto.randomBytes(32).toString('hex');
-    await writeJsonAtomic(this.file, { secret: this.secret });
+    await this.saveSecret();
+  }
+
+  async saveSecret() {
+    await writeJsonAtomic(this.file, { secret: this.secret, tvVersion: this.tvVersion });
     await fs.chmod(this.file, 0o600).catch(() => {});
+  }
+
+  /** Invalidates every paired display's token. */
+  async forgetDisplays() {
+    this.tvVersion++;
+    await this.saveSecret();
   }
 
   get pin() {
@@ -68,7 +81,7 @@ export class Auth {
   }
 
   sign(role, id) {
-    const v = role === 'host' ? this.pinVersion() : '1';
+    const v = role === 'host' ? this.pinVersion() : role === 'tv' ? `tv${this.tvVersion}` : '1';
     return `${role}.${id}.${hmac(this.secret, `${role}:${v}:${id}`).slice(0, 32)}`;
   }
 

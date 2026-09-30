@@ -63,6 +63,7 @@ const SECTIONS = [
       { path: 'display.accent', label: 'Accent colour', type: 'color' },
     ],
   },
+  { id: 'displays', title: 'Displays', icon: 'tv', custom: 'displays' },
   { id: 'artwork', title: 'Artwork', icon: 'disc', custom: 'artwork' },
   { id: 'about', title: 'About', icon: 'music', custom: 'about' },
 ];
@@ -279,6 +280,36 @@ function ArtworkSection({ state }) {
   `;
 }
 
+function DisplaysSection({ state }) {
+  const lan = state.info.lanUrls[0] || state.info.baseUrl;
+  return html`
+    <div class="setting column">
+      <div class="setting-text"><b>Connected displays</b><p class="hint">The main display plays the music; others are muted mirrors.</p></div>
+      ${state.displays.length
+        ? html`<div class="folders">${state.displays.map((d) => html`<div class="folder-row">
+            <span class=${`dot ${d.display === 'main' ? 'on' : ''}`}></span>
+            <div class="grow"><b>${d.display === 'main' ? 'Main TV — plays the sound' : 'Mirror — muted'}</b><div class="hint">${d.local ? 'On this computer' : `Paired screen at ${d.ip}`}</div></div>
+          </div>`)}</div>`
+        : html`<p class="muted">No display is connected. Use “Open TV” in the player bar.</p>`}
+    </div>
+    <div class="setting column">
+      <div class="setting-text"><b>Screens waiting to be paired</b>
+        <p class="hint">To use a TV or projector attached to another computer (or a smart TV browser), open <code>${lan}/tv</code> on it. It shows a four-digit code: approve it here if the code matches.</p></div>
+      ${state.pairings.length
+        ? html`<div class="folders">${state.pairings.map((p) => html`<div class="folder-row pairing-row">
+            <div class="pair-code-small">${p.code}</div>
+            <div class="grow"><b>Screen at ${p.ip}</b><div class="hint">Asked ${new Date(p.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div></div>
+            <button class="btn small primary" onClick=${() => act('display.approve', { id: p.id }).then((r) => r && toast('Screen paired', 'ok'))}>Approve</button>
+            <button class="btn small ghost danger" onClick=${() => act('display.deny', { id: p.id })}>Deny</button>
+          </div>`)}</div>`
+        : html`<p class="muted">None right now.</p>`}
+    </div>
+    <div class="setting">
+      <div class="setting-text"><b>Forget paired screens</b><p class="hint">Every screen paired so far has to show a new code and be approved again. Screens on this computer are not affected.</p></div>
+      <div class="setting-control"><button class="btn ghost danger" onClick=${() => confirm('Log out every paired screen?') && act('display.forget').then((r) => r && toast('Paired screens forgotten', 'ok'))}>Forget all</button></div>
+    </div>`;
+}
+
 function About({ state }) {
   const shortcuts = [['Space', 'Play / pause'], ['N', 'Next singer'], ['/', 'Search'], ['← →', 'Seek 5 seconds'], ['+ −', 'Key up / down'], ['[ ]', 'Tempo down / up']];
   return html`<div class="about">
@@ -303,6 +334,7 @@ export function Settings({ section = 'party' }) {
         ${current.custom === 'library' && html`<${LibrarySection} state=${state} lib=${lib} />`}
         ${current.custom === 'about' && html`<${About} state=${state} />`}
         ${current.custom === 'artwork' && html`<${ArtworkSection} state=${state} />`}
+        ${current.custom === 'displays' && html`<${DisplaysSection} state=${state} />`}
         ${current.fields?.map((f) => html`<${Field} key=${f.path} f=${f} settings=${state.settings} hasPin=${state.hasPin} />`)}
       </section>
     </div>

@@ -200,3 +200,9 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .denied { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 2vh; text-align: center; padding: 10vh; }
 .denied h2 { font-size: 6vh; }
 .denied p { font-size: 3vh; color: var(--ink-2); max-width: 60ch; }
+
+/* ---- pairing a remote screen, host preview --------------------------------------------- */
+.pairing .pair-code { display: flex; gap: 2vh; margin: 3vh 0; }
+.pairing .pair-code b { display: grid; place-items: center; width: 14vh; height: 18vh; border-radius: 2vh; background: var(--stage-2); border: 1px solid var(--line-strong); font-family: var(--font-display); font-size: 12vh; color: var(--bulb); }
+.pairing p { max-width: 70vw; font-size: 3vh; }
+body.preview .conn-lost, body.preview .corner-qr { display: none; }

@@ -352,3 +352,8 @@ body.host .toasts { bottom: 104px; }
 .playlist-queue .input { max-width: 320px; }
 .playlist-select { width: auto; min-height: 40px; border-radius: 999px; }
 .duet-link { justify-self: start; }
+
+.pairing-row .pair-code-small { font-family: var(--font-display); font-size: 26px; font-weight: 800; letter-spacing: 0.12em; color: var(--bulb); }
+.tv-preview { position: fixed; right: 16px; bottom: 96px; z-index: 40; width: min(400px, 60vw); aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; border: 1px solid var(--line-strong); box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.8); background: #000; }
+.tv-preview iframe { width: 100%; height: 100%; border: 0; pointer-events: none; }
+.tv-preview .icon-btn { position: absolute; top: 4px; right: 4px; background: rgba(0, 0, 0, 0.6); color: #fff; }

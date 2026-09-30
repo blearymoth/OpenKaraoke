@@ -73,6 +73,7 @@ export class Room {
     this.announceTimer = null;
     this.announcement = null;
     this.game = null; // the running party game (not persisted: a restart ends it)
+    this.pairings = new Map(); // remote displays waiting for the host: id → { id, code, ip, at, status, token }
     this.rating = null; // guests rating the performance that just ended
     this.ratingTimer = null;
     this.lastGuestTime = 0;
@@ -85,6 +86,7 @@ export class Room {
       guest: new RateLimiter({ capacity: 40, perMs: 20_000 }), // any guest request
       favorite: new RateLimiter({ capacity: 30, perMs: 60_000 }),
       game: new RateLimiter({ capacity: 20, perMs: 10_000 }), // answers/votes per guest
+      pair: new RateLimiter({ capacity: 5, perMs: 10 * 60_000 }), // pairing codes per address
     };
     this.handlers = this.buildHandlers();
   }
@@ -168,8 +170,12 @@ export class Room {
       return { ok: true, role, welcome: { state: this.hostView() } };
     }
     if (role === TV) {
-      if (!client.isLocal && !this.auth.verify(msg.token, 'tv')) return { ok: false, reason: 'pairing_required' };
-      client.data.display = msg.display === 'mirror' || this.mainDisplay() ? 'mirror' : 'main';
+      // A remote host (PIN) may watch the preview; other remote screens need pairing.
+      const previewByHost = msg.display === 'preview' && this.auth.isHost(client.ip, msg.hostToken);
+      if (!client.isLocal && !previewByHost && !this.auth.verify(msg.token, 'tv')) return { ok: false, reason: 'pairing_required' };
+      // 'preview' = the host's small live preview: a muted mirror that doesn't count as a TV.
+      client.data.preview = msg.display === 'preview';
+      client.data.display = msg.display === 'mirror' || client.data.preview || this.mainDisplay() ? 'mirror' : 'main';
       return { ok: true, role, welcome: { display: client.data.display, state: this.tvView() } };
     }
     if (role === GUEST) {
@@ -203,7 +209,7 @@ export class Room {
 
   onLeave(client) {
     if (client.role === TV && client.data.display === 'main') {
-      const next = this.hub.list((c) => c.role === TV && c !== client && c.open)[0];
+      const next = this.hub.list((c) => c.role === TV && c !== client && c.open && !c.data.preview)[0];
       if (next) {
         next.data.display = 'main';
         next.send({ t: 'display', display: 'main' });
@@ -269,6 +275,9 @@ export class Room {
       'playlist.remove': [H, (c, m) => this.playlistRemove(m)],
       'playlist.queue': [H, (c, m) => this.playlistQueue(m)],
       'guest.cohost': [H, (c, m) => this.guestCohost(m)],
+      'display.approve': [H, (c, m) => this.displayApprove(m)],
+      'display.deny': [H, (c, m) => this.displayDeny(m)],
+      'display.forget': [H, () => this.displayForget()],
       'duet.answer': [[GUEST], (c, m) => this.duetAnswer(c, m)],
       'settings.update': [H, (c, m) => this.settingsUpdate(m)],
       'library.rescan': [H, () => this.libraryRescan()],
@@ -1067,6 +1076,70 @@ export class Room {
     return { accepted: !!m.accept };
   }
 
+  // ---- remote displays (pairing) --------------------------------------------------------------------
+
+  /** A screen on another computer asks to become a TV display: it shows `code`, the host approves. */
+  pairRequest(ip) {
+    this.prunePairings();
+    if (!this.limits.pair.take(String(ip))) fail('Too many pairing attempts — wait a few minutes.', 'rate_limited');
+    if (this.pairings.size >= 20) fail('Too many screens are waiting to be paired.', 'busy');
+    let code;
+    do code = String(crypto.randomInt(1000, 10000)); while ([...this.pairings.values()].some((p) => p.code === code));
+    const p = { id: newId(12), code, ip: String(ip || ''), at: Date.now(), status: 'waiting', token: null };
+    this.pairings.set(p.id, p);
+    this.toastHosts(`A screen at ${p.ip.replace(/^::ffff:/, '')} wants to be a TV display (code ${code}). Approve it in Settings → Displays.`);
+    this.markDirty();
+    return { id: p.id, code };
+  }
+
+  /** The waiting screen polls this; the token is handed out once. */
+  pairStatus(id) {
+    this.prunePairings();
+    const p = typeof id === 'string' && this.pairings.get(id);
+    if (!p) return { status: 'expired' };
+    if (p.status === 'approved') {
+      this.pairings.delete(id);
+      this.markDirty();
+      return { status: 'approved', token: p.token };
+    }
+    return { status: p.status };
+  }
+
+  prunePairings() {
+    const now = Date.now();
+    for (const [id, p] of this.pairings) if (now - p.at > 10 * 60_000) this.pairings.delete(id);
+  }
+
+  findPairing(m) {
+    const p = [...this.pairings.values()].find((x) => x.id === m.id || (m.code && x.code === String(m.code)));
+    if (!p || p.status !== 'waiting') fail('That screen is no longer waiting — ask it to show a new code.', 'not_found');
+    return p;
+  }
+
+  displayApprove(m) {
+    const p = this.findPairing(m);
+    p.status = 'approved';
+    p.token = this.auth.sign('tv', this.auth.newId());
+    log.info(`paired a display at ${p.ip}`);
+    return { ok: true };
+  }
+
+  displayDeny(m) {
+    const p = this.findPairing(m);
+    p.status = 'denied';
+    return { ok: true };
+  }
+
+  /** Logs every paired (remote) display out; screens on this computer are not affected. */
+  async displayForget() {
+    await this.auth.forgetDisplays();
+    for (const c of this.hub.list((x) => x.role === TV && !x.isLocal)) {
+      c.send({ t: 'denied', reason: 'pairing_required' });
+      c.close(4003, 'unpaired');
+    }
+    return { ok: true };
+  }
+
   // ---- co-hosts ------------------------------------------------------------------------------------
 
   guestCohost(m) {
@@ -1529,7 +1602,8 @@ export class Room {
         .map(([deviceId, p]) => ({ deviceId, name: p.name, emoji: p.emoji, color: p.color, online: online.has(deviceId), banned: !!p.banned, coHost: !!p.coHost, queued: queuedBy.get(deviceId) || 0, lastSeen: p.lastSeen || 0 }))
         .sort((a, b) => Number(b.online) - Number(a.online) || b.lastSeen - a.lastSeen)
         .slice(0, 300),
-      displays: this.hub.list((c) => c.role === TV).map((c) => ({ id: c.id, display: c.data.display, local: c.isLocal })),
+      displays: this.hub.list((c) => c.role === TV && !c.data.preview).map((c) => ({ id: c.id, display: c.data.display, local: c.isLocal, ip: c.isLocal ? '' : String(c.ip || '').replace(/^::ffff:/, '') })),
+      pairings: [...this.pairings.values()].filter((p) => p.status === 'waiting' && Date.now() - p.at < 10 * 60_000).map((p) => ({ id: p.id, code: p.code, ip: p.ip.replace(/^::ffff:/, ''), at: p.at })),
       hosts: this.hub.list((c) => c.role === HOST).length,
       announcement: this.announcement,
       favorites: s.hostFavorites,

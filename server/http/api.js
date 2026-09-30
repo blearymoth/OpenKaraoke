@@ -245,6 +245,13 @@ export function apiRoutes(router, app) {
 
   songbookRoutes(router, app, { requireHost });
 
+  // Remote TV displays: the screen asks for a pairing code, then polls until the host approves.
+  router.post('/api/pair', async (ctx) => {
+    await readJsonBody(ctx.req, 1024);
+    return app.room.pairRequest(ctx.ip);
+  });
+  router.get('/api/pair/:id', (ctx) => app.room.pairStatus(ctx.params.id));
+
   router.post('/api/auth/pin', async (ctx) => {
     const body = await readJsonBody(ctx.req, 4096);
     const token = auth.loginWithPin(String(body.pin ?? ''), ctx.ip);

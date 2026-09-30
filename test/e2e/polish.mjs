@@ -124,6 +124,35 @@ try {
   const overflow = await ann.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(overflow <= 0, 'phone fits without sideways scrolling');
 
+  // A screen on another computer: pairing code on the TV, approval in Settings → Displays.
+  // (Everything runs on this machine here, so TV connections are marked as remote.)
+  const hello = app.hub.onHello;
+  app.hub.onHello = (client, msg) => {
+    if (msg.role === 'tv' && !msg.display) client.isLocal = false;
+    return hello(client, msg);
+  };
+  const remote = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'remote-tv');
+  await remote.goto(`${base}/tv`);
+  await remote.waitForSelector('.pair-code b');
+  const shown = (await remote.$$eval('.pair-code b', (l) => l.map((x) => x.textContent).join('')));
+  await shot(remote, 'remote-tv-pairing');
+  await host.goto(`${base}/host#/settings/displays`);
+  await host.waitForSelector('.pairing-row');
+  check((await host.textContent('.pairing-row .pair-code-small')).trim() === shown, `host sees the screen's code (${shown})`);
+  await host.click('.pairing-row .btn.primary');
+  check(await remote.waitForSelector('.lobby, .intro, .scene', { timeout: 10000 }).then(() => true, () => false), 'the paired screen joins the party');
+  check(!!(await remote.evaluate(() => localStorage.getItem('ok.tvToken'))), 'the screen keeps its token');
+  app.hub.onHello = hello;
+
+  // Live preview of the TV in the host.
+  await host.click('.player button[title="Live preview of the TV"]');
+  const frame = await (await host.waitForSelector('.tv-preview iframe')).contentFrame();
+  check(await frame.waitForSelector('.scene, .lobby', { timeout: 10000 }).then(() => true, () => false), 'host shows a live preview of the TV');
+  const tvs = app.hub.list((c) => c.role === 'tv').length;
+  check(tvs === 2 && app.room.hostView().displays.length === 1, 'the preview is not listed as a display');
+  await shot(host, 'host-tv-preview');
+  await host.click('.tv-preview .icon-btn');
+
   // Printable songbook from Settings → Library.
   await host.goto(`${base}/host#/settings/library`);
   await host.waitForSelector('a:has-text("Open songbook")');

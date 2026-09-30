@@ -10,8 +10,15 @@ import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo } fr
 const params = new URLSearchParams(location.search);
 const store = createStore({ status: 'connecting', state: null, display: 'main', denied: null, unlocked: false, help: false, reactions: [], toast: null });
 
+const preview = params.get('display') === 'preview'; // the host's small live preview
+if (preview) document.body.classList.add('preview');
 const conn = new Connection({
-  hello: () => ({ role: 'tv', display: params.get('display') === 'mirror' ? 'mirror' : undefined }),
+  hello: () => ({
+    role: 'tv',
+    display: preview ? 'preview' : params.get('display') === 'mirror' ? 'mirror' : undefined,
+    token: localStorage.getItem('ok.tvToken') || undefined, // a screen paired by the host
+    hostToken: preview ? localStorage.getItem('ok.hostToken') || undefined : undefined,
+  }),
 });
 const now = () => conn.serverNow();
 const controller = new TvController({
@@ -198,6 +205,7 @@ function App() {
   useEffect(() => {
     if (st?.display?.accent) document.documentElement.style.setProperty('--neon', st.display.accent);
   }, [st?.display?.accent]);
+  if (s.denied === 'pairing_required') return html`<${Pairing} />`;
   if (s.denied) {
     return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>This screen can't join</h2><p>${DENIED_MESSAGES[s.denied] || s.denied}</p></div>`;
   }
@@ -220,10 +228,10 @@ function App() {
     ${st.announcement && html`<div class="announce" key=${st.announcement.id}><div>${st.announcement.text}</div></div>`}
     <div class="reactions">${s.reactions.map((r) => html`<div class="reaction" key=${r.id} style=${{ left: `${r.x}%`, '--dx': r.dx }}><b>${r.emoji}</b>${r.name && html`<span>${r.name}</span>`}</div>`)}</div>
     ${s.status !== 'open' && html`<div class="conn-lost">Reconnecting to the server…</div>`}
-    ${s.display === 'mirror' && html`<div class="mirror-badge">Mirror display (muted)</div>`}
+    ${s.display === 'mirror' && !preview && html`<div class="mirror-badge">Mirror display (muted)</div>`}
     ${s.toast && html`<div class="conn-lost" style="background:var(--stage-3);color:var(--ink)">${s.toast}</div>`}
     ${s.help && html`<${Help} />`}
-    ${!s.unlocked && s.display === 'main' && html`<${StartOverlay} />`}
+    ${!s.unlocked && s.display === 'main' && !preview && html`<${StartOverlay} />`}
   `;
 }
 
@@ -232,6 +240,53 @@ function StartOverlay() {
     <div class="big-btn"><${Icon} name="play" /></div>
     <h2>Click to start the TV display</h2>
     <p>Browsers only play sound after a click. This screen plays the music, so put it on the TV connected to the speakers. Press F for full screen, or ? for keyboard shortcuts.</p>
+  </div>`;
+}
+
+/**
+ * A screen on another computer: show a pairing code until the host approves it
+ * (Settings → Displays), then keep the token and connect as a TV display.
+ */
+function Pairing() {
+  const [pair, setPair] = useState(null); // { id, code } | { error }
+  const [status, setStatus] = useState('waiting');
+  const request = async () => {
+    setStatus('waiting');
+    try {
+      const res = await fetch('/api/pair', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setPair(data);
+    } catch (e) {
+      setPair({ error: e.message });
+    }
+  };
+  useEffect(() => { request(); }, []);
+  useInterval(async () => {
+    if (!pair?.id) return;
+    try {
+      const r = await (await fetch(`/api/pair/${encodeURIComponent(pair.id)}`)).json();
+      if (r.status === 'approved' && r.token) {
+        localStorage.setItem('ok.tvToken', r.token);
+        store.update({ denied: null });
+        // The socket keeps retrying after the refusal: reconnect now, with the token.
+        clearTimeout(conn.retryTimer);
+        conn.attempt = 0;
+        conn.open();
+      } else if (r.status === 'denied' || r.status === 'expired') {
+        setStatus(r.status);
+        setPair(null);
+      }
+    } catch { /* server restarting: keep polling */ }
+  }, pair?.id ? 2000 : null);
+  return html`<div class="denied pairing">
+    <div style="font-size:10vh">📺</div>
+    <h2>Connect this screen to the party</h2>
+    ${pair?.code && html`<div class="pair-code">${pair.code.split('').map((d) => html`<b>${d}</b>`)}</div>
+      <p>On the computer running OpenKaraoke, open the host page → <b>Settings → Displays</b> and approve the screen with this code.</p>`}
+    ${pair?.error && html`<p>${pair.error}</p><button class="btn primary large" onClick=${request}>Try again</button>`}
+    ${status === 'denied' && html`<p>The host did not approve this screen.</p><button class="btn primary large" onClick=${request}>Ask again</button>`}
+    ${status === 'expired' && html`<p>The code expired.</p><button class="btn primary large" onClick=${request}>Show a new code</button>`}
   </div>`;
 }
 

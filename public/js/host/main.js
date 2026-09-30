@@ -58,6 +58,7 @@ function TopBar({ route }) {
       ${lib.scanning && html`<span class="pill live"><span class="spinner tiny"></span> Scanning library</span>`}
       ${lib.offline && lib.roots.length > 0 && html`<a class="pill bad" href="#/settings/library"><${Icon} name="alert" size=${14} /> Drive not connected</a>`}
       ${status !== 'open' && html`<span class="pill bad">Reconnecting…</span>`}
+      ${state.pairings?.length > 0 && html`<a class="pill bulb" href="#/settings/displays"><${Icon} name="tv" size=${14} /> Screen waiting: ${state.pairings[0].code}</a>`}
       <button class="code-chip" onClick=${openInvite} title="Invite guests"><${Icon} name="qr" size=${16} /> <span class="label">Room</span> <b>${state.info.roomCode}</b></button>
     </div>
   </header>`;

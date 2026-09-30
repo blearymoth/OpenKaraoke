@@ -154,6 +154,7 @@ export class AudioEngine extends EventTarget {
   async loadChannels(id, channels, { gainDb = 0 } = {}) {
     await this.init();
     const seq = ++this.loadSeq;
+    const duration = channels[0].length / this.ctx.sampleRate; // measure before the arrays are transferred (detached)
     this.stopNow();
     this.detachElement();
     this.track = null;
@@ -161,7 +162,7 @@ export class AudioEngine extends EventTarget {
     if (seq !== this.loadSeq) throw Object.assign(new Error('superseded'), { superseded: true });
     await this.stretch.addBuffers(channels, channels.map((c) => c.buffer));
     if (seq !== this.loadSeq) throw Object.assign(new Error('superseded'), { superseded: true });
-    this.track = { id, duration: channels[0].length / this.ctx.sampleRate, gainDb, mode: 'buffer' };
+    this.track = { id, duration, gainDb, mode: 'buffer' };
     this.map = { active: false, input: 0, output: 0, rate: this.rate };
     this.ended = false;
     this.applyTrackGain();

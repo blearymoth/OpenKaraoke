@@ -14,20 +14,33 @@ import { Settings } from './settings.js';
 import { Games } from './games.js';
 import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
 
+// [path, icon, label, class]. Phones show a bottom bar with room for six tabs: the
+// 'desktop-only' pages are listed on the "More" page there instead.
 const NAV = [
   ['/', 'home', 'Home'],
   ['/search', 'search', 'Search'],
   ['/artists', 'mic', 'Artists'],
-  ['/tags', 'tag', 'Collections'],
-  ['/favorites', 'star', 'Favourites'],
-  ['/playlists', 'music', 'Playlists'],
-  ['/singers', 'users', 'Singers'],
+  ['/tags', 'tag', 'Collections', 'desktop-only'],
+  ['/favorites', 'star', 'Favourites', 'desktop-only'],
+  ['/playlists', 'music', 'Playlists', 'desktop-only'],
+  ['/singers', 'users', 'Singers', 'desktop-only'],
   ['/games', 'game', 'Games'],
-  ['/photos', 'eye', 'Photos'],
-  ['/history', 'history', 'History'],
-  ['/settings', 'settings', 'Settings'],
+  ['/photos', 'eye', 'Photos', 'desktop-only'],
+  ['/history', 'history', 'History', 'desktop-only'],
+  ['/settings', 'settings', 'Settings', 'desktop-only'],
   ['/queue', 'list', 'Queue', 'mobile-only'],
+  ['/more', 'more', 'More', 'mobile-only'],
 ];
+const MORE = NAV.filter((n) => n[3] === 'desktop-only');
+
+function navBadge(path, state) {
+  const pendingPhotos = () => state.photos?.filter((p) => p.status === 'pending').length || 0;
+  const n = path === '/queue' ? state.queue.length
+    : path === '/games' ? (state.game && !state.game.ended ? 'live' : 0)
+    : path === '/photos' || path === '/more' ? pendingPhotos()
+    : 0;
+  return n ? html`<span class="badge neon">${n}</span>` : null;
+}
 
 const searchStore = { q: new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '' };
 
@@ -70,14 +83,24 @@ function Nav({ route }) {
   const { state } = useStore(store);
   const section = { artist: 'artists', tag: 'tags', genre: 'tags', decade: 'tags' }[route.parts[0]] || route.parts[0] || '';
   const active = `/${section}`;
+  const on = (path) => active === path || (path === '/more' && MORE.some((n) => n[0] === active));
   return html`<nav class="nav" aria-label="Main">
-    ${NAV.map(([path, icon, label, cls]) => html`<a class=${`${active === path ? 'on' : ''} ${cls || ''}`} href=${`#${path}`} aria-current=${active === path ? 'page' : undefined}>
+    ${NAV.map(([path, icon, label, cls]) => html`<a class=${`${on(path) ? 'on' : ''} ${cls || ''}`} href=${`#${path}`} aria-current=${active === path ? 'page' : undefined}>
       <${Icon} name=${icon} /> <span>${label}</span>
-      ${path === '/queue' && state.queue.length ? html`<span class="badge neon">${state.queue.length}</span>` : null}
-      ${path === '/games' && state.game && !state.game.ended ? html`<span class="badge neon">live</span>` : null}
-      ${path === '/photos' && state.photos?.some((p) => p.status === 'pending') ? html`<span class="badge neon">${state.photos.filter((p) => p.status === 'pending').length}</span>` : null}
+      ${navBadge(path, state)}
     </a>`)}
   </nav>`;
+}
+
+/** Phones: the pages that don't fit in the bottom bar. */
+function More() {
+  const { state } = useStore(store);
+  return html`<div class="page">
+    <header class="page-head"><div><h1>More</h1></div></header>
+    <nav class="more-list" aria-label="More pages">
+      ${MORE.map(([path, icon, label]) => html`<a href=${`#${path}`}><${Icon} name=${icon} /> <span>${label}</span>${navBadge(path, state)}</a>`)}
+    </nav>
+  </div>`;
 }
 
 function Main({ route }) {
@@ -105,6 +128,7 @@ function Main({ route }) {
     case 'history': return html`<${History} />`;
     case 'settings': return html`<${Settings} section=${b} />`;
     case 'queue': return html`<div class="page queue-page"><${QueuePanel} /></div>`;
+    case 'more': return html`<${More} />`;
     default: return html`<div class="page"><p>Page not found. <a href="#/">Go home</a></p></div>`;
   }
 }

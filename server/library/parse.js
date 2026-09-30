@@ -194,7 +194,7 @@ export function parseName(baseName, dirName = '') {
       title = s;
     }
   }
-  artist = artist.trim();
+  artist = artist.trim().replace(/^(.+?),\s*the$/i, 'The $1'); // "Beatles, The" -> "The Beatles"
   title = title.trim();
 
   // "SC8123-05 - Artist - Title"

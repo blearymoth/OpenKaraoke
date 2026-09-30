@@ -121,6 +121,7 @@ export class Catalog {
     this.version = 0;
     this.plays = new Map(); // songId -> times performed (all time)
     this.metaFor = () => null; // injected: songKey -> metadata (genre, year, rank...)
+    this.metaVersion = 0; // bump with metaChanged() when metadata arrives
     this.builtAt = 0;
   }
 
@@ -399,6 +400,7 @@ export class Catalog {
       const hay = s.hay;
       let score = 0;
       let ok = true;
+      const artistQuery = s.artistFold === q;
       for (const alts of tokens) {
         let best = -1;
         for (const tok of alts) {
@@ -410,7 +412,7 @@ export class Catalog {
           if (pts > best) best = pts;
         }
         if (best < 0) { ok = false; break; }
-        score += best;
+        if (!artistQuery) score += best;
       }
       if (!ok || !this._passes(s, filter)) continue;
       if (s.artistFold === q) score += 55;
@@ -445,9 +447,15 @@ export class Catalog {
     return a.songIds.map((id) => this.songs.get(id)).filter(Boolean);
   }
 
+  /** Call when plays or online metadata changed so cached rankings are rebuilt. */
+  metaChanged() {
+    this.metaVersion++;
+  }
+
   popular({ limit = 100, offset = 0, filter = null } = {}) {
-    if (!this._popularCache || this._popularCache.v !== this.metaVersion) {
-      this._popularCache = { v: this.metaVersion, list: [...this.songList].sort((a, b) => this.popularity(b) - this.popularity(a)) };
+    const v = `${this.version}:${this.metaVersion}`;
+    if (!this._popularCache || this._popularCache.v !== v) {
+      this._popularCache = { v, list: [...this.songList].sort((a, b) => this.popularity(b) - this.popularity(a)) };
     }
     const list = filter ? this._popularCache.list.filter((s) => this._passes(s, filter)) : this._popularCache.list;
     return { total: list.length, items: list.slice(offset, offset + limit) };

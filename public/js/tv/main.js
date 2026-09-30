@@ -242,8 +242,9 @@ function App() {
   const game = st.game;
   const gameUi = game && GAME_UI[game.type];
   const tv = { conn, controller, main: s.display === 'main', send: (m) => conn.request('tv.game', m).catch(() => null) };
-  // An exclusive game owns the TV; its results stay up until the next song starts.
-  const gameScene = !!(game?.exclusive && gameUi?.Tv && (!game.ended || !st.current));
+  // An exclusive game owns the TV; its results stay up until the next song starts. A game that
+  // sings songs itself (`showSongs`: battle) lets the karaoke scene show while its song is on.
+  const gameScene = !!(game?.exclusive && gameUi?.Tv && (!game.ended || !st.current) && !(game.showSongs && st.current));
   let scene;
   if (gameScene) scene = html`<${gameUi.Tv} game=${game} st=${st} now=${now} tv=${tv} key=${game.id} />`;
   else if (!st.current || p.state === 'idle') scene = html`<${Lobby} st=${st} />`;
@@ -422,7 +423,7 @@ function Singing({ st }) {
   useTick(1000);
   const pos = controller.position();
   const dur = controller.duration();
-  const next = st.queue[0];
+  const next = st.game?.showSongs && !st.game.ended ? null : st.queue[0]; // a battle decides who's next
   const showUpNext = d.showUpNext !== false && next && dur > 0 && dur - pos < 20 && dur - pos > 1;
   const ticker = d.showTicker !== false && (st.queue.length || d.tickerMessage);
   return html`<div class=${`scene ${ticker ? 'with-ticker' : ''}`}>

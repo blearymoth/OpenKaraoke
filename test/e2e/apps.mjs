@@ -180,6 +180,24 @@ try {
   const gOverflow = await ben.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(gOverflow <= 0, 'guest app fits a phone screen without sideways scrolling');
   await shot(hostPhone, 'host-phone-queue');
+  // The bottom bar on a small phone (body.host hides overflow, so measure the bar itself).
+  await hostPhone.setViewportSize({ width: 360, height: 760 });
+  const bar = await hostPhone.evaluate(() => {
+    const nav = document.querySelector('.nav');
+    const tabs = [...nav.querySelectorAll('a')].filter((a) => a.offsetParent);
+    return { fits: nav.scrollWidth <= nav.clientWidth, right: Math.max(...tabs.map((a) => a.getBoundingClientRect().right)), labels: tabs.map((a) => a.textContent.trim()) };
+  });
+  check(bar.fits && bar.right <= 360 && bar.labels.length <= 6, `host bottom bar fits a 360 px phone (${bar.labels.join(', ')})`);
+  check(bar.labels.some((l) => /^Games/.test(l)) && bar.labels.some((l) => /^Queue/.test(l)), 'Games and Queue are in the phone bar');
+  await hostPhone.click('.nav a[href="#/more"]');
+  await hostPhone.waitForSelector('.more-list');
+  await shot(hostPhone, 'host-phone-more');
+  const more =await hostPhone.$$eval('.more-list a', (l) => l.map((a) => a.textContent.trim()));
+  check(['Singers', 'Settings', 'History', 'Photos', 'Playlists'].every((p) => more.includes(p)), `the More page reaches the other pages (${more.join(', ')})`);
+  await hostPhone.click('.more-list a[href="#/singers"]');
+  await hostPhone.waitForSelector('.table');
+  check(await hostPhone.$eval('.nav a[href="#/more"]', (a) => a.classList.contains('on')), 'More stays highlighted on those pages');
+  await shot(hostPhone, 'host-phone-singers');
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);
 } finally {

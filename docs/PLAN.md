@@ -37,8 +37,8 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   drive offline/online detection (poll every 20 s), rescan button, "library offline" banner.
 - ✅ P0 Folder picker in host settings (server lists directories; suggest mounted drives under
   `/run/media/$USER`, `/media/$USER`) + CLI `--library`.
-- 🟡 P1 Genre / decade browse ✅ (host Collections + genre/decade pages, guest chips; metadata from §12), "Most sung here", "Sung tonight" marks ⬜.
-- ⬜ P1 Printable songbook (HTML → print to PDF) with filters (letter, tag, popular only).
+- ✅ P1 Genre / decade browse (host Collections + genre/decade pages, guest chips; metadata from §12), "Most sung here", live "In queue" / "Sung tonight" marks.
+- ✅ P1 Printable songbook (HTML → print to PDF, or CSV) with filters (letter, tag, genre, decade, popular only) — Settings → Library.
 - ⬜ P2 Optional ffmpeg transcoding for AVI/WMV/MPG video when `ffmpeg` is installed.
 
 ### Playback (TV display)
@@ -47,9 +47,9 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   **tempo 70–130 %**, seek, pause, fade in/out, volume, loudness normalisation (§9.3).
 - ✅ P0 Channel modes for multiplex/guide-vocal tracks: stereo, left, right, mono, vocal-cut (L−R).
 - ✅ P0 "Next singer" intro card with countdown, then auto-start (or start-paused mode).
-- 🟡 P0 Preload next track during the intro ✅; gapless transition to break music ⬜ (M7).
+- ✅ P0 Preload next track during the intro; break music fades out when the next song starts.
 - 🟡 P0 Video karaoke (MP4/WEBM) with the same controls (tempo via playbackRate, key via stretch live input) — implemented, untested with real video files.
-- 🟡 P1 Background behind transparent CDG (done: blurred cover art, artist fanart with Ken Burns, idle cover mosaic, aurora visualiser, plain, Scale2x; todo: guest photos): blurred cover / artist fanart (Ken-Burns), audio
+- ✅ P1 Background behind transparent CDG: blurred cover / artist fanart (Ken-Burns), idle cover mosaic, audio
   visualiser, guest photos, or plain colour. CDG smoothing (Scale2x) for crisp text on big TVs.
 - ✅ P1 Lyric sync offset setting (ms) and automatic output-latency compensation (getOutputTimestamp).
 - ⬜ P2 Mic monitoring with reverb/echo on the PC (localhost only, latency warning).
@@ -61,9 +61,9 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   a popup on the non-primary screen, then fullscreen. Fallback: normal popup + instructions.
 - ✅ P0 `bin/open-tv.sh`: launches Chromium/Chrome in kiosk mode on the 2nd screen with
   `--autoplay-policy=no-user-gesture-required` (no click needed).
-- 🟡 P1 Mirror displays (extra TVs/projectors, muted, clock-synced) ✅ basic; host live preview (mini mirror) ⬜.
-- ⬜ P1 Remote display pairing: a non-local `/tv` shows a pairing code; host approves it.
-- ⬜ P2 Singer "confidence monitor" layout and a "queue board" layout (`/tv?layout=board`).
+- ✅ P1 Mirror displays (extra TVs/projectors, muted, clock-synced); host live preview (mini mirror in the player bar).
+- ✅ P1 Remote display pairing: a non-local `/tv` shows a pairing code; host approves it (Settings → Displays can forget them all).
+- 🟡 P2 "Queue board" layout (`/tv?layout=board`) ✅; singer "confidence monitor" layout ⬜.
 
 ### Queue, singers, rotation
 - ✅ P0 Queue with drag-reorder, play next, remove, edit singer/key/tempo, clear, shuffle.
@@ -71,23 +71,23 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P0 Fair **rotation** (round-robin by singer, newcomers first) or FIFO mode (§6.3).
 - ✅ P0 ETA per queue entry; "You're up next!" notification on the singer's phone.
 - ✅ P0 Request approval mode; per-guest limit; max song length; no repeats tonight; explicit filter.
-- 🟡 P1 Duets (server accepts partners from the host; no UI yet), teams/tables ⬜, "mystery song" entries ✅.
+- 🟡 P1 Duets ✅ (host picks a partner; a guest invites a partner, who accepts on their phone), teams/tables ⬜, "mystery song" entries ✅.
 - ✅ P1 Per-song remembered key/tempo (per singer when known).
-- 🟡 P1 Favourites (host + per guest) ✅, playlists ⬜, history (tonight in the UI, all time in `history.jsonl`) ✅, re-queue ✅.
+- ✅ P1 Favourites (host + per guest), playlists (host), history (tonight in the UI, all time in `history.jsonl`), re-queue.
 
 ### Guests (phones)
 - ✅ P0 QR join → name + emoji → search, browse (popular, artists A–Z, tags), song sheet with
   versions (labels), optional key, "Sing it" → confirmation with position & ETA.
 - ✅ P0 Queue view (own entries highlighted, remove own), now-playing, reactions (floating emojis on TV).
-- ⬜ P1 Photo upload (client-side resize, host moderation) → TV photo wall / backgrounds.
-- ⬜ P1 Co-host promotion (host grants playback/queue controls to a guest).
-- ⬜ P1 Rate the performance (1–5 ★) after each song → leaderboards.
+- ✅ P1 Photo upload (client-side resize, host moderation) → TV photo flash / slideshow background.
+- ✅ P1 Co-host promotion (host grants playback/queue controls to a guest).
+- ✅ P1 Rate the performance (1–5 ★) after each song → average in history and singer stars.
 - ✅ P1 Wi-Fi QR code on the TV lobby (SSID/password from settings).
 
 ### Host app
 - ✅ P0 KaraFun-style layout: sidebar nav, top search, main content, right queue panel, bottom
   player bar (transport, seek, key ±, tempo ±, channel mode, volume, TV status).
-- ✅ P0 Views (except song preview on host headphones): Home, Search, Artists (A–Z), Tags/Collections, Popular, Song details (versions,
+- ✅ P0 Views: Home, Search, Artists (A–Z), Tags/Collections, Popular, Song details (versions,
   preview on host headphones), Singers, Requests (approvals), History, Settings.
 - ✅ P0 Settings UI for every implemented key in `DEFAULT_SETTINGS` (keys of unbuilt features are hidden).
 - ✅ P0 Invite panel: big QR, join URL, room code, printable QR table card (print pop-up).
@@ -100,20 +100,20 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P1 Background crawler for the whole library (popular first), resumable, rate-limited,
   progress + ETA in settings. Artist pictures, genre, year, explicit flag, popularity rank.
 - ✅ P1 TheAudioDB (key `123`) artist fanart/logo/cutout for TV backgrounds, intro card and artist pages.
-- 🟡 P2 "Fix artwork" ✅ (choose among candidates, "no cover", look up again), optional iTunes & Fanart.tv ✅;
-  upload a custom cover ⬜.
+- ✅ P2 "Fix artwork" (choose among candidates, "no cover", look up again, upload your own picture),
+  optional iTunes & Fanart.tv.
 - ⬜ Live verification against the real APIs (the cloud session could not reach them): run
   `node scripts/artwork-check.js` on the PC.
 
 ### Games (§13)
-- ⬜ P1 Music Quiz (phones answer, speed scoring, leaderboard, rounds: intro, name the artist,
+- ✅ P1 Music Quiz (phones answer, speed scoring, leaderboard, rounds: intro, name the artist,
   lyrics peek, cover zoom, helium/slow-mo/reverse audio, year/decade, sing-along interlude).
-- ⬜ P1 Battle (2–8 contestants, head-to-head or knockout, phone voting + optional applause meter + judges).
-- ⬜ P1 Roulette wheel (songs / singers / dares / genres / duet roulette).
-- ⬜ P1 Crowd poll "what's next?", Pass-the-mic relay, applause meter, party recap screen.
+- ✅ P1 Battle (2–8 contestants, head-to-head or knockout, phone voting + optional applause meter + judges).
+- ✅ P1 Roulette wheel (songs / singers / dares / genres / duet roulette).
+- 🟡 P1 Crowd poll "what's next?" ✅, Pass-the-mic relay, applause meter, party recap screen.
 
 ### Between songs
-- ⬜ P1 Break music (random instrumentals from the library matching the next song's genre/decade,
+- ✅ P1 Break music (random instrumentals from the library matching the next song's genre/decade,
   or a music folder) with fades; "when queue is empty": lobby / break music / autoplay sing-along.
 
 ## 3. Architecture

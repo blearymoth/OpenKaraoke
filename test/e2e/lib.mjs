@@ -1,13 +1,12 @@
 // Helpers shared by the end-to-end scripts (not part of `npm test`).
-import fs from 'node:fs/promises';
 import path from 'node:path';
-import os from 'node:os';
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
 import { WebSocket } from '../../server/vendor/ws.mjs';
 import { createApp } from '../../server/app.js';
 import { makeDemoLibrary } from '../../scripts/make-demo-library.js';
 import { fakeArtFetch } from '../fake-art.js';
+import { tmpDir } from '../helpers.js';
 
 export function loadPlaywright() {
   const require = createRequire(import.meta.url);
@@ -98,9 +97,9 @@ export class WsClient {
 
 /** Starts a server on the demo library; artwork comes from a fake provider network (never the internet). */
 export async function startParty({ crawl = false } = {}) {
-  const lib = await fs.mkdtemp(path.join(os.tmpdir(), 'ok-e2e-lib-'));
+  const lib = await tmpDir('ok-e2e-lib-');
   await makeDemoLibrary(lib, { log: () => {} });
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ok-e2e-data-'));
+  const dataDir = await tmpDir('ok-e2e-data-');
   const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch: fakeArtFetch({ unknown: new Set(['dj hush']) }), crawl });
   await app.library.scan();
   app.settings.update({ playback: { countdown: 3 } });

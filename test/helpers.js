@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -6,8 +7,16 @@ import { setLogLevel } from '../server/util/log.js';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
 
+const tmpDirs = [];
+process.on('exit', () => {
+  for (const dir of tmpDirs) fsSync.rmSync(dir, { recursive: true, force: true });
+});
+
+/** A fresh temp folder, removed again when the test process exits. */
 export async function tmpDir(prefix = 'openkaraoke-test-') {
-  return fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  tmpDirs.push(dir);
+  return dir;
 }
 
 /** Writes files described as { 'rel/path': Buffer|string|number(bytes) }. */

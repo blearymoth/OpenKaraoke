@@ -37,6 +37,8 @@ npm test                                   # unit tests (node:test), must stay g
 node scripts/scan-report.js "<karaoke folder>" [--search "text"]   # validate parser/catalog on a real library
 npm start -- --library "<karaoke folder>"  # server on :8080 (entry point server/index.js)
 npm run vendor                             # rebuild vendored libs after `npm install`
+npm run demo -- /tmp/karaoke-demo          # synthetic demo songs (WAV+CDG) when the drive isn't around
+npm run e2e                                # browser E2E (needs Playwright + Chromium; not part of npm test)
 ```
 
 ## Code map (what exists today)
@@ -71,7 +73,8 @@ npm run vendor                             # rebuild vendored libs after `npm in
 - `public/js/lib/` — `ws-client.js` (reconnecting WS + `rid` requests + clock offset), `store.js`
   (`createStore`/`useStore`), `api.js`, `ui.js` (icons, Cover, Modal, toasts, hooks),
   `audio-engine.js` (Signalsmith Stretch), `cdg-canvas.js`.
-- `public/js/tv/` (TV app + `player.js` reconciler), `public/js/host/` (host app).
+- `public/js/tv/` (TV app + `player.js` reconciler), `public/js/host/` (host app),
+  `public/js/guest/` (phone app for `/j/<code>`); page shells `public/{index,host,tv,guest,print-qr}.html`.
 - `scripts/make-demo-library.js` — synthetic demo library (WAV + CDG) for trying things without the drive.
 - `test/` — node:test suites + helpers (`makeZip`, `writeTree`, `rawTracks`).
 

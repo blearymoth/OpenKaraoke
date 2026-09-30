@@ -6,6 +6,7 @@
 //   node scripts/make-demo-library.js /tmp/karaoke-demo
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { CdgWriter, centerCol } from './lib/cdg-writer.js';
 import { makeZip } from './lib/zip-writer.js';
 
@@ -218,15 +219,12 @@ function cdg(song, arr) {
   return w.toBuffer().subarray(0, Math.round(arr.total * 300) * 24);
 }
 
-async function main() {
-  const out = process.argv[2];
-  if (!out) {
-    console.error('Usage: node scripts/make-demo-library.js <output folder>');
-    process.exit(1);
-  }
+/** Writes the demo songs into `out`. Returns the list of written base paths. */
+export async function makeDemoLibrary(out, { log = console.log } = {}) {
   let lastLines = null;
-  for (const song of SONGS) {
-    if (!song.lines) song.lines = lastLines;
+  const written = [];
+  for (const def of SONGS) {
+    const song = { ...def, lines: def.lines || lastLines };
     lastLines = song.lines;
     const arr = arrange(song);
     const audio = wav(synth(song, arr));
@@ -243,9 +241,20 @@ async function main() {
       await fs.writeFile(`${base}.wav`, audio);
       await fs.writeFile(`${base}.cdg`, graphics);
     }
-    console.log(`${song.file}  (${Math.round(arr.total)} s)`);
+    written.push(base);
+    log(`${song.file}  (${Math.round(arr.total)} s)`);
   }
+  return written;
+}
+
+async function main() {
+  const out = process.argv[2];
+  if (!out) {
+    console.error('Usage: node scripts/make-demo-library.js <output folder>');
+    process.exit(1);
+  }
+  await makeDemoLibrary(out);
   console.log(`\nDemo library written to ${out}\nStart the server with:  npm start -- --library "${out}"`);
 }
 
-main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

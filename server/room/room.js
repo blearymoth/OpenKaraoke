@@ -113,7 +113,7 @@ export class Room {
 
   /** Validates a hello and returns the welcome payload (throws WsError to deny). */
   hello(client, msg) {
-    const local = this.auth.trustsLocal(client.ip);
+    const local = this.auth.trustsLocal(client.ip, { host: client.host, origin: client.origin });
     client.local = local;
     const role = msg.role;
     if (role === 'host') {
@@ -334,6 +334,8 @@ export class Room {
     const index = this.insert(entry, !isGuest ? msg.position : undefined);
     if (s.player.state === 'idle' && !s.current && this.settings.get('playback.autoAdvance') && msg.autostart !== false && s.queue.length === 1) {
       this.start(s.queue.shift());
+      this.touch();
+      return { entryId: entry.id, index: 0, started: true };
     }
     this.touch();
     return { entryId: entry.id, index, eta: this.etaOf(entry.id) };

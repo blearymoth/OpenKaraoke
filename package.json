@@ -9,7 +9,9 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "test": "node --test test/*.test.js",
-    "vendor": "node scripts/vendor.js"
+    "vendor": "node scripts/vendor.js",
+    "e2e": "node scripts/e2e.js",
+    "demo": "node scripts/make-demo-library.js"
   },
   "engines": { "node": ">=18.17" },
   "keywords": ["karaoke", "cdg", "mp3+g", "party", "self-hosted", "linux", "second-screen", "qr-code"],

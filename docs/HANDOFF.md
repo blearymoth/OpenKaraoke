@@ -1,132 +1,122 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-09-30 (second build session: M1–M3 done)._
+_Last updated: 2026-09-30 (end of the second build session: M1–M4 done)._
 
 ## TL;DR
-- **M0 foundation**, **M1 server**, **M2 TV player** and **M3 room + host app** are done and tested.
-  `npm start -- --library <folder>`, open `http://localhost:8080/host` on the PC and `/tv` on the
-  TV (or `bin/open-tv.sh`). The host app searches the library, runs the queue with fair rotation,
-  controls playback (key/tempo/channels/volume/seek) and has settings for everything.
-- Next: **M4 guest app** (`/j/<code>` is served but `public/guest.html` is still missing) — the
-  server side for guests (profiles, limits, approvals, notifications, reactions) already exists.
-- No real library in the cloud session: use `node scripts/make-demo-library.js <dir>` (7 synthetic
-  songs incl. multiplex, duet, explicit and a zipped track) to try everything.
+- **M0 foundation, M1 server, M2 TV player, M3 room + host app and M4 guest app are done** —
+  this is the first party-ready version: host on the PC, lyrics + audio on the TV, guests
+  request songs from their phones via the QR code.
+- `npm test` → 76 tests green. `npm run e2e` (Playwright) → full browser flow green.
+- **Not yet run against the real USB library** (the session-2 agent worked in a cloud container
+  without the drive). Everything was verified with a synthetic 90k-track tree (performance) and
+  a synthetic demo library of real WAV+CDG songs (`npm run demo -- <dir>`). Do the checklist
+  below on the PC first.
+- Next: **M5 artwork & metadata** (the API hooks are ready), then M6 games, M7 polish.
+
+## First run on the PC (owner checklist)
+```bash
+cd ~/Projects/karaoke && git pull
+node scripts/scan-report.js "/run/media/ruutu/SMILE-2/<collection folder>" --search "someone like you"
+npm start -- --library "/run/media/ruutu/SMILE-2/<collection folder>"
+# host:  http://localhost:8080/host        TV:  bin/open-tv.sh   (or http://localhost:8080/tv + click Start)
+```
+Then check: a real MP3+CDG plays with lyrics in sync (adjust **Settings → Playback → Lyrics
+offset** if words are early/late on the TV), key/tempo changes sound fine, a phone can join via
+the QR code (same Wi-Fi; if the join URL shows the wrong address set **Settings → Network →
+Address for guests**), unplugging the USB drive shows "library offline" and replugging recovers.
 
 ## What was verified
 | Check | Result |
 | --- | --- |
-| Unit tests (`npm test`) | parser, catalog, scanner/zip, settings/QR/net, library service, HTTP router/Range/media/zip/API, WebSocket hello/ping/rid, auth tokens + PIN back-off |
-| Parser on all 90,479 names from the owner's song list | 99% get a label; ~50.5k songs, ~11.8k artists; typos merged (e.g. Morisette → Morissette) |
-| Scanner + catalog on real files from the drive (4 real MP3+CDG pairs, session 1) | durations from CDG size match the MP3 length; search works (`scripts/scan-report.js`) |
-| **Server on a synthetic 90k-track tree** (11.6k folders, sparse files, session 2) | first scan 4.1 s + build 4.1 s; restart: cache load 3.0 s + no-change rescan 1.3 s; `/api/search` 12–35 ms over HTTP (fuzzy typo query ≈130 ms incl. building the vocabulary once); RSS ≈ 475 MB; `library.json` 33 MB |
-| Media endpoint | `curl -r 0-99 …/media/<id>/audio` → `206`; CDG gzip; stored + deflated zip entries with Range |
+| `npm test` (node:test) | 76 pass: parser, catalog, scanner/zip, settings/QR/net, library service, HTTP router/Range/media/zip/API, WebSocket, auth + PIN back-off, CDG decoder (synthetic streams), rotation/ETA, Room over real WebSockets (guest join, rotation, player flow, limits, approvals, TV reload, bans, settings, PIN login), cross-site/DNS-rebinding protection |
+| `npm run e2e` (headless Chromium) | TV autoplay start, typo search, add-to-queue, intro → lyrics, audio clock advances, key change reaches the TV, 2 phone guests join + request, fair rotation order, reactions on the TV, "your turn" notification |
+| Manual browser runs (screenshots reviewed) | lyrics with word highlighting, tempo 1.2 (2.42 s per 2 s), pause/seek, vocal cut, mirror display in sync with the main TV, click-to-start gate without the autoplay flag, all host views/dialogs, phone layouts, printable QR card |
+| Parser on all 90,479 names from the owner's song list (session 1) | 99% get a label; ~50.5k songs, ~11.8k artists |
+| Server on a synthetic 90k-track tree (11.6k folders) | first scan 4.1 s + build 4.1 s; restart: cache load 3.0 s + no-change rescan 1.3 s; `/api/search` 12–35 ms over HTTP; RSS ≈ 475 MB; `library.json` 33 MB |
 
-**Not yet verified on the real USB drive** — the session-2 agent ran in a cloud container without
-access to `/run/media/ruutu/SMILE-2/`. First thing to do on the PC:
-```bash
-node scripts/scan-report.js "/run/media/ruutu/SMILE-2/<collection folder>" --search "someone like you"
-npm start -- --library "/run/media/ruutu/SMILE-2/<collection folder>"
-curl 'localhost:8080/api/search?q=hello'
-```
+## How it fits together (details in `docs/PLAN.md`)
+- `server/app.js` wires settings → auth → library → HTTP (API, media, static) → WebSocket hub →
+  Room. `server/index.js` is the CLI (`--library` replaces the saved folders; `--port`/`--host`
+  are not saved; `--pin` is).
+- The **Room** (`server/room/room.js`) is authoritative for party state and broadcasts per-role
+  views (`host`, `tv`, `guest` + per-device `me`). The **main TV** is authoritative for media
+  time: `public/js/tv/player.js` reconciles the desired player state (load/decode, play/pause,
+  `seekSeq` seeks, key/tempo/channel/volume) and reports `tv.status` 4×/s, `tv.ended`, `tv.error`.
+- Audio: `public/js/lib/audio-engine.js` — Signalsmith Stretch in buffer mode for CDG tracks,
+  element mode (`<video>`) for video; 2×2 channel matrix; loudness gain; our own time map.
+- Security: the PC is trusted as host only for direct requests (IP/localhost/host-name `Host`
+  header, same `Origin`); other devices need the PIN (Bearer token); cross-site WebSocket
+  upgrades and cross-site POSTs are refused; JSON bodies must be `application/json`.
 
 ## Decisions already made (and why)
 1. **Node server + browser clients, all local.** Owner wants it to run on Linux, offline-capable.
-2. **No database, no native modules.** 90k tracks fit in memory (catalog) with a JSON cache;
-   keeps install = `git clone` + `node server/index.js`.
-3. **Vendored runtime libs** (see `CLAUDE.md`): `ws` (bundled with esbuild), `qrcode-generator`,
-   Preact + htm (single ESM file), **Signalsmith Stretch** (MIT, WASM AudioWorklet) for
-   high-quality key change + tempo in the browser.
+2. **No database, no native modules.** 90k tracks fit in memory (catalog) with a JSON cache.
+3. **Vendored runtime libs** (`ws`, `qrcode-generator`, Preact + htm, **Signalsmith Stretch**).
 4. **No front-end build step**: Preact + `htm` tagged templates as plain ES modules.
-5. **The TV page is the player** (decodes MP3, renders CDG, plays audio). Server is authoritative
-   for party state; the main TV is authoritative for media time. Host UI shows a preview.
-6. **Second screen** via the Window Management API (`getScreenDetails`) + a kiosk launcher
-   script with `--autoplay-policy=no-user-gesture-required`.
-7. **Auth**: the PC itself is trusted (localhost); other devices need the host PIN; remote TV
-   displays pair with a code approved by the host; guests join with the room code.
-8. **Artwork**: Deezer primary (no key), MusicBrainz/Cover Art Archive fallback, TheAudioDB for
-   artist fanart/logos; iTunes off by default (its terms forbid caching). Everything cached locally.
-9. **Battle scoring = audience voting (+ optional applause meter)**, not pitch scoring — CDG files
-   have no melody data, and phone microphones need HTTPS which a LAN http app doesn't have.
-10. Repo is **MIT** licensed (owner can change).
+5. **The TV page is the player**; server authoritative for party state, main TV for media time.
+6. **Second screen** via the Window Management API + `bin/open-tv.sh` kiosk launcher.
+7. **Auth**: PC trusted (localhost), other devices PIN; remote TVs pair with a 4-digit code.
+8. **Artwork**: Deezer primary, MusicBrainz/CAA fallback, TheAudioDB for artists; iTunes off.
+9. **Battle scoring = audience voting (+ optional applause meter)** — no pitch data in CDG.
+10. **Rotation**: round-robin by lead singer, newcomers first, the singer who was already told
+    "you're up next" is never bumped. A skipped song counts as sung only after 45 s.
+11. **A TV reload during a song** pauses the party; the same display coming back within 15 s
+    resumes automatically. If the server restarts mid-song, that song goes back to the top of
+    the queue.
 
 ## Next steps (in order)
 
-### M1 — server runs ✅ (done in session 2)
-What exists now (see the code map in `CLAUDE.md`):
-- `server/library/service.js` — `LibraryService`: cache load (roots remapped by path), single-flight
-  `scan()` with progress events, rebuild + save **only when the track signature changed**, parse
-  results reused across rescans, tracks of an unplugged drive are kept (state `offline`/`partial`),
-  20 s online watcher that rescans a drive that comes back, `setPaths()`, `absPath()`.
-- `server/http/router.js` (params, `*` wildcard, 405, `readBody` limit), `static.js` (ETag/304,
-  gzip text, traversal-safe, `sendFile`/`sendBuffer` with Range → 206/416), `media.js`
-  (`/media/:trackId/audio|cdg|video`, stored zip entries streamed as a byte slice, deflated ones
-  via an LRU, CDG gzip LRU), `api.js` (PLAN §8 + `/api/settings`, `/api/library/*`).
-- `server/ws/hub.js` — hello handshake (delegated to `hub.onHello`), heartbeat, `rid` replies,
-  per-client token bucket, `broadcast(msg, filter)`.
-- `server/room/auth.js` — HMAC tokens (`data/secret.json`), localhost trust, PIN with back-off.
-- `server/artwork/placeholder.js` — gradient + initials SVG (`/api/art/*` until M5).
-- `server/app.js` (wiring, testable) + `server/index.js` (CLI) + `bin/openkaraoke.sh`.
-- `--library` **replaces** the saved library folders; `--port`/`--host` are not saved; `--pin` is.
+### M5 — Artwork & metadata
+1. `server/artwork/providers.js` — Deezer (`https://api.deezer.com/search?q=artist:"…" track:"…"`,
+   `cover_medium/big/xl`, `explicit_lyrics`, `rank`, album → genre/year), MusicBrainz recording
+   search → release-group → Cover Art Archive `front-500` (1 req/s, UA `OpenKaraoke/0.1 ( … )`),
+   TheAudioDB artist search (key `123`): thumb/fanart/logo. Matching rules: PLAN §12.
+2. `server/artwork/service.js` — priority queue (current/next > on-screen > crawl), per-provider
+   token buckets + back-off, images in `data/art/<sha1>.jpg`, metadata in `data/meta.json`
+   (`JsonDoc`), misses retried after 30 days, `settings.artwork.*` respected, cache size limit.
+3. Hook it up: `registerApi(..., { art: { song(req,res,id), artist(req,res,key) } })` already
+   exists in `server/http/api.js` — serve the cached image or the placeholder and queue a fetch;
+   set `catalog.metaFor = (songKey) => meta` and call `catalog.metaChanged()`; broadcast
+   `{ t: 'art', ids }` so clients refresh (`artUrl()` adds `&v=1` when `song.art`).
+4. Crawler for the whole library (popular first, resumable) with progress in Settings → Artwork;
+   genre/decade browse in host + guest (catalog `facets()` and filters already support meta).
+5. TV: artist fanart as stage background when `artwork.background` is on.
 
-### M2 — TV player ✅ (done in session 2)
-- `shared/cdg.js` — isomorphic CDG decoder (all instructions, smooth-scroll offsets, transparency,
-  `scale2x`, `pickLyricsFrame`); `scripts/lib/cdg-writer.js` encodes CDG for tests/demo.
-- `public/js/lib/audio-engine.js` — Web Audio + Signalsmith Stretch (buffer mode) with our own
-  time map, 2×2 channel matrix (stereo/left/right/mono/vocal-cut), loudness gain (RMS → −17 dB,
-  ±9 dB), fades; element mode for video (key via a second stretch node in live mode, tempo via
-  `playbackRate`).
-- `public/js/lib/cdg-canvas.js` (renderer), `public/js/tv/player.js` (reconciles the server's
-  desired player state: load/decode, play/pause/seek via `seekSeq`, key/tempo/channel/volume,
-  reports `tv.status` 4×/s, `tv.ended`, `tv.error`, preloads the next song in the last 45 s;
-  mirrors follow `time` messages muted), `public/js/tv/main.js` + `css/tv.css` (lobby with QR +
-  Wi-Fi QR, intro countdown card, stage with singer chip, mini QR, title card, "up next" banner,
-  progress, ticker, reactions, announcements, click-to-start gate, pairing screen, keyboard
-  shortcuts: space/k, →/n, ←, ↑/↓ volume, +/− key, [ ] tempo, f fullscreen).
-- `bin/open-tv.sh` — kiosk Chromium on the non-primary monitor (xrandr) with autoplay allowed.
-- Verified in headless Chromium against the demo library: lyrics + word highlighting render,
-  position advances, key change, tempo 1.2 (2.42 s in 2 s), pause, seek, vocal-cut, auto-advance,
-  mirror display in sync with the main display, click-to-start gate, no console errors.
-- **Still to verify on the PC**: real MP3+CDG files from the drive, audio output latency vs.
-  lyrics (tune `playback.lyricOffsetMs` if needed), a real second screen with `bin/open-tv.sh`.
+### M6 — Games (PLAN §13)
+Server state machines in `server/games/*.js` with public views in the tv/guest state
+(`game` field), host "Games" view, TV scenes, guest answer/vote UIs. Start with the **crowd poll**
+and **roulette wheel** (smallest), then **Battle** (voting on phones), then **Music Quiz** (needs
+`pickLyricsFrame` from `shared/cdg.js` — already implemented — and artwork for cover rounds).
 
-### M3 — Room + host app ✅ (done in session 2)
-- `server/room/room.js` — party state (`data/state.json`), Room actions for queue/player/singers/
-  guests/displays/settings, per-role views (host, tv, guest + per-device `me`), 30 ms broadcast
-  coalescing, `time` relay (hosts/mirrors 4 Hz, guests 1 Hz), notifications ("up next", "your
-  turn", approved/rejected), history (`data/history.jsonl`), plays → `catalog.plays`, per-singer
-  key/tempo memory (`songPrefs`), main-display election + 15 s auto-resume after a TV reload,
-  remote display pairing (4-digit code), kick/ban, new party / new room code, auto new party after
-  8 h idle. `rotation.js` — fair insert + newcomers first + ETAs + fair shuffle (pure, tested).
-- `server/room/auth.js` + `POST /api/auth/pin` — remote host login; PIN change rotates tokens.
-- Host UI (`public/host.html`, `js/host/*.js`, `css/host.css`): top bar with instant search (`/`),
-  nav (Home, Search, Artists A–Z, Collections, Popular, Favourites, Singers, Guests, History,
-  Displays, Settings), queue panel (drag reorder, play now/next, edit key/tempo/singers, requests
-  approval, tonight), player bar (transport, seek, key, tempo, channel mode, volume, TV status),
-  add-to-queue dialog (singer pick/new, key, tempo, version, position, play now), song details
-  (versions table, headphone preview), invite modal + `/print/qr` table card, announcements,
-  schema-driven settings incl. folder picker (`/api/fs/list`), PIN login for remote hosts,
-  keyboard shortcuts (space, N, +/−, [ ]), responsive layout for tablets/phones.
-- "Open TV display" uses the Window Management API (`getScreenDetails`) to place `/tv` on the
-  second screen; `bin/open-tv.sh` is the no-click kiosk alternative.
+### M7 — Polish
+Break music / autoplay when the queue is empty (`playback.whenQueueEmpty`, `breakMusic.*` are in
+the settings but marked "coming soon"), guest photos, ratings + party recap, printable songbook,
+systemd `--user` unit (`bin/install-service.sh`), README screenshots, CSP header, performance
+pass (move `catalog.load` to a worker thread so big rescans don't block the event loop).
 
-### M4 → M7
-See `docs/PLAN.md` §18. M4 completes the first party-ready version (host + TV + guests).
-
-## Known limitations / TODOs in existing code
-- `catalog.js`: heap ~200–400 MB while building 90k tracks — fine on a desktop; trim
-  `p.baseArtist/baseTitle/credits` after build if memory matters. The "Duets" tag also
-  includes plain "A & B" credits (≈3.9k songs); consider showing explicit `(Duet)` songs first.
-- `catalog.metaFor` returns `null` until the artwork/metadata service (M5) injects it; call
-  `catalog.metaChanged()` when metadata or play counts change.
-- Artist clustering thresholds are conservative (edit distance 1, or 2 for keys ≥ 10 chars
-  with a count ratio ≤ 0.34); watch for false merges of genuinely different artists.
-- `scanner.js` follows symlinks without loop detection (add a realpath visited-set if needed).
-- `(VR)` annotation meaning unknown — kept as a version label.
+## Known limitations / TODOs
+- Real-drive validation still pending (see checklist). Only WAV+CDG (demo), zipped WAV+CDG and
+  unit-test fixtures have been played; MP3 decoding is done by Chromium (`decodeAudioData`).
+- **Video karaoke** (MP4/WEBM) is implemented (element mode, key via a live stretch node, tempo
+  via `playbackRate`) but untested — the owner's library has no videos. MKV/AVI may not play.
+- Lyrics sync uses `outputLatency + baseLatency`; HDMI/Bluetooth sinks may need
+  `playback.lyricOffsetMs`. Mirrors follow 4 Hz `time` messages (no drift correction).
+- The decoded song lives in the AudioWorklet (~100 MB per 5 min); the next song is decoded only
+  during the last 45 s of the current one (or during the intro countdown).
+- Guests on the party PC itself count as "host" for HTTP API filters (explicit filter); the
+  server still applies guest rules to their queue requests.
+- Guests can't pick a duet partner yet (host can add several singers to an entry via Edit).
+- Queue drag & drop is mouse-only; touch devices use the up/next/remove buttons.
+- `catalog.js`: heap ~200–400 MB while building 90k tracks; the "Duets" tag also includes plain
+  "A & B" credits; artist clustering thresholds are conservative; `(VR)` meaning unknown.
+- `scanner.js` follows symlinks without loop detection.
+- `catalog.load` is synchronous (≈3–4 s for 90k tracks) — rescans that find changes block the
+  event loop for that long (playback on the TV is unaffected; host/guest UIs pause briefly).
 
 ## Starter prompt for your Claude Code agent
 > Read `CLAUDE.md`, `docs/HANDOFF.md` and `docs/PLAN.md`. Continue with the next unfinished
-> milestone as described in HANDOFF "Next steps", following the hard rules in CLAUDE.md
-> (no runtime npm deps, ESM, no build step). Validate against my real library at
-> `/run/media/ruutu/SMILE-2/` (run `node scripts/scan-report.js` on it first), keep `npm test`
-> green with new tests, update HANDOFF.md status, and commit + push after each working piece.
-> Then continue with M2, M3 and M4.
+> milestone (M5 artwork & metadata) as described in HANDOFF "Next steps", following the hard
+> rules in CLAUDE.md (no runtime npm deps, ESM, no build step). If the library at
+> `/run/media/ruutu/SMILE-2/` is available, run the HANDOFF "First run" checklist first. Keep
+> `npm test` (and `npm run e2e` if Playwright is installed) green, update HANDOFF.md, and commit +
+> push after each working piece.

@@ -71,14 +71,14 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P0 Fair **rotation** (round-robin by singer, newcomers first) or FIFO mode (§6.3).
 - ✅ P0 ETA per queue entry; "You're up next!" notification on the singer's phone.
 - ✅ P0 Request approval mode; per-guest limit; max song length; no repeats tonight; explicit filter.
-- ⬜ P1 Duets (entry with 2+ singers), teams/tables as rotation groups, "mystery song" entries.
+- 🟡 P1 Duets (entry with 2+ singers), teams/tables as rotation groups, "mystery song" entries.
 - ✅ P1 Per-song remembered key/tempo (per singer when known).
-- ⬜ P1 Favourites (host + per guest), playlists (queue a whole playlist), history (tonight + all time), re-queue.
+- 🟡 P1 Favourites (host + per guest), playlists (queue a whole playlist), history (tonight + all time), re-queue.
 
 ### Guests (phones)
-- ⬜ P0 QR join → name + emoji → search, browse (popular, artists A–Z, tags), song sheet with
+- ✅ P0 QR join → name + emoji → search, browse (popular, artists A–Z, tags), song sheet with
   versions (labels), optional key, "Sing it" → confirmation with position & ETA.
-- ⬜ P0 Queue view (own entries highlighted, remove own), now-playing, reactions (floating emojis on TV).
+- ✅ P0 Queue view (own entries highlighted, remove own), now-playing, reactions (floating emojis on TV).
 - ⬜ P1 Photo upload (client-side resize, host moderation) → TV photo wall / backgrounds.
 - ⬜ P1 Co-host promotion (host grants playback/queue controls to a guest).
 - ⬜ P1 Rate the performance (1–5 ★) after each song → leaderboards.
@@ -172,13 +172,13 @@ shared/
   cdg.js                ✅ isomorphic CDG decoder (browser renderer + server "lyrics frame" picker)
   protocol.js           ✅ message type constants shared by server and clients
 public/
-  index.html            ⬜ landing: links to Host / TV / Join + QR
-  host.html tv.html guest.html   ⬜ app shells (import maps not needed; import /js/... directly)
-  css/                  ⬜ base.css (tokens, dark theme), host.css, tv.css, guest.css
+  index.html            ✅ landing: links to Host / TV / Join + QR
+  host.html tv.html guest.html   ✅ app shells (import maps not needed; import /js/... directly)
+  css/                  ✅ base.css (tokens, dark theme), host.css, tv.css, guest.css
   js/vendor/            ✅ preact.js (Preact+hooks+htm), signalsmith-stretch.mjs
-  js/lib/               ⬜ ws-client.js, store.js, api.js, format.js, art.js, audio-engine.js,
+  js/lib/               🟡 ws-client.js, store.js, api.js, format.js, art.js, audio-engine.js,
                            cdg-canvas.js, player.js, visualizers.js, confetti.js, sync-clock.js
-  js/host/ js/tv/ js/guest/   ⬜ views/components per app
+  js/host/ js/tv/ js/guest/   ✅ views/components per app
   fonts/ img/           ⬜ (optional bundled OFL fonts: Inter + a display face)
 bin/
   openkaraoke.sh        ✅ start script (checks Node version, starts server, prints URLs)
@@ -486,7 +486,7 @@ No telemetry. Outbound traffic only to the artwork providers (can be disabled).
   intro, singing overlays), click-to-start, keyboard shortcuts.
 - ✅ **M3 Room + host app**: room/rotation/auth, host UI (search, queue panel, player bar,
   singers, settings, invite modal), open-TV-on-second-screen, kiosk script.
-- ⬜ **M4 Guest app**: join flow, search/browse, song sheet, queue, reactions, notifications.
+- ✅ **M4 Guest app**: join flow, search/browse, song sheet, queue, reactions, notifications.
   → **first real party possible**.
 - ⬜ **M5 Artwork & metadata**: providers, cache, placeholders, crawler, genres/decades browse.
 - ⬜ **M6 Games**: quiz, battle, wheel, poll, pass-the-mic, applause meter, ratings, recap.

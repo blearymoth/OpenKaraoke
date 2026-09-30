@@ -9,7 +9,7 @@ import { TvPlayer } from './player.js';
 
 const params = new URLSearchParams(location.search);
 const display = params.get('display') === 'mirror' ? 'mirror' : 'main';
-const store = createStore({ tv: null, pairing: null, conn: 'connecting', denied: null, unlocked: false, reactions: [] });
+const store = createStore({ tv: null, pairing: null, conn: 'connecting', denied: null, unlocked: null, reactions: [] }); // unlocked: null = not known yet
 
 const conn = new Connection({
   hello: () => ({ role: 'tv', deviceId: deviceId('ok.display'), display, token: storage('ok.tvToken') || undefined, name: params.get('name') || '' }),
@@ -295,7 +295,7 @@ function Reactions() {
 
 function UnlockGate() {
   const unlocked = useStore(store, (s) => s.unlocked);
-  if (unlocked) return null;
+  if (unlocked !== false) return null;
   const go = async () => {
     await player.unlock().catch(() => {});
     if (params.get('fullscreen') !== '0') document.documentElement.requestFullscreen?.().catch(() => {});

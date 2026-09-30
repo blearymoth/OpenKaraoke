@@ -503,8 +503,16 @@ export class Catalog {
     return out;
   }
 
-  /** Genre / decade facets from online metadata. */
+  /** Genre / decade facets from online metadata (cached until the catalog or metadata changes). */
   facets() {
+    const v = `${this.version}:${this.metaVersion}`;
+    if (this._facetCache?.v === v) return this._facetCache.value;
+    const value = this._facets();
+    this._facetCache = { v, value };
+    return value;
+  }
+
+  _facets() {
     const genres = new Map();
     const decades = new Map();
     for (const s of this.songList) {

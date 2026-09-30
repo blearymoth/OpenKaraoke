@@ -11,6 +11,7 @@ import { apiRoutes } from './http/api.js';
 import { mediaRoutes } from './http/media.js';
 import { Hub } from './ws/hub.js';
 import { Room } from './room/room.js';
+import { ArtworkService } from './artwork/service.js';
 import { lanAddresses, isLocalAddress } from './util/net.js';
 import { HttpError } from './util/errors.js';
 
@@ -21,8 +22,10 @@ import { HttpError } from './util/errors.js';
  * @param {object} [opts.args] parsed CLI args (library, pin)
  * @param {boolean} [opts.scan] see LibraryService.init
  * @param {boolean} [opts.watch] poll library folders for USB plug/unplug
+ * @param {typeof fetch} [opts.fetch] outgoing HTTP for artwork providers (tests inject a fake)
+ * @param {boolean} [opts.crawl] run the background artwork crawler (default true)
  */
-export async function createApp({ dataDir, args = {}, scan, watch = true } = {}) {
+export async function createApp({ dataDir, args = {}, scan, watch = true, fetch = globalThis.fetch, crawl = true } = {}) {
   const settings = new Settings(dataDir);
   await settings.load();
   if (args.library?.length) settings.update({ library: { paths: [...new Set(args.library.map((p) => path.resolve(p)))] } });
@@ -34,10 +37,12 @@ export async function createApp({ dataDir, args = {}, scan, watch = true } = {})
   const library = new LibraryService({ dataDir, settings });
   await library.init({ scan });
   if (watch) library.startWatcher();
+  const artwork = new ArtworkService({ dataDir, settings, library, fetch, version: VERSION });
+  await artwork.init({ crawl });
 
   const router = new Router();
   const hub = new Hub();
-  const app = { dataDir, settings, library, auth, router, hub, version: VERSION, port: 0, server: null, closers: [] };
+  const app = { dataDir, settings, library, artwork, auth, router, hub, version: VERSION, port: 0, server: null, closers: [] };
 
   app.info = () => {
     const port = app.port || settings.get('server.port');
@@ -79,10 +84,16 @@ export async function createApp({ dataDir, args = {}, scan, watch = true } = {})
   hub.on('join', (client) => room.onJoin(client));
   hub.on('leave', (client) => room.onLeave(client));
   app.closers.push(() => room.close());
+  app.closers.push(() => artwork.close());
 
   library.on('changed', () => room.onLibraryChanged());
   library.on('status', () => room.markDirty());
   library.on('progress', (progress) => hub.broadcast({ t: 'lib', progress }, (c) => c.role === 'host'));
+  artwork.on('art', (m) => {
+    hub.broadcast({ t: 'art', songs: m.songs.slice(0, 500), artists: m.artists.slice(0, 500) });
+    room.onArt(m);
+  });
+  artwork.on('status', () => hub.broadcast({ t: 'artwork', status: artwork.status() }, (c) => c.role === 'host'));
 
   app.listen = (port, host) => new Promise((resolve, reject) => {
     const onError = (e) => {

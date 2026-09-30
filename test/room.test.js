@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { createApp } from '../server/app.js';
 import { tmpDir, writeTree } from './helpers.js';
+import { offlineFetch } from './fake-art.js';
 
 const FILES = {};
 const SONGS = [
@@ -26,7 +27,7 @@ async function setup(settings = {}) {
   const lib = await tmpDir('ok-lib-');
   await writeTree(lib, FILES);
   const dataDir = await tmpDir('ok-data-');
-  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false });
+  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch: offlineFetch, crawl: false });
   await app.library.scan();
   app.settings.update({ playback: { countdown: 0 }, ...settings });
   const room = app.room;
@@ -296,7 +297,7 @@ test('state survives a restart (current song comes back paused)', async () => {
   const libPaths = app.settings.get('library.paths');
   await app.close();
 
-  const app2 = await createApp({ dataDir, args: { library: libPaths }, scan: false, watch: false });
+  const app2 = await createApp({ dataDir, args: { library: libPaths }, scan: false, watch: false, fetch: offlineFetch, crawl: false });
   const st = app2.room.s;
   assert.equal(st.current.title, 'Hello');
   assert.equal(st.player.state, 'paused');

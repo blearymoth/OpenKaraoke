@@ -1,0 +1,42 @@
+{
+  "artists": [
+    {
+      "idArtist": "111239",
+      "strArtist": "Coldplay",
+      "strArtistStripped": null,
+      "strArtistAlternate": "",
+      "strLabel": "Parlophone",
+      "idLabel": "45114",
+      "intFormedYear": "1996",
+      "intBornYear": "1996",
+      "intDiedYear": null,
+      "strDisbanded": null,
+      "strStyle": "Rock/Pop",
+      "strGenre": "Alternative Rock",
+      "strMood": "Happy",
+      "strWebsite": "www.coldplay.com",
+      "strFacebook": "www.facebook.com/coldplay",
+      "strTwitter": "twitter.com/coldplay",
+      "strBiographyEN": "Coldplay are a British rock band formed in London in 1996. (trimmed)",
+      "strGender": "Male",
+      "intMembers": "4",
+      "strCountry": "London, England",
+      "strCountryCode": "GB",
+      "strArtistThumb": "https://r2.theaudiodb.com/images/media/artist/thumb/uxrqxy1347913147.jpg",
+      "strArtistLogo": "https://r2.theaudiodb.com/images/media/artist/logo/xyuwqv1512397127.png",
+      "strArtistCutout": "https://r2.theaudiodb.com/images/media/artist/cutout/qpyxtp1582041213.png",
+      "strArtistClearart": "https://r2.theaudiodb.com/images/media/artist/clearart/vqxpst1512397287.png",
+      "strArtistWideThumb": "https://r2.theaudiodb.com/images/media/artist/widethumb/rutpwv1551974432.jpg",
+      "strArtistFanart": "https://r2.theaudiodb.com/images/media/artist/fanart/spvryu1347980801.jpg",
+      "strArtistFanart2": "https://r2.theaudiodb.com/images/media/artist/fanart/uupyxx1342640221.jpg",
+      "strArtistFanart3": "https://r2.theaudiodb.com/images/media/artist/fanart/qstpsp1342640238.jpg",
+      "strArtistFanart4": null,
+      "strArtistBanner": "https://r2.theaudiodb.com/images/media/artist/banner/swypyp1511183487.jpg",
+      "strMusicBrainzID": "cc197bad-dc9c-440d-a5b5-d52ba2e14234",
+      "strISNIcode": null,
+      "strLastFMChart": "http://www.last.fm/music/Coldplay/+charts",
+      "intCharted": "3",
+      "strLocked": "unlocked"
+    }
+  ]
+}

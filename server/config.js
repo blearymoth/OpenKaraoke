@@ -71,8 +71,8 @@ export const DEFAULT_SETTINGS = {
     accent: '#ff3d8b',
   },
   artwork: {
-    enabled: true,
-    background: true,
+    enabled: true, // look up covers & metadata online (the only outgoing traffic)
+    crawl: true, // look up the whole library in the background, popular songs first
     providers: { deezer: true, itunes: false, musicbrainz: true, theaudiodb: true, fanarttv: false },
     theaudiodbKey: '123',
     fanartKey: '',

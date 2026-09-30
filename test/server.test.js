@@ -7,6 +7,7 @@ import zlib from 'node:zlib';
 import { WebSocket } from '../server/vendor/ws.mjs';
 import { createApp } from '../server/app.js';
 import { tmpDir, writeTree, makeZip } from './helpers.js';
+import { offlineFetch } from './fake-art.js';
 
 const CDG = Buffer.alloc(7200 * 30); // 30 s of mostly-empty CDG
 for (let i = 0; i < CDG.length; i += 24 * 50) { CDG[i] = 9; CDG[i + 1] = 1; }
@@ -39,7 +40,7 @@ before(async () => {
     'V/Video Band - Clip [KV Karaoke].mp4': MP3,
   });
   const data = await tmpDir('ok-data-');
-  app = await createApp({ dataDir: data, args: { library: [lib] }, scan: false, watch: false });
+  app = await createApp({ dataDir: data, args: { library: [lib] }, scan: false, watch: false, fetch: offlineFetch, crawl: false });
   await app.library.scan();
   await app.listen(0, '127.0.0.1');
   base = `http://127.0.0.1:${app.port}`;

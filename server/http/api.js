@@ -6,6 +6,7 @@ import { HttpError } from '../util/errors.js';
 import { intParam, readJsonBody, sendText } from './router.js';
 import { qrSvg } from '../util/qr.js';
 import { placeholderSvg } from '../artwork/placeholder.js';
+import { hash32 } from '../../shared/text.js';
 import { defaultMusicDirs } from '../config.js';
 import { logger } from '../util/log.js';
 
@@ -79,6 +80,7 @@ export function apiRoutes(router, app) {
   router.get('/api/songs/:id', (ctx) => {
     const detail = cat().songDetail(ctx.params.id);
     if (!detail) throw new HttpError(404, 'Song not found');
+    detail.meta = app.artwork?.publicSongMeta(detail.key) || null;
     return detail;
   });
 
@@ -98,7 +100,7 @@ export function apiRoutes(router, app) {
     const a = cat().artist(ctx.params.key);
     if (!a) throw new HttpError(404, 'Artist not found');
     const songs = cat().filterSongs(filterFor(ctx, { artist: a.key }), { limit: 5000, sort: 'title' }).items;
-    return { artist: artistSummary(a), songs: summaries(songs) };
+    return { artist: { ...artistSummary(a), art: app.artwork?.publicArtist(a.key) || null }, songs: summaries(songs) };
   });
 
   router.get('/api/browse/popular', (ctx) => {
@@ -139,20 +141,37 @@ export function apiRoutes(router, app) {
     sendText(ctx.res, 200, svg, 'image/svg+xml', { 'cache-control': 'public, max-age=3600' });
   });
 
-  // Cover art: real artwork arrives with the artwork service (M5); until then (and for every
-  // miss) a deterministic placeholder is served, so an <img> never breaks.
+  // Cover art from the artwork service; for every miss a deterministic placeholder, so an
+  // <img> never breaks. Placeholders are revalidated (no-cache + ETag) because real art may
+  // arrive at any time; clients also get an `art` event and reload the image.
+  const placeholder = (ctx, opts) => {
+    const svg = placeholderSvg(opts);
+    const etag = `W/"ph-${hash32(svg).toString(36)}"`;
+    const headers = { 'cache-control': 'no-cache', etag };
+    if (ctx.req.headers['if-none-match'] === etag) {
+      ctx.res.writeHead(304, headers);
+      ctx.res.end();
+      return;
+    }
+    sendText(ctx.res, 200, svg, 'image/svg+xml', headers);
+  };
+
   router.get('/api/art/song/:id', async (ctx) => {
     const song = cat().song(ctx.params.id);
     if (app.artwork && song && (await app.artwork.serveSong(ctx, song))) return;
-    const svg = placeholderSvg({ artist: song?.artist || '', title: song?.title || ctx.params.id });
-    sendText(ctx.res, 200, svg, 'image/svg+xml', { 'cache-control': 'public, max-age=600' });
+    placeholder(ctx, { artist: song?.artist || '', title: song?.title || ctx.params.id });
   });
 
   router.get('/api/art/artist/:key', async (ctx) => {
     const artist = cat().artist(ctx.params.key);
     if (app.artwork && artist && (await app.artwork.serveArtist(ctx, artist))) return;
-    const svg = placeholderSvg({ artist: artist?.name || ctx.params.key });
-    sendText(ctx.res, 200, svg, 'image/svg+xml', { 'cache-control': 'public, max-age=600' });
+    if (ctx.query.get('type') && ctx.query.get('type') !== 'picture') throw new HttpError(404, 'No image of this kind');
+    placeholder(ctx, { artist: artist?.name || ctx.params.key });
+  });
+
+  router.get('/api/artwork', (ctx) => {
+    requireHost(ctx);
+    return app.artwork.status();
   });
 
   // ---- library management (host) -------------------------------------------------

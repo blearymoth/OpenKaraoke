@@ -1,0 +1,35 @@
+{
+  "data": [
+    {
+      "id": 892,
+      "name": "Coldplay",
+      "link": "https://www.deezer.com/artist/892",
+      "picture": "https://api.deezer.com/artist/892/image",
+      "picture_small": "https://e-cdns-images.dzcdn.net/images/artist/6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f/56x56-000000-80-0-0.jpg",
+      "picture_medium": "https://e-cdns-images.dzcdn.net/images/artist/6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f/250x250-000000-80-0-0.jpg",
+      "picture_big": "https://e-cdns-images.dzcdn.net/images/artist/6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f/500x500-000000-80-0-0.jpg",
+      "picture_xl": "https://e-cdns-images.dzcdn.net/images/artist/6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f/1000x1000-000000-80-0-0.jpg",
+      "tracklist": "https://api.deezer.com/artist/892/top?limit=50",
+      "type": "artist",
+      "nb_album": 38,
+      "nb_fan": 12345678,
+      "radio": true
+    },
+    {
+      "id": 123456,
+      "name": "Coldplay Tribute Band",
+      "link": "https://www.deezer.com/artist/123456",
+      "picture": "https://api.deezer.com/artist/123456/image",
+      "picture_small": "https://e-cdns-images.dzcdn.net/images/artist//56x56-000000-80-0-0.jpg",
+      "picture_medium": "https://e-cdns-images.dzcdn.net/images/artist//250x250-000000-80-0-0.jpg",
+      "picture_big": "https://e-cdns-images.dzcdn.net/images/artist//500x500-000000-80-0-0.jpg",
+      "picture_xl": "https://e-cdns-images.dzcdn.net/images/artist//1000x1000-000000-80-0-0.jpg",
+      "tracklist": "https://api.deezer.com/artist/123456/top?limit=50",
+      "type": "artist",
+      "nb_album": 2,
+      "nb_fan": 312,
+      "radio": false
+    }
+  ],
+  "total": 2
+}

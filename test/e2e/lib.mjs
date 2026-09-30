@@ -7,6 +7,7 @@ import { execSync } from 'node:child_process';
 import { WebSocket } from '../../server/vendor/ws.mjs';
 import { createApp } from '../../server/app.js';
 import { makeDemoLibrary } from '../../scripts/make-demo-library.js';
+import { fakeArtFetch } from '../fake-art.js';
 
 export function loadPlaywright() {
   const require = createRequire(import.meta.url);
@@ -95,11 +96,12 @@ export class WsClient {
   }
 }
 
-export async function startParty() {
+/** Starts a server on the demo library; artwork comes from a fake provider network (never the internet). */
+export async function startParty({ crawl = false } = {}) {
   const lib = await fs.mkdtemp(path.join(os.tmpdir(), 'ok-e2e-lib-'));
   await makeDemoLibrary(lib, { log: () => {} });
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ok-e2e-data-'));
-  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false });
+  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch: fakeArtFetch({ unknown: new Set(['dj hush']) }), crawl });
   await app.library.scan();
   app.settings.update({ playback: { countdown: 3 } });
   await app.listen(0, '127.0.0.1');

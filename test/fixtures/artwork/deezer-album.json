@@ -1,0 +1,79 @@
+{
+  "id": 915785,
+  "title": "A Night At The Opera (Deluxe Remastered Version)",
+  "upc": "00602527799880",
+  "link": "https://www.deezer.com/album/915785",
+  "share": "https://www.deezer.com/album/915785?utm_source=deezer",
+  "cover": "https://api.deezer.com/album/915785/image",
+  "cover_small": "https://e-cdns-images.dzcdn.net/images/cover/4f3c1a9e2b7d5c8a0e6f1b2d3c4a5e6f/56x56-000000-80-0-0.jpg",
+  "cover_medium": "https://e-cdns-images.dzcdn.net/images/cover/4f3c1a9e2b7d5c8a0e6f1b2d3c4a5e6f/250x250-000000-80-0-0.jpg",
+  "cover_big": "https://e-cdns-images.dzcdn.net/images/cover/4f3c1a9e2b7d5c8a0e6f1b2d3c4a5e6f/500x500-000000-80-0-0.jpg",
+  "cover_xl": "https://e-cdns-images.dzcdn.net/images/cover/4f3c1a9e2b7d5c8a0e6f1b2d3c4a5e6f/1000x1000-000000-80-0-0.jpg",
+  "md5_image": "4f3c1a9e2b7d5c8a0e6f1b2d3c4a5e6f",
+  "genre_id": 152,
+  "genres": {
+    "data": [
+      {
+        "id": 152,
+        "name": "Rock",
+        "picture": "https://api.deezer.com/genre/152/image",
+        "type": "genre"
+      }
+    ]
+  },
+  "label": "EMI Catalogue",
+  "nb_tracks": 12,
+  "duration": 2598,
+  "fans": 402113,
+  "release_date": "1975-11-21",
+  "record_type": "album",
+  "available": true,
+  "tracklist": "https://api.deezer.com/album/915785/tracks",
+  "explicit_lyrics": false,
+  "explicit_content_lyrics": 0,
+  "explicit_content_cover": 0,
+  "contributors": [
+    {
+      "id": 412,
+      "name": "Queen",
+      "role": "Main",
+      "type": "artist"
+    }
+  ],
+  "artist": {
+    "id": 412,
+    "name": "Queen",
+    "type": "artist"
+  },
+  "type": "album",
+  "tracks": {
+    "data": [
+      {
+        "id": 9997018,
+        "readable": true,
+        "title": "Bohemian Rhapsody (Remastered 2011)",
+        "title_short": "Bohemian Rhapsody",
+        "title_version": "(Remastered 2011)",
+        "link": "https://www.deezer.com/track/9997018",
+        "duration": 354,
+        "rank": 956312,
+        "explicit_lyrics": false,
+        "explicit_content_lyrics": 0,
+        "explicit_content_cover": 0,
+        "preview": "https://cdnt-preview.dzcdn.net/api/1/1/a/b/c/0/abc9997018.mp3",
+        "md5_image": "4f3c1a9e2b7d5c8a0e6f1b2d3c4a5e6f",
+        "artist": {
+          "id": 412,
+          "name": "Queen",
+          "type": "artist"
+        },
+        "album": {
+          "id": 915785,
+          "title": "A Night At The Opera (Deluxe Remastered Version)",
+          "type": "album"
+        },
+        "type": "track"
+      }
+    ]
+  }
+}

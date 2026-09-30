@@ -16,7 +16,8 @@ import { logger } from '../util/log.js';
 
 const log = logger('room');
 const SESSION_IDLE_MS = 8 * 3600 * 1000;
-const QUIET = new Set(['tv.status', 'reaction', 'history.list']); // no state change → no broadcast
+// No party state change → no broadcast.
+const QUIET = new Set(['tv.status', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
 const HOST = 'host';
 const TV = 'tv';
 const GUEST = 'guest';
@@ -249,6 +250,13 @@ export class Room {
       'library.paths': [H, (c, m) => this.libraryPaths(m)],
       'party.new': [H, () => this.partyNew()],
       'history.list': [H, () => this.historyList()],
+      'artwork.status': [H, () => this.artworkCall((a) => a.status())],
+      'artwork.crawl': [H, (c, m) => this.artworkCrawl(m)],
+      'artwork.candidates': [H, (c, m) => this.artworkCall((a) => a.candidates(this.songFor(m)))],
+      'artwork.choose': [H, (c, m) => this.artworkCall((a) => a.choose(this.songFor(m), str(m.candidateId, 120)))],
+      'artwork.none': [H, (c, m) => this.artworkCall((a) => a.setNone(this.songFor(m)))],
+      'artwork.refresh': [H, (c, m) => this.artworkCall((a) => a.refresh(this.songFor(m)))],
+      'artwork.retry': [H, () => this.artworkCall((a) => a.retryMisses())],
       announce: [H, (c, m) => this.announce(m)],
       reaction: [HG, (c, m) => this.reaction(c, m)],
       'tv.status': [[TV], (c, m) => this.tvStatus(c, m)],
@@ -918,6 +926,7 @@ export class Room {
     }
     const clean = this.settings.update(patch);
     if (paths) await this.libraryPaths({ paths });
+    if (clean.artwork) this.app.artwork?.settingsChanged();
     return { settings: clean };
   }
 
@@ -963,6 +972,49 @@ export class Room {
     const profile = client.data.deviceId ? this.profileOf(client.data.deviceId) : null;
     this.hub.broadcast({ t: 'reaction', emoji: m.emoji, name: profile?.name || '', color: profile?.color || '' }, (c) => c.role === TV || c.role === HOST);
     return { ok: true };
+  }
+
+  // ---- artwork --------------------------------------------------------------------------------
+
+  songFor(m) {
+    const song = this.catalog.song(str(m.songId, 40));
+    if (!song) fail('Song not found.', 'not_found');
+    return song;
+  }
+
+  async artworkCall(fn) {
+    if (!this.app.artwork) fail('Artwork is not available.', 'unavailable');
+    return fn(this.app.artwork);
+  }
+
+  artworkCrawl(m) {
+    this.settings.update({ artwork: { crawl: !!m.on } });
+    this.app.artwork?.settingsChanged();
+    return { crawl: !!m.on };
+  }
+
+  /** New art for the song (or artist) on the TV: rebuild the TV view (fanart, logo). */
+  onArt({ songs = [], artists = [] }) {
+    const cur = this.s.current && this.catalog.song(this.s.current.songId);
+    const next = this.s.queue[0]?.songId;
+    if (!cur && !next) return;
+    if ((cur && songs.includes(cur.id)) || (next && songs.includes(next)) || (cur && cur.artistKeys.some((k) => artists.includes(k)))) this.markDirty();
+  }
+
+  /** Current and upcoming songs are looked up first (and their big images prefetched). */
+  focusArtwork() {
+    const ids = [this.s.current?.songId, ...this.s.queue.slice(0, 3).map((e) => e.songId)];
+    this.app.artwork?.focus(ids.map((id) => id && this.catalog.song(id)).filter(Boolean));
+  }
+
+  /** Popular songs with covers for the TV lobby mosaic (refreshed at most once a minute). */
+  mosaic() {
+    const now = Date.now();
+    const v = `${this.catalog.version}:${this.catalog.metaVersion}`;
+    if (this.mosaicCache && (this.mosaicCache.v === v || now - this.mosaicCache.at < 60_000)) return this.mosaicCache.ids;
+    const ids = this.catalog.popular({ limit: 36, filter: { hasArt: true, noExplicit: !!this.settings.get('queue.explicitFilter') } }).items.map((s) => s.id);
+    this.mosaicCache = { v, at: now, ids };
+    return ids;
   }
 
   // ---- notifications ---------------------------------------------------------------------------
@@ -1071,7 +1123,14 @@ export class Room {
       out.brand = track.p?.brand || '';
       out.flags = track.p?.flags || {};
     }
-    if (media) out.media = mediaUrls(track);
+    const song = this.catalog.song(e.songId);
+    const meta = song && this.catalog.metaFor(song.key);
+    if (meta?.year) out.year = meta.year;
+    if (song) out.artistKeys = song.artistKeys;
+    if (media) {
+      out.media = mediaUrls(track);
+      out.art = this.app.artwork?.artFor(song) || null;
+    }
     return out;
   }
 
@@ -1143,6 +1202,7 @@ export class Room {
       queueLength: s.queue.length,
       announcement: this.announcement,
       library: { songs: this.catalog.songs.size, offline: this.library.status().offline },
+      mosaic: this.s.current ? [] : this.mosaic(),
     };
   }
 
@@ -1217,6 +1277,7 @@ export class Room {
       for (const c of guests) c.send({ t: 'state', state: this.guestView(c, base) });
     }
     this.checkUpNext();
+    this.focusArtwork();
     this.save();
   }
 }

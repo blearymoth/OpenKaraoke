@@ -1,0 +1,64 @@
+{
+  "name": "Coldplay",
+  "mbid_id": "cc197bad-dc9c-440d-a5b5-d52ba2e14234",
+  "artistbackground": [
+    {
+      "id": "1001",
+      "url": "https://assets.fanart.tv/fanart/music/cc197bad-dc9c-440d-a5b5-d52ba2e14234/artistbackground/coldplay-1.jpg",
+      "likes": "3"
+    },
+    {
+      "id": "1002",
+      "url": "https://assets.fanart.tv/fanart/music/cc197bad-dc9c-440d-a5b5-d52ba2e14234/artistbackground/coldplay-2.jpg",
+      "likes": "7"
+    }
+  ],
+  "artistthumb": [
+    {
+      "id": "1003",
+      "url": "https://assets.fanart.tv/fanart/music/cc197bad-dc9c-440d-a5b5-d52ba2e14234/artistthumb/coldplay-1.jpg",
+      "likes": "2"
+    }
+  ],
+  "hdmusiclogo": [
+    {
+      "id": "1004",
+      "url": "https://assets.fanart.tv/fanart/music/cc197bad-dc9c-440d-a5b5-d52ba2e14234/hdmusiclogo/coldplay-1.png",
+      "likes": "5"
+    }
+  ],
+  "musiclogo": [
+    {
+      "id": "1005",
+      "url": "https://assets.fanart.tv/fanart/music/cc197bad-dc9c-440d-a5b5-d52ba2e14234/musiclogo/coldplay-1.png",
+      "likes": "1"
+    }
+  ],
+  "musicbanner": [
+    {
+      "id": "1006",
+      "url": "https://assets.fanart.tv/fanart/music/cc197bad-dc9c-440d-a5b5-d52ba2e14234/musicbanner/coldplay-1.jpg",
+      "likes": "0"
+    }
+  ],
+  "albums": {
+    "2b3c4d5e-2222-4222-8222-222222222222": {
+      "albumcover": [
+        {
+          "id": "1007",
+          "url": "https://assets.fanart.tv/fanart/music/cc197bad-dc9c-440d-a5b5-d52ba2e14234/albumcover/parachutes.jpg",
+          "likes": "1"
+        }
+      ],
+      "cdart": [
+        {
+          "id": "1008",
+          "url": "https://assets.fanart.tv/fanart/music/cc197bad-dc9c-440d-a5b5-d52ba2e14234/cdart/parachutes.png",
+          "likes": "0",
+          "disc": "1",
+          "size": "1000"
+        }
+      ]
+    }
+  }
+}

@@ -3,10 +3,11 @@ import { html, render, useState, useEffect } from '/js/vendor/preact.js';
 import { useStore } from '/js/lib/store.js';
 import { storage } from '/js/lib/ws-client.js';
 import { api } from '/js/lib/api.js';
-import { Icon, Cover, SingerBadge, Spinner, Toasts, toast, useNow, formatDuration, formatEta, names } from '/js/lib/ui.js';
+import { Icon, Cover, SingerBadge, Spinner, Toasts, toast, useNow, useAsync, formatDuration, formatEta, names } from '/js/lib/ui.js';
 import { REACTIONS, SINGER_EMOJIS, SINGER_COLORS, formatKey } from '/shared/protocol.js';
-import { store, conn, act, livePosition, setTab, roomCode } from './state.js';
+import { store, conn, act, livePosition, setTab, roomCode, openSong } from './state.js';
 import { SearchTab, SongSheet, SongItem } from './browse.js';
+import { Shelf } from '/js/lib/shelf.js';
 
 // ---- join / profile -------------------------------------------------------------------------
 
@@ -131,6 +132,21 @@ function HomeTab({ st }) {
         <div class="grow" style=${{ minWidth: 0 }}><b>${names(e.singers)}</b><div class="muted ellipsis">${e.title}</div></div><span class="dim">${formatEta(e.eta)}</span></div>`)}
     </div>`}
     <button class="btn primary big block" onClick=${() => setTab('search')}><${Icon} name="search" /> Find a song</button>
+    <${GuestShelves} st=${st} />
+  </div>`;
+}
+
+function GuestShelves({ st }) {
+  const [seed, setSeed] = useState(0);
+  const facets = useAsync((signal) => api('/api/browse/facets', { signal }), []);
+  const mark = (s) => (st.current?.songId === s.id || st.queue.some((e) => e.songId === s.id) ? 'queued'
+    : st.tonight.some((h) => h.songId === s.id) ? 'sung' : null);
+  const common = { onOpen: openSong, onAdd: openSong, mark, size: 132 };
+  const tag = (facets.data?.tags || []).find((t) => t.tag !== 'Explicit' && t.tag !== 'Medleys' && t.count >= 4);
+  return html`<div class="g-shelves">
+    <${Shelf} title="Popular right now" deps=${[st.library.songs]} load=${async (signal) => (await api('/api/browse/popular', { params: { limit: 20, fits: 1 }, signal })).items} ...${common} />
+    <${Shelf} title="Try something new" deps=${[seed]} onRefresh=${() => setSeed((x) => x + 1)} load=${async (signal) => (await api('/api/random', { params: { n: 14, fits: 1 }, signal })).items} ...${common} />
+    ${tag && html`<${Shelf} title=${tag.tag} deps=${[tag.tag]} load=${async (signal) => (await api(`/api/browse/tag/${encodeURIComponent(tag.tag)}`, { params: { limit: 20, fits: 1 }, signal })).items} ...${common} />`}
   </div>`;
 }
 

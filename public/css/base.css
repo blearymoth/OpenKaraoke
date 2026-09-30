@@ -54,6 +54,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   user-select: none;
 }
 .btn:hover { background: var(--panel-3); }
+.btn .icon, .chip .icon { flex: none; }
 .btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: .45; cursor: default; transform: none; }
 .btn.primary { background: var(--grad); border-color: transparent; color: #fff; box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 35%, transparent); }
@@ -149,3 +150,32 @@ select.input { padding-right: 30px; }
 .switch input:checked + span::after { transform: translateX(18px); }
 
 input[type=range] { accent-color: var(--accent); }
+
+/* gallery rows ("shelves") of cover cards */
+.shelf { margin-bottom: 26px; min-width: 0; }
+.shelf-head { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.shelf-head h2 { margin: 0; }
+.shelf-sub { font-size: 13px; }
+.shelf-arrows { display: flex; gap: 4px; margin-left: 4px; }
+@media (hover: none) { .shelf-arrows { display: none; } }
+.shelf-track { display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x proximity; padding: 2px 2px 10px; scrollbar-width: none; overscroll-behavior-x: contain; }
+.shelf-track::-webkit-scrollbar { display: none; }
+.shelf-card { flex: none; width: var(--card); scroll-snap-align: start; cursor: pointer; outline: none; }
+.shelf-card .art { position: relative; width: var(--card); height: var(--card); border-radius: 14px; overflow: hidden; background: var(--panel-2); box-shadow: 0 6px 18px rgba(0, 0, 0, .35); transition: transform .15s; }
+.shelf-card .art .cover { width: 100% !important; height: 100% !important; border-radius: 0; }
+.shelf-card:hover .art, .shelf-card:focus-visible .art { transform: translateY(-3px); }
+.shelf-card:focus-visible .art { outline: 2px solid var(--accent-3); }
+.shelf-card .t { margin-top: 8px; font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shelf-card .a { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shelf-card .add { position: absolute; right: 8px; bottom: 8px; width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--grad); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, .5); opacity: 0; transform: translateY(6px); transition: opacity .15s, transform .15s; }
+.shelf-card:hover .add, .shelf-card:focus-within .add { opacity: 1; transform: none; }
+@media (hover: none) { .shelf-card .add { opacity: 1; transform: none; width: 34px; height: 34px; } }
+.shelf-mark { position: absolute; left: 8px; top: 8px; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 800; background: rgba(10, 8, 20, .75); backdrop-filter: blur(4px); }
+.shelf-mark.queued { color: var(--accent-3); }
+.shelf-mark.sung { color: var(--ok); }
+.shelf-mark.duet { left: auto; right: 8px; color: #8fc1ff; }
+.shelf-mark.queued + .shelf-mark.duet, .shelf-mark.sung + .shelf-mark.duet { top: 8px; }
+.shelf-card.skeleton .art { box-shadow: none; animation: shimmer 1.2s ease-in-out infinite alternate; }
+.shelf-card.skeleton .t, .shelf-card.skeleton .a { height: 12px; margin-top: 8px; border-radius: 6px; background: var(--panel-2); width: 80%; }
+.shelf-card.skeleton .a { width: 55%; }
+@keyframes shimmer { from { opacity: .5; } to { opacity: 1; } }

@@ -114,3 +114,8 @@ body { min-height: 100dvh; background: radial-gradient(500px 300px at 0% -10%, #
 .g-notice.next { background: linear-gradient(135deg, #6a4608, #3b1d4a); border-color: var(--warn); }
 @keyframes drop { from { transform: translateY(-120%); } }
 .toasts { bottom: calc(90px + env(safe-area-inset-bottom)); }
+
+.g-shelves { margin: 8px -14px 0; padding-left: 14px; }
+.g-shelves .shelf-head { padding-right: 14px; }
+.g-shelves .shelf-head h2 { font: 700 18px var(--display); }
+.g-shelves .shelf { margin-bottom: 18px; }

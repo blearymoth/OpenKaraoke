@@ -6,6 +6,7 @@ import { Icon, Cover, SingerBadge, Spinner, useAsync, formatDuration, timeAgo, n
 import { store, ui, libStore, openAdd, openDetails, conn } from './state.js';
 import { SongList, SongRow } from './components.js';
 import { openTvWindow } from './player-bar.js';
+import { Shelf } from '/js/lib/shelf.js';
 
 export function Home() {
   const st = useStore(store, (s) => s.state);
@@ -30,22 +31,45 @@ export function Home() {
         </div>
       </div>
       <div class="hero-actions">
-        <button class="btn primary big" onClick=${() => ui.set({ invite: true })}><${Icon} name="qr" /> Invite guests</button>
-        <button class="btn big" onClick=${openTvWindow}><${Icon} name="tv" /> ${main ? 'Open another TV' : 'Open TV display'}</button>
+        <button class="btn primary" onClick=${() => ui.set({ invite: true })}><${Icon} name="qr" /> Invite guests</button>
+        <button class="btn" onClick=${openTvWindow}><${Icon} name="tv" /> ${main ? 'Open another TV' : 'Open TV display'}</button>
         <button class="btn" onClick=${surprise}><${Icon} name="dice" size=${18} /> Surprise me</button>
         <button class="btn" onClick=${() => ui.set({ announce: true })}><${Icon} name="megaphone" size=${18} /> Announcement</button>
       </div>
     </section>
     <${LibraryBanner} lib=${lib} />
+    <${HomeShelves} st=${st} tags=${facets.data?.tags || []} />
     ${facets.data?.tags?.length > 0 && html`<section>
       <h2>Collections</h2>
       <div class="chips-wrap">${facets.data.tags.slice(0, 24).map((t) => html`<a class="chip" href=${`#/tag/${encodeURIComponent(t.tag)}`}>${t.tag} <span class="dim">${t.count.toLocaleString()}</span></a>`)}</div>
     </section>`}
-    <section>
-      <div class="row"><h2 class="grow">Popular</h2><a class="btn small ghost" href="#/popular">See all</a></div>
-      <${SongList} load=${(offset, limit) => api('/api/browse/popular', { params: { offset, limit: offset ? limit : 12 } })} deps=${[lib.songs]} pageSize=${12} />
-    </section>
   </div>`;
+}
+
+const SHELF_SKIP_TAGS = new Set(['Explicit', 'Medleys']);
+
+/** Gallery rows on the home screen: popular, tonight, favourites, random picks, collections. */
+function HomeShelves({ st, tags }) {
+  const [seed, setSeed] = useState(0);
+  const songs = st.library.songs;
+  const mark = (s) => (st.current?.songId === s.id || st.queue.some((e) => e.songId === s.id) ? 'queued'
+    : st.tonight.some((h) => h.songId === s.id) ? 'sung' : null);
+  const common = { onOpen: (s) => openDetails(s.id), onAdd: (s) => openAdd(s), mark };
+  const tonight = [];
+  for (const h of st.tonight) if (!tonight.some((x) => x.id === h.songId)) tonight.push({ id: h.songId, title: h.title, artist: h.artist });
+  const favKey = st.favorites.slice(0, 30).join(',');
+  const shelfTags = tags.filter((t) => !SHELF_SKIP_TAGS.has(t.tag) && t.count >= 4).slice(0, 3);
+  return html`
+    <${Shelf} title="Popular" subtitle="Most versions in your library and most sung here" moreHref="#/popular" deps=${[songs]}
+      load=${async (signal) => (await api('/api/browse/popular', { params: { limit: 24 }, signal })).items} ...${common} />
+    ${tonight.length > 0 && html`<${Shelf} title="Sung tonight" deps=${[tonight.length]} load=${() => tonight.slice(0, 30)} ...${common} />`}
+    ${favKey && html`<${Shelf} title="Favourites" moreHref="#/favorites" deps=${[favKey]}
+      load=${async (signal) => (await Promise.all(st.favorites.slice(0, 30).map((id) => api(`/api/songs/${id}`, { signal }).catch(() => null)))).filter(Boolean)} ...${common} />`}
+    <${Shelf} title="Random picks" subtitle="Feeling adventurous?" deps=${[songs, seed]} onRefresh=${() => setSeed((x) => x + 1)}
+      load=${async (signal) => (await api('/api/random', { params: { n: 18 }, signal })).items} ...${common} />
+    ${shelfTags.map((t) => html`<${Shelf} key=${t.tag} title=${t.tag} subtitle=${`${t.count.toLocaleString()} songs`} moreHref=${`#/tag/${encodeURIComponent(t.tag)}`} deps=${[t.tag, songs]}
+      load=${async (signal) => (await api(`/api/browse/tag/${encodeURIComponent(t.tag)}`, { params: { limit: 24 }, signal })).items} ...${common} />`)}
+  `;
 }
 
 export function LibraryBanner({ lib }) {

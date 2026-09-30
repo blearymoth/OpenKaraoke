@@ -1450,13 +1450,18 @@ export class Room {
     this.app.artwork?.focus(ids.map((id) => id && this.catalog.song(id)).filter(Boolean));
   }
 
-  /** Popular songs with covers for the TV lobby mosaic (refreshed at most once a minute). */
+  /**
+   * Popular songs with covers for the TV lobby mosaic. The explicit filter and a new library
+   * apply at once; new metadata (the crawler) at most once a minute.
+   */
   mosaic() {
     const now = Date.now();
-    const v = `${this.catalog.version}:${this.catalog.metaVersion}`;
-    if (this.mosaicCache && (this.mosaicCache.v === v || now - this.mosaicCache.at < 60_000)) return this.mosaicCache.ids;
-    const ids = this.catalog.popular({ limit: 36, filter: { hasArt: true, noExplicit: !!this.settings.get('queue.explicitFilter') } }).items.map((s) => s.id);
-    this.mosaicCache = { v, at: now, ids };
+    const noExplicit = !!this.settings.get('queue.explicitFilter');
+    const c = this.mosaicCache;
+    if (c && c.version === this.catalog.version && c.noExplicit === noExplicit
+      && (c.meta === this.catalog.metaVersion || now - c.at < 60_000)) return c.ids;
+    const ids = this.catalog.topSongs(36, { hasArt: true, noExplicit }).map((s) => s.id);
+    this.mosaicCache = { version: this.catalog.version, meta: this.catalog.metaVersion, noExplicit, at: now, ids };
     return ids;
   }
 

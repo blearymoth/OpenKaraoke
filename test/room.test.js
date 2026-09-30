@@ -397,3 +397,18 @@ test('abuse limits: identities per device, guest duets, favourites broadcast, pr
   assert.equal({}.banned, undefined, 'Object.prototype untouched');
   await assert.rejects(req(host, 'constructor', {}), /Unknown request/);
 });
+
+test('TV lobby mosaic: popular covers; the explicit filter applies at once', async () => {
+  const { app, connect, req, view } = await setup();
+  const catalog = app.library.catalog;
+  catalog.metaFor = () => ({ cover: 'dz:x' });
+  catalog.metaChanged();
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const killer = [...catalog.songs.values()].find((s) => s.title.startsWith('Killer Queen'));
+  assert.deepEqual(view(tv).mosaic, catalog.popularList().map((s) => s.id));
+  await req(host, 'settings.update', { patch: { queue: { explicitFilter: true } } });
+  assert.ok(!view(tv).mosaic.includes(killer.id), 'explicit covers leave the TV wall');
+  await req(host, 'settings.update', { patch: { queue: { explicitFilter: false } } });
+  assert.ok(view(tv).mosaic.includes(killer.id));
+});

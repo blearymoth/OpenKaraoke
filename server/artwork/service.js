@@ -36,6 +36,8 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const IMAGE_TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
 const ARTIST_TYPES = ['picture', 'fanart', 'logo', 'cutout', 'banner'];
 const FILE_RE = /^([0-9a-f]{40})\.(jpg|png|webp|gif)$/;
+/** Song metadata the catalog ranks, filters or shows (a change must reach its caches). */
+const CATALOG_FIELDS = ['cover', 'rank', 'explicit', 'genre', 'year'];
 
 /** ?s=250|500|1000 → 's' | 'm' | 'l'. */
 export function sizeKey(s, def = 's') {
@@ -232,13 +234,19 @@ export class ArtworkService extends EventEmitter {
     return this.saving;
   }
 
-  /** Rankings / facets in the catalog use the metadata: tell it (at most every 3 s). */
+  /**
+   * Rankings, filters and facets in the catalog use the metadata: tell it. A lookup shows up
+   * within 3 s; while the crawler keeps finding things, at most every 30 s (each change means
+   * re-sorting the popular list and re-filtering the genre/decade pages on the next request).
+   */
   metaChangedSoon() {
     if (this.timers.meta) return;
+    const wait = Math.max(3000, (this.metaChangedAt || 0) + 30_000 - Date.now());
     this.timers.meta = setTimeout(() => {
       this.timers.meta = null;
+      this.metaChangedAt = Date.now();
       this.catalog.metaChanged();
-    }, 3000);
+    }, wait);
     this.timers.meta.unref?.();
   }
 
@@ -269,7 +277,7 @@ export class ArtworkService extends EventEmitter {
     const prev = this.songs.get(song.key);
     this.songs.set(song.key, compactEntry(entry));
     this.saveSoon();
-    this.metaChangedSoon();
+    if (CATALOG_FIELDS.some((f) => (prev?.[f] || 0) !== (entry[f] || 0))) this.metaChangedSoon();
     if ((prev?.cover || null) !== (entry.cover || null)) this.artChanged({ songs: [song.id] });
     this.statusChanged();
   }
@@ -934,6 +942,7 @@ export class ArtworkService extends EventEmitter {
     const prev = this.songs.get(song.key);
     this.songs.delete(song.key);
     if (prev?.cover) this.artChanged({ songs: [song.id] });
+    if (CATALOG_FIELDS.some((f) => prev?.[f])) this.metaChangedSoon();
     const found = await this.request('song', song, 'now');
     return { found: !!found, meta: this.publicSongMeta(song.key) };
   }

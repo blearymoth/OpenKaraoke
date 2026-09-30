@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { HttpError } from '../util/errors.js';
 import { intParam, readJsonBody, sendText } from './router.js';
+import { sendFile } from './static.js';
 import { qrSvg } from '../util/qr.js';
 import { placeholderSvg } from '../artwork/placeholder.js';
 import { hash32 } from '../../shared/text.js';
@@ -244,6 +245,18 @@ export function apiRoutes(router, app) {
   });
 
   songbookRoutes(router, app, { requireHost });
+
+  // Break music from the music folder (only files found by the break-music scan).
+  router.get('/media/break/:id', async (ctx) => {
+    const abs = app.room.breakMusic.folderFile(ctx.params.id);
+    if (!abs) throw new HttpError(404, 'Not found');
+    try {
+      await sendFile(ctx.req, ctx.res, abs, { cacheControl: 'private, max-age=3600' });
+    } catch (e) {
+      if (e.code === 'ENOENT') throw new HttpError(404, 'Not found');
+      throw e;
+    }
+  });
 
   // Remote TV displays: the screen asks for a pairing code, then polls until the host approves.
   router.post('/api/pair', async (ctx) => {

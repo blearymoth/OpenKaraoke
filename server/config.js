@@ -53,7 +53,10 @@ export const DEFAULT_SETTINGS = {
     fadeSeconds: 1.5,
     lyricOffsetMs: 0,
     ratingAfterSong: true,
-    whenQueueEmpty: 'lobby', // 'lobby' | 'break' | 'autoplay'
+    whenQueueEmpty: 'lobby', // 'lobby' | 'autoplay' (a popular sing-along for everyone after autoplayAfter s)
+    autoplayAfter: 45,
+    // Quiet music on the TV while nobody sings: backing tracks from the library (matching the
+    // next song's genre/decade) or songs from a music folder.
     breakMusic: { enabled: true, source: 'library', folder: '', volume: 0.35, matchNext: true },
   },
   display: {

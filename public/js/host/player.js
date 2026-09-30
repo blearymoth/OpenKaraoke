@@ -90,7 +90,9 @@ export function PlayerBar() {
         ${cur
           ? html`<div class="ellipsis now-title">${cur.title}</div>
                 <div class="ellipsis now-sub">${cur.artist}${cur.singers.length ? html` · <span class="singer-name">${singersText(cur.singers)}</span>` : ''}</div>`
-          : html`<div class="now-title muted">Nothing playing</div><div class="now-sub">${hasQueue ? 'Press play to start the queue' : 'Add a song to get started'}</div>`}
+          : html`<div class="now-title muted">Nothing playing</div><div class="now-sub ellipsis">${state.breakMusic
+            ? html`<span title="Break music on the TV">♪ ${state.breakMusic.title} · ${state.breakMusic.artist}</span> <button class="link" onClick=${() => act('break.skip')}>Skip</button>`
+            : hasQueue ? 'Press play to start the queue' : 'Add a song to get started'}</div>`}
         ${cur && (p.state === 'intro' || p.state === 'ready') && html`<div class="now-status"><${IntroStatus} p=${p} /></div>`}
         ${cur && p.error && html`<div class="now-status warn-text ellipsis" title=${p.error}>${p.error}</div>`}
       </div>

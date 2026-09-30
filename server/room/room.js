@@ -12,6 +12,7 @@ import { mediaUrls } from '../http/media.js';
 import { insertIndex, etas, leadOf, shuffled } from './rotation.js';
 import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, RATING_SECONDS, clampKey, clampTempo } from '../../shared/protocol.js';
 import { createGame } from '../games/index.js';
+import { BreakMusic } from './breakmusic.js';
 import { fold } from '../../shared/text.js';
 import { logger } from '../util/log.js';
 
@@ -89,6 +90,7 @@ export class Room {
       pair: new RateLimiter({ capacity: 5, perMs: 10 * 60_000 }), // pairing codes per address
     };
     this.handlers = this.buildHandlers();
+    this.breakMusic = new BreakMusic(this);
   }
 
   get s() {
@@ -124,6 +126,7 @@ export class Room {
     clearTimeout(this.ratingTimer);
     this.closeRating();
     this.game?.dispose();
+    this.breakMusic.close();
     await this.doc.flush();
   }
 
@@ -299,6 +302,8 @@ export class Room {
       'tv.error': [[TV], (c, m) => this.tvError(c, m)],
       'tv.audio': [[TV], (c, m) => { c.data.audioUnlocked = !!m.unlocked; }],
       'tv.game': [[TV], (c, m) => this.gameTv(c, m)],
+      'tv.break': [[TV], (c, m) => { if (c.data.display === 'main') this.breakMusic.ended(str(m.id, 40)); }],
+      'break.skip': [PLAYER, () => this.breakMusic.skip()],
       'game.start': [H, (c, m) => this.gameStart(m)],
       'game.action': [H, (c, m) => this.activeGame().action(c, m)],
       'game.input': [[GUEST], (c, m) => this.gameInput(c, m)],
@@ -1171,6 +1176,7 @@ export class Room {
     const clean = this.settings.update(patch);
     if (paths) await this.libraryPaths({ paths });
     if (clean.artwork) this.app.artwork?.settingsChanged();
+    if (clean.playback?.breakMusic) this.breakMusic.settingsChanged();
     return { settings: clean };
   }
 
@@ -1613,6 +1619,7 @@ export class Room {
       game: this.game?.view({ role: HOST }) || null,
       rating: this.ratingView(HOST),
       sungTonight: s.tonight.sung.slice(-500),
+      breakMusic: (({ title, artist } = {}) => (title ? { title, artist } : null))(this.breakMusic.view() || {}),
     };
   }
 
@@ -1640,6 +1647,7 @@ export class Room {
       announcement: this.announcement,
       library: { songs: this.catalog.songs.size, offline: this.library.status().offline },
       mosaic: this.s.current ? [] : this.mosaic(),
+      breakMusic: this.breakMusic.view(),
       game: this.game?.view({ role: TV }) || null,
       rating: this.ratingView(TV),
     };
@@ -1734,6 +1742,7 @@ export class Room {
     }
     this.checkUpNext();
     this.focusArtwork();
+    this.breakMusic.checkAutoplay();
     this.save();
   }
 }

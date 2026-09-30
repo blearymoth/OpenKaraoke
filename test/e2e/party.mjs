@@ -33,6 +33,11 @@ if (isMain) {
     check(true, 'TV shows the lobby');
     const startVisible = await tv.$('.start');
     check(!startVisible, 'no click-to-start overlay when autoplay is allowed');
+    const breakOn = () => tv.$eval('#break-audio', (a) => !a.paused && a.volume > 0.05).catch(() => false);
+    let heard = false;
+    for (let i = 0; i < 40 && !heard; i++) { heard = await breakOn(); if (!heard) await sleep(150); }
+    check(heard, 'break music plays in the lobby');
+    check(!!(await tv.$('.break-now')), 'the lobby says which break song is playing');
     await tv.screenshot({ path: path.join(out, 'tv-1-lobby.png') });
 
     const host = new WsClient(`${base.replace('http', 'ws')}/ws`);
@@ -48,6 +53,9 @@ if (isMain) {
 
     st = await host.until((s) => s.player.state === 'playing', 15000);
     check(true, 'TV reported ready and the song is playing');
+    let quiet = false;
+    for (let i = 0; i < 40 && !quiet; i++) { quiet = !(await breakOn()); if (!quiet) await sleep(100); }
+    check(quiet, 'break music fades out when the song starts');
     const t1 = await host.next((m) => m.t === 'time' && m.pos > 1, 10000);
     await sleep(1500);
     const t2 = await host.next((m) => m.t === 'time' && m.pos > t1.pos + 1, 5000);

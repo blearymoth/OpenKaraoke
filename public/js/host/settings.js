@@ -45,6 +45,14 @@ const SECTIONS = [
       { path: 'playback.normalize', label: 'Even out loudness between songs', type: 'bool' },
       { path: 'playback.defaultChannelMode', label: 'Default channel mode', type: 'select', options: CHANNEL_MODES.map((m) => [m, CHANNEL_LABELS[m]]), help: 'Changes you make during a song are remembered for that track.' },
       { path: 'playback.lyricOffsetMs', label: 'Lyrics timing (milliseconds)', type: 'number', min: -2000, max: 2000, step: 10, help: 'Raise it if the lyrics run behind the music (for example with Bluetooth speakers).' },
+      { path: 'playback.ratingAfterSong', label: 'Guests rate each performance', type: 'bool', help: 'After a song, phones can give it 1–5 stars for about 40 seconds.' },
+      { path: 'playback.breakMusic.enabled', label: 'Break music between singers', type: 'bool', help: 'Quiet music on the TV while nobody sings; it fades out when the next song starts.' },
+      { path: 'playback.breakMusic.source', label: 'Break music comes from', type: 'select', options: [['library', 'Backing tracks from the karaoke library'], ['folder', 'A music folder']], when: (s) => s.playback.breakMusic.enabled },
+      { path: 'playback.breakMusic.folder', label: 'Music folder', type: 'text', placeholder: '/home/me/Music', help: 'Every audio file inside (and in sub-folders) is played at random.', when: (s) => s.playback.breakMusic.enabled && s.playback.breakMusic.source === 'folder' },
+      { path: 'playback.breakMusic.matchNext', label: 'Match the next song’s genre and decade', type: 'bool', when: (s) => s.playback.breakMusic.enabled && s.playback.breakMusic.source === 'library' },
+      { path: 'playback.breakMusic.volume', label: 'Break music volume (%)', type: 'percent', when: (s) => s.playback.breakMusic.enabled },
+      { path: 'playback.whenQueueEmpty', label: 'When the queue is empty', type: 'select', options: [['lobby', 'Show the lobby and wait'], ['autoplay', 'Start a popular sing-along for everyone']] },
+      { path: 'playback.autoplayAfter', label: 'Sing-along after (seconds)', type: 'number', min: 10, max: 600, when: (s) => s.playback.whenQueueEmpty === 'autoplay' },
     ],
   },
   {
@@ -152,6 +160,7 @@ function Field({ f, settings, hasPin }) {
   else if (f.type === 'text' || f.type === 'password') control = html`<${TextField} f=${f} value=${value} />`;
   else if (f.type === 'number') control = html`<${NumberField} f=${f} value=${value} />`;
   else if (f.type === 'minutes') control = html`<${NumberField} f=${{ ...f, min: 0, max: 60 }} value=${value} scale=${60} />`;
+  else if (f.type === 'percent') control = html`<${NumberField} f=${{ ...f, min: 0, max: 100 }} value=${value} scale=${0.01} />`;
   else if (f.type === 'select') control = html`<select class="select" value=${value} onChange=${(e) => save(f.path, e.currentTarget.value)}>${f.options.map(([v, l]) => html`<option value=${v}>${l}</option>`)}</select>`;
   else if (f.type === 'pin') control = html`<${PinField} hasPin=${hasPin} />`;
   else if (f.type === 'roomcode') control = html`<${RoomCodeField} value=${value} />`;

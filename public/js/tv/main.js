@@ -5,6 +5,7 @@ import { createStore, useStore, useTick, useInterval, singersText, artUrl, artis
 import { Icon } from '../lib/icons.js';
 import { TvController } from './controller.js';
 import { GAME_UI } from '../games/index.js';
+import { BreakPlayer } from './break-player.js';
 import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 
 const params = new URLSearchParams(location.search);
@@ -33,10 +34,15 @@ conn.on('welcome', (m) => {
   controller.setDisplay(m.display);
   controller.apply(m.state);
   controller.onWelcome();
+  applyBreak(m.state);
 });
+const breakPlayer = new BreakPlayer({ onEnded: (id) => conn.request('tv.break', { id }).catch(() => {}) });
+const applyBreak = (st) => breakPlayer.apply(st?.breakMusic || null, { main: store.get().display === 'main' && !preview, unlocked: controller.unlocked, master: st?.player?.volume ?? 1 });
+
 conn.on('state', (m) => {
   store.update({ state: m.state });
   controller.apply(m.state);
+  applyBreak(m.state);
 });
 conn.on('display', (m) => {
   store.update({ display: m.display });
@@ -47,7 +53,10 @@ conn.on('status', (status) => store.update({ status }));
 conn.on('denied', (m) => store.update({ denied: m.reason }));
 conn.on('reaction', (m) => addReaction(m));
 conn.on('art', (m) => noteArt(m));
-controller.addEventListener('change', () => store.update({ unlocked: controller.unlocked }));
+controller.addEventListener('change', () => {
+  store.update({ unlocked: controller.unlocked });
+  applyBreak(store.get().state);
+});
 
 let reactionId = 0;
 function addReaction(m) {
@@ -136,6 +145,7 @@ controller.engine.init().then(() => {
   if (controller.engine.running) store.update({ unlocked: true });
   controller.engine.ctx.addEventListener('statechange', () => {
     store.update({ unlocked: controller.unlocked });
+    applyBreak(store.get().state);
     controller.reportAudio();
     controller.sendReady();
   });
@@ -335,6 +345,7 @@ function Lobby({ st }) {
         ${st.wifi && html`<div class="wifi"><img src=${`/api/qr.svg?margin=0&text=${encodeURIComponent(st.wifi.qr)}`} alt="Wi-Fi QR code" /><span>Wi-Fi: <b>${st.wifi.ssid}</b><br />Scan to connect</span></div>`}
       </div>
     </div>
+    ${st.breakMusic && store.get().display === 'main' && html`<div class="break-now" key=${st.breakMusic.id}>♪ ${st.breakMusic.title} · ${st.breakMusic.artist}</div>`}
     <div class="lobby-bottom">
       ${next.length
         ? html`<h3>Up next</h3><div class="upnext-row">${next.map((e) => html`<div class="upnext-item">

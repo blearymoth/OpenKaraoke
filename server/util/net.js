@@ -36,3 +36,52 @@ export function isLocalAddress(remote) {
   }
   return false;
 }
+
+/** "host:port" / "[v6]:port" → lower-case host name without port or brackets. */
+export function hostnameOf(hostHeader) {
+  const h = String(hostHeader || '').trim().toLowerCase();
+  if (h.startsWith('[')) return h.slice(1, h.indexOf(']') > 0 ? h.indexOf(']') : undefined);
+  const colon = h.lastIndexOf(':');
+  return colon > 0 && h.indexOf(':') === colon ? h.slice(0, colon) : h;
+}
+
+const isIpLiteral = (h) => /^\d{1,3}(?:\.\d{1,3}){3}$/.test(h) || h.includes(':');
+
+/** Names this computer answers to: localhost, its host name(s) and its own IP addresses. */
+export function ownNames(extra = []) {
+  const names = new Set(['localhost', '127.0.0.1', '::1']);
+  const host = os.hostname().toLowerCase();
+  for (const n of [host, `${host}.local`, `${host}.lan`, `${host}.home`, `${host}.localdomain`]) names.add(n);
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const a of addrs || []) names.add(String(a.address).toLowerCase().replace(/%.*$/, ''));
+  }
+  for (const e of extra) if (e) names.add(String(e).toLowerCase());
+  return names;
+}
+
+/**
+ * Host header check against DNS rebinding: a browser tab on another site that tricks its
+ * DNS into pointing at this computer still sends that site's name as Host.
+ * Any IP literal is fine (it can't be rebound), names must be ours.
+ */
+export function isTrustedHostHeader(hostHeader, extra = []) {
+  if (!hostHeader) return true; // HTTP/1.0 or non-browser client
+  const h = hostnameOf(hostHeader);
+  return isIpLiteral(h) || h.endsWith('.localhost') || ownNames(extra).has(h);
+}
+
+/**
+ * Origin check for WebSocket upgrades and POSTs: requests made by pages of other sites
+ * must not act on the party. Non-browser clients send no Origin.
+ */
+export function isTrustedOrigin(origin, extra = []) {
+  if (!origin || origin === 'null') return !origin;
+  let url;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  const h = hostnameOf(url.host);
+  return h.endsWith('.localhost') || ownNames(extra).has(h);
+}

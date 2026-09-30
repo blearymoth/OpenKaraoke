@@ -50,4 +50,5 @@ export const DENIED_MESSAGES = {
   pin_required: 'Enter the host PIN to control the party from this device.',
   host_only: 'The host controls only work on the computer running OpenKaraoke (set a host PIN to allow other devices).',
   pairing_required: 'This screen needs to be paired with the host first.',
+  rate_limited: 'Too many new connections from this device — wait a few minutes and try again.',
 };

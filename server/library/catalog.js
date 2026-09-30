@@ -288,7 +288,8 @@ export class Catalog {
     this.songList = [...songMap.values()];
     this.artists = artists;
     for (const a of artists.values()) {
-      a.sortKey = mfold(a.name).replace(/^the /, '');
+      a.fold = mfold(a.name);
+      a.sortKey = a.fold.replace(/^the /, '');
       a.letter = letterOf(a.sortKey); // "The Beatles" is browsed under B
     }
     this.artistList = [...artists.values()].sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
@@ -437,7 +438,7 @@ export class Catalog {
     if (letter) list = list.filter((a) => a.letter === letter);
     if (q) {
       const f = fold(q);
-      list = list.filter((a) => fold(a.name).includes(f));
+      list = list.filter((a) => a.fold.includes(f));
     }
     if (minSongs > 1) list = list.filter((a) => a.count >= minSongs);
     if (sort === 'count') list = [...list].sort((a, b) => b.trackCount - a.trackCount);

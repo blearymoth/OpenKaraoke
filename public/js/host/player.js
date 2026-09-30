@@ -62,6 +62,7 @@ function IntroStatus({ p }) {
   const left = Math.max(0, Math.ceil((p.introEndsAt - conn.serverNow()) / 1000));
   if (p.state === 'ready') return html`<span class="bulb-text">Ready — press play</span>`;
   if (!p.hasDisplay) return html`<span class="warn-text">Waiting for a TV display</span>`;
+  if (p.displayLocked) return html`<span class="warn-text">Click the TV screen once to allow sound</span>`;
   if (!p.tvReady) return html`<span>Loading on the TV…${left ? ` ${left}` : ''}</span>`;
   return html`<span>Starting in ${left}…</span>`;
 }

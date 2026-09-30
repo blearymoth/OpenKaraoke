@@ -38,6 +38,9 @@ const DEFAULT_STATE = {
 };
 
 const newId = (bytes = 6) => crypto.randomBytes(bytes).toString('base64url');
+const MASK = '••••••';
+const MAX_PROFILES = 1000;
+const validId = (id) => typeof id === 'string' && /^[\w-]{4,64}$/.test(id) && id !== '__proto__' && id !== 'constructor' && id !== 'prototype';
 const str = (v, max = 100) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const num = (v, min, max, def) => {
   const n = Number(v);
@@ -66,6 +69,9 @@ export class Room {
       add: new RateLimiter({ capacity: 10, perMs: 60_000 }),
       reaction: new RateLimiter({ capacity: 4, perMs: 2000 }),
       profile: new RateLimiter({ capacity: 10, perMs: 60_000 }),
+      identity: new RateLimiter({ capacity: 12, perMs: 10 * 60_000 }), // new guest identities per IP
+      guest: new RateLimiter({ capacity: 40, perMs: 20_000 }), // any guest request
+      favorite: new RateLimiter({ capacity: 30, perMs: 60_000 }),
     };
     this.handlers = this.buildHandlers();
   }
@@ -136,6 +142,7 @@ export class Room {
   // ---- connections ---------------------------------------------------------------------
 
   async hello(client, msg) {
+    this.ensureSession();
     const role = msg.role;
     if (role === HOST) {
       if (!this.auth.isHost(client.ip, msg.token)) return { ok: false, reason: this.auth.pin ? 'pin_required' : 'host_only' };
@@ -151,10 +158,12 @@ export class Room {
       let deviceId = this.auth.verify(msg.token, 'guest')?.id;
       let token;
       if (!deviceId) {
+        // Each new identity costs a token so one device can't flood the party with fake guests.
+        if (!this.limits.identity.take(String(client.ip))) return { ok: false, reason: 'rate_limited' };
         deviceId = this.auth.newId();
         token = this.auth.sign('guest', deviceId);
       }
-      const profile = this.s.profiles[deviceId];
+      const profile = this.profileOf(deviceId);
       if (profile?.banned) return { ok: false, reason: 'banned' };
       if (profile) profile.lastSeen = Date.now();
       client.data.deviceId = deviceId;
@@ -246,19 +255,33 @@ export class Room {
       'tv.ready': [[TV], (c, m) => this.tvReady(c, m)],
       'tv.ended': [[TV], (c, m) => this.tvEnded(c, m)],
       'tv.error': [[TV], (c, m) => this.tvError(c, m)],
+      'tv.audio': [[TV], (c, m) => { c.data.audioUnlocked = !!m.unlocked; }],
     };
   }
 
   async request(client, msg) {
-    const h = this.handlers[msg.t];
-    if (!h) fail(`Unknown request: ${msg.t}`, 'unknown');
+    const h = Object.hasOwn(this.handlers, msg.t) ? this.handlers[msg.t] : null;
+    if (!h) fail(`Unknown request: ${String(msg.t).slice(0, 40)}`, 'unknown');
     const [roles, fn] = h;
     const allowed = roles.includes(client.role) || (roles.includes('tv-local') && client.role === TV && client.isLocal);
     if (!allowed) fail('You are not allowed to do that', 'forbidden');
-    if (!msg.t.startsWith('tv.')) this.touch();
+    if (client.role === GUEST && !this.limits.guest.take(client.data.deviceId)) fail('Slow down a little — too many taps.', 'rate_limited');
+    if (!msg.t.startsWith('tv.')) {
+      this.ensureSession();
+      this.touch();
+    }
     const out = await fn(client, msg);
-    if (!QUIET.has(msg.t)) this.markDirty();
+    if (msg.t === 'favorite.toggle' && client.role === GUEST) {
+      client.send({ t: 'state', state: this.guestView(client) }); // only this guest's view changed
+    } else if (!QUIET.has(msg.t)) {
+      this.markDirty();
+    }
     return out;
+  }
+
+  /** A guest profile by device id (never an inherited object property). */
+  profileOf(deviceId) {
+    return validId(deviceId) && Object.hasOwn(this.s.profiles, deviceId) ? this.s.profiles[deviceId] : null;
   }
 
   // ---- queue -----------------------------------------------------------------------------
@@ -270,7 +293,8 @@ export class Room {
     if (track && track.songId !== song.id) track = null;
     const isGuest = client.role === GUEST;
     const deviceId = isGuest ? client.data.deviceId : null;
-    const profile = deviceId ? this.s.profiles[deviceId] : null;
+    const profile = deviceId ? this.profileOf(deviceId) : null;
+    const noExplicit = isGuest && this.settings.get('queue.explicitFilter');
 
     if (isGuest) {
       const rules = this.settings.data.queue;
@@ -289,14 +313,17 @@ export class Room {
       }
     }
 
-    track ||= this.pickTrack(song);
-    if (!track) fail('No playable version of that song was found.', 'not_found');
+    if (track && noExplicit && track.p?.flags?.explicit) track = null; // guests get a clean version
+    track ||= this.pickTrack(song, { noExplicit });
+    if (!track) fail(noExplicit ? 'Explicit songs are turned off for this party.' : 'No playable version of that song was found.', 'not_found');
+    const maxDuration = this.settings.get('queue.maxDuration');
+    if (isGuest && maxDuration > 0 && track.duration > maxDuration) fail('That song is longer than the host allows.', 'too_long');
 
     let singerIds = [];
     if (isGuest) singerIds = [this.singerForProfile(deviceId).id];
     else if (m.singerId && this.singer(m.singerId)) singerIds = [m.singerId];
     else if (str(m.singerName, 40)) singerIds = [this.findOrCreateSinger(str(m.singerName, 40)).id];
-    for (const pid of Array.isArray(m.partners) ? m.partners.slice(0, 3) : []) {
+    for (const pid of !isGuest && Array.isArray(m.partners) ? m.partners.slice(0, 3) : []) {
       if (this.singer(pid) && !singerIds.includes(pid)) singerIds.push(pid);
     }
 
@@ -325,15 +352,25 @@ export class Room {
       this.toastHosts(`${profile.name} requested ${song.title}`, 'info');
       return { pending: true, entry: this.entryView(entry) };
     }
+    if (!isGuest && m.position === 'now') {
+      this.s.queue.unshift(entry);
+      this.play({ entryId: entry.id });
+      return { pending: false, index: 0, started: true, eta: 0, entry: this.entryView(entry) };
+    }
+    const wasEmpty = !this.s.queue.length;
     const index = this.insertEntry(entry, !isGuest ? m.position : undefined);
-    const started = this.maybeAutoStart();
-    return { pending: false, index, started, eta: started ? 0 : this.etaList()[index], entry: this.entryView(entry) };
+    if (wasEmpty) this.maybeAutoStart();
+    const started = this.s.current?.id === entry.id;
+    return { pending: false, index, started, eta: started ? 0 : this.etaList()[this.s.queue.indexOf(entry)], entry: this.entryView(entry) };
   }
 
-  /** Nothing playing, a TV is on and a song was queued: start it (PLAN: "first song starts the party"). */
+  /**
+   * Nothing playing and a TV is on: start the queue ("the first song you pick starts the
+   * party"). Not after the host pressed Stop, until they press Play again.
+   */
   maybeAutoStart() {
     const s = this.s;
-    if (s.current || !s.queue.length || !this.settings.get('playback.autoStart') || !this.mainDisplay()) return false;
+    if (s.current || !s.queue.length || s.player.hold || !this.settings.get('playback.autoStart') || !this.mainDisplay()) return false;
     this.startEntry(s.queue.shift());
     return true;
   }
@@ -361,11 +398,15 @@ export class Room {
     return this.s.current?.songId === songId || this.s.queue.some((e) => e.songId === songId) || this.s.pending.some((e) => e.songId === songId);
   }
 
-  pickTrack(song) {
+  pickTrack(song, { noExplicit = false } = {}) {
+    const ok = (t) => !!t && t.songId === song.id && !(noExplicit && t.p?.flags?.explicit);
     const prefTrack = this.s.songPrefs[song.key]?.trackId;
     const pref = prefTrack && this.catalog.track(prefTrack);
-    if (pref && pref.songId === song.id) return pref;
-    return this.catalog.bestTrack(song, this.settings.get('library.brandPriority'));
+    if (ok(pref)) return pref;
+    const brands = this.settings.get('library.brandPriority');
+    if (!noExplicit) return this.catalog.bestTrack(song, brands);
+    const clean = { ...song, trackIds: song.trackIds.filter((id) => ok(this.catalog.track(id))) };
+    return clean.trackIds.length ? this.catalog.bestTrack(clean, brands) : null;
   }
 
   prefsFor(song, singerId) {
@@ -430,9 +471,10 @@ export class Room {
     const i = this.s.pending.findIndex((e) => e.id === m.entryId);
     if (i < 0) fail('That request is gone.', 'not_found');
     const [entry] = this.s.pending.splice(i, 1);
+    const wasEmpty = !this.s.queue.length;
     const index = this.insertEntry(entry, m.position);
     this.notifyDevices(entry, { t: 'notify', kind: 'approved', entryId: entry.id, title: entry.title });
-    this.maybeAutoStart();
+    if (wasEmpty) this.maybeAutoStart();
     return { index };
   }
 
@@ -447,6 +489,7 @@ export class Room {
   queueClear() {
     const n = this.s.queue.length;
     this.s.queue = [];
+    this.s.player.hold = false; // a fresh start: the next song queued starts the party again
     return { cleared: n };
   }
 
@@ -498,6 +541,7 @@ export class Room {
       tvReady: false,
       error: null,
       startedAt: 0,
+      hold: false,
     });
     if (!CHANNEL_MODES.includes(p.channel)) p.channel = 'stereo';
     clearTimeout(this.introTimer);
@@ -529,9 +573,14 @@ export class Room {
       this.maybeBegin();
     } else if (p.state === 'paused' || p.state === 'ready') {
       if (p.displayLost && !this.mainDisplay()) fail('No TV display is connected — open the TV page first.', 'no_display');
+      if (p.error) {
+        // Try again: the TV reloads the song (the drive may be back).
+        p.reload = (p.reload || 0) + 1;
+        p.tvReady = false;
+        p.error = null;
+      }
       p.state = p.tvReady ? 'playing' : 'intro';
       if (p.state === 'intro') p.introEndsAt = Date.now();
-      p.error = null;
       if (!p.startedAt) p.startedAt = Date.now();
     }
     return { state: p.state };
@@ -544,7 +593,7 @@ export class Room {
     return { ok: true };
   }
 
-  /** Stops the current song and puts it back at the top of the queue. */
+  /** Stops the current song and puts it back at the top of the queue (nothing auto-starts until Play). */
   stop() {
     const s = this.s;
     if (!s.current) return { ok: true };
@@ -552,6 +601,7 @@ export class Room {
     s.current = null;
     s.queue.unshift(entry);
     this.resetPlayer();
+    s.player.hold = true;
     return { ok: true };
   }
 
@@ -647,6 +697,7 @@ export class Room {
     s.current = null;
     this.resetPlayer();
     if ((advance || force) && s.queue.length) this.startEntry(s.queue.shift());
+    else if (s.queue.length) s.player.hold = true; // auto-advance is off: wait for the host
     this.markDirty();
   }
 
@@ -733,7 +784,7 @@ export class Room {
   }
 
   singerForProfile(deviceId) {
-    const profile = this.s.profiles[deviceId];
+    const profile = this.profileOf(deviceId);
     let singer = profile.singerId && this.singer(profile.singerId);
     if (!singer) {
       singer = this.createSinger({ name: profile.name, emoji: profile.emoji, color: profile.color, deviceId });
@@ -771,11 +822,16 @@ export class Room {
 
   guestUpdate(client, m) {
     const deviceId = client.data.deviceId;
+    if (!validId(deviceId)) fail('Unknown device', 'bad_request');
     if (!this.limits.profile.take(deviceId)) fail('Too many changes — try again in a minute.', 'rate_limited');
     const name = str(m.name, 24);
     if (!name) fail('Please enter a name.', 'bad_request');
     const now = Date.now();
-    const profile = (this.s.profiles[deviceId] ||= { createdAt: now, favorites: [] });
+    let profile = this.profileOf(deviceId);
+    if (!profile) {
+      this.pruneProfiles();
+      profile = this.s.profiles[deviceId] = { createdAt: now, favorites: [] };
+    }
     profile.name = name;
     profile.emoji = str(m.emoji, 16) || profile.emoji || AVATARS[Math.floor(Math.random() * AVATARS.length)];
     profile.color = validColor(m.color) || profile.color || COLORS[Object.keys(this.s.profiles).length % COLORS.length];
@@ -785,8 +841,26 @@ export class Room {
     return { profile: this.profileView(deviceId) };
   }
 
+  /** Keeps the guest list bounded: forgets the longest-unseen guests with nothing waiting. */
+  pruneProfiles() {
+    const ids = Object.keys(this.s.profiles);
+    if (ids.length < MAX_PROFILES) return;
+    const busy = new Set([...this.s.queue, ...this.s.pending, ...(this.s.current ? [this.s.current] : [])].map((e) => e.addedBy));
+    const online = new Set(this.hub.list((c) => c.role === GUEST).map((c) => c.data.deviceId));
+    const removable = ids
+      .filter((id) => !busy.has(id) && !online.has(id) && !this.s.profiles[id].banned)
+      .sort((a, b) => (this.s.profiles[a].lastSeen || 0) - (this.s.profiles[b].lastSeen || 0))
+      .slice(0, Math.max(1, ids.length - MAX_PROFILES + 100));
+    for (const id of removable) {
+      const singerId = this.s.profiles[id].singerId;
+      delete this.s.profiles[id];
+      const singer = singerId && this.singer(singerId);
+      if (singer && !singer.sung) this.s.singers = this.s.singers.filter((x) => x.id !== singerId);
+    }
+  }
+
   guestKick(m, ban) {
-    const profile = this.s.profiles[m.deviceId];
+    const profile = this.profileOf(m.deviceId);
     if (!profile) fail('Guest not found.', 'not_found');
     if (ban) {
       profile.banned = true;
@@ -801,7 +875,7 @@ export class Room {
   }
 
   guestUnban(m) {
-    const profile = this.s.profiles[m.deviceId];
+    const profile = this.profileOf(m.deviceId);
     if (profile) delete profile.banned;
     return { ok: true };
   }
@@ -811,8 +885,9 @@ export class Room {
     if (!this.catalog.song(songId)) fail('Song not found.', 'not_found');
     let list;
     if (client.role === GUEST) {
-      const profile = this.s.profiles[client.data.deviceId];
+      const profile = this.profileOf(client.data.deviceId);
       if (!profile) fail('Choose a name first.', 'no_profile');
+      if (!this.limits.favorite.take(client.data.deviceId)) fail('Too many changes — try again in a minute.', 'rate_limited');
       list = profile.favorites ||= [];
     } else {
       list = this.s.hostFavorites;
@@ -834,6 +909,8 @@ export class Room {
       patch.party.roomCode = code;
     }
     if (patch.party?.adminPin !== undefined && !/^\d{0,8}$/.test(String(patch.party.adminPin))) fail('The PIN must be up to 8 digits.', 'bad_request');
+    if (patch.party?.adminPin === '••••') delete patch.party.adminPin;
+    if (patch.party?.wifi?.password === MASK) delete patch.party.wifi.password;
     let paths = null;
     if (patch.library?.paths) {
       paths = patch.library.paths;
@@ -883,7 +960,7 @@ export class Room {
     if (client.role === GUEST && !this.settings.get('guests.reactions')) return { ok: false };
     const key = client.data.deviceId || client.id;
     if (!this.limits.reaction.take(key)) return { ok: false };
-    const profile = client.data.deviceId ? this.s.profiles[client.data.deviceId] : null;
+    const profile = client.data.deviceId ? this.profileOf(client.data.deviceId) : null;
     this.hub.broadcast({ t: 'reaction', emoji: m.emoji, name: profile?.name || '', color: profile?.color || '' }, (c) => c.role === TV || c.role === HOST);
     return { ok: true };
   }
@@ -928,7 +1005,7 @@ export class Room {
   }
 
   profileView(deviceId) {
-    const p = this.s.profiles[deviceId];
+    const p = this.profileOf(deviceId);
     if (!p) return null;
     return { name: p.name, emoji: p.emoji, color: p.color, singerId: p.singerId || null, favorites: p.favorites || [] };
   }
@@ -971,7 +1048,10 @@ export class Room {
       tvReady: !!p.tvReady,
       displayLost: !!p.displayLost,
       hasDisplay: !!this.mainDisplay(),
+      displayLocked: this.mainDisplay()?.data.audioUnlocked === false,
       error: p.error || null,
+      reload: p.reload || 0,
+      hold: !!p.hold,
     };
   }
 
@@ -1005,11 +1085,12 @@ export class Room {
     const settings = structuredClone(this.settings.data);
     const hasPin = !!settings.party.adminPin;
     settings.party.adminPin = hasPin ? '••••' : '';
+    if (settings.party.wifi?.password) settings.party.wifi.password = MASK;
     const eta = this.etaList();
     const online = new Set(this.hub.list((c) => c.role === GUEST).map((c) => c.data.deviceId));
     const queuedBy = new Map();
     for (const e of [...s.queue, ...s.pending]) queuedBy.set(e.addedBy, (queuedBy.get(e.addedBy) || 0) + 1);
-    const byName = (e) => (e.addedBy === 'host' ? 'Host' : s.profiles[e.addedBy]?.name || 'Guest');
+    const byName = (e) => (e.addedBy === 'host' ? 'Host' : this.profileOf(e.addedBy)?.name || 'Guest');
     return {
       info: this.app.info(),
       settings,

@@ -126,14 +126,20 @@ export class AudioEngine extends EventTarget {
   /** Loads a decoded audio track into the stretcher (stops whatever was playing). */
   async load(id, url) {
     const seq = ++this.loadSeq;
+    const superseded = () => {
+      if (seq !== this.loadSeq) throw Object.assign(new Error('superseded'), { superseded: true });
+    };
     const prepared = await this.prepare(id, url);
-    if (seq !== this.loadSeq) throw Object.assign(new Error('superseded'), { superseded: true });
+    superseded();
     this.stopNow();
     this.detachElement();
+    this.track = null;
     await this.stretch.dropBuffers();
+    superseded(); // a newer load started while the old buffers were being dropped
     // Hand the sample arrays to the worklet without copying them.
     await this.stretch.addBuffers(prepared.channels, prepared.channels.map((c) => c.buffer));
     this.cache.delete(id);
+    superseded();
     this.track = { id, duration: prepared.duration, gainDb: prepared.gainDb, mode: 'buffer' };
     this.map = { active: false, input: 0, output: 0, rate: this.rate };
     this.ended = false;
@@ -144,10 +150,16 @@ export class AudioEngine extends EventTarget {
   /** Plays through a media element instead (video, or audio that failed to decode). */
   async loadElement(id, element, url) {
     const seq = ++this.loadSeq;
+    const superseded = () => {
+      if (seq !== this.loadSeq) throw Object.assign(new Error('superseded'), { superseded: true });
+    };
     await this.init();
+    superseded();
     this.stopNow();
-    await this.stretch.dropBuffers();
     this.detachElement();
+    this.track = null;
+    await this.stretch.dropBuffers();
+    superseded();
     element.preservesPitch = true;
     element.crossOrigin = 'anonymous';
     if (element.src !== new URL(url, location.href).href) element.src = url;
@@ -159,7 +171,7 @@ export class AudioEngine extends EventTarget {
       element.addEventListener('loadedmetadata', ok);
       element.addEventListener('error', bad);
     });
-    if (seq !== this.loadSeq) throw Object.assign(new Error('superseded'), { superseded: true });
+    superseded();
     let source = this.sources.get(element);
     if (!source) {
       source = this.ctx.createMediaElementSource(element);
@@ -205,9 +217,13 @@ export class AudioEngine extends EventTarget {
     } catch { /* already disconnected */ }
     this.element = null;
     this.elementSource = null;
+    // Live mode may have left an active segment: switch the stretcher off again.
+    this.stretch?.schedule({ active: false, output: this.ctx.currentTime });
   }
 
+  /** Stops and forgets the current track; any load still in flight is abandoned. */
   unload() {
+    this.loadSeq++;
     this.stopNow();
     this.detachElement();
     this.track = null;
@@ -385,13 +401,13 @@ export class AudioEngine extends EventTarget {
   }
 
   finish() {
-    if (this.ended) return;
+    if (this.ended || !this.track) return;
     this.ended = true;
-    if (this.track?.mode !== 'element' && this.map.active) {
+    if (this.track.mode !== 'element' && this.map.active) {
       this.stretch.schedule({ active: false, output: this.ctx.currentTime });
       this.map = { active: false, input: this.track.duration, output: 0, rate: this.rate };
     }
-    this.emit('ended', { id: this.track?.id });
+    this.emit('ended', { id: this.track.id });
   }
 
   emit(type, detail) {

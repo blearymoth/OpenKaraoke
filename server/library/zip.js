@@ -2,6 +2,7 @@
 import fs from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import zlib from 'node:zlib';
+import { pipeline } from 'node:stream';
 
 const EOCD_SIG = 0x06054b50;
 const CEN_SIG = 0x02014b50;
@@ -23,6 +24,9 @@ export async function listZip(file) {
     const count = tail.readUInt16LE(eocd + 10);
     const cenSize = tail.readUInt32LE(eocd + 12);
     const cenOffset = tail.readUInt32LE(eocd + 16);
+    if (count === 0xffff || cenSize === 0xffffffff || cenOffset === 0xffffffff) throw new Error('ZIP64 archives are not supported');
+    // Never trust sizes from the file: a corrupt header must not make us read past the end.
+    if (cenSize > 16 * 1024 * 1024 || cenOffset + cenSize > size) throw new Error('Corrupt zip file (bad central directory)');
     const cen = Buffer.alloc(cenSize);
     await fh.read(cen, 0, cenSize, cenOffset);
     const entries = [];
@@ -37,6 +41,8 @@ export async function listZip(file) {
       const extraLen = cen.readUInt16LE(p + 30);
       const commentLen = cen.readUInt16LE(p + 32);
       const offset = cen.readUInt32LE(p + 42);
+      if (p + 46 + nameLen > cen.length) break;
+      if (offset >= size || offset + csize > size || usize === 0xffffffff) { p += 46 + nameLen + extraLen + commentLen; continue; }
       const rawName = cen.subarray(p + 46, p + 46 + nameLen);
       const name = (flags & 0x800) ? rawName.toString('utf8') : rawName.toString('latin1');
       entries.push({ name, method, csize, usize, offset, encrypted: !!(flags & 1) });
@@ -69,7 +75,12 @@ export async function openZipEntry(file, entry) {
     ? createReadStream(file, { start: dataStart, end: dataStart + entry.csize - 1 })
     : createReadStream(file, { start: dataStart, end: dataStart });
   if (entry.method === 0) return raw;
-  if (entry.method === 8) return raw.pipe(zlib.createInflateRaw());
+  if (entry.method === 8) {
+    // pipeline() forwards read errors (drive unplugged) to the returned stream.
+    const inflate = zlib.createInflateRaw();
+    pipeline(raw, inflate, () => {});
+    return inflate;
+  }
   raw.destroy();
   throw new Error(`Unsupported zip compression method ${entry.method}`);
 }

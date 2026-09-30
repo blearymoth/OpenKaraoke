@@ -50,6 +50,7 @@ after(async () => {
 });
 
 const get = (p, headers) => fetch(base + p, { headers });
+const postJson = (p, body, headers = {}) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
 const getJson = async (p) => {
   const r = await get(p);
   assert.equal(r.status, 200, `${p} → ${r.status}`);
@@ -257,9 +258,9 @@ test('host-only endpoints: localhost trust, PIN and tokens', async () => {
     assert.equal(denied.status, 403);
     app.settings.update({ party: { adminPin: '4321' } });
     assert.equal((await get('/api/fs/list')).status, 401);
-    const wrong = await fetch(`${base}/api/auth/pin`, { method: 'POST', body: JSON.stringify({ pin: '1111' }) });
+    const wrong = await postJson('/api/auth/pin', { pin: '1111' });
     assert.equal(wrong.status, 401);
-    const ok = await fetch(`${base}/api/auth/pin`, { method: 'POST', body: JSON.stringify({ pin: '4321' }) });
+    const ok = await postJson('/api/auth/pin', { pin: '4321' });
     const { token } = await ok.json();
     assert.match(ok.headers.get('set-cookie'), /ok_host=/);
     assert.equal((await get('/api/fs/list', { authorization: `Bearer ${token}` })).status, 200);
@@ -278,7 +279,7 @@ test('library status and rescan', async () => {
   const r = await fetch(`${base}/api/library/scan`, { method: 'POST' });
   assert.equal(r.status, 200);
   await app.library.scanning;
-  const big = await fetch(`${base}/api/library/paths`, { method: 'POST', body: JSON.stringify({ paths: ['relative/path'] }) });
+  const big = await postJson('/api/library/paths', { paths: ['relative/path'] });
   assert.equal(big.status, 400);
 });
 
@@ -337,4 +338,35 @@ test('websocket hello, roles and ping', async () => {
   early.json({ t: 'queue.add' });
   assert.deepEqual(await early.next(), { t: 'denied', reason: 'hello_expected' });
   early.close();
+});
+
+test('security: bad cookies, foreign sites, DNS rebinding and oversized messages', async () => {
+  const r = await raw('/api/info', { cookie: 'ok_host=%' });
+  assert.equal(r.status, 200, 'a malformed cookie is ignored instead of crashing');
+  assert.equal((await get('/api/info')).status, 200, 'server still up');
+
+  const csrf = await fetch(`${base}/api/library/scan`, { method: 'POST', headers: { origin: 'http://evil.example' } });
+  assert.equal(csrf.status, 403, 'POST from another site refused');
+  const plain = await fetch(`${base}/api/library/paths`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{"paths":["/"]}' });
+  assert.equal(plain.status, 415, 'no-preflight text/plain POST refused');
+
+  const rebound = await raw('/api/fs/list', { host: 'evil.example:8080' });
+  assert.equal(rebound.status, 403, 'a foreign Host name never gets host rights');
+  assert.equal((await raw('/api/fs/list', { host: `127.0.0.1:${app.port}` })).status, 200);
+
+  await assert.rejects(new Promise((resolve, reject) => {
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`, { headers: { origin: 'http://evil.example' } });
+    ws.on('open', () => resolve(ws));
+    ws.on('error', reject);
+    ws.on('unexpected-response', (_, res) => reject(new Error(`HTTP ${res.statusCode}`)));
+  }), /403/, 'WebSocket from another site refused');
+
+  const ws = await wsOpen();
+  ws.json({ t: 'ping', c: 'x'.repeat(1000) });
+  const early = await ws.next();
+  assert.equal(early.t, 'denied', 'no pings before hello');
+  const big = await wsOpen();
+  const closed = new Promise((resolve) => big.on('close', (code) => resolve(code)));
+  big.send(JSON.stringify({ t: 'hello', role: 'guest', pad: 'x'.repeat(64 * 1024) }));
+  assert.equal(await closed, 1009, 'oversized message closes the socket');
 });

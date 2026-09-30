@@ -29,11 +29,17 @@ export class Client {
   }
 
   send(msg) {
-    if (this.open) this.ws.send(JSON.stringify(msg));
+    this.sendRaw(JSON.stringify(msg));
   }
 
+  /** Sends unless the client stopped reading; a client that far behind is disconnected. */
   sendRaw(text) {
-    if (this.open && this.ws.bufferedAmount < MAX_BUFFERED) this.ws.send(text);
+    if (!this.open) return;
+    if (this.ws.bufferedAmount > MAX_BUFFERED) {
+      this.ws.terminate();
+      return;
+    }
+    this.ws.send(text);
   }
 
   close(code = 1000, reason = '') {
@@ -44,7 +50,7 @@ export class Client {
 }
 
 export class Hub extends EventEmitter {
-  constructor({ path = '/ws', heartbeatMs = 20000, helloTimeoutMs = 10000, maxPayload = 512 * 1024 } = {}) {
+  constructor({ path = '/ws', heartbeatMs = 20000, helloTimeoutMs = 10000, maxPayload = 32 * 1024 } = {}) {
     super();
     this.path = path;
     this.heartbeatMs = heartbeatMs;
@@ -57,6 +63,8 @@ export class Hub extends EventEmitter {
     this.onRequest = async (client, msg) => {
       throw Object.assign(new Error(`Unknown message type: ${msg.t}`), { expose: true });
     };
+    /** (req) => boolean: refuse connections opened by pages of other web sites. */
+    this.checkOrigin = () => true;
   }
 
   attach(server) {
@@ -68,6 +76,11 @@ export class Hub extends EventEmitter {
       } catch { /* bad url */ }
       if (pathname !== this.path) {
         socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
+        return;
+      }
+      if (!this.checkOrigin(req)) {
+        log.warn(`refused a WebSocket from another site (${String(req.headers.origin).slice(0, 80)})`);
+        socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
         return;
       }
       this.wss.handleUpgrade(req, socket, head, (ws) => this.connection(ws, req));
@@ -102,26 +115,24 @@ export class Hub extends EventEmitter {
       return;
     }
     if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return;
-    client.alive = true;
     client.lastSeen = Date.now();
-    if (msg.t === 'ping') {
-      client.send({ t: 'pong', c: msg.c, s: Date.now() });
-      return;
-    }
 
     if (!client.role) {
+      if (client.helloBusy) return;
       if (msg.t !== 'hello') {
         client.send({ t: 'denied', reason: 'hello_expected' });
         client.close(4000, 'hello expected');
         return;
       }
       let result;
+      client.helloBusy = true;
       try {
         result = await this.onHello(client, msg);
       } catch (e) {
         log.error('hello failed', e);
         result = { ok: false, reason: 'server_error' };
       }
+      client.helloBusy = false;
       if (!client.open) return;
       if (!result?.ok) {
         client.send({ t: 'denied', reason: result?.reason || 'denied', ...(result?.extra || {}) });
@@ -136,7 +147,11 @@ export class Hub extends EventEmitter {
       return;
     }
 
-    const rid = msg.rid;
+    if (msg.t === 'ping') {
+      client.send({ t: 'pong', c: Number(msg.c) || 0, s: Date.now() });
+      return;
+    }
+    const rid = Number.isFinite(msg.rid) ? msg.rid : typeof msg.rid === 'string' ? msg.rid.slice(0, 20) : undefined;
     try {
       const out = await this.onRequest(client, msg);
       if (rid !== undefined) client.send({ t: 'res', rid, ok: true, data: out ?? null });

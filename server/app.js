@@ -63,7 +63,12 @@ export async function createApp({ dataDir, args = {}, scan, watch = true } = {})
 
   const server = http.createServer((req, res) => handleRequest(app, req, res));
   server.keepAliveTimeout = 30_000;
+  server.on('clientError', (err, socket) => {
+    if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    else socket.destroy();
+  });
   app.server = server;
+  hub.checkOrigin = (req) => auth.trustedOrigin(req.headers.origin);
   hub.attach(server);
 
   const room = new Room(app);
@@ -110,23 +115,22 @@ export async function createApp({ dataDir, args = {}, scan, watch = true } = {})
 }
 
 async function handleRequest(app, req, res) {
-  let url;
+  let url = null;
   try {
     url = new URL(req.url, 'http://localhost');
-  } catch {
-    res.writeHead(400).end();
-    return;
-  }
-  const ip = req.socket.remoteAddress;
-  const ctx = {
-    app, req, res, url, ip,
-    path: url.pathname,
-    query: url.searchParams,
-    isLocal: isLocalAddress(ip),
-    isHost: app.auth.isHostRequest(req),
-    params: {},
-  };
-  try {
+    const ip = req.socket.remoteAddress;
+    // Pages of other web sites must not change anything here (CSRF / DNS rebinding).
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !app.auth.trustedOrigin(req.headers.origin)) {
+      throw new HttpError(403, 'Requests from other web sites are not allowed');
+    }
+    const ctx = {
+      app, req, res, url, ip,
+      path: url.pathname,
+      query: url.searchParams,
+      isLocal: isLocalAddress(ip),
+      isHost: app.auth.isHostRequest(req),
+      params: {},
+    };
     const m = app.router.match(req.method, url.pathname);
     if (!m) throw new HttpError(404, 'Not found');
     if (m.allowed) {
@@ -137,7 +141,7 @@ async function handleRequest(app, req, res) {
     const out = await m.handler(ctx);
     if (out !== undefined && !res.headersSent) json(res, 200, out);
   } catch (e) {
-    const isPage = !/^\/(?:api|media)\//.test(url.pathname);
+    const isPage = url && !/^\/(?:api|media)\//.test(url.pathname);
     if (isPage && e?.status === 404 && !res.headersSent) {
       sendText(res, 404, NOT_FOUND_PAGE, 'text/html; charset=utf-8');
     } else {

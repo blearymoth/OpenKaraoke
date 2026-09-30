@@ -94,6 +94,8 @@ export async function readBody(req, limit = 1 << 20) {
 }
 
 export async function readJsonBody(req, limit = 256 * 1024) {
+  // application/json can't be sent cross-site without a CORS preflight (which we never allow).
+  if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) throw new HttpError(415, 'Send JSON (content-type: application/json)');
   const buf = await readBody(req, limit);
   if (!buf.length) return {};
   try {

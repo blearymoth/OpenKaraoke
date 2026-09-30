@@ -41,7 +41,6 @@ export function AddDialog({ songId, trackId: initialTrack, singerName = '' }) {
     const res = await act('queue.add', body);
     setBusy(false);
     if (!res) return;
-    if (position === 'now') await act('player.play', { entryId: res.entry.id });
     toast(position === 'now' ? `Starting ${song?.title || 'the song'}` : res.started ? `${song?.title || 'Song'} is starting` : `Added ${song?.title || 'the song'}${name.trim() ? ` for ${name.trim()}` : ''}`, 'ok');
     closeDialog();
   };

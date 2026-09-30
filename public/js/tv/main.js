@@ -23,6 +23,7 @@ conn.on('welcome', (m) => {
   store.update({ state: m.state, display: m.display, denied: null });
   controller.setDisplay(m.display);
   controller.apply(m.state);
+  controller.onWelcome();
 });
 conn.on('state', (m) => {
   store.update({ state: m.state });
@@ -123,7 +124,12 @@ document.addEventListener('mousemove', () => {
 // Try to start audio straight away: works when Chrome runs with --autoplay-policy=no-user-gesture-required.
 controller.engine.init().then(() => {
   if (controller.engine.running) store.update({ unlocked: true });
-  else controller.engine.ctx.addEventListener('statechange', () => store.update({ unlocked: controller.unlocked }));
+  controller.engine.ctx.addEventListener('statechange', () => {
+    store.update({ unlocked: controller.unlocked });
+    controller.reportAudio();
+    controller.sendReady();
+  });
+  controller.reportAudio();
 });
 
 // ---- animation loop: lyrics, progress bar, visualiser level ------------------------------

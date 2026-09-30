@@ -57,7 +57,8 @@ export class JsonDoc {
   async flush() {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     const snapshot = JSON.parse(JSON.stringify(this.data));
-    const prev = this.writing || Promise.resolve();
+    // A failed write must not poison every later save.
+    const prev = (this.writing || Promise.resolve()).catch(() => {});
     this.writing = prev.then(() => writeJsonAtomic(this.file, snapshot, { pretty: this.pretty }));
     return this.writing;
   }

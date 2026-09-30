@@ -22,6 +22,7 @@ export class Connection extends EventTarget {
     this.bestRtt = Infinity;
     this.stopped = false;
     this.welcome = null;
+    this.outbox = []; // messages that must not be lost while reconnecting
   }
 
   connect() {
@@ -69,6 +70,11 @@ export class Connection extends EventTarget {
       this.adjustClock(msg.serverTime, 0);
       this.setStatus('open');
       this.ping();
+      this.dispatchEvent(new CustomEvent(msg.t, { detail: msg }));
+      this.dispatchEvent(new CustomEvent('message', { detail: msg }));
+      const queued = this.outbox.splice(0);
+      for (const m of queued) this.ws.send(JSON.stringify(m));
+      return;
     } else if (msg.t === 'denied') {
       if (FINAL.has(msg.reason)) this.stopped = true;
     } else if (msg.t === 'res') {
@@ -128,9 +134,18 @@ export class Connection extends EventTarget {
     });
   }
 
-  /** Fire-and-forget message (no reply expected). */
+  /** Fire-and-forget message (no reply expected); dropped while disconnected. */
   send(t, body = {}) {
     if (this.ws?.readyState === WebSocket.OPEN && this.status === 'open') this.ws.send(JSON.stringify({ t, ...body }));
+  }
+
+  /** Like send(), but kept and delivered after a reconnect (after the welcome). */
+  sendReliable(t, body = {}) {
+    if (this.ws?.readyState === WebSocket.OPEN && this.status === 'open') this.ws.send(JSON.stringify({ t, ...body }));
+    else {
+      this.outbox.push({ t, ...body });
+      if (this.outbox.length > 20) this.outbox.shift();
+    }
   }
 
   on(type, fn) {

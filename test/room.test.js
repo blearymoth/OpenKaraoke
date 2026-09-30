@@ -12,6 +12,8 @@ const SONGS = [
   'Queen - Killer Queen (Explicit) [SF Karaoke]',
   'Blondie - Call Me [SC Karaoke]',
   'ABBA - Waterloo [SF Karaoke]',
+  'Blondie - Rapture (Explicit) [SF Karaoke]',
+  'Blondie - Rapture [SC Karaoke]',
 ];
 for (const name of SONGS) {
   const letter = name[0];
@@ -332,4 +334,118 @@ test('auto-start: the first queued song starts when a TV is on (and only then)',
   await req(await connect('host'), 'player.stop');
   await req(a, 'queue.add', { songId: song('call me').id });
   assert.equal(s().current, null, 'auto-start can be turned off');
+});
+
+test('stop holds the party: adds and TV reconnects do not restart it until Play', async () => {
+  const { app, connect, leave, req, song, guest, s } = await setup();
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const a = await guest('Ana');
+  await req(a, 'queue.add', { songId: song('hello').id });
+  assert.equal(s().current?.title, 'Hello');
+  await req(host, 'player.stop');
+  const b = await guest('Ben');
+  const r = await req(b, 'queue.add', { songId: song('call me').id });
+  assert.equal(r.started, false, 'Ben is not told he is on');
+  assert.equal(s().current, null, 'the stopped song did not restart');
+  leave(tv);
+  await connect('tv');
+  assert.equal(s().current, null, 'a reconnecting TV does not restart it either');
+  await req(host, 'player.play');
+  assert.equal(s().current?.title, 'Hello');
+  assert.equal(s().player.hold, false);
+  void app;
+});
+
+test('with auto-advance off, a new request does not start the next song', async () => {
+  const { app, connect, req, song, guest, s } = await setup({ playback: { autoAdvance: false } });
+  const tv = await connect('tv');
+  const a = await guest('Ana');
+  await req(a, 'queue.add', { songId: song('hello').id });
+  await req(a, 'queue.add', { songId: song('waterloo').id });
+  const id = s().current.id;
+  await req(tv, 'tv.ready', { entryId: id, dur: 200 });
+  await req(tv, 'tv.ended', { entryId: id });
+  assert.equal(s().current, null, 'waits for the host');
+  const b = await guest('Ben');
+  await req(b, 'queue.add', { songId: song('call me').id });
+  assert.equal(s().current, null, 'still waiting for the host');
+  assert.equal(app.settings.get('playback.autoAdvance'), false);
+});
+
+test('host "play now" starts the song without logging a skipped one', async () => {
+  const { connect, req, song, s } = await setup();
+  const host = await connect('host');
+  await req(host, 'queue.add', { songId: song('waterloo').id, singerName: 'Zed' });
+  const r = await req(host, 'queue.add', { songId: song('hello').id, singerName: 'Ann', position: 'now' });
+  assert.equal(r.started, true);
+  assert.equal(s().current.title, 'Hello');
+  assert.equal(s().tonight.history.length, 0, 'nothing recorded as skipped');
+  assert.equal(s().queue[0].title, 'Waterloo');
+});
+
+test('explicit filter: guests get the clean version of a song that has one', async () => {
+  const { app, req, song, guest, s } = await setup({ queue: { explicitFilter: true } });
+  const a = await guest('Ana');
+  const rapture = song('rapture');
+  const explicit = rapture && app.library.catalog.songDetail(rapture.id).versions.find((v) => v.flags.explicit);
+  assert.ok(explicit, 'fixture has an explicit version');
+  await req(a, 'queue.add', { songId: rapture.id, trackId: explicit.id });
+  const entry = s().queue.at(-1);
+  assert.equal(app.library.catalog.track(entry.trackId).p.flags.explicit, undefined, 'clean version chosen');
+});
+
+test('a song that failed on the TV can be retried: resume asks the TV to reload', async () => {
+  const { connect, req, song, guest, s, room } = await setup();
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const a = await guest('Ana');
+  await req(a, 'queue.add', { songId: song('hello').id });
+  const id = s().current.id;
+  await req(tv, 'tv.error', { entryId: id, error: 'The karaoke drive is not connected' });
+  assert.equal(s().player.state, 'paused');
+  const before = room.playerView().reload;
+  await req(host, 'player.resume');
+  assert.equal(room.playerView().reload, before + 1);
+  assert.equal(s().player.state, 'intro');
+  assert.equal(s().player.error, null);
+  await req(tv, 'tv.ready', { entryId: id, dur: 200 });
+  assert.equal(s().player.state, 'playing');
+});
+
+test('"tonight" resets after 8 idle hours even while the server keeps running', async () => {
+  const { req, song, guest, s } = await setup();
+  const a = await guest('Ana');
+  s().tonight.sung.push(song('hello').id);
+  const old = s().session.id;
+  s().session.lastActivity = Date.now() - 9 * 3600 * 1000;
+  await req(a, 'queue.add', { songId: song('hello').id });
+  assert.notEqual(s().session.id, old);
+  assert.equal(s().queue.length, 1, 'yesterday’s songs can be sung again');
+});
+
+test('abuse limits: identities per device, guest duets, favourites broadcast, prototype keys', async () => {
+  const { connect, req, song, guest, s, app } = await setup();
+  const denied = [];
+  for (let i = 0; i < 14; i++) {
+    const c = await connect('guest', {}, { local: false });
+    if (c.denied) denied.push(c.denied);
+  }
+  assert.ok(denied.length >= 2 && denied.every((d) => d === 'rate_limited'), 'new identities are rate limited per address');
+
+  const host = await connect('host');
+  const a = await guest('Ana');
+  const b = await guest('Ben');
+  const benSinger = s().profiles[b.welcome.deviceId].singerId;
+  await req(a, 'queue.add', { songId: song('waterloo').id, partners: [benSinger] });
+  assert.deepEqual(s().queue.at(-1).singerIds.length, 1, 'guests cannot add duet partners');
+
+  await new Promise((r) => setTimeout(r, 60)); // let pending broadcasts go out
+  await req(a, 'favorite.toggle', { songId: song('hello').id });
+  assert.equal(app.room.flushTimer, null, 'no broadcast to everyone for a personal change');
+  assert.ok(a.inbox.some((m) => m.t === 'state' && m.state.me.profile.favorites.length === 1), 'own view updated');
+
+  await assert.rejects(req(host, 'guest.ban', { deviceId: '__proto__' }), /not found/);
+  assert.equal({}.banned, undefined, 'Object.prototype untouched');
+  await assert.rejects(req(host, 'constructor', {}), /Unknown request/);
 });

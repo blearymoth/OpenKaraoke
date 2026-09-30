@@ -81,15 +81,24 @@ async function save(path, value) {
   if (r) toast('Saved', 'ok', 1200);
 }
 
+const MASK = '••••••'; // the server never sends saved passwords back
+
 function TextField({ f, value }) {
-  const [v, setV] = useState(value ?? '');
-  useEffect(() => setV(value ?? ''), [value]);
+  const hidden = f.type === 'password' && value === MASK;
+  const initial = hidden ? '' : value ?? '';
+  const [v, setV] = useState(initial);
+  useEffect(() => setV(initial), [value]);
   const [show, setShow] = useState(false);
-  const commit = () => { if (v !== (value ?? '')) save(f.path, v); };
+  const commit = () => {
+    if (hidden && !v) return; // keep the saved password
+    if (v !== (value ?? '')) save(f.path, v);
+  };
   return html`<div class="inline-form">
-    <input class="input" type=${f.type === 'password' && !show ? 'password' : 'text'} value=${v} placeholder=${f.placeholder || ''} maxlength="200"
+    <input class="input" type=${f.type === 'password' && !show ? 'password' : 'text'} value=${v} maxlength="200"
+      placeholder=${hidden ? 'Saved — type to replace it' : f.placeholder || ''}
       onInput=${(e) => setV(e.currentTarget.value)} onBlur=${commit} onKeyDown=${(e) => e.key === 'Enter' && e.currentTarget.blur()} />
-    ${f.type === 'password' && html`<button class="icon-btn small" aria-label=${show ? 'Hide' : 'Show'} onClick=${() => setShow(!show)}><${Icon} name="eye" size=${16} /></button>`}
+    ${f.type === 'password' && !hidden && html`<button class="icon-btn small" aria-label=${show ? 'Hide' : 'Show'} onClick=${() => setShow(!show)}><${Icon} name="eye" size=${16} /></button>`}
+    ${hidden && html`<button class="btn small ghost danger" onClick=${() => save(f.path, '')}>Remove</button>`}
   </div>`;
 }
 

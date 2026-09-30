@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { readJson, writeJsonAtomic } from '../util/jsonfile.js';
-import { isLocalAddress } from '../util/net.js';
+import { isLocalAddress, isTrustedHostHeader, isTrustedOrigin, hostnameOf } from '../util/net.js';
 import { RateLimiter } from '../util/ratelimit.js';
 import { UserError } from '../util/errors.js';
 
@@ -26,6 +26,26 @@ export class Auth {
     this.settings = settings;
     this.secret = null;
     this.pinLimiter = new RateLimiter({ capacity: 5, perMs: 60_000 });
+    this.pinLimiterAll = new RateLimiter({ capacity: 20, perMs: 5 * 60_000 }); // across all addresses
+  }
+
+  /** Extra host names we answer to (the public URL set in settings). */
+  extraNames() {
+    const pub = this.settings.get('server.publicUrl');
+    if (!pub) return [];
+    try {
+      return [hostnameOf(new URL(pub).host)];
+    } catch {
+      return [];
+    }
+  }
+
+  trustedHost(hostHeader) {
+    return isTrustedHostHeader(hostHeader, this.extraNames());
+  }
+
+  trustedOrigin(origin) {
+    return isTrustedOrigin(origin, this.extraNames());
   }
 
   async load() {
@@ -72,8 +92,12 @@ export class Auth {
     return !!this.verify(token, 'host');
   }
 
-  /** Host access for an HTTP request (Bearer token or ok_host cookie). */
+  /**
+   * Host access for an HTTP request (Bearer token or ok_host cookie). Requests addressed to a
+   * foreign host name (DNS rebinding) or sent by another site's page never get host rights.
+   */
   isHostRequest(req) {
+    if (!this.trustedHost(req.headers.host) || !this.trustedOrigin(req.headers.origin)) return false;
     return this.isHost(req.socket.remoteAddress, bearerToken(req) || cookie(req, 'ok_host'));
   }
 
@@ -82,7 +106,9 @@ export class Auth {
     if (!this.pin) {
       throw new UserError('Remote host access is off: set a host PIN in Settings on the computer running OpenKaraoke.', { status: 403, code: 'no_pin' });
     }
-    if (!this.pinLimiter.take(String(key))) throw new UserError('Too many attempts — wait a minute and try again.', { status: 429, code: 'rate_limited' });
+    if (!this.pinLimiter.take(String(key)) || !this.pinLimiterAll.take('all')) {
+      throw new UserError('Too many attempts — wait a minute and try again.', { status: 429, code: 'rate_limited' });
+    }
     if (!safeEqual(hmac(this.secret, `try:${pin}`), hmac(this.secret, `try:${this.pin}`))) {
       throw new UserError('Wrong PIN', { status: 401, code: 'bad_pin' });
     }
@@ -99,7 +125,13 @@ export function cookie(req, name) {
   const raw = req.headers.cookie || '';
   for (const part of raw.split(';')) {
     const i = part.indexOf('=');
-    if (i > 0 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+    if (i > 0 && part.slice(0, i).trim() === name) {
+      try {
+        return decodeURIComponent(part.slice(i + 1).trim());
+      } catch {
+        return '';
+      }
+    }
   }
   return '';
 }

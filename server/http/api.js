@@ -159,7 +159,10 @@ export function apiRoutes(router, app) {
 
   router.get('/api/library', (ctx) => {
     const st = library.status();
-    if (!ctx.isHost) st.roots = st.roots.map((r) => ({ online: r.online, tracks: r.tracks }));
+    if (!ctx.isHost) {
+      st.roots = st.roots.map((r) => ({ online: r.online, tracks: r.tracks }));
+      st.lastScan = st.lastScan ? { at: st.lastScan.at, tracks: st.lastScan.tracks } : null; // no folder paths
+    }
     return st;
   });
 

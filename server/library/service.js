@@ -307,7 +307,16 @@ export function remapRoots(tracks, oldRoots, newRoots) {
   return out;
 }
 
+const pendingChecks = new Set(); // folders whose previous check hasn't returned yet
+
+/**
+ * True when the folder exists and isn't an empty mount point. A hung mount (dead USB or
+ * network drive) makes fs calls block a libuv thread, so while one check for a folder is
+ * still stuck we report it offline instead of starting another.
+ */
 async function folderOnline(p, timeoutMs) {
+  if (pendingChecks.has(p)) return false;
+  pendingChecks.add(p);
   let timer;
   const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); });
   const check = (async () => {
@@ -321,7 +330,7 @@ async function folderOnline(p, timeoutMs) {
     } catch {
       return false;
     }
-  })();
+  })().finally(() => pendingChecks.delete(p));
   try {
     return await Promise.race([check, timeout]);
   } finally {

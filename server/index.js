@@ -18,6 +18,10 @@ if (args.help) {
 if (args.log) setLogLevel(args.log);
 const log = logger('server');
 
+// Keep the party going: log unexpected errors instead of exiting.
+process.on('unhandledRejection', (e) => log.error('unhandled promise rejection', e));
+process.on('uncaughtException', (e) => log.error('uncaught exception', e));
+
 const dataDir = resolveDataDir(args);
 const app = await createApp({ dataDir, args, scan: args.noScan ? false : undefined });
 const port = Number.isInteger(args.port) && args.port > 0 ? args.port : Number(process.env.PORT) || app.settings.get('server.port');

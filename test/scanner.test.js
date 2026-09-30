@@ -77,3 +77,24 @@ test('listZip reads central directory', async () => {
   assert.deepEqual(entries.map((e) => [e.name, e.method, e.usize]), [['a.txt', 0, 5], ['b.txt', 8, 6]]);
   assert.equal((await readZipEntry(file, entries[1])).toString(), 'world!');
 });
+
+test('corrupt and ZIP64 archives are rejected cleanly (no crash)', async () => {
+  const dir = await tmpDir();
+  const eocd = (count, cenSize, cenOffset) => {
+    const b = Buffer.alloc(22);
+    b.writeUInt32LE(0x06054b50, 0);
+    b.writeUInt16LE(count, 8);
+    b.writeUInt16LE(count, 10);
+    b.writeUInt32LE(cenSize, 12);
+    b.writeUInt32LE(cenOffset, 16);
+    return b;
+  };
+  const zip64 = path.join(dir, 'z64.zip');
+  await fs.writeFile(zip64, eocd(0xffff, 0xffffffff, 0xffffffff));
+  await assert.rejects(listZip(zip64), /ZIP64/);
+  const bad = path.join(dir, 'bad.zip');
+  await fs.writeFile(bad, eocd(1, 5000, 999999));
+  await assert.rejects(listZip(bad), /Corrupt/);
+  const res = await scanLibrary([dir]);
+  assert.equal(res.tracks.length, 0);
+});

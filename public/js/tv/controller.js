@@ -22,11 +22,34 @@ export class TvController extends EventTarget {
     this.readySent = null;
     this.mirror = null; // { pos, at, playing }
     this.cdgCache = new Map();
-    this.engine.addEventListener('ended', () => {
-      if (this.display === 'main' && this.entryId) this.conn.send('tv.ended', { entryId: this.entryId });
+    this.loadedTrackId = null;
+    this.reloadSeen = null;
+    this.engine.addEventListener('ended', (e) => {
+      // Only the track this entry loaded may end it (a late event from an old track must not).
+      if (this.display === 'main' && this.entryId && this.loaded && e.detail?.id === this.loadedTrackId) {
+        this.conn.sendReliable('tv.ended', { entryId: this.entryId });
+      }
     });
     this.engine.addEventListener('error', (e) => this.fail(e.detail?.error || 'Playback failed'));
     setInterval(() => this.report(), 250);
+  }
+
+  /** After every (re)connect the server has forgotten that we're ready: tell it again. */
+  onWelcome() {
+    this.readySent = null;
+    this.lastReportPaused = false;
+    this.audioSent = null;
+    this.reportAudio();
+    this.sendReady();
+  }
+
+  /** Lets the host know when this screen still needs a click before it can play sound. */
+  reportAudio() {
+    if (this.display !== 'main') return;
+    const unlocked = this.engine.running;
+    if (unlocked === this.audioSent) return;
+    this.audioSent = unlocked;
+    this.conn.send('tv.audio', { unlocked });
   }
 
   get unlocked() {
@@ -65,7 +88,9 @@ export class TvController extends EventTarget {
       Object.assign(this.engine, { volume: p.volume, key: p.key, rate: p.tempo, channelMode: p.channel });
     }
     const id = cur?.id || null;
-    if (id !== this.entryId) this.load(cur, p);
+    const reload = cur && this.reloadSeen !== null && p.reload !== this.reloadSeen;
+    this.reloadSeen = p.reload ?? 0;
+    if (id !== this.entryId || reload) this.load(cur, p);
     else if (this.loaded) this.sync(p);
     this.preloadNext(state);
   }
@@ -73,6 +98,7 @@ export class TvController extends EventTarget {
   async load(cur, p) {
     this.entryId = cur?.id || null;
     this.loaded = false;
+    this.loadedTrackId = null;
     this.error = null;
     this.readySent = null;
     this.seekSeq = p.seek?.seq ?? null;
@@ -95,7 +121,7 @@ export class TvController extends EventTarget {
       } else if (this.display === 'main') {
         const [, bytes] = await Promise.all([
           this.engine.load(cur.trackId, media.audio).catch((e) => {
-            if (e.superseded || e.status) throw e;
+            if (e.superseded || e.status || this.entryId !== entryId) throw e;
             // The browser couldn't decode the file in one go: stream it through <audio> instead.
             return this.engine.loadElement(cur.trackId, this.audio, media.audio);
           }),
@@ -112,6 +138,7 @@ export class TvController extends EventTarget {
       const start = this.state.player.pos || 0; // resume after a display reconnect
       if (start > 0.5 && this.display === 'main') this.engine.seek(start);
       this.loaded = true;
+      this.loadedTrackId = this.display === 'main' ? this.engine.track?.id ?? null : cur.trackId;
       this.sendReady();
       this.sync(this.state.player);
     } catch (e) {
@@ -123,7 +150,7 @@ export class TvController extends EventTarget {
 
   fail(message) {
     this.error = message;
-    if (this.display === 'main' && this.entryId) this.conn.send('tv.error', { entryId: this.entryId, error: message });
+    if (this.display === 'main' && this.entryId) this.conn.sendReliable('tv.error', { entryId: this.entryId, error: message });
     this.changed();
   }
 
@@ -218,6 +245,7 @@ export class TvController extends EventTarget {
   }
 
   changed() {
+    this.reportAudio();
     this.dispatchEvent(new Event('change'));
   }
 }

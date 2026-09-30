@@ -79,6 +79,16 @@ if (isMain) {
     await tv.screenshot({ path: path.join(out, 'tv-4-paused.png') });
     await host.req('player.resume');
 
+    // The TV's connection drops and comes back without a page reload.
+    for (const c of app.hub.list((x) => x.role === 'tv')) c.ws.terminate();
+    await host.until((s) => s.player.state === 'paused' && s.player.displayLost, 5000);
+    await host.until((s) => s.player.hasDisplay && !s.player.displayLost, 15000);
+    await sleep(500);
+    await host.req('player.resume');
+    await host.until((s) => s.player.state === 'playing', 10000);
+    const tr = await host.next((m) => m.t === 'time' && m.playing, 5000);
+    check(tr.pos > 0, 'after a dropped TV connection, playback resumes when the host presses play');
+
     const dur = app.room.s.player.dur;
     await host.req('player.seek', { pos: dur - 3 });
     st = await host.until((s) => s.current?.title === 'High Notes Only', 20000);
@@ -91,6 +101,25 @@ if (isMain) {
     await host.until((s) => !s.current && s.player.state === 'idle', 10000);
     await tv.waitForSelector('.lobby');
     check(true, 'skipping the last song returns to the lobby');
+
+    // A TV opened in a normal browser needs one click before it may play sound.
+    await tv.close();
+    const plain = await chromium.launch();
+    try {
+      const tv2 = await plain.newPage({ viewport: { width: 1280, height: 720 } });
+      watch(tv2, 'tv2');
+      await tv2.goto(`${base}/tv`);
+      await tv2.waitForSelector('.start');
+      check(true, 'without autoplay permission the TV asks for a click');
+      await host.req('queue.add', { songId: call.id, singerName: 'Cy' });
+      await host.until((s) => s.current && s.player.displayLocked, 10000);
+      check(true, 'the host is told the TV needs a click');
+      await tv2.click('.start');
+      await host.until((s) => s.player.state === 'playing' && !s.player.displayLocked, 15000);
+      check(true, 'one click on the TV starts the song');
+    } finally {
+      await plain.close();
+    }
     host.close();
   } catch (e) {
     check(false, `unexpected error: ${e.stack || e.message}`);

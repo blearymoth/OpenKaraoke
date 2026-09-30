@@ -272,7 +272,7 @@ test('remote host access needs the PIN (token via /api/auth/pin)', async () => {
     assert.equal(noPin.welcome.t, 'denied');
     assert.equal(noPin.welcome.code, 'pin');
     app.settings.update({ party: { adminPin: '1357' } });
-    const post = (pin) => fetch(`http://127.0.0.1:${app.port}/api/auth/pin`, { method: 'POST', body: JSON.stringify({ pin }) });
+    const post = (pin) => fetch(`http://127.0.0.1:${app.port}/api/auth/pin`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin }) });
     assert.equal((await post('0000')).status, 403);
     const ok = await post('1357');
     assert.equal(ok.status, 200);

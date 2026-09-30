@@ -11,7 +11,7 @@ import { MediaService } from './http/media.js';
 import { registerApi } from './http/api.js';
 import { Hub } from './ws/hub.js';
 import { Auth } from './room/auth.js';
-import { lanAddresses } from './util/net.js';
+import { lanAddresses, sameOrigin } from './util/net.js';
 import { logger } from './util/log.js';
 
 const PAGES = { '/': 'index.html', '/host': 'host.html', '/tv': 'tv.html', '/guest': 'guest.html' };
@@ -91,6 +91,10 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
     res.setHeader('referrer-policy', 'same-origin');
     let url;
     try { url = new URL(req.url, 'http://x'); } catch { text(res, 400, 'Bad request'); return; }
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !sameOrigin(req.headers.origin, req.headers.host)) {
+      text(res, 403, 'Cross-site request refused');
+      return;
+    }
     try {
       if (await router.handle(req, res, url)) return;
       text(res, 404, 'Not found');

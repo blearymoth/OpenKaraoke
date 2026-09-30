@@ -3,7 +3,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { readJson, writeJsonAtomic } from '../util/jsonfile.js';
-import { isLocalAddress } from '../util/net.js';
+import { isLocalAddress, isDirectHost, sameOrigin } from '../util/net.js';
 
 const b64 = (buf) => Buffer.from(buf).toString('base64url');
 
@@ -61,8 +61,15 @@ export class Auth {
     return parts[1];
   }
 
-  trustsLocal(remote) {
-    return !!this.settings.get('party.trustLocalhost') && isLocalAddress(remote);
+  /**
+   * "This computer" trust: loopback/own address, addressed by IP/localhost/host name
+   * (blocks DNS rebinding) and not a cross-site request from another web page.
+   */
+  trustsLocal(remote, { host, origin } = {}) {
+    if (!this.settings.get('party.trustLocalhost') || !isLocalAddress(remote)) return false;
+    const publicHost = (() => { try { return new URL(this.settings.get('server.publicUrl')).hostname; } catch { return null; } })();
+    if (!isDirectHost(host, publicHost ? [publicHost] : [])) return false;
+    return sameOrigin(origin, host);
   }
 
   pinConfigured() {
@@ -87,18 +94,14 @@ export class Auth {
     return { ok: false, error: 'Wrong PIN' };
   }
 
-  /** Token from `Authorization: Bearer …`, the `ok_host` cookie or `?token=`. */
+  /** Token from `Authorization: Bearer …` (never cookies: they would ride along on cross-site requests). */
   tokenFrom(req) {
     const h = req.headers.authorization || '';
-    if (h.startsWith('Bearer ')) return h.slice(7).trim();
-    const cookie = req.headers.cookie || '';
-    const m = /(?:^|;\s*)ok_host=([^;]+)/.exec(cookie);
-    if (m) return decodeURIComponent(m[1]);
-    return null;
+    return h.startsWith('Bearer ') ? h.slice(7).trim() : null;
   }
 
   isHostRequest(req) {
-    if (this.trustsLocal(req.socket?.remoteAddress)) return true;
+    if (this.trustsLocal(req.socket?.remoteAddress, { host: req.headers.host, origin: req.headers.origin })) return true;
     return !!this.verify(this.tokenFrom(req), 'host');
   }
 }

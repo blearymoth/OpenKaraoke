@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import crypto from 'node:crypto';
 import { WebSocketServer, WebSocket } from '../vendor/ws.mjs';
 import { logger } from '../util/log.js';
+import { sameOrigin } from '../util/net.js';
 
 export class WsError extends Error {
   constructor(message, code = 'error') {
@@ -17,6 +18,8 @@ export class Client {
     this.id = crypto.randomBytes(6).toString('base64url');
     this.ws = ws;
     this.ip = req.socket.remoteAddress || '';
+    this.host = String(req.headers.host || '');
+    this.origin = req.headers.origin || '';
     this.userAgent = String(req.headers['user-agent'] || '').slice(0, 200);
     this.role = null;
     this.deviceId = null;
@@ -63,6 +66,12 @@ export class Hub extends EventEmitter {
       let pathname = '';
       try { pathname = new URL(req.url, 'http://x').pathname; } catch { /* bad url */ }
       if (pathname !== this.path) { socket.destroy(); return; }
+      // Web pages from other sites must not drive the party through the owner's browser.
+      if (!sameOrigin(req.headers.origin, req.headers.host)) {
+        socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+      }
       this.wss.handleUpgrade(req, socket, head, (ws) => this._connect(ws, req));
     };
     if (server) server.on('upgrade', this._onUpgrade);

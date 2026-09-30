@@ -6,6 +6,7 @@ import { createApp } from '../server/app.js';
 import { Router, readBody } from '../server/http/router.js';
 import { parseRange, safeJoin } from '../server/http/static.js';
 import { WebSocket } from '../server/vendor/ws.mjs';
+import { isDirectHost, sameOrigin } from '../server/util/net.js';
 import { tmpDir, writeTree, makeZip } from './helpers.js';
 
 const quiet = { info() {}, warn() {}, error() {}, debug() {} };
@@ -243,4 +244,36 @@ test('websocket hello, ping and request/response', async () => {
   assert.equal(res.ok, false);
   ws.close();
   ws2.close();
+});
+
+test('other web sites cannot use the PC\'s trust (cross-site WS/POST, DNS rebinding)', async () => {
+  assert.equal(isDirectHost('localhost:8080'), true);
+  assert.equal(isDirectHost('192.168.1.20:8080'), true);
+  assert.equal(isDirectHost('[::1]:8080'), true);
+  assert.equal(isDirectHost('evil.example:8080'), false);
+  assert.equal(sameOrigin('http://localhost:8080', 'localhost:8080'), true);
+  assert.equal(sameOrigin('https://evil.example', 'localhost:8080'), false);
+  assert.equal(sameOrigin(undefined, 'localhost:8080'), true);
+
+  // cross-site WebSocket upgrade is refused
+  const ws = new WebSocket(`ws://127.0.0.1:${app.port}/ws`, { headers: { origin: 'https://evil.example' } });
+  const outcome = await new Promise((resolve) => {
+    ws.on('open', () => resolve('open'));
+    ws.on('error', () => resolve('refused'));
+    ws.on('unexpected-response', () => resolve('refused'));
+  });
+  assert.equal(outcome, 'refused');
+
+  // cross-site POST is refused, and forms can't send JSON
+  const post = (headers) => new Promise((resolve) => {
+    const req = http.request(`${base}/api/settings`, { method: 'POST', headers }, (res) => { res.resume(); resolve(res.statusCode); });
+    req.end('{"party":{"name":"pwned"}}');
+  });
+  assert.equal(await post({ origin: 'https://evil.example', 'content-type': 'application/json' }), 403);
+  assert.equal(await post({ 'content-type': 'text/plain' }), 415);
+  assert.notEqual(app.settings.get('party.name'), 'pwned');
+
+  // a rebinding host name gets no "this computer" trust
+  const r = await get('/api/fs/list', { host: 'evil.example:80' });
+  assert.equal(r.status, 403);
 });

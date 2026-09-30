@@ -36,3 +36,30 @@ export function isLocalAddress(remote) {
   }
   return false;
 }
+
+/**
+ * True when a Host header names this machine by IP, "localhost" or its own host name.
+ * Requests for any other name (e.g. DNS rebinding) never get "this computer" trust.
+ */
+export function isDirectHost(hostHeader, extra = []) {
+  if (!hostHeader) return true; // HTTP/1.0 clients and tests
+  let name = String(hostHeader).trim().toLowerCase();
+  if (name.startsWith('[')) name = name.slice(1, name.indexOf(']'));
+  else name = name.replace(/:\d+$/, '');
+  if (!name) return false;
+  if (name === 'localhost' || name.endsWith('.localhost')) return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(name) || name.includes(':')) return true; // IPv4 / IPv6 literal
+  const hn = os.hostname().toLowerCase();
+  if (name === hn || name === `${hn}.local` || name === hn.split('.')[0]) return true;
+  return extra.map((x) => String(x).toLowerCase()).includes(name);
+}
+
+/** True when an Origin header (if any) belongs to the same host the request was sent to. */
+export function sameOrigin(originHeader, hostHeader) {
+  if (!originHeader) return true;
+  try {
+    return new URL(originHeader).host.toLowerCase() === String(hostHeader || '').toLowerCase();
+  } catch {
+    return false;
+  }
+}

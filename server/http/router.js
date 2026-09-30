@@ -113,6 +113,8 @@ export function readBody(req, limit = 1 << 20) {
 }
 
 export async function readJsonBody(req, limit = 256 * 1024) {
+  // Only real JSON requests: HTML forms from other sites can't send this content type.
+  if (!/^application\/json\b/i.test(req.headers['content-type'] || '')) throw new HttpError(415, 'Expected application/json');
   const buf = await readBody(req, limit);
   if (!buf.length) return {};
   try { return JSON.parse(buf.toString('utf8')); } catch { throw new HttpError(400, 'Invalid JSON'); }

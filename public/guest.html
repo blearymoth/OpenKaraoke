@@ -2,12 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OpenKaraoke</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#150f26">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Join the party · OpenKaraoke</title>
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/img/icon.svg">
   <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/guest.css">
+  <link rel="modulepreload" href="/js/vendor/preact.js">
 </head>
-<body>
-  <div class="empty"><div class="big">🚧</div><h3>This page is being built</h3><p><a href="/">Back to the start page</a></p></div>
+<body class="guest">
+  <div id="app"></div>
+  <script type="module" src="/js/guest/main.js"></script>
 </body>
 </html>

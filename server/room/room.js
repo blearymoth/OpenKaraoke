@@ -1071,6 +1071,7 @@ export class Room {
     const eta = this.etaList();
     return {
       info: this.publicInfo(),
+      accent: this.settings.get('display.accent'),
       rules: {
         guestsEnabled: this.settings.get('party.guestsEnabled'),
         requireApproval: q.requireApproval,

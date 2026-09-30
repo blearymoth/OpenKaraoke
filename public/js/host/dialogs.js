@@ -232,6 +232,32 @@ export function FolderDialog({ onPick }) {
   </${Modal}>`;
 }
 
+export function AnnounceDialog() {
+  const { state } = useStore(store);
+  const [text, setText] = useState('');
+  const [seconds, setSeconds] = useState(10);
+  const send = async () => {
+    if (!text.trim()) return;
+    if (await act('announce', { text, seconds })) {
+      toast('Showing on the TV', 'ok');
+      closeDialog();
+    }
+  };
+  return html`<${Modal} title="Announce on the TV" onClose=${closeDialog} footer=${html`
+      ${state.announcement && html`<button class="btn ghost" onClick=${() => act('announce', { text: '' }).then(closeDialog)}>Clear current</button>`}
+      <button class="btn primary" disabled=${!text.trim()} onClick=${send}><${Icon} name="megaphone" size=${18} /> Show on TV</button>`}>
+    <label class="field"><span>Message</span>
+      <textarea class="input" maxlength="140" placeholder="Pizza is here! 🍕" value=${text} onInput=${(e) => setText(e.currentTarget.value)}
+        onKeyDown=${(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}></textarea>
+    </label>
+    <label class="field"><span>Show it for</span>
+      <select class="select" value=${seconds} onChange=${(e) => setSeconds(Number(e.currentTarget.value))}>
+        ${[5, 10, 20, 30, 60].map((n) => html`<option value=${n}>${n} seconds</option>`)}
+      </select>
+    </label>
+  </${Modal}>`;
+}
+
 export function Dialogs() {
   const { dialog } = useStore(store);
   if (!dialog) return null;
@@ -241,6 +267,7 @@ export function Dialogs() {
     case 'edit': return html`<${EditDialog} entryId=${dialog.entryId} />`;
     case 'invite': return html`<${InviteDialog} />`;
     case 'folder': return html`<${FolderDialog} onPick=${dialog.onPick} />`;
+    case 'announce': return html`<${AnnounceDialog} />`;
     default: return null;
   }
 }

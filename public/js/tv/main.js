@@ -165,6 +165,9 @@ function Background() {
 function App() {
   const s = useStore(store);
   const st = s.state;
+  useEffect(() => {
+    if (st?.display?.accent) document.documentElement.style.setProperty('--neon', st.display.accent);
+  }, [st?.display?.accent]);
   if (s.denied) {
     return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>This screen can't join</h2><p>${DENIED_MESSAGES[s.denied] || s.denied}</p></div>`;
   }

@@ -84,6 +84,7 @@ export function Home() {
   return html`<div class="page home">
     <${PageHead} title=${state.info.name} sub=${state.current ? `Now singing: ${singersText(state.current.singers) || 'someone'} with ${state.current.title}` : 'The party is ready. Guests can join with the code on the TV.'}>
       <button class="btn" onClick=${openInvite}><${Icon} name="qr" size=${18} /> Invite guests</button>
+      <button class="btn" onClick=${() => openDialog({ type: 'announce' })}><${Icon} name="megaphone" size=${18} /> Announce</button>
       <button class="btn" onClick=${openTvWindow}><${Icon} name="tv" size=${18} /> Open TV display</button>
     </${PageHead}>
     ${noFolder && html`<${Onboarding} />`}

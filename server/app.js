@@ -12,6 +12,7 @@ import { mediaRoutes } from './http/media.js';
 import { Hub } from './ws/hub.js';
 import { Room } from './room/room.js';
 import { ArtworkService } from './artwork/service.js';
+import { ArtFeed } from './artwork/feed.js';
 import { lanAddresses, isLocalAddress } from './util/net.js';
 import { HttpError } from './util/errors.js';
 
@@ -79,7 +80,14 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   const room = new Room(app);
   await room.load();
   app.room = room;
-  hub.onHello = (client, msg) => room.hello(client, msg);
+  const artFeed = new ArtFeed({ hub, secrets: () => room.artSecrets() });
+  app.artFeed = artFeed;
+  hub.onHello = async (client, msg) => {
+    const res = await room.hello(client, msg);
+    // Artwork that changed while this page was offline (it sends the last `seq` it saw).
+    if (res?.ok) res.welcome = { ...res.welcome, art: artFeed.replay(res.role, msg.artSeq) };
+    return res;
+  };
   hub.onRequest = (client, msg) => room.request(client, msg);
   hub.on('join', (client) => room.onJoin(client));
   hub.on('leave', (client) => room.onLeave(client));
@@ -90,7 +98,7 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   library.on('status', () => room.markDirty());
   library.on('progress', (progress) => hub.broadcast({ t: 'lib', progress }, (c) => c.role === 'host'));
   artwork.on('art', (m) => {
-    hub.broadcast({ t: 'art', songs: m.songs.slice(0, 500), artists: m.artists.slice(0, 500) });
+    artFeed.publish(m);
     room.onArt(m);
   });
   artwork.on('status', () => hub.broadcast({ t: 'artwork', status: artwork.status() }, (c) => c.role === 'host'));

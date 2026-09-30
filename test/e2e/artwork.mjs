@@ -87,6 +87,23 @@ try {
   check(await until(async () => !!(await host.$('.artist-head.with-fanart .artist-logo img'))), 'artist page shows fanart and the logo once TheAudioDB answers');
   await shot(host, 'host-artist');
 
+  // Changed covers reach pages that are opened later: a reload shows "No cover", not the
+  // image the browser loaded before.
+  await host.goto(`${base}/host#/`);
+  await host.reload(); // a fresh page: the browser caches the covers under their plain URLs
+  await host.waitForSelector('.song-card img');
+  const firstCard = await host.$eval('.song-card', (el) => el.textContent);
+  const fixSong = [...app.library.catalog.songs.values()].find((s) => firstCard.includes(s.title) && app.artwork.songs.get(s.key)?.cover);
+  const coverOf = (page, id) => page.$$eval('img', (imgs, sid) => imgs.filter((i) => i.src.includes(`/api/art/song/${sid}?`)).map((i) => i.complete && i.naturalWidth), id);
+  check(await until(async () => (await coverOf(host, fixSong.id)).includes(48)), `the host shows the cover of ${fixSong.title}`);
+  const artSeq = app.artFeed.seq;
+  app.artwork.setNone(fixSong);
+  await until(() => app.artFeed.seq > artSeq); // the open page was told; a reloaded one is not
+  await host.reload();
+  await host.waitForSelector('.song-card img');
+  check(await until(async () => { const w = await coverOf(host, fixSong.id); return w.length && !w.includes(48) && w.every(Boolean); }), 'after “No cover” a reloaded page shows the placeholder');
+  await app.artwork.refresh(fixSong);
+
   // TV: lobby mosaic, then cover + logo on the intro card and artist photos while singing.
   const tv = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'tv');
   await tv.goto(`${base}/tv`);
@@ -120,6 +137,21 @@ try {
   const overflow = await guest.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(overflow <= 0, 'guest app still fits the phone screen');
   await shot(guest, 'guest-genre');
+
+  // A phone that was asleep missed an `art` event: the welcome after it reconnects brings it.
+  const shownId = await guest.$eval('.g-songs img', (i) => decodeURIComponent(new URL(i.src).pathname.split('/').pop()));
+  const shown = app.library.catalog.song(shownId);
+  const broadcast = app.hub.broadcast.bind(app.hub);
+  app.hub.broadcast = (msg, filter) => broadcast(msg, (c) => !(msg.t === 'art' && c.role === 'guest') && (!filter || filter(c)));
+  const seqBefore = app.artFeed.seq;
+  app.artwork.setNone(shown);
+  await until(() => app.artFeed.seq > seqBefore);
+  await sleep(300);
+  check((await coverOf(guest, shown.id)).includes(48), 'the sleeping phone missed the change');
+  app.hub.broadcast = broadcast;
+  for (const c of app.hub.clients.values()) if (c.role === 'guest') c.ws.terminate();
+  check(await until(async () => { const w = await coverOf(guest, shown.id); return w.length && !w.includes(48) && w.every(Boolean); }), 'after reconnecting the phone shows the change without a reload');
+  await app.artwork.refresh(shown);
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);
 } finally {

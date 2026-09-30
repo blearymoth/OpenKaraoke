@@ -174,7 +174,7 @@ export function Artist({ artistKey }) {
   useStore(artStore);
   const { data, error, loading, reload } = useFetch(`/api/artists/${encodeURIComponent(artistKey)}`);
   // The first visit asks TheAudioDB for fanart and logos: reload the header when they arrive.
-  useEffect(() => artStore.subscribe((ev) => { if (ev.artists.includes(artistKey)) reload(); }), [artistKey]);
+  useEffect(() => artStore.subscribe((ev) => { if (ev.all || ev.artists.includes(artistKey)) reload(); }), [artistKey]);
   if (error) return html`<div class="page"><${Empty} icon="🤷" title="Artist not found">${error.message}</${Empty}></div>`;
   if (!data || (loading && !data)) return html`<div class="page"><${Spinner} /></div>`;
   const art = data.artist.art || {};

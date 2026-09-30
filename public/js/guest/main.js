@@ -1,7 +1,7 @@
 // Guest app (/j/<ROOM>): join with a name, find songs, request them, follow the queue, react.
 import { html, render, useEffect, useMemo, useRef, useState } from '../vendor/preact.js';
 import { Connection } from '../lib/ws-client.js';
-import { createStore, useStore, toastStore, formatEta, formatTime, singersText, plural, useDebounced, useTick, noteArt, setMarks } from '../lib/store.js';
+import { createStore, useStore, toastStore, formatEta, formatTime, singersText, plural, useDebounced, useTick, noteArt, lastArtSeq, setMarks } from '../lib/store.js';
 import { Icon } from '../lib/icons.js';
 import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, Toasts, SongBadges } from '../lib/components.js';
 import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, GAME_LABELS, formatKey } from '/shared/protocol.js';
@@ -22,9 +22,10 @@ const store = createStore({
 });
 
 const conn = new Connection({
-  hello: () => ({ role: 'guest', room: store.get().code, token: localStorage.getItem('ok.guestToken') || undefined }),
+  hello: () => ({ role: 'guest', room: store.get().code, token: localStorage.getItem('ok.guestToken') || undefined, artSeq: lastArtSeq() }),
 });
 conn.on('welcome', (m) => {
+  noteArt(m.art);
   if (m.token) localStorage.setItem('ok.guestToken', m.token);
   localStorage.setItem('ok.lastRoom', store.get().code);
   setMarks(m.state);

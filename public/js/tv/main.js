@@ -1,7 +1,7 @@
 // TV display app (/tv): lobby with join QR, next-singer intro, lyrics with overlays.
 import { html, render, useEffect, useRef, useState } from '../vendor/preact.js';
 import { Connection } from '../lib/ws-client.js';
-import { createStore, useStore, useTick, useInterval, singersText, formatEta, artUrl, artistArtUrl, artStore, noteArt } from '../lib/store.js';
+import { createStore, useStore, useTick, useInterval, singersText, formatEta, artUrl, artistArtUrl, artStore, noteArt, lastArtSeq } from '../lib/store.js';
 import { Icon } from '../lib/icons.js';
 import { TvController } from './controller.js';
 import { GAME_UI } from '../games/index.js';
@@ -21,6 +21,7 @@ const conn = new Connection({
     display: preview ? 'preview' : board || params.get('display') === 'mirror' ? 'mirror' : undefined,
     token: localStorage.getItem('ok.tvToken') || undefined, // a screen paired by the host
     hostToken: preview ? localStorage.getItem('ok.hostToken') || undefined : undefined,
+    artSeq: lastArtSeq(),
   }),
 });
 const now = () => conn.serverNow();
@@ -32,6 +33,7 @@ const controller = new TvController({
 });
 
 conn.on('welcome', (m) => {
+  noteArt(m.art);
   store.update({ state: m.state, display: m.display, denied: null });
   controller.setDisplay(m.display);
   controller.apply(m.state);

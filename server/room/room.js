@@ -1451,6 +1451,23 @@ export class Room {
   }
 
   /**
+   * Songs guests must not learn about through `art` events yet: the queued (or pending)
+   * mystery songs, which guests only see as "Surprise!", and their artists.
+   */
+  artSecrets() {
+    const songs = new Set();
+    const artists = new Set();
+    const open = new Set(this.s.queue.filter((e) => !e.mystery).map((e) => e.songId));
+    if (this.s.current) open.add(this.s.current.songId);
+    for (const e of [...this.s.queue, ...this.s.pending]) {
+      if (!e.mystery || open.has(e.songId)) continue;
+      songs.add(e.songId);
+      for (const key of this.catalog.song(e.songId)?.artistKeys || []) artists.add(key);
+    }
+    return { songs, artists };
+  }
+
+  /**
    * Popular songs with covers for the TV lobby mosaic. The explicit filter and a new library
    * apply at once; new metadata (the crawler) at most once a minute.
    */
@@ -1760,6 +1777,7 @@ export class Room {
     }
     this.checkUpNext();
     this.focusArtwork();
+    this.app.artFeed?.release(); // a mystery song started (or left the queue): its art is no secret
     this.breakMusic.checkAutoplay();
     this.save();
   }

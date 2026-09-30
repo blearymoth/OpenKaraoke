@@ -797,7 +797,23 @@ export class ArtworkService extends EventEmitter {
     if (!e?.cover) return false;
     const img = (await this.image(e.cover, sizeKey(ctx.query.get('s')), PRIO.visible)) || this.anyImage(e.cover);
     if (!img) return false;
-    await sendFile(ctx.req, ctx.res, img.abs, { contentType: img.type, cacheControl: 'public, max-age=3600' });
+    return this.sendImage(ctx, img);
+  }
+
+  /**
+   * The image behind a cover/artist URL changes when the host picks another cover or "No
+   * cover", so browsers must ask again every time (a cheap 304 on the LAN): no max-age, and an
+   * ETag that names the file (each image URL has its own cache file).
+   */
+  async sendImage(ctx, img) {
+    let st;
+    try {
+      st = await fsp.stat(img.abs);
+    } catch {
+      return false; // evicted meanwhile: the placeholder
+    }
+    const etag = `W/"${path.basename(img.abs).slice(0, 16)}-${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+    await sendFile(ctx.req, ctx.res, img.abs, { st, contentType: img.type, cacheControl: 'no-cache', etag });
     return true;
   }
 
@@ -819,8 +835,7 @@ export class ArtworkService extends EventEmitter {
     const size = sizeKey(ctx.query.get('s'), type === 'picture' ? 'm' : 'l');
     const img = (await this.image(ref, size, PRIO.visible)) || this.anyImage(ref);
     if (!img) return false;
-    await sendFile(ctx.req, ctx.res, img.abs, { contentType: img.type, cacheControl: 'public, max-age=3600' });
-    return true;
+    return this.sendImage(ctx, img);
   }
 
   /** No artist picture: use the cover of their most popular song that has one. */

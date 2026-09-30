@@ -42,24 +42,24 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ⬜ P2 Optional ffmpeg transcoding for AVI/WMV/MPG video when `ffmpeg` is installed.
 
 ### Playback (TV display)
-- ⬜ P0 CDG renderer (canvas, all instructions, scroll, transparency) synced to audio (§9.2).
-- ⬜ P0 Audio engine on Web Audio + Signalsmith Stretch: **key change ±6 semitones**,
+- ✅ P0 CDG renderer (canvas, all instructions, scroll, transparency) synced to audio (§9.2).
+- ✅ P0 Audio engine on Web Audio + Signalsmith Stretch: **key change ±6 semitones**,
   **tempo 70–130 %**, seek, pause, fade in/out, volume, loudness normalisation (§9.3).
-- ⬜ P0 Channel modes for multiplex/guide-vocal tracks: stereo, left, right, mono, vocal-cut (L−R).
-- ⬜ P0 "Next singer" intro card with countdown, then auto-start (or start-paused mode).
-- ⬜ P0 Preload next track during the intro; gapless transition to break music.
-- ⬜ P0 Video karaoke (MP4/WEBM) with the same controls (tempo via playbackRate, key via stretch live input).
+- ✅ P0 Channel modes for multiplex/guide-vocal tracks: stereo, left, right, mono, vocal-cut (L−R).
+- ✅ P0 "Next singer" intro card with countdown, then auto-start (or start-paused mode).
+- 🟡 P0 Preload next track during the intro; gapless transition to break music.
+- 🟡 P0 Video karaoke (MP4/WEBM) with the same controls (tempo via playbackRate, key via stretch live input).
 - ⬜ P1 Background behind transparent CDG: blurred cover / artist fanart (Ken-Burns), audio
   visualiser, guest photos, or plain colour. CDG smoothing (Scale2x) for crisp text on big TVs.
 - ⬜ P1 Lyric sync offset setting (ms) and automatic output-latency compensation.
 - ⬜ P2 Mic monitoring with reverb/echo on the PC (localhost only, latency warning).
 
 ### Second screen & displays
-- ⬜ P0 `/tv` page = the player (one **main** display plays audio). Click-to-start overlay
+- ✅ P0 `/tv` page = the player (one **main** display plays audio). Click-to-start overlay
   (autoplay policy) + fullscreen. Keyboard shortcuts for single-screen use.
 - ⬜ P0 Host button "Open TV display": `window.getScreenDetails()` (Window Management API) to place
   a popup on the non-primary screen, then fullscreen. Fallback: normal popup + instructions.
-- ⬜ P0 `bin/open-tv.sh`: launches Chromium/Chrome in kiosk mode on the 2nd screen with
+- ✅ P0 `bin/open-tv.sh`: launches Chromium/Chrome in kiosk mode on the 2nd screen with
   `--autoplay-policy=no-user-gesture-required` (no click needed).
 - ⬜ P1 Mirror displays (extra TVs/projectors, muted, clock-synced), host live preview (mini mirror).
 - ⬜ P1 Remote display pairing: a non-local `/tv` shows a pairing code; host approves it.
@@ -156,8 +156,8 @@ server/
     media.js            ✅ /media/:trackId/(audio|cdg|video), zip entries, content types, gzip CDG
   ws/hub.js             ✅ WebSocket transport (vendored ws), heartbeat, per-client send, rate limits
   room/
-    room.js             ⬜ party state + actions + per-role views + broadcast coalescing
-    rotation.js         ⬜ fair insert / ETA helpers (pure, unit tested)
+    room.js             ✅ party state + actions + per-role views + broadcast coalescing
+    rotation.js         ✅ fair insert / ETA helpers (pure, unit tested)
     auth.js             🟡 host PIN, localhost trust, tokens (HMAC with data/secret), display pairing
   artwork/
     service.js          ⬜ queue with priorities, provider rate limiters, cache, crawler
@@ -169,8 +169,8 @@ server/
   vendor/               ✅ ws.mjs, qrcode.mjs
 shared/
   text.js               ✅ normalisation, ids, distances
-  cdg.js                ⬜ isomorphic CDG decoder (browser renderer + server "lyrics frame" picker)
-  protocol.js           ⬜ message type constants shared by server and clients
+  cdg.js                ✅ isomorphic CDG decoder (browser renderer + server "lyrics frame" picker)
+  protocol.js           ✅ message type constants shared by server and clients
 public/
   index.html            ⬜ landing: links to Host / TV / Join + QR
   host.html tv.html guest.html   ⬜ app shells (import maps not needed; import /js/... directly)
@@ -182,7 +182,7 @@ public/
   fonts/ img/           ⬜ (optional bundled OFL fonts: Inter + a display face)
 bin/
   openkaraoke.sh        ✅ start script (checks Node version, starts server, prints URLs)
-  open-tv.sh            ⬜ kiosk Chromium on 2nd screen with autoplay allowed
+  open-tv.sh            ✅ kiosk Chromium on 2nd screen with autoplay allowed
   install-service.sh    ⬜ systemd --user unit
 scripts/
   scan-report.js        ✅ validate a library from the CLI
@@ -482,7 +482,7 @@ No telemetry. Outbound traffic only to the artwork providers (can be disabled).
 - ✅ **M0 Foundation**: parser, scanner, zip, catalog/search, settings, utils, vendored libs, tests.
 - ✅ **M1 Server runs**: `library/service.js`, `http/{router,static,api,media}.js`, `ws/hub.js`,
   `server/index.js`, `bin/openkaraoke.sh`; `/api/search` + media streaming work against the real drive.
-- ⬜ **M2 TV player**: `shared/cdg.js` (+ tests), audio engine, `/tv` scenes (idle lobby with QR,
+- ✅ **M2 TV player**: `shared/cdg.js` (+ tests), audio engine, `/tv` scenes (idle lobby with QR,
   intro, singing overlays), click-to-start, keyboard shortcuts.
 - ⬜ **M3 Room + host app**: room/rotation/auth, host UI (search, queue panel, player bar,
   singers, settings, invite modal), open-TV-on-second-screen, kiosk script.

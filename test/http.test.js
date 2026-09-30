@@ -225,14 +225,14 @@ test('websocket hello, ping and request/response', async () => {
   });
   ws.on('message', (d) => inbox.push(JSON.parse(d.toString())));
   await new Promise((r) => ws.on('open', r));
-  ws.send(JSON.stringify({ t: 'hello', role: 'guest', room: 'ZZZZ', deviceId: 'd1' }));
+  ws.send(JSON.stringify({ t: 'hello', role: 'guest', room: 'ZZZZ', deviceId: 'device-one' }));
   const denied = await waitFor((m) => m.t === 'denied');
-  assert.match(denied.reason, /room/i);
+  assert.equal(denied.code, 'room');
 
   const ws2 = new WebSocket(`ws://127.0.0.1:${app.port}/ws`);
   ws2.on('message', (d) => inbox.push(JSON.parse(d.toString())));
   await new Promise((r) => ws2.on('open', r));
-  ws2.send(JSON.stringify({ t: 'hello', role: 'guest', room: code.toLowerCase(), deviceId: 'd2' }));
+  ws2.send(JSON.stringify({ t: 'hello', role: 'guest', room: code.toLowerCase(), deviceId: 'device-two' }));
   const welcome = await waitFor((m) => m.t === 'welcome');
   assert.equal(welcome.role, 'guest');
   ws2.send(JSON.stringify({ t: 'ping', c: 123 }));

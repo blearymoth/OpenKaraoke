@@ -3,12 +3,13 @@
 import http from 'node:http';
 import path from 'node:path';
 import { Settings, PUBLIC_DIR, SHARED_DIR, VERSION, makeRoomCode } from './config.js';
-import { LibraryService, normalizePaths } from './library/service.js';
+import { LibraryService, normalizePaths, summaryStatus } from './library/service.js';
+import { Room } from './room/room.js';
 import { Router, text, redirect } from './http/router.js';
 import { serveStatic } from './http/static.js';
 import { MediaService } from './http/media.js';
 import { registerApi } from './http/api.js';
-import { Hub, WsError } from './ws/hub.js';
+import { Hub } from './ws/hub.js';
 import { Auth } from './room/auth.js';
 import { lanAddresses } from './util/net.js';
 import { logger } from './util/log.js';
@@ -63,8 +64,8 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
   registerApi(router, {
     library, settings, auth,
     info: (req) => app.info(req),
-    decorate: (song) => app.room?.decorate(song),
-    updateSettings: (patch) => (app.room ? app.room.updateSettings(patch) : settings.update(patch)),
+    decorate: (song) => app.room.decorate(song),
+    updateSettings: (patch) => app.room.updateSettings(patch),
   });
 
   // App shells and static folders
@@ -100,7 +101,9 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
 
   const hub = new Hub({ server });
   app.hub = hub;
-  hub.onHello = (client, msg) => (app.room ? app.room.hello(client, msg) : basicHello(app, client, msg));
+  const room = new Room(app);
+  app.room = room;
+  hub.onHello = (client, msg) => room.hello(client, msg);
 
   // Library progress for host screens (the Room adds richer state later).
   let lastProgress = 0;
@@ -110,7 +113,6 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
     lastProgress = now;
     hub.broadcast({ t: 'lib', status: { ...summaryStatus(library.status()), progress: p } }, (c) => c.role === 'host');
   });
-  library.on('status', (s) => hub.broadcast({ t: 'lib', status: summaryStatus(s) }, (c) => c.role === 'host' || c.role === 'tv'));
 
   app.listen = (p = port, host = args.host || settings.get('server.host') || '0.0.0.0') => new Promise((resolve, reject) => {
     const onError = (e) => { server.off('listening', onListening); reject(e); };
@@ -125,7 +127,10 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
   });
 
   app.start = async ({ scan = !args.noScan && settings.get('library.rescanOnStart') } = {}) => {
+    await room.init();
     await library.init({ scan, watch: watchIntervalMs > 0 });
+    room.syncPlays();
+    room.touch();
     return app;
   };
 
@@ -134,31 +139,9 @@ export async function createApp({ dataDir, args = {}, log = logger('server'), wa
     await new Promise((r) => server.close(() => r()));
     server.closeAllConnections?.();
     await library.close();
-    if (app.room) await app.room.close();
+    await room.close();
     await settings.flush();
   };
 
   return app;
-}
-
-export function summaryStatus(s) {
-  return {
-    state: s.state, tracks: s.tracks, songs: s.songs, artists: s.artists,
-    roots: s.roots, progress: s.progress, lastScan: s.lastScan && { at: s.lastScan.at, ms: s.lastScan.ms, errorCount: s.lastScan.errorCount, changed: s.lastScan.changed },
-  };
-}
-
-/** Minimal role check used before the Room is attached. */
-function basicHello(app, client, msg) {
-  const role = msg.role;
-  if (role === 'host') {
-    if (app.auth.trustsLocal(client.ip) || app.auth.verify(msg.token, 'host')) return { role };
-    throw new WsError('PIN required', 'pin');
-  }
-  if (role === 'tv') return { role };
-  if (role === 'guest') {
-    if (String(msg.room || '').toUpperCase() !== app.settings.get('party.roomCode')) throw new WsError('Unknown room code', 'room');
-    return { role };
-  }
-  throw new WsError('Unknown role');
 }

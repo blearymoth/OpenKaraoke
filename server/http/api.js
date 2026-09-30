@@ -47,6 +47,14 @@ export function registerApi(router, ctx) {
 
   router.get('/api/library/status', (req, res) => json(res, 200, library.status()));
 
+  // Remote host login: PIN -> host token (the PC itself never needs it).
+  router.post('/api/auth/pin', async (req, res) => {
+    const body = await readJsonBody(req, 4096);
+    const r = auth.checkPin(body.pin, req.socket.remoteAddress);
+    if (!r.ok) throw new HttpError(403, r.error);
+    json(res, 200, { token: auth.sign('host', String(body.deviceId || 'web').slice(0, 40)) });
+  });
+
   router.post('/api/library/rescan', (req, res) => {
     requireHost(req);
     library.scan({ reason: 'host' }).catch(() => {});
@@ -144,10 +152,10 @@ export function registerApi(router, ctx) {
   });
 
   // Artwork: placeholders until the artwork service (M5) provides real covers.
-  router.get('/api/art/song/:id', (req, res, { params }) => {
+  router.get('/api/art/song/:id', (req, res, { params, query }) => {
     if (ctx.art?.song) return ctx.art.song(req, res, params.id);
     const s = cat().song(params.id);
-    const svg = placeholderSvg({ artist: s?.artist || '', title: s?.title || '' });
+    const svg = placeholderSvg({ artist: s?.artist || '', title: s?.title || '', plain: query.get('plain') === '1' });
     text(res, 200, svg, 'image/svg+xml', { 'cache-control': 'public, max-age=86400' });
   });
 

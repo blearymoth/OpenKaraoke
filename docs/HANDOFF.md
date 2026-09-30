@@ -1,12 +1,15 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-09-30 (second build session: M1 done)._
+_Last updated: 2026-09-30 (second build session: M1 + M2 done)._
 
 ## TL;DR
-- **M0 (foundation)** and **M1 (server runs)** are done and tested. `npm start -- --library <folder>`
-  starts the server: it loads the cached index, rescans in the background, serves the JSON API,
-  streams media with HTTP Range, and accepts WebSocket clients. `npm test` → all green.
-- Next: **M2 TV player**, **M3 room + host app**, **M4 guest app** (full spec in `docs/PLAN.md`).
+- **M0 (foundation)**, **M1 (server runs)** and **M2 (TV player)** are done and tested.
+  `npm start -- --library <folder>` serves the API/media/WebSocket; `/tv` plays CDG+audio with
+  key/tempo/channel modes, shows the QR lobby, next-singer intro, lyrics stage and overlays.
+- The **Room** (queue, rotation, player state machine, guests, displays) already exists on the
+  server with tests — M3 adds the host UI on top of it, M4 the guest UI.
+- No real library in the cloud session: use `node scripts/make-demo-library.js <dir>` (7 synthetic
+  songs incl. multiplex, duet, explicit and a zipped track) to try everything.
 
 ## What was verified
 | Check | Result |
@@ -64,24 +67,26 @@ What exists now (see the code map in `CLAUDE.md`):
 - `server/app.js` (wiring, testable) + `server/index.js` (CLI) + `bin/openkaraoke.sh`.
 - `--library` **replaces** the saved library folders; `--port`/`--host` are not saved; `--pin` is.
 
-### M2 — TV player
-`shared/cdg.js` (spec PLAN §9.2, write a synthetic-CDG unit test), `public/js/lib/audio-engine.js`
-(PLAN §9.3 — Signalsmith buffer mode, own time map, channel matrix, fades, loudness), `/tv`
-page with idle lobby (QR via `/api/qr.svg`), intro card, singing overlays, click-to-start,
-keyboard shortcuts. Test with real tracks from the drive in Chrome.
-
-Signalsmith usage sketch:
-```js
-import SignalsmithStretch from '/js/vendor/signalsmith-stretch.mjs';
-const ctx = new AudioContext();
-const stretch = await SignalsmithStretch(ctx);           // AudioWorkletNode + helpers
-stretch.connect(matrixInput);
-const buf = await ctx.decodeAudioData(await (await fetch(`/media/${id}/audio`)).arrayBuffer());
-await stretch.addBuffers([buf.getChannelData(0), buf.getChannelData(1 % buf.numberOfChannels)]);
-const t0 = ctx.currentTime + 0.1;
-stretch.schedule({ active: true, output: t0, input: 0, rate: 1, semitones: 0 }); // remember (t0, input, rate)
-// key change later: stretch.schedule({ output: ctx.currentTime + 0.05, input: currentInputTime(), rate, semitones: +2 })
-```
+### M2 — TV player ✅ (done in session 2)
+- `shared/cdg.js` — isomorphic CDG decoder (all instructions, smooth-scroll offsets, transparency,
+  `scale2x`, `pickLyricsFrame`); `scripts/lib/cdg-writer.js` encodes CDG for tests/demo.
+- `public/js/lib/audio-engine.js` — Web Audio + Signalsmith Stretch (buffer mode) with our own
+  time map, 2×2 channel matrix (stereo/left/right/mono/vocal-cut), loudness gain (RMS → −17 dB,
+  ±9 dB), fades; element mode for video (key via a second stretch node in live mode, tempo via
+  `playbackRate`).
+- `public/js/lib/cdg-canvas.js` (renderer), `public/js/tv/player.js` (reconciles the server's
+  desired player state: load/decode, play/pause/seek via `seekSeq`, key/tempo/channel/volume,
+  reports `tv.status` 4×/s, `tv.ended`, `tv.error`, preloads the next song in the last 45 s;
+  mirrors follow `time` messages muted), `public/js/tv/main.js` + `css/tv.css` (lobby with QR +
+  Wi-Fi QR, intro countdown card, stage with singer chip, mini QR, title card, "up next" banner,
+  progress, ticker, reactions, announcements, click-to-start gate, pairing screen, keyboard
+  shortcuts: space/k, →/n, ←, ↑/↓ volume, +/− key, [ ] tempo, f fullscreen).
+- `bin/open-tv.sh` — kiosk Chromium on the non-primary monitor (xrandr) with autoplay allowed.
+- Verified in headless Chromium against the demo library: lyrics + word highlighting render,
+  position advances, key change, tempo 1.2 (2.42 s in 2 s), pause, seek, vocal-cut, auto-advance,
+  mirror display in sync with the main display, click-to-start gate, no console errors.
+- **Still to verify on the PC**: real MP3+CDG files from the drive, audio output latency vs.
+  lyrics (tune `playback.lyricOffsetMs` if needed), a real second screen with `bin/open-tv.sh`.
 
 ### M3 → M7
 See `docs/PLAN.md` §18. M4 completes the first party-ready version (host + TV + guests).

@@ -280,3 +280,11 @@ export class LibraryService extends EventEmitter {
     if (this._scanning) await this._scanning.catch(() => {});
   }
 }
+
+/** Compact library status for clients. */
+export function summaryStatus(s) {
+  return {
+    state: s.state, tracks: s.tracks, songs: s.songs, artists: s.artists,
+    roots: s.roots, progress: s.progress, lastScan: s.lastScan && { at: s.lastScan.at, ms: s.lastScan.ms, errorCount: s.lastScan.errorCount, changed: s.lastScan.changed },
+  };
+}

@@ -67,6 +67,9 @@ conn.on('notify', (m) => {
     toast(`${m.by} can’t join ${m.title} this time`, 'info', 5000);
   } else if (m.kind === 'cohost') {
     toast('The host made you a co-host: player controls are on your Home tab.', 'ok', 6000);
+  } else if (m.kind === 'game' && typeof m.text === 'string') {
+    toast(m.text.slice(0, 140), 'ok', 6000); // a party game calls on this guest (wheel result…)
+    buzz([200, 100, 200]);
   }
 });
 

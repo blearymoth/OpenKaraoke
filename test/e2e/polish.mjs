@@ -17,8 +17,9 @@ const { chromium } = loadPlaywright();
 const { app, base } = await startParty();
 const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
 const errors = [];
+let expect429 = false; // a refused search is simulated below; Chrome logs the 429 itself
 const watch = (page, name) => {
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(`${name}: ${m.text()}`); });
+  page.on('console', (m) => { if (m.type() === 'error' && !(expect429 && /status of 429/.test(m.text()))) errors.push(`${name}: ${m.text()}`); });
   page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
   return page;
 };
@@ -95,6 +96,22 @@ try {
   };
   const ann = await phone('Ann');
   const bob = await phone('Bob');
+
+  // Too many searches from one Wi-Fi: the phone says to wait (not "No songs found") and can retry.
+  await bob.click('.g-tabs button:has-text("Songs")');
+  await bob.waitForSelector('.g-songs .song-row');
+  expect429 = true;
+  await bob.route('**/api/search?*', (route) => route.fulfill({ status: 429, contentType: 'application/json', body: JSON.stringify({ error: 'Too many searches — wait a few seconds.' }) }));
+  await bob.fill('.g-search input', 'kitchen');
+  check(await bob.waitForSelector('.empty:has-text("wait a few seconds") .btn:has-text("Try again")', { timeout: 5000 }).then(() => true, () => false), 'a refused search asks to wait, with a retry');
+  check(!(await bob.$('.empty:has-text("No songs found")')), 'a refused search does not claim the song is missing');
+  await shot(bob, 'bob-search-429');
+  await bob.unroute('**/api/search?*');
+  await bob.click('.empty .btn:has-text("Try again")');
+  check(await bob.waitForSelector('.g-songs .song-row:has-text("Kitchen")', { timeout: 5000 }).then(() => true, () => false), 'Try again loads the results');
+  expect429 = false;
+
+  // Bob stays on the Songs tab: the invitation must reach him there (and survive a reload).
   await ann.click('.g-tabs button:has-text("Songs")');
   await ann.fill('.g-search input', 'kitchen');
   await ann.click('.g-songs .song-row:has-text("Kitchen")');
@@ -106,13 +123,28 @@ try {
   const sheetError = await ann.$('.sheet-error');
   check(!sheetError, `Ann requested a duet with Bob${sheetError ? ` (${await sheetError.textContent()})` : ''}`);
   await ann.click(sheetError ? '.sheet-close' : '.sheet-done .btn');
-  await bob.waitForSelector('.invite-card', { timeout: 5000 });
+  check(await bob.waitForSelector('.g-dock .invite-card:has-text("Ann wants to sing")', { timeout: 5000 }).then(() => true, () => false), 'Bob sees the invitation on the Songs tab');
+  check(await bob.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 0, 'the invitation fits the phone (no sideways scrolling)');
   await shot(bob, 'bob-invite');
+  await bob.reload();
+  check(await bob.waitForSelector('.g-dock .invite-card', { timeout: 8000 }).then(() => true, () => false), 'the invitation is still there after a reload');
   await bob.click('.invite-card .btn.primary');
   await sleep(400);
   const duet = app.room.s.queue.find((e) => e.title.startsWith('Singing In The Kitchen'));
   check(duet?.singerIds.length === 2 && duet.singerIds[1] === bobSinger.id, 'Bob accepted the duet invitation');
   check(await ann.waitForSelector('.toast:has-text("Bob will sing")', { timeout: 5000 }).then(() => true, () => false), 'Ann is told that Bob joined');
+  check(await bob.waitForSelector('.invite-card', { state: 'detached', timeout: 5000 }).then(() => true, () => false), 'the answered invitation goes away');
+
+  // Bob can turn invitations off on his Me tab (and back on).
+  await bob.click('.g-tabs button:has(span:text-is("Me"))');
+  const invitesSwitch = '.toggle-row:has-text("Duet invitations") input';
+  await bob.setChecked(invitesSwitch, false);
+  await sleep(300);
+  await shot(bob, 'bob-me-invites-off');
+  check(app.room.profileOf(bobSinger.deviceId)?.noInvites === true && !app.room.duetPartners().some((x) => x.id === bobSinger.id), 'Bob turned duet invitations off');
+  await bob.setChecked(invitesSwitch, true);
+  await sleep(300);
+  check(!app.room.profileOf(bobSinger.deviceId)?.noInvites, 'and back on');
 
   await host.goto(`${base}/host#/singers`);
   await host.click('tr:has-text("Ann") button:has-text("Make co-host")');

@@ -222,10 +222,13 @@ export function usePaged(path, params, pageSize = 60) {
     setItems([]);
     setTotal(0);
     setMeta({});
+    setError(null);
     load(0);
   }, [key]);
   const more = useCallback(() => { if (!loading && items.length < total) load(items.length); }, [loading, items.length, total, load]);
-  return { items, total, loading, error, more, meta, hasMore: items.length < total };
+  /** Loads the page that failed again (the first one, or the next after what is shown). */
+  const retry = useCallback(() => { if (!loading) load(items.length); }, [loading, items.length, load]);
+  return { items, total, loading, error, more, retry, meta, hasMore: items.length < total };
 }
 
 export function copyText(text) {

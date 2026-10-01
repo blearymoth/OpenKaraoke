@@ -18,6 +18,7 @@ const store = createStore({
   tab: 'home',
   sheet: null, // song id
   alert: null, // { kind: 'next' | 'now', title }
+  rateHidden: null, // entry id of a rating prompt the guest put away
   time: null,
 });
 
@@ -58,8 +59,8 @@ conn.on('notify', (m) => {
     toast(`The host added ${m.title} to the queue`, 'ok');
   } else if (m.kind === 'rejected') {
     toast(`The host passed on ${m.title} this time`, 'error', 5000);
-  } else if (m.kind === 'duet') {
-    store.update({ invite: { entryId: m.entryId, title: m.title, by: m.by } });
+  } else if (m.kind === 'duet') { // the card itself comes with the state (me.invites), in the dock
+    if (store.get().sheet) toast(`${m.by || 'Someone'} invited you to sing ${m.title} 🎶`, 'ok', 6000); // the sheet covers the dock
     buzz([80, 60, 80]);
   } else if (m.kind === 'duet-yes') {
     toast(`${m.by} will sing ${m.title} with you 🎶`, 'ok', 5000);
@@ -254,6 +255,7 @@ function QueueList({ items, state, compact }) {
 
 // ---- tabs -----------------------------------------------------------------------------------------
 
+/** "How was …?" after a song: shown on every tab (in the dock) while the rating is open. */
 function RateCard({ r }) {
   const [busy, setBusy] = useState(false);
   const rate = async (stars) => {
@@ -261,11 +263,13 @@ function RateCard({ r }) {
     if (await ask('rate', { entryId: r.entryId, stars })) buzz(20);
     setBusy(false);
   };
-  return html`<section class="rate-card">
-    <b>How was ${singersText(r.singers) || 'that'}? ⭐</b>
-    <p class="muted ellipsis">${r.title} · ${r.artist}</p>
+  return html`<section class="rate-card" aria-label="Rate the performance">
+    <div class="rate-head">
+      <div class="grow"><b class="ellipsis">How was ${singersText(r.singers) || 'that'}? ⭐</b>
+        <p class="muted ellipsis">${r.mine ? 'Thanks! You can still change it.' : `${r.title} · ${r.artist}`}</p></div>
+      <button class="icon-btn small" aria-label="Not now" onClick=${() => store.update({ rateHidden: r.entryId })}><${Icon} name="x" size=${18} /></button>
+    </div>
     <div class="rate-stars" role="radiogroup" aria-label="Stars">${[1, 2, 3, 4, 5].map((n) => html`<button role="radio" aria-checked=${r.mine === n} aria-label=${`${n} star${n > 1 ? 's' : ''}`} class=${n <= r.mine ? 'on' : ''} disabled=${busy} onClick=${() => rate(n)}>★</button>`)}</div>
-    <p class="hint">${r.mine ? 'Thanks! You can change it for a few more seconds.' : 'Tap the stars to rate the performance.'}</p>
   </section>`;
 }
 
@@ -331,17 +335,44 @@ function PhotoCard({ state }) {
   </section>`;
 }
 
-/** A duet invitation from another guest: join or decline. */
-function InviteCard({ invite }) {
+/**
+ * A duet invitation from another guest (from the state, so it survives a locked phone or a
+ * reload): join or decline. The next state drops it once answered.
+ */
+function InviteCard({ invite, more }) {
+  const [busy, setBusy] = useState(false);
   const answer = async (accept) => {
+    setBusy(true);
     await ask('duet.answer', { entryId: invite.entryId, accept });
-    store.update({ invite: null });
+    setBusy(false);
   };
+  const when = invite.position === 1 || (invite.eta != null && invite.eta < 45) ? 'up next' : formatEta(invite.eta);
   return html`<section class="invite-card" role="alert">
     <div class="big-emoji">🎶</div>
-    <div class="grow"><b>${invite.by} wants to sing “${invite.title}” with you</b>
-      <div class="btn-row"><button class="btn primary" onClick=${() => answer(true)}>Let’s sing!</button><button class="btn ghost" onClick=${() => answer(false)}>No thanks</button></div></div>
+    <div class="grow"><b>${invite.by?.name || 'Someone'} wants to sing “${invite.title}” with you</b>
+      <p class="muted ellipsis">${[invite.artist, when, more ? `${plural(more, 'more invitation')} waiting` : ''].filter(Boolean).join(' · ')}</p>
+      <div class="btn-row"><button class="btn primary" disabled=${busy} onClick=${() => answer(true)}>Let’s sing!</button><button class="btn ghost" disabled=${busy} onClick=${() => answer(false)}>No thanks</button></div></div>
   </section>`;
+}
+
+/** Prompts that must be seen on every tab — duet invitations, the rating — above the tab bar. */
+function Dock({ children }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    const app = el?.parentElement;
+    if (!el || !app) return undefined;
+    // Room for the dock under the page and the toasts (it covers the bottom of the screen).
+    const fit = () => app.style.setProperty('--dock-h', `${el.offsetHeight}px`);
+    fit();
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(fit) : null;
+    ro?.observe(el);
+    return () => {
+      ro?.disconnect();
+      app.style.removeProperty('--dock-h');
+    };
+  }, []);
+  return html`<div class="g-dock" ref=${ref}>${children}</div>`;
 }
 
 /** Player and request controls for a guest the host made co-host. */
@@ -364,11 +395,8 @@ function CoHostCard({ cohost, state }) {
 }
 
 function HomeTab({ state }) {
-  const invite = useStore(store).invite;
   return html`<div class="g-page">
-    ${invite && html`<${InviteCard} invite=${invite} />`}
     ${state.cohost && html`<${CoHostCard} cohost=${state.cohost} state=${state} />`}
-    ${state.rating && !state.rating.own && html`<${RateCard} r=${state.rating} />`}
     <${MyTurn} state=${state} />
     <${NowSinging} state=${state} />
     ${state.rules.reactions && state.current && html`<${Reactions} />`}
@@ -388,6 +416,14 @@ function Rules({ rules }) {
   if (rules.maxDuration) lines.push(`songs up to ${Math.round(rules.maxDuration / 60)} minutes`);
   if (!lines.length) return null;
   return html`<p class="hint rules">House rules: ${lines.join(', ')}.</p>`;
+}
+
+/** A list that failed to load (e.g. too many searches from this Wi-Fi at once): say so, offer a retry. */
+function LoadError({ error, onRetry, big = true }) {
+  const retry = html`<button class="btn small" onClick=${onRetry}>Try again</button>`;
+  if (!big) return html`<p class="hint load-error">${error.message} ${retry}</p>`;
+  const busy = error.status === 429;
+  return html`<${Empty} icon=${busy ? '⏳' : '⚠️'} title=${busy ? 'One moment…' : 'That didn’t load'}><p>${error.message}</p>${retry}</${Empty}>`;
 }
 
 function SearchTab({ state }) {
@@ -424,13 +460,14 @@ function SearchTab({ state }) {
     ${!query.trim() && mode.kind === 'artist'
       ? html`<${ArtistBrowser} mode=${mode} setMode=${setMode} letters=${facets.data?.letters || []} />`
       : html`
-        ${query.trim() && !page.loading && html`<p class="hint">${plural(page.total, 'song')}${page.meta.fuzzy ? ' (close matches)' : ''}</p>`}
+        ${query.trim() && !page.loading && !page.error && html`<p class="hint">${plural(page.total, 'song')}${page.meta.fuzzy ? ' (close matches)' : ''}</p>`}
         <div class="g-songs">${page.items.map((s) => html`<${SongRow} key=${s.id} song=${s} onOpen=${() => openSong(s.id)}>
           <button class="icon-btn add" aria-label=${`Sing ${s.title}`} onClick=${() => openSong(s.id)}><${Icon} name="plus" size=${22} /></button>
         </${SongRow}>`)}</div>
-        ${!page.items.length && !page.loading && query.trim() && html`<${Empty} icon="🤷" title="No songs found">Try fewer words, or just the artist.</${Empty}>`}
+        ${page.error && !page.loading && html`<${LoadError} error=${page.error} onRetry=${page.retry} big=${!page.items.length} />`}
+        ${!page.items.length && !page.loading && !page.error && query.trim() && html`<${Empty} icon="🤷" title="No songs found">Try fewer words, or just the artist.</${Empty}>`}
         ${page.loading && !page.items.length && html`<${Spinner} />`}
-        <${MoreSentinel} active=${page.hasMore} onMore=${page.more} />`}
+        <${MoreSentinel} active=${page.hasMore && !page.error} onMore=${page.more} />`}
   </div>`;
 }
 
@@ -443,7 +480,7 @@ function ArtistBrowser({ mode, setMode, letters }) {
       ${artist.data ? html`<h2 class="g-h2">${artist.data.artist.name}</h2>
         <div class="g-songs">${artist.data.songs.map((s) => html`<${SongRow} key=${s.id} song=${s} onOpen=${() => openSong(s.id)}>
           <button class="icon-btn add" aria-label=${`Sing ${s.title}`} onClick=${() => openSong(s.id)}><${Icon} name="plus" size=${22} /></button>
-        </${SongRow}>`)}</div>` : html`<${Spinner} />`}
+        </${SongRow}>`)}</div>` : artist.error ? html`<${LoadError} error=${artist.error} onRetry=${artist.reload} />` : html`<${Spinner} />`}
     </div>`;
   }
   return html`<div>
@@ -451,7 +488,8 @@ function ArtistBrowser({ mode, setMode, letters }) {
     <div class="g-artists">${list.items.map((a) => html`<button key=${a.key} onClick=${() => setMode({ kind: 'artist', letter: mode.letter, artist: a.key })}>
       <span class="ellipsis">${a.name}</span><small class="faint">${a.count}</small>
     </button>`)}</div>
-    <${MoreSentinel} active=${list.hasMore} onMore=${list.more} />
+    ${list.error && !list.loading && html`<${LoadError} error=${list.error} onRetry=${list.retry} big=${!list.items.length} />`}
+    <${MoreSentinel} active=${list.hasMore && !list.error} onMore=${list.more} />
   </div>`;
 }
 
@@ -474,6 +512,11 @@ function QueueTab({ state }) {
 function MeTab({ state }) {
   const [editing, setEditing] = useState(false);
   const me = state.me;
+  const setInvites = async (e) => {
+    const input = e.currentTarget;
+    const allow = input.checked;
+    if (!(await ask('duet.invites', { allow }))) input.checked = !allow; // refused: show how it is
+  };
   const favIds = me.profile?.favorites || [];
   const favs = useFetch(favIds.length ? '/api/songs' : null, { ids: favIds.join(',') }, { ttl: 0 });
   return html`<div class="g-page">
@@ -485,6 +528,9 @@ function MeTab({ state }) {
           <button class="btn small" onClick=${() => setEditing(true)}><${Icon} name="edit" size=${16} /> Edit</button>
         </section>`}
     ${state.rules.photos && html`<${PhotoCard} state=${state} />`}
+    <label class="toggle-row"><span><b>Duet invitations</b><br /><span class="hint">Other guests can ask you to sing a song with them.</span></span>
+      <span class="switch"><input type="checkbox" checked=${me.profile.invites !== false} aria-label="Duet invitations" onChange=${setInvites} /><span></span></span>
+    </label>
     <section>
       <h2 class="g-h2">Your favourites</h2>
       ${!favIds.length && html`<p class="muted">Tap the star on a song to keep it here for next time.</p>`}
@@ -608,13 +654,16 @@ function App() {
   const st = s.state;
   if (!st) return html`<div class="g-gate"><${Spinner} /><p class="muted">Joining the party…</p></div>`;
   if (!st.me.profile) return html`<${Join} state=${st} /><${Toasts} store=${toasts.store} />`;
+  const invites = st.me.invites || [];
+  const rating = st.rating && !st.rating.own && s.rateHidden !== st.rating.entryId ? st.rating : null;
+  const dock = invites.length > 0 || !!rating;
   let view;
   if (s.tab === 'game') view = html`<${GameTab} state=${st} />`;
   else if (s.tab === 'search') view = html`<${SearchTab} state=${st} />`;
   else if (s.tab === 'queue') view = html`<${QueueTab} state=${st} />`;
   else if (s.tab === 'me') view = html`<${MeTab} state=${st} />`;
   else view = html`<${HomeTab} state=${st} />`;
-  return html`<div class="g-app">
+  return html`<div class=${`g-app ${dock ? 'has-dock' : ''}`}>
     <header class="g-top">
       <span class="g-party ellipsis">${st.info.name}</span>
       ${s.status !== 'open' && html`<span class="pill bad">Reconnecting…</span>`}
@@ -622,6 +671,10 @@ function App() {
     </header>
     ${s.alert?.kind === 'next' && html`<${Alert} alert=${s.alert} />`}
     <main class="g-main">${view}</main>
+    ${dock && html`<${Dock}>
+      ${invites.length > 0 && html`<${InviteCard} invite=${invites[0]} more=${invites.length - 1} key=${invites[0].entryId} />`}
+      ${rating && html`<${RateCard} r=${rating} key=${rating.entryId} />`}
+    </${Dock}>`}
     <${Tabs} state=${st} tab=${s.tab} />
     ${s.sheet && html`<${SongSheet} songId=${s.sheet} state=${st} key=${s.sheet} />`}
     ${s.alert?.kind === 'now' && html`<${Alert} alert=${s.alert} />`}

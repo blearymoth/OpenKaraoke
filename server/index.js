@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 // OpenKaraoke server entry point: `node server/index.js [--library <folder>] [--port 8080] …`
-import { parseArgs, HELP, resolveDataDir, VERSION } from './config.js';
+import { parseArgs, HELP, resolveDataDir, VERSION, Settings, applyArgs, listenAddress } from './config.js';
 import { createApp } from './app.js';
 import { logger, setLogLevel } from './util/log.js';
+import { probePort, localAddressFor } from './util/net.js';
+
+// "Won't work until someone changes something" (sysexits EX_CONFIG): the systemd unit
+// written by bin/install-service.sh doesn't restart the server after this exit code.
+const EX_CONFIG = 78;
 
 const [major, minor] = process.versions.node.split('.').map(Number);
 if (major < 18 || (major === 18 && minor < 17)) {
@@ -22,19 +27,42 @@ const log = logger('server');
 process.on('unhandledRejection', (e) => log.error('unhandled promise rejection', e));
 process.on('uncaughtException', (e) => log.error('uncaught exception', e));
 
-const dataDir = resolveDataDir(args);
-const app = await createApp({ dataDir, args, scan: args.noScan ? false : undefined });
-const port = Number.isInteger(args.port) && args.port > 0 ? args.port : Number(process.env.PORT) || app.settings.get('server.port');
-const host = args.host || app.settings.get('server.host');
+const portProblem = (code, port) => {
+  if (code === 'EADDRINUSE') return `Port ${port} is already in use — is OpenKaraoke already running? Try --port ${port + 1}`;
+  if (code === 'EACCES') return `No permission to use port ${port} — pick a port above 1024.`;
+  return null;
+};
+const exitCodeFor = (code) => (code === 'EADDRINUSE' || code === 'EACCES' ? EX_CONFIG : 1);
 
+const dataDir = resolveDataDir(args);
+// The port is checked before the library is loaded (seconds for a big one) and before any
+// file is written: a second copy on a taken port (a service started next to
+// bin/openkaraoke.sh) stops at once instead of reloading everything and saving old settings.
+const settings = new Settings(dataDir);
+await settings.load();
+const { port, host } = listenAddress(args, settings);
+const busy = await probePort(port, host);
+if (busy) {
+  log.error(portProblem(busy, port) || `Cannot listen on ${host}:${port} (${busy})`);
+  process.exit(exitCodeFor(busy));
+}
+if (args.setup) {
+  if (args.library.length || args.pin !== undefined) {
+    applyArgs(settings, args);
+    await settings.flush();
+  }
+  console.log(`${port} ${localAddressFor(host)}`);
+  process.exit(0);
+}
+
+const app = await createApp({ dataDir, args, scan: args.noScan ? false : undefined });
 try {
   await app.listen(port, host);
 } catch (e) {
-  if (e.code === 'EADDRINUSE') log.error(`Port ${port} is already in use — is OpenKaraoke already running? Try --port ${port + 1}`);
-  else if (e.code === 'EACCES') log.error(`No permission to use port ${port} — pick a port above 1024.`);
-  else log.error(e);
-  await app.close().catch(() => {});
-  process.exit(1);
+  log.error(portProblem(e.code, port) || e);
+  // Taken meanwhile: maybe by another OpenKaraoke on this data folder, whose files stay as they are.
+  await app.close({ save: false }).catch(() => {});
+  process.exit(exitCodeFor(e.code));
 }
 
 const info = app.info();
@@ -73,3 +101,4 @@ const shutdown = async (signal) => {
 };
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGHUP', () => shutdown('SIGHUP')); // the terminal of bin/openkaraoke.sh was closed

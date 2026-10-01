@@ -63,6 +63,11 @@ export class JsonDoc {
     return this.writing;
   }
 
+  /** Drops a pending save (a server that could not start must not overwrite the files). */
+  discard() {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+  }
+
   flushSync() {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     writeJsonAtomicSync(this.file, this.data, { pretty: this.pretty });

@@ -122,7 +122,8 @@ export class Room {
     this.doc.save();
   }
 
-  async close() {
+  /** @param {{ save?: boolean }} [opts] save: false leaves state.json as it is on disk */
+  async close({ save = true } = {}) {
     clearTimeout(this.introTimer);
     clearTimeout(this.flushTimer);
     clearTimeout(this.announceTimer);
@@ -131,7 +132,8 @@ export class Room {
     this.game?.dispose();
     this.breakMusic.close();
     this.photos.close();
-    await this.doc.flush();
+    if (save) await this.doc.flush();
+    else this.doc.discard();
   }
 
   // ---- sessions ("tonight") ---------------------------------------------------------

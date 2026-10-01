@@ -197,13 +197,14 @@ export class ArtworkService extends EventEmitter {
     this.evict();
   }
 
-  async close() {
+  /** @param {{ save?: boolean }} [opts] save: false leaves meta.json as it is on disk */
+  async close({ save = true } = {}) {
     this.closed = true;
     for (const t of Object.values(this.timers)) clearTimeout(t);
     clearTimeout(this.crawl.timer);
     for (const job of [...this.jobs.values()]) this.settle(job, null);
     for (const qs of Object.values(this.queues)) for (const q of qs) q.length = 0;
-    if (this.dirty) await this.save();
+    if (this.dirty && save) await this.save();
   }
 
   // ---- persistence -------------------------------------------------------------------------

@@ -76,7 +76,10 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
 - **Preview on headphones**: play a song on the host computer's second audio output.
 - **Printable songbook** (Settings → Library: HTML to print to PDF, or CSV; letter/tag/genre/
   decade/popular filters) — `server/http/songbook.js`.
-- **systemd user service**: `bin/install-service.sh` (`--status`, `--uninstall`).
+- **systemd user service**: `bin/install-service.sh` (`--status`, `--uninstall`). `--library`
+  and `--pin` are saved in the settings once (Settings can change them later); `--port`,
+  `--host`, `--data` go in the unit. Running it again restarts the service with the new options;
+  it refuses while another copy holds the port. A taken port exits with 78 (not retried).
 - **Playlists** (host), **duet invitations** (a guest invites a partner, who accepts on their
   phone; the host picks partners directly), **co-hosts** (the host gives a guest the player and
   queue controls), **"In queue" / "Sung tonight" marks** and **"Most sung here"**, **queue board**

@@ -1,4 +1,5 @@
 import os from 'node:os';
+import net from 'node:net';
 
 const VIRTUAL_IFACE = /^(docker|br-|veth|virbr|vmnet|vboxnet|lxc|lxd|cni|flannel|podman|kube|zt|wg|tun|tap)/i;
 
@@ -84,4 +85,18 @@ export function isTrustedOrigin(origin, extra = []) {
   }
   const h = hostnameOf(url.host);
   return h.endsWith('.localhost') || ownNames(extra).has(h);
+}
+
+/** Resolves to null when `port` can be listened on at `host`, else the error code (EADDRINUSE, EACCES, …). */
+export function probePort(port, host) {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.once('error', (e) => resolve(e.code || 'ERROR'));
+    srv.listen({ port, host, exclusive: true }, () => srv.close(() => resolve(null)));
+  });
+}
+
+/** The address to reach a server listening on `host` from this computer. */
+export function localAddressFor(host) {
+  return !host || host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
 }

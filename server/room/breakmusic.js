@@ -11,7 +11,9 @@ import { logger } from '../util/log.js';
 
 const log = logger('break');
 const FOLDER_RESCAN_MS = 10 * 60_000;
-const MAX_FOLDER_FILES = 5000;
+const MAX_FOLDER_FILES = 5000; // kept per scan (a random sample of a bigger folder: each rescan draws anew)
+const MAX_FOLDER_SEEN = 200_000; // audio files looked at, at most
+const MAX_FOLDER_DIRS = 20_000; // folders read, at most
 const RECENT = 30; // tracks not repeated soon
 const CANDIDATES = 6; // songs drawn per try: some may have no audio on a connected drive
 const RETRY_MS = 60_000; // nothing playable: look again after this (sooner when the library or settings change)
@@ -142,7 +144,8 @@ export class BreakMusic {
     f.scanning = scanAudioFolder(abs)
       .then((files) => {
         Object.assign(f, { dir: abs, at: Date.now(), files });
-        log.info(`${files.length} break music files in ${abs}`);
+        if (files.length) log.info(`${files.length} break music files in ${abs}`);
+        else log.warn(`no audio files in the break music folder ${abs}`);
         if (!this.track) this.room.markDirty();
       })
       .catch((e) => {
@@ -244,27 +247,53 @@ export class BreakMusic {
   }
 }
 
-/** Audio files under `dir` (recursive, hidden folders skipped), at most 5000. */
-export async function scanAudioFolder(dir) {
+/**
+ * Audio files under `dir`: recursive, hidden folders skipped, symbolic links followed (each
+ * folder is read once, so a link back up the tree can't loop). A folder with more than `max`
+ * files gives a random sample of all of them (not just the first folders on the disk).
+ */
+export async function scanAudioFolder(dir, { max = MAX_FOLDER_FILES, random = Math.random } = {}) {
   const out = [];
+  const read = new Set(); // dev:ino of the folders read
+  let seen = 0;
+  const add = (abs, name) => {
+    seen++;
+    const slot = out.length < max ? out.length : Math.floor(random() * seen); // (reservoir sampling)
+    if (slot >= max) return;
+    const base = path.basename(name, path.extname(name));
+    const sep = base.indexOf(' - ');
+    out[slot] = { id: shortId(abs), abs, title: sep > 0 ? base.slice(sep + 3) : base, artist: sep > 0 ? base.slice(0, sep) : '' };
+  };
   const walk = async (d, depth) => {
-    if (depth > 8 || out.length >= MAX_FOLDER_FILES) return;
+    if (depth > 8 || read.size >= MAX_FOLDER_DIRS || seen >= MAX_FOLDER_SEEN) return;
+    let st;
     let entries;
     try {
+      st = await fsp.stat(d);
       entries = await fsp.readdir(d, { withFileTypes: true });
     } catch (e) {
       if (depth === 0) throw e;
       return;
     }
+    const key = `${st.dev}:${st.ino}`;
+    if (read.has(key)) return;
+    read.add(key);
     for (const e of entries) {
-      if (e.name.startsWith('.') || out.length >= MAX_FOLDER_FILES) continue;
+      if (e.name.startsWith('.') || seen >= MAX_FOLDER_SEEN) continue;
       const abs = path.join(d, e.name);
-      if (e.isDirectory()) await walk(abs, depth + 1);
-      else if (e.isFile() && AUDIO_EXTS.has(path.extname(e.name).slice(1).toLowerCase())) {
-        const base = path.basename(e.name, path.extname(e.name));
-        const sep = base.indexOf(' - ');
-        out.push({ id: shortId(abs), abs, title: sep > 0 ? base.slice(sep + 3) : base, artist: sep > 0 ? base.slice(0, sep) : '' });
+      let isDir = e.isDirectory();
+      let isFile = e.isFile();
+      if (e.isSymbolicLink()) {
+        try {
+          const target = await fsp.stat(abs);
+          isDir = target.isDirectory();
+          isFile = target.isFile();
+        } catch {
+          continue; // a broken link
+        }
       }
+      if (isDir) await walk(abs, depth + 1);
+      else if (isFile && AUDIO_EXTS.has(path.extname(e.name).slice(1).toLowerCase())) add(abs, e.name);
     }
   };
   await walk(dir, 0);

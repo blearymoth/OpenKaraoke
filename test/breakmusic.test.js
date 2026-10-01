@@ -218,6 +218,35 @@ test('break music: from a music folder (only scanned files are served)', async (
   }
 });
 
+test('break music folder scan: follows symbolic links (once, no loops) and samples a big folder from end to end', async () => {
+  const root = await tmpDir('ok-music-links-');
+  await writeTree(root, {
+    'music/Real/B - Two.mp3': 100,
+    'other/Artist/A - Song.mp3': 100,
+    'other/Artist/A - Another.ogg': 100,
+    'single/Link Target - Tune.mp3': 100,
+  });
+  const music = path.join(root, 'music');
+  await fs.symlink('../other', path.join(music, 'Library')); // all the music on a second disk
+  await fs.symlink('../other', path.join(music, 'Same Library')); // the same folder twice
+  await fs.symlink('../single/Link Target - Tune.mp3', path.join(music, 'Link - Tune.mp3'));
+  await fs.symlink('..', path.join(music, 'Real', 'up')); // a loop back up the tree
+  await fs.symlink('nowhere', path.join(music, 'Broken - Link.mp3'));
+  const files = await scanAudioFolder(music);
+  assert.deepEqual(files.map((f) => f.title).sort(), ['Another', 'Song', 'Tune', 'Two']);
+  assert.equal(new Set(files.map((f) => f.id)).size, files.length);
+
+  const big = await tmpDir('ok-music-big-');
+  const tree = {};
+  for (let a = 0; a < 30; a++) for (let t = 0; t < 10; t++) tree[`Artist ${a}/Artist ${a} - Song ${t}.mp3`] = 10;
+  await writeTree(big, tree);
+  const sample = await scanAudioFolder(big, { max: 50 });
+  assert.equal(sample.length, 50);
+  assert.equal(new Set(sample.map((f) => f.id)).size, 50, 'no file twice');
+  const artists = new Set(sample.map((f) => f.artist));
+  assert.ok(artists.size > 15, `drawn from the whole folder, not the first few artists (${artists.size} of 30)`);
+});
+
 test('autoplay: an empty queue gets a popular sing-along for everyone after the wait', async () => {
   const { connect, s, room, app } = await setupRoom({ playback: { whenQueueEmpty: 'autoplay', autoplayAfter: 5, countdown: 0 } }, { songs: [...SONGS, ...MORE_SONGS] });
   await connect('host');

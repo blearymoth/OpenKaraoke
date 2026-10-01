@@ -641,3 +641,36 @@ test('quiz: a banned guest leaves the leaderboard, the podium and the recap (and
   await req(host, 'guest.unban', { deviceId: trollId });
   assert.deepEqual(view(tv).game.leaderboard.map((r) => [r.name, r.score]).sort(), [['Ana', 0], ['OffensiveName', 0]], 'unbanned: listed again (0 points for the question they were banned in)');
 });
+
+test('quiz: a double click on the host control moves on once (the answer reveal is never skipped)', async () => {
+  const { req, connect, guest, room, view } = await quizRoom();
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const ana = await guest('Ana');
+  await req(host, 'game.start', { type: 'quiz', config: { questions: 5 } });
+  const g = room.game;
+  const twice = async () => {
+    const step = view(host).game.step;
+    return Promise.all([0, 1].map(() => req(host, 'game.action', { action: 'next', step })));
+  };
+  // "Start the question now" (get-ready → question; the TV hasn't reported the clip yet).
+  let [a, b] = await twice();
+  assert.equal(a.phase, 'question');
+  assert.equal(b.stale, true);
+  assert.equal(g.opened, false, 'the answer timer waits for the clip, not for the second click');
+  await req(tv, 'tv.game', { event: 'clip', q: 0 });
+  await req(ana, 'game.input', { q: 0, choice: songChoice(g) });
+  // "Close the question" → reveal, and stays there.
+  [a, b] = await twice();
+  assert.equal(a.phase, 'reveal');
+  assert.equal(b.stale, true);
+  assert.equal(g.phase, 'reveal');
+  assert.equal(view(ana).game.me.result.correct, true, 'the phones get their result');
+  // A click drawn for an older step (it crossed a timer) does nothing either.
+  const old = view(host).game.step;
+  g.afterReveal();
+  assert.equal((await req(host, 'game.action', { action: 'next', step: old })).stale, true);
+  assert.equal(g.phase, 'get-ready');
+  assert.equal(g.qi, 1);
+  await req(host, 'game.close');
+});

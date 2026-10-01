@@ -67,6 +67,7 @@ export class Game {
     this.config = this.constructor.sanitize(config || {}, room);
     this.phase = 'setup';
     this.phaseEndsAt = 0; // server time (ms) when the current timed phase ends, 0 = untimed
+    this.step = 0; // counts phase changes: host controls name the step they were drawn for
     this.timers = new Set();
     this.ended = false;
     this.startedAt = Date.now();
@@ -109,6 +110,7 @@ export class Game {
   /** Enters `phase`; with `seconds`, calls `next()` when it runs out (shown as a countdown). */
   setPhase(phase, seconds = 0, next = null) {
     this.clearTimers();
+    this.step++;
     this.phase = phase;
     this.phaseEndsAt = seconds > 0 ? this.now() + seconds * 1000 : 0;
     if (seconds > 0 && next) this.later(seconds * 1000, next);
@@ -183,8 +185,8 @@ export class Game {
    * What `ctx.role` ('host' | 'tv' | 'guest', with ctx.deviceId for guests) sees.
    * Subclasses extend it; keep the TV and guest views free of answers before the reveal.
    */
-  view(ctx) { // eslint-disable-line no-unused-vars
-    return {
+  view(ctx) {
+    const v = {
       id: this.id,
       type: this.type,
       label: this.constructor.label,
@@ -193,5 +195,7 @@ export class Game {
       ended: this.ended,
       exclusive: this.constructor.exclusive,
     };
+    if (ctx?.role === 'host') v.step = this.step; // sent back with phase controls (see Room.gameAction)
+    return v;
   }
 }

@@ -166,13 +166,23 @@ try {
       await until(async () => (level = Math.max(level, (await engineState()).level)) > 0.01, 2000);
       check(level > 0.01, `Q${i + 1}: the clip is audible (level ${level.toFixed(3)})`);
     }
-    await bob.click(`.qz-pad .g-answer >> nth=${(q.answer + 1) % 4}`);
-    // Everyone answered → the question closes early.
-    await tv.waitForSelector('.qz-reveal', { timeout: 5000 });
-    const after = Date.now() - g.openedAt;
-    check(after < 7000, `Q${i + 1}: closed early once both phones answered (${(after / 1000).toFixed(1)} s of 10)`);
-    await ann.waitForSelector('.qz-verdict.right');
-    await bob.waitForSelector('.qz-verdict.wrong');
+    if (i === 3) {
+      // Bob doesn't answer; the host double-clicks "Close the question": the reveal stays up.
+      await host.dblclick('.game-live .btn:has-text("Close the question")');
+      await tv.waitForSelector('.qz-reveal', { timeout: 5000 });
+      await sleep(400);
+      check(g.phase === 'reveal' && g.qi === 3 && !!(await tv.$('.qz-reveal')), 'Q4: a double click on "Close the question" shows the answer (doesn’t skip it)');
+      await ann.waitForSelector('.qz-verdict.right');
+      await bob.waitForSelector('.qz-verdict.wrong:has-text("Too slow")');
+    } else {
+      await bob.click(`.qz-pad .g-answer >> nth=${(q.answer + 1) % 4}`);
+      // Everyone answered → the question closes early.
+      await tv.waitForSelector('.qz-reveal', { timeout: 5000 });
+      const after = Date.now() - g.openedAt;
+      check(after < 7000, `Q${i + 1}: closed early once both phones answered (${(after / 1000).toFixed(1)} s of 10)`);
+      await ann.waitForSelector('.qz-verdict.right');
+      await bob.waitForSelector('.qz-verdict.wrong');
+    }
     if (q.clip.reveal) {
       const ok = await until(async () => {
         const e = await engineState();

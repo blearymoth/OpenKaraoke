@@ -579,7 +579,9 @@ export class Battle extends Game {
     switch (m.action) {
       case 'start': return this.hostStart();
       case 'skip': return this.skip();
-      case 'close':
+      case 'close': // "Close voting now": only ever closes a vote (never skips the result screen)
+        if (this.phase !== 'vote' && this.phase !== 'score') fail('Nothing to move on from right now.', 'bad_state');
+        return this.hostNext();
       case 'next': return this.hostNext();
       case 'song': return this.chooseSong(m);
       case 'judge': return this.judge(m);

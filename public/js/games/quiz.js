@@ -85,6 +85,14 @@ export function Control({ game, act, now }) {
   const r = game.round;
   const rv = game.reveal;
   const over = game.phase === 'final' || game.ended;
+  const [busy, setBusy] = useState(false);
+  // `step`: the server ignores the click once the quiz has moved on (a double click, or a click
+  // just as a timer fired), so it never skips the answer reveal.
+  const run = async (body) => {
+    setBusy(true);
+    await act('game.action', { ...body, step: game.step });
+    setBusy(false);
+  };
   return html`<div class="g-control quiz-control">
     <div class="qz-host-status">
       <${Countdown} endsAt=${game.endsAt} total=${game.phaseSeconds || game.seconds} now=${now} />
@@ -100,8 +108,8 @@ export function Control({ game, act, now }) {
       ? html`<${Leaderboard} rows=${game.leaderboard} />`
       : html`<p class="hint">Scores show up here once guests answer on their phones.</p>`}
     ${!game.ended && html`<div class="qz-host-actions">
-      <button class="btn" onClick=${() => act('game.action', { action: 'next' })}>${NEXT_LABEL[game.phase] || 'Next'}</button>
-      ${game.phase !== 'final' && html`<button class="btn ghost" onClick=${() => act('game.action', { action: 'final' })}>Show final results</button>`}
+      <button class="btn" disabled=${busy} onClick=${() => run({ action: 'next' })}>${NEXT_LABEL[game.phase] || 'Next'}</button>
+      ${game.phase !== 'final' && html`<button class="btn ghost" disabled=${busy} onClick=${() => run({ action: 'final' })}>Show final results</button>`}
     </div>`}
   </div>`;
 }

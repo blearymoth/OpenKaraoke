@@ -51,7 +51,7 @@ export class Poll extends Game {
   }
 
   action(client, m) {
-    if (m.action === 'close' && this.phase === 'vote') return this.close();
+    if (m.action === 'close') return this.phase === 'vote' ? this.close() : { winner: this.winner }; // (closed already)
     if (m.action === 'end') return this.end();
     return fail('Unknown poll control.');
   }

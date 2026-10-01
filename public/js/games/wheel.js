@@ -406,9 +406,9 @@ export function Control({ game, act, state }) {
     ${r && !spinning && !game.ended && r.people && html`<p class="hint">${r.notified ? `${r.notified === 1 ? 'Their phone' : `${r.notified} phones`} buzzed.` : 'No phone connected for this result.'}
       ${' '}<button class="btn small ghost" disabled=${busy} onClick=${() => run({ action: 'buzz' })}>Buzz again</button></p>`}
     ${!game.ended && html`<div class="wheel-actions">
-      ${game.phase === 'ready' && html`<button class="btn primary large" disabled=${busy} onClick=${() => run({ action: 'spin' })}>🎡 Spin the wheel!</button>`}
-      ${game.phase === 'result' && html`<button class="btn primary" disabled=${busy} onClick=${() => run({ action: 'spin' })}>🎡 Spin again</button>
-        <button class="btn" disabled=${busy || !game.canRemove} title=${game.canRemove ? '' : 'Only two left on the wheel'} onClick=${() => run({ action: 'spin', remove: true })}>Spin again without “${short(r?.label || '')}”</button>`}
+      ${game.phase === 'ready' && html`<button class="btn primary large" disabled=${busy} onClick=${() => run({ action: 'spin', step: game.step })}>🎡 Spin the wheel!</button>`}
+      ${game.phase === 'result' && html`<button class="btn primary" disabled=${busy} onClick=${() => run({ action: 'spin', step: game.step })}>🎡 Spin again</button>
+        <button class="btn" disabled=${busy || !game.canRemove} title=${game.canRemove ? '' : 'Only two left on the wheel'} onClick=${() => run({ action: 'spin', remove: true, step: game.step })}>Spin again without “${short(r?.label || '')}”</button>`}
       ${spinning && html`<button class="btn primary large" disabled>Spinning…</button>`}
     </div>`}
     <div class="wheel-seglist" aria-label="On the wheel">${game.segments.map((s, i) => html`<span key=${i} class=${`chip ${r && !spinning && r.index === i ? 'on' : ''}`}>

@@ -654,3 +654,28 @@ test('battle: a banned guest’s votes stop counting', async () => {
   assert.equal(sc.view(sc.host).game.perf.score, 8);
   assert.equal(sc.view(sc.tv).game.perf.votes, 1);
 });
+
+test('battle: a double click on “Close voting now” or “Continue” never skips the result screen', async () => {
+  const ctx = await party(['Cy']);
+  const { req, view, tv, host } = ctx;
+  await ctx.start({ format: 'knockout', contestants: ['Ana', 'Bo', 'Cy', 'Di'] });
+  await ctx.perform();
+  await ctx.perform();
+  const twice = async (action) => {
+    const step = view(host).game.step;
+    return Promise.all([0, 1].map(() => req(host, 'game.action', { action, step })));
+  };
+  let [a, b] = await twice('close');
+  assert.equal(b.stale, true);
+  assert.ok(a.winner >= 0);
+  assert.equal(view(tv).game.phase, 'result', 'the result is on the TV');
+  [a, b] = await twice('next');
+  assert.equal(b.stale, true);
+  assert.equal(view(tv).game.phase, 'vs', 'the next match’s intro, not further');
+  // Without a step, "close" outside a vote is refused instead of moving on.
+  await ctx.perform();
+  await ctx.perform();
+  await ctx.act('close');
+  await assert.rejects(ctx.act('close'), /Nothing to move on/);
+  assert.equal(view(tv).game.phase, 'result');
+});

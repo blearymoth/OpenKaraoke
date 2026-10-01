@@ -65,9 +65,12 @@ try {
   check(room().game.votes.size === 2, 'two votes counted');
   await shot(tv, 'tv-poll');
   await shot(ann, 'ann-poll');
-  await host.click('.game-live .btn:has-text("Close voting")');
+  await host.dblclick('.game-live .btn:has-text("Close voting")'); // a double click closes it once
   await tv.waitForSelector('.poll-winner');
   check(room().s.queue[0]?.source === 'game:poll', 'winner queued next');
+  await sleep(300);
+  check(room().game.phase === 'result' && room().s.queue.filter((e) => e.source === 'game:poll').length === 1, 'a double click on "Close voting now" doesn’t skip the result');
+  check(/everybody sing/.test(await tv.textContent('.poll-winner .next')), 'TV: up next, everybody sing');
   await shot(tv, 'tv-poll-winner');
   await host.click('.game-live .btn:has-text("End game")').catch(() => {});
   host.once('dialog', (d) => d.accept());

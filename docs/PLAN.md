@@ -315,6 +315,9 @@ announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve
 game.start {type, config}  game.action {...}  game.answer {...}  game.vote {...}  game.end
 display.approve {code}   tv.status / tv.ended / tv.error / tv.ready   ping {c}
 ```
+`game.action` may carry the game's `step` (in the host view; it counts phase changes): a control
+drawn for an older step is ignored (`{ stale: true }`), so a double click never skips a phase.
+
 Server → client: `welcome`, `state`, `time`, `tv`, `res`, `toast`, `notify` (to one device:
 "You're up next!"), `reaction`, `announce`, `game`, `lib` (scan progress), `art` (song ids whose
 art became available), `pong {c, s}`.

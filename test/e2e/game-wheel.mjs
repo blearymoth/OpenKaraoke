@@ -47,8 +47,8 @@ async function startWheel(host, setup) {
 }
 
 /** Clicks a spin button, checks the secrecy while it turns, returns the result once it stops. */
-async function spinAndLand(host, tv, spy, button, label) {
-  await host.click(`.game-live .btn:has-text("${button}")`);
+async function spinAndLand(host, tv, spy, button, label, { dbl = false } = {}) {
+  await host[dbl ? 'dblclick' : 'click'](`.game-live .btn:has-text("${button}")`);
   await tv.waitForSelector('.wheel-tv .wheel.is-spinning');
   const secret = room().game.spin;
   const st = await spy.until((s) => s.game?.phase === 'spinning' && s.game.spin?.seq === secret.seq, 5000);
@@ -122,8 +122,10 @@ try {
 
   const before = room().game.segments.length;
   const used = result.seg.label;
-  result = await spinAndLand(host, tv, spy, 'Spin again without', 'spin again');
+  const spins = room().game.seq;
+  result = await spinAndLand(host, tv, spy, 'Spin again without', 'spin again', { dbl: true }); // a double click spins once
   check(room().game.segments.length === before - 1 && !room().game.segments.some((x) => x.label === used), 'the used song was taken off the wheel');
+  check(room().game.seq === spins + 1, 'a double click on “Spin again without …” spins once');
   host.once('dialog', (d) => d.accept());
   await host.click('.game-live .btn:has-text("End game")');
   await host.waitForSelector('.game-live .btn:has-text("Close")');

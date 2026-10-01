@@ -151,8 +151,16 @@ try {
       await shot(tv, 'tv-3-vote');
       await shot(host, 'host-vote');
     }
-    await host.click('.game-live .btn:has-text("Close voting now")');
-    await tv.waitForSelector('.bt-result', { timeout: 10000 });
+    if (rounds === 1) {
+      // A double click closes the vote once: the result screen stays up.
+      await host.dblclick('.game-live .btn:has-text("Close voting now")');
+      await tv.waitForSelector('.bt-result', { timeout: 10000 });
+      await sleep(400);
+      check(game().phase === 'result' && !!(await tv.$('.bt-result')), 'a double click on "Close voting now" keeps the result on the TV');
+    } else {
+      await host.click('.game-live .btn:has-text("Close voting now")');
+      await tv.waitForSelector('.bt-result', { timeout: 10000 });
+    }
     const winner = game().contestants[game().match().winner].name;
     const judged = game().match().points;
     check((await tv.textContent('.g-tv-head h1')).includes(winner), `result on the TV: ${winner} wins (${judged.a}–${judged.b})`);

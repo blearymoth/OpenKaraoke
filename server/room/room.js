@@ -316,7 +316,7 @@ export class Room {
       'photo.remove': [H, (c, m) => this.photos.remove(str(m.id, 40))],
       'photo.clear': [H, () => this.photos.removeAll()],
       'game.start': [H, (c, m) => this.gameStart(m)],
-      'game.action': [H, (c, m) => this.activeGame().action(c, m)],
+      'game.action': [H, (c, m) => this.gameAction(c, m)],
       'game.input': [[GUEST], (c, m) => this.gameInput(c, m)],
       'game.end': [H, () => this.gameEnd()],
       'game.close': [H, () => this.gameClose()],
@@ -1294,6 +1294,16 @@ export class Room {
   activeGame() {
     if (!this.game || this.game.ended) fail('No game is running.', 'no_game');
     return this.game;
+  }
+
+  /**
+   * Host controls. A control that names the game's `step` it was drawn for does nothing once
+   * the game has moved on (a double click, or a click that crossed a phase timer).
+   */
+  gameAction(client, m) {
+    const game = this.activeGame();
+    if (m.step !== undefined && m.step !== game.step) return { stale: true, phase: game.phase };
+    return game.action(client, m);
   }
 
   gameInput(client, m) {

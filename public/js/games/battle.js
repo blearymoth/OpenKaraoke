@@ -211,6 +211,14 @@ function phaseText(game) {
 export function Control({ game, act, now }) {
   const ph = game.phase;
   const m = game.match;
+  const [busy, setBusy] = useState(false);
+  // `step`: the server ignores the click once the battle has moved on (a double click on
+  // "Close voting now" must not skip the result screen).
+  const run = async (action) => {
+    setBusy(true);
+    await act('game.action', { action, step: game.step });
+    setBusy(false);
+  };
   const lock = (p) => p.status === 'pending' && (game.songMode !== 'same' || lineup(game).every((x) => x.status === 'pending'));
   const canSong = (p) => !game.ended && lock(p) && (game.format !== 'showcase' || p.id === game.perf?.id || (ph === 'vs' && p.id === game.next?.id));
   const canJudge = (p) => game.judges && !game.ended && (p.status === 'done' || p.status === 'singing') && !m?.decided && !game.ranking;
@@ -223,11 +231,11 @@ export function Control({ game, act, now }) {
     </div>
     ${game.error && html`<p class="warn-text">${game.error}</p>`}
     ${!game.ended && html`<div class="btn-row">
-      ${(ph === 'vs' || ph === 'waiting') && html`<button class="btn primary" onClick=${() => act('game.action', { action: 'start' })}>▶ Start performance</button>`}
-      ${game.stalled && html`<button class="btn primary" onClick=${() => act('game.action', { action: 'start' })}>▶ Sing it again</button>`}
-      ${(ph === 'vs' || ph === 'waiting' || ph === 'singing') && html`<button class="btn" onClick=${() => confirm('Skip this performance? It gets no votes.') && act('game.action', { action: 'skip' })}>Skip performance</button>`}
-      ${(ph === 'vote' || ph === 'score') && html`<button class="btn" onClick=${() => act('game.action', { action: 'close' })}>Close voting now</button>`}
-      ${(ph === 'result' || ph === 'final') && html`<button class="btn" onClick=${() => act('game.action', { action: 'next' })}>Continue</button>`}
+      ${(ph === 'vs' || ph === 'waiting') && html`<button class="btn primary" disabled=${busy} onClick=${() => run('start')}>▶ Start performance</button>`}
+      ${game.stalled && html`<button class="btn primary" disabled=${busy} onClick=${() => run('start')}>▶ Sing it again</button>`}
+      ${(ph === 'vs' || ph === 'waiting' || ph === 'singing') && html`<button class="btn" disabled=${busy} onClick=${() => confirm('Skip this performance? It gets no votes.') && act('game.action', { action: 'skip' })}>Skip performance</button>`}
+      ${(ph === 'vote' || ph === 'score') && html`<button class="btn" disabled=${busy} onClick=${() => run('close')}>Close voting now</button>`}
+      ${(ph === 'result' || ph === 'final') && html`<button class="btn" disabled=${busy} onClick=${() => run('next')}>Continue</button>`}
     </div>`}
     ${ph === 'singing' && !game.stalled && html`<p class="hint">Next on the player bar ends the performance early (voting still happens).</p>`}
     ${m && ph === 'vote' && m.votes && html`<${VoteSplit} game=${game} m=${m} />`}

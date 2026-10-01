@@ -294,7 +294,8 @@ export function apiRoutes(router, app) {
     await readJsonBody(ctx.req, 1024);
     return app.room.pairRequest(ctx.ip);
   });
-  router.get('/api/pair/:id', (ctx) => app.room.pairStatus(ctx.params.id));
+  // The waiting screen follows the skin too (it has no WebSocket state yet).
+  router.get('/api/pair/:id', (ctx) => ({ ...app.room.pairStatus(ctx.params.id), appearance: app.settings.get('appearance') }));
 
   router.post('/api/auth/pin', async (ctx) => {
     const body = await readJsonBody(ctx.req, 4096);

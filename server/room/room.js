@@ -1638,6 +1638,7 @@ export class Room {
     const eta = this.etaList();
     return {
       info: this.publicInfo(),
+      appearance: this.settings.data.appearance,
       display: this.settings.data.display,
       playback: {
         countdown: this.settings.get('playback.countdown'),
@@ -1669,7 +1670,7 @@ export class Room {
     const eta = this.etaList();
     return {
       info: this.publicInfo(),
-      accent: this.settings.get('display.accent'),
+      appearance: this.settings.data.appearance,
       rules: {
         guestsEnabled: this.settings.get('party.guestsEnabled'),
         requireApproval: q.requireApproval,

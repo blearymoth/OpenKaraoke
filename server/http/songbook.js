@@ -8,6 +8,7 @@ import { intParam, sendText } from './router.js';
 import { qrSvg } from '../util/qr.js';
 import { formatDuration } from '../../shared/text.js';
 import { Lru } from '../util/lru.js';
+import { THEMES, normalizeAppearance, accentInk } from '../../shared/themes.js';
 
 const cache = new Lru({ max: 6, maxBytes: 64 * 1024 * 1024 });
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -49,7 +50,7 @@ export function songbookCsv(catalog, songs) {
   return `﻿${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`;
 }
 
-export function songbookHtml(catalog, songs, { title, joinUrl, roomCode, sort = 'artist', columns = 3 } = {}) {
+export function songbookHtml(catalog, songs, { title, joinUrl, roomCode, sort = 'artist', columns = 3, appearance } = {}) {
   const out = [];
   let letter = null;
   let artist = null;
@@ -78,6 +79,9 @@ export function songbookHtml(catalog, songs, { title, joinUrl, roomCode, sort = 
   if (letter !== null) out.push('</section>');
   const qr = joinUrl ? qrSvg(joinUrl, { margin: 0 }) : '';
   const cols = Math.min(4, Math.max(1, columns));
+  const look = normalizeAppearance(appearance); // the on-screen toolbar and headings follow the skin
+  const accent = look.accent || THEMES[look.theme].accent;
+  const headFont = look.theme === 'party' ? "'Bricolage', " : "'Figtree', ";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} · Songbook</title>
 <style>
@@ -92,15 +96,15 @@ header .qr svg { width: 100%; height: 100%; }
 header .join { text-align: right; font-size: 8pt; color: #333; max-width: 60mm; }
 header .join b { font-size: 13pt; letter-spacing: 0.15em; }
 main { column-count: ${cols}; column-gap: 7mm; column-rule: 1px solid #ddd; }
-section.letter h2 { font: 800 15pt/1 'Bricolage', system-ui, sans-serif; margin: 6px 0 3px; padding: 2px 6px; background: #111; color: #fff; break-after: avoid; }
+section.letter h2 { font: 800 15pt/1 ${headFont}system-ui, sans-serif; margin: 6px 0 3px; padding: 2px 6px; background: #111; color: #fff; break-after: avoid; }
 .a { break-inside: avoid; margin: 0 0 4px; }
 .a h3 { font-size: 9pt; margin: 3px 0 1px; }
 .a ul { list-style: none; margin: 0; padding: 0 0 0 8px; }
 .a li, .t { margin: 0; text-indent: -8px; padding-left: 8px; }
 .t span { color: #555; }
 i { font-style: normal; font-size: 7pt; font-weight: 700; color: #b0003a; }
-.toolbar { position: sticky; top: 0; display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: #150f26; color: #fff; font: 14px system-ui, sans-serif; }
-.toolbar button { font: inherit; font-weight: 700; padding: 8px 16px; border: 0; border-radius: 99px; background: #ff3d8b; color: #fff; cursor: pointer; }
+.toolbar { position: sticky; top: 0; display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: ${THEMES[look.theme].themeColor}; color: #fff; font: 14px system-ui, sans-serif; }
+.toolbar button { font: inherit; font-weight: 700; padding: 8px 16px; border: 0; border-radius: ${look.theme === 'party' ? '99px' : '8px'}; background: ${accent}; color: ${accentInk(accent)}; cursor: pointer; }
 .page { padding: 12px 16px; }
 @media print { .toolbar { display: none; } .page { padding: 0; } }
 </style></head><body>
@@ -130,13 +134,14 @@ export function songbookRoutes(router, app, { requireHost }) {
     const catalog = app.library.catalog;
     if (!catalog.songList.length) throw new HttpError(404, 'The library is empty — nothing to print yet.');
     const info = app.info();
-    const key = JSON.stringify([format, opts, catalog.version, catalog.metaVersion, info.name, info.joinUrl]);
+    const appearance = app.settings.get('appearance');
+    const key = JSON.stringify([format, opts, catalog.version, catalog.metaVersion, info.name, info.joinUrl, appearance]);
     let body = cache.get(key);
     if (!body) {
       const songs = songbookSongs(catalog, opts);
       const text = format === 'csv'
         ? songbookCsv(catalog, songs)
-        : songbookHtml(catalog, songs, { title: info.name, joinUrl: info.joinUrl, roomCode: info.roomCode, sort: opts.sort, columns: opts.columns });
+        : songbookHtml(catalog, songs, { title: info.name, joinUrl: info.joinUrl, roomCode: info.roomCode, sort: opts.sort, columns: opts.columns, appearance });
       body = gzipSync(Buffer.from(text), { level: 6 });
       cache.set(key, body);
     }

@@ -143,8 +143,10 @@ try {
         await shot(page, 'cat-2-vote');
       }
     }
-    await until(() => game().match().votes.size === voted, 'votes counted');
-    check([...game().match().votes.values()].every((v) => v === 'b'), `${voted} phone vote(s) counted, changed votes replaced`);
+    // The first tap already makes the count right, so wait for the changed votes themselves.
+    const allB = () => [...game().match().votes.values()].every((v) => v === 'b');
+    await until(() => game().match().votes.size === voted && allB(), 'votes counted').catch(() => {});
+    check(game().match().votes.size === voted && allB(), `${voted} phone vote(s) counted, changed votes replaced`);
     await tv.waitForFunction((n) => document.querySelectorAll('.bt-vote-num')[1]?.textContent.trim() === String(n), voted, { timeout: 5000 });
     check(true, 'TV shows live vote bars');
     if (rounds === 1) {

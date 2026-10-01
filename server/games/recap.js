@@ -1,20 +1,33 @@
 // Party recap (PLAN §13.7): tonight's highlights as slides on the TV (auto-advancing, the host
 // can go back and forth) and as a compact list on the phones.
 //
-// Everything comes from room.s.tonight: `history` (newest first; skipped songs don't count),
-// `games` (winners remembered by Game.summary()) and the singers' current names/avatars.
+// Everything comes from room.s.tonight: `perfs` (every song sung tonight, oldest first — the
+// host's `history` list is capped and has the skipped songs too), `games` (winners remembered
+// by Game.summary()) and the singers' current names/avatars.
 // Slides: totals · top singers (most songs) · best rated (tonight's 1–5 ★ ratings) · most sung
-// artists · crowd favourite (most reactions) · game winners · "Thanks for singing!". Slides
-// without data are left out; a night without songs shows "No songs yet tonight".
+// artists · crowd favourite (most reactions; a tie shows up to 3 joint favourites) · game
+// winners · "Thanks for singing!". Slides without data are left out; a night without songs
+// shows "No songs yet tonight". Ranked lists carry a `rank`: equal scores share a place (1, 1, 3).
+// A rating that closes while the recap runs is added to it straight away.
 import { Game, fail, intIn } from './base.js';
 import { fold } from '../../shared/text.js';
 import { GAME_LABELS } from '../../shared/protocol.js';
 
 export const SLIDE_SECONDS = 7;
 const TOP = 5;
+const MAX_JOINT_FAVOURITES = 3; // more songs tied for the most reactions: nobody stood out
 const EVERYONE = 'everyone'; // the sing-along "singer" (polls, autoplay) isn't a person
 
 const round1 = (x) => Math.round(x * 10) / 10;
+
+/** Standard competition ranking of rows sorted best first: equal `value`s share a place (1, 1, 3). */
+function ranked(rows, value) {
+  let rank = 0;
+  return rows.map((row, i) => {
+    if (i === 0 || value(row) !== value(rows[i - 1])) rank = i + 1;
+    return { ...row, rank };
+  });
+}
 
 /** Names of a history record's singers: [{ key, name, emoji, color }] (current profile when known). */
 function singersOf(h, singerOf) {
@@ -41,19 +54,23 @@ const perfOf = (h, singers) => ({
 /**
  * Tonight's statistics (pure: easy to test).
  * @param {object} p
- * @param {object[]} p.history tonight's history records (newest first, like room.s.tonight.history)
+ * @param {object[]} [p.perfs] tonight's sung songs, oldest first (like room.s.tonight.perfs)
+ * @param {object[]} [p.history] or history records, newest first, skipped songs included
+ *   (like room.s.tonight.history) — used when `perfs` isn't given
  * @param {object[]} [p.games] remembered game results { type, title, winners }
  * @param {(id: string) => object|null} [p.singerOf] current singer by id (name, emoji, color)
  * @param {number} [p.since] when the party started (ms)
  */
-export function buildRecap({ history = [], games = [], singerOf = () => null, since = 0 } = {}) {
-  const done = history.filter((h) => h && !h.skipped).slice().reverse(); // oldest first
+export function buildRecap({ perfs, history = [], games = [], singerOf = () => null, since = 0 } = {}) {
+  const done = Array.isArray(perfs)
+    ? perfs.filter((h) => h && !h.skipped)
+    : (Array.isArray(history) ? history : []).filter((h) => h && !h.skipped).reverse(); // oldest first
   const singerCount = new Map(); // key → { name, emoji, color, songs, stars: [] }
   const artistCount = new Map(); // folded artist → { artist, count, last }
   let seconds = 0;
   let reactions = 0;
   const people = new Set();
-  const perfs = [];
+  const performances = [];
   done.forEach((h, order) => {
     const singers = singersOf(h, singerOf);
     seconds += Math.max(0, Number(h.playedSec) || 0);
@@ -75,34 +92,45 @@ export function buildRecap({ history = [], games = [], singerOf = () => null, si
       artistCount.set(a, row);
     }
     const rating = h.rating && Number(h.rating.n) > 0 && Number.isFinite(Number(h.rating.avg)) ? { avg: round1(Number(h.rating.avg)), n: Math.round(Number(h.rating.n)) } : null;
-    perfs.push({ ...perfOf(h, singers), order, reactions: r, rating });
+    performances.push({ ...perfOf(h, singers), order, reactions: r, rating });
   });
-  const topSingers = [...singerCount.values()]
+  // (ties: most songs / best average / most sung share a place; then the order shown)
+  const topSingers = ranked([...singerCount.values()]
     .sort((a, b) => b.songs - a.songs || a.last - b.last || a.name.localeCompare(b.name))
     .slice(0, TOP)
-    .map(({ name, emoji, color, songs }) => ({ name, emoji, color, songs }));
-  const bestRated = perfs.filter((p) => p.rating)
+    .map(({ name, emoji, color, songs }) => ({ name, emoji, color, songs })), (s) => s.songs);
+  const bestRated = ranked(performances.filter((p) => p.rating)
     .sort((a, b) => b.rating.avg - a.rating.avg || b.rating.n - a.rating.n || a.order - b.order)
     .slice(0, TOP)
-    .map(({ order, reactions: _r, ...p }) => p);
-  const topArtists = [...artistCount.values()]
+    .map(({ order, reactions: _r, ...p }) => p), (p) => p.rating.avg);
+  const topArtists = ranked([...artistCount.values()]
     .sort((a, b) => b.count - a.count || b.last - a.last || a.artist.localeCompare(b.artist))
     .slice(0, TOP)
-    .map(({ artist, count }) => ({ artist, count }));
-  const fav = perfs.filter((p) => p.reactions > 0)
-    .sort((a, b) => b.reactions - a.reactions || (b.rating?.avg || 0) - (a.rating?.avg || 0) || a.order - b.order)[0];
-  const favourite = fav ? (({ order, ...p }) => p)(fav) : null;
+    .map(({ artist, count }) => ({ artist, count })), (a) => a.count);
+  // Crowd favourite: the most reactions. Songs tied on that are joint favourites (the better
+  // rated first); when more than a few tie, nobody stood out and the slide is left out.
+  const most = Math.max(0, ...performances.map((p) => p.reactions));
+  const tied = most > 0 ? performances.filter((p) => p.reactions === most) : [];
+  const favourites = tied.length <= MAX_JOINT_FAVOURITES
+    ? tied.sort((a, b) => (b.rating?.avg || 0) - (a.rating?.avg || 0) || a.order - b.order).map(({ order, ...p }) => p)
+    : [];
   const gameList = (Array.isArray(games) ? games : [])
     .filter((g) => g && Array.isArray(g.winners) && g.winners.length)
     .slice(-12)
-    .map((g) => ({ type: String(g.type || ''), label: Object.hasOwn(GAME_LABELS, g.type) ? GAME_LABELS[g.type] : 'Game', title: String(g.title || 'Winner'), winners: g.winners.slice(0, 6).map(String) }));
+    .map((g) => {
+      const label = Object.hasOwn(GAME_LABELS, g.type) ? GAME_LABELS[g.type] : 'Game';
+      let title = String(g.title || 'Winner');
+      // (results remembered before summaries stopped repeating the game's name: "Roulette wheel · Singers")
+      if (title.startsWith(`${label} · `)) title = title.slice(label.length + 3) || 'Winner';
+      return { type: String(g.type || ''), label, title, winners: g.winners.slice(0, 6).map(String) };
+    });
   return {
     since,
     totals: { songs: done.length, minutes: Math.round(seconds / 60), singers: people.size, reactions, games: gameList.length },
     topSingers,
     bestRated,
     topArtists,
-    favourite,
+    favourites,
     games: gameList,
   };
 }
@@ -115,7 +143,7 @@ export function slidesFor(recap) {
   if (recap.topSingers.length) slides.push('singers');
   if (recap.bestRated.length) slides.push('rated');
   if (recap.topArtists.length && t.songs >= 2) slides.push('artists');
-  if (recap.favourite) slides.push('favourite');
+  if (recap.favourites.length) slides.push('favourite');
   if (recap.games.length) slides.push('games');
   slides.push('thanks');
   return slides;
@@ -139,12 +167,26 @@ export class Recap extends Game {
   build() {
     const s = this.room.s;
     this.recap = buildRecap({
-      history: s.tonight.history,
+      perfs: s.tonight.perfs,
       games: s.tonight.games,
       singerOf: (id) => this.room.singer(id),
       since: s.session?.startedAt || 0,
     });
     this.slides = slidesFor(this.recap);
+  }
+
+  /** Builds the statistics again (songs sung, ratings closed meanwhile); the current slide stays up. */
+  rebuild({ restart = true } = {}) {
+    const cur = this.slides[this.index];
+    const before = this.slides.join();
+    this.build();
+    if (restart || this.slides.join() !== before) this.show(Math.max(0, this.slides.indexOf(cur)));
+    else this.room.markDirty();
+  }
+
+  /** The rating of the last song closed after the recap started: count it in. */
+  onRatingClosed() {
+    this.rebuild({ restart: false });
   }
 
   /** Shows slide `i`; while auto-advancing, the next one follows after `seconds`. */
@@ -178,12 +220,9 @@ export class Recap extends Game {
         this.auto = true;
         this.show(this.index);
         return { auto: true };
-      case 'refresh': {
-        const cur = this.slides[this.index];
-        this.build();
-        this.show(Math.max(0, this.slides.indexOf(cur)));
+      case 'refresh':
+        this.rebuild();
         return { slides: this.slides.length };
-      }
       case 'end': return this.end();
       default: return fail('Unknown recap control.');
     }

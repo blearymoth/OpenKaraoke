@@ -16,7 +16,7 @@
 /* ---- TV: the flash -------------------------------------------------------------------- */
 .rl-flash {
   position: absolute; left: 0; right: 0; top: 50%; z-index: 7;
-  display: flex; align-items: center; justify-content: center; gap: 3.5vh;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2vh 3.5vh;
   padding: 5vh 6vw; transform: translateY(-50%);
   background: linear-gradient(90deg, rgba(21, 15, 38, 0), rgba(21, 15, 38, 0.95) 12%, rgba(21, 15, 38, 0.95) 88%, rgba(21, 15, 38, 0));
   border-block: 0.7vh solid var(--neon);
@@ -29,6 +29,23 @@
 .rl-flash .name { font-size: 13vh; max-width: 42vw; animation: rl-pop 0.6s var(--ease) 0.35s both; }
 @keyframes rl-in { from { opacity: 0; transform: translateY(-50%) scale(1.25); } }
 @keyframes rl-out { to { opacity: 0; transform: translateY(-50%) scale(0.95); } }
+/* Avatar and name stay together: a long name wraps onto its own line instead of being cut short. */
+.rl-flash .who { display: flex; align-items: center; gap: 3.5vh; min-width: 0; max-width: 100%; }
+.rl-flash .who .name { max-width: none; min-width: 0; }
+
+/* While lyrics are on screen: one compact line in the letterbox above them (it reaches at most
+   a sliver into the lyrics' top tile row, which karaoke discs keep clear of text). */
+.rl-flash.top {
+  top: 0; transform: none; flex-wrap: nowrap; gap: 2.4vh; padding: 1.2vh 4vw 1vh; border-top-width: 0;
+  animation: rl-in-top 0.45s var(--ease) both, rl-out-top 0.4s ease 3.6s forwards;
+}
+.rl-flash.top .kick { font-size: 5vh; }
+.rl-flash.top .arrow { font-size: 5.6vh; margin-right: 2vw; } /* (room for its nudge) */
+.rl-flash.top .who { gap: 2.2vh; }
+.rl-flash.top .avatar { width: 7.6vh; height: 7.6vh; font-size: 4.6vh; }
+.rl-flash.top .name { font-size: 7vh; line-height: 1.1; }
+@keyframes rl-in-top { from { opacity: 0; transform: translateY(-100%); } }
+@keyframes rl-out-top { to { opacity: 0; transform: translateY(-100%); } }
 @keyframes rl-nudge { to { transform: translateX(2vw); } }
 @keyframes rl-pop { from { opacity: 0; transform: scale(0.4); } }
 
@@ -49,3 +66,6 @@
 @keyframes rl-pulse { 50% { transform: scale(1.04); } }
 .rl-now { display: grid; justify-items: center; gap: 10px; padding: 18px; border-radius: 18px; background: var(--stage-2); }
 .g-guest.relay .rl-list li { grid-template-columns: minmax(0, 1fr) auto; text-align: left; }
+/* A shrinkable column and a capped chip: a very wide name is cut short, the page never scrolls sideways. */
+.rl-now { grid-template-columns: minmax(0, 1fr); }
+.rl-now .g-player { max-width: 100%; }

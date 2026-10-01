@@ -1,9 +1,10 @@
 // Pass the mic (PLAN §13.5): runs alongside the karaoke. While a song plays, the server hands
 // the mic to another participant at random moments: the TV flashes "PASS THE MIC ➜ NAME"
-// (TvOverlay, drawn over the lyrics) and that guest's phone buzzes (notify kind 'mic').
+// (TvOverlay: a band along the top edge while lyrics are on screen, so the new singer can
+// still read the line they pick up) and that guest's phone buzzes (notify kind 'mic').
 import { html, useEffect, useState } from '../vendor/preact.js';
 import { useStore, useTick } from '../lib/store.js';
-import { SelectField, PlayerChip, ensureCss } from './common.js';
+import { SelectField, PlayerChip, ensureCss, useSecondsLeft } from './common.js';
 
 ensureCss('/css/games/relay.css');
 
@@ -60,10 +61,11 @@ export function Setup({ onStart, busy }) {
   </div>`;
 }
 
-export function Control({ game, act, state }) {
+export function Control({ game, act, state, now }) {
   const others = (state?.guests || []).filter((g) => !g.banned && !game.participants.some((p) => p.deviceId === g.deviceId));
+  const nextIn = useSecondsLeft(game.nextAt, now); // counts down between broadcasts (server clock)
   const status = game.ended ? `The mic was passed ${plural(game.passes, 'time')}.`
-    : game.phase === 'live' ? `A song is playing — the next pass comes in about ${game.nextIn ?? '…'} s.`
+    : game.phase === 'live' ? `A song is playing — the next pass comes in about ${game.nextAt ? nextIn : '…'} s.`
       : 'Waiting for a song: the clock only runs while a song is playing.';
   return html`<div class="g-control relay-control">
     <div class="rl-holder">
@@ -92,18 +94,24 @@ export function Control({ game, act, state }) {
   </div>`;
 }
 
-/** Big "PASS THE MIC ➜ NAME" over the lyrics for a few seconds, plus a small holder badge. */
+/**
+ * "PASS THE MIC ➜ NAME" for a few seconds — big across the middle between songs, a compact
+ * band along the top edge while lyrics are on screen (never over the lyric lines) — plus a
+ * small holder badge.
+ */
 export function TvOverlay({ game, st, now }) {
   useTick(250);
   if (game.ended) return null;
   const flash = game.flash && now() < game.flash.until ? game.flash : null;
   const singing = !!st.current && (st.player.state === 'playing' || st.player.state === 'paused');
   return html`
-    ${flash && html`<div class="rl-flash" key=${flash.seq} role="alert">
+    ${flash && html`<div class=${`rl-flash ${singing ? 'top' : ''}`} key=${`${flash.seq}-${singing}`} role="alert">
       <span class="kick display">Pass the mic</span>
       <span class="arrow" aria-hidden="true">➜</span>
-      <span class="avatar" style=${{ '--avatar': flash.color }}>${flash.emoji || '🎤'}</span>
-      <span class="name display ellipsis">${flash.name}</span>
+      <span class="who">
+        <span class="avatar" style=${{ '--avatar': flash.color }}>${flash.emoji || '🎤'}</span>
+        <span class="name display ellipsis">${flash.name}</span>
+      </span>
     </div>`}
     ${!flash && singing && game.holder && html`<div class="rl-badge"><span aria-hidden="true">🎤</span><span class="avatar" style=${{ '--avatar': game.holder.color }}>${game.holder.emoji || '🎤'}</span><b class="ellipsis">${game.holder.name}</b></div>`}
   `;

@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 // End-to-end check of the three small party games, started from the host's Games page:
-//  1. Pass the mic — runs alongside a song on the TV: "PASS THE MIC ➜ NAME" over the lyrics, the
-//     holder's phone says "You have the mic!", the host passes it on by hand.
+//  1. Pass the mic — runs alongside a song on the TV: "PASS THE MIC ➜ NAME" in a band along the
+//     top edge that never covers a lyric line (16:9 and 4:3), long names shown in full, the
+//     holder's phone says "You have the mic!", the host passes it on by hand; a very wide name
+//     never makes a phone (or the host on a phone) scroll sideways.
 //  2. Applause meter — Chromium's fake microphone (a beep) on the TV: countdown, live gauge, a
-//     score > 0, a second singer to compare, and a blocked microphone reaching the host.
+//     score > 0, a second singer to compare (a 40-character label on a phone-sized host), the
+//     TV letting go of the microphone when it loses the server, and a blocked microphone
+//     reaching the host.
 //  3. Party recap — after songs with ratings and reactions: slides on the TV (host next/goto,
-//     auto-advance), the compact recap on the phones, the applause winner among the games.
+//     auto-advance, tied singers sharing first place), the compact recap on the phones, the
+//     applause winner among the games.
 //
 //   node test/e2e/game-party.mjs [outDir]
 import fs from 'node:fs/promises';
@@ -34,9 +39,13 @@ const shot = async (page, name, wait = 700) => {
   await page.evaluate(() => document.querySelector('.game-live')?.scrollIntoView({ block: 'start' })).catch(() => {});
   await page.screenshot({ path: path.join(out, `${name}.png`) });
 };
-const phone = async (name) => watch(await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }), name);
+const phone = async (name, width = 390, height = 844) => watch(await browser.newPage({ viewport: { width, height }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }), name);
 const room = () => app.room;
 const game = () => app.room.game;
+/** How far a page scrolls sideways (0 = fits): the document and the host's .main scroller. */
+const sideways = (page) => page.evaluate(() => Math.max(document.documentElement.scrollWidth - innerWidth, ...[...document.querySelectorAll('.main')].map((m) => m.scrollWidth - m.clientWidth)));
+const WIDE = 'W'.repeat(24); // the widest name a guest can pick
+const LONG = 'Maximiliano Fernández'; // a long, real one
 const until = async (pred, what, timeout = 20000) => {
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
@@ -70,6 +79,57 @@ async function openGame(host, label) {
   await host.waitForSelector('.game-card.open .g-setup');
 }
 
+/** Pass the mic to `deviceId` now (as the host's button does, but not left to chance). */
+function passTo(deviceId) {
+  const g = game();
+  const pick = g.pick;
+  g.pick = () => deviceId;
+  try {
+    g.pass('host');
+  } finally {
+    g.pick = pick;
+  }
+  room().markDirty();
+}
+
+/** Renames a guest (their phone, the TV and the host follow). */
+function rename(deviceId, name) {
+  room().s.profiles[deviceId].name = name;
+  room().markDirty();
+}
+
+/**
+ * Where the TV's "PASS THE MIC" flash sits: it must stay clear of the lyric lines — at most a
+ * sliver of the CDG's top tile row (1/16 of its height, kept clear of text on karaoke discs),
+ * and above the first lit pixel of the lyrics on screen — while still spanning the screen.
+ */
+async function flashGeometry(tv, name) {
+  await tv.waitForFunction((n) => document.querySelector('.rl-flash .name')?.textContent === n, name, { timeout: 8000 });
+  await sleep(700); // (after the slide-in)
+  return tv.evaluate(() => {
+    const flash = document.querySelector('.rl-flash');
+    const f = flash.getBoundingClientRect();
+    const nameEl = flash.querySelector('.name');
+    const canvas = document.getElementById('cdg');
+    const c = canvas.getBoundingClientRect();
+    const px = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let lit = -1;
+    for (let y = 0; y < canvas.height && lit < 0; y++) for (let x = 0; x < canvas.width; x++) if (px[(y * canvas.width + x) * 4 + 3] > 0) { lit = y; break; }
+    return {
+      top: flash.classList.contains('top'), flashTop: f.top, flashBottom: f.bottom, flashWidth: f.width, overflow: flash.scrollWidth - flash.clientWidth,
+      nameCut: nameEl.scrollWidth > nameEl.clientWidth + 1, nameSize: parseFloat(getComputedStyle(nameEl).fontSize), vw: innerWidth, vh: innerHeight,
+      lyricsShown: canvas.classList.contains('show'), cdgTop: c.top, tileRow: c.height / 16, firstLit: lit < 0 ? null : c.top + (lit / canvas.height) * c.height,
+    };
+  });
+}
+
+function checkFlashClear(geo, what) {
+  check(geo.top && geo.lyricsShown, `${what}: lyrics on screen, the flash is a band along the top edge`);
+  check(geo.flashBottom <= geo.cdgTop + geo.tileRow + 0.5, `${what}: the flash ends ${Math.round(geo.flashBottom)} px down, above the lyric rows (from ${Math.round(geo.cdgTop + geo.tileRow)} px)`);
+  check(geo.firstLit === null || geo.flashBottom <= geo.firstLit, `${what}: no lyric pixel under the flash (first at ${Math.round(geo.firstLit ?? -1)} px)`);
+  check(geo.flashWidth >= geo.vw * 0.95 && geo.nameSize >= geo.vh * 0.055 && geo.overflow <= 0, `${what}: still big — full width, the name ${Math.round(geo.nameSize)} px tall, nothing sticking out`);
+}
+
 async function endAndClose(host) {
   await host.click('.game-live .btn:has-text("End game")');
   await host.waitForSelector('.game-live .btn:has-text("Close")', { timeout: 10000 });
@@ -83,8 +143,13 @@ try {
   const tv = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'tv');
   await tv.goto(`${base}/tv`);
   await tv.waitForSelector('.lobby');
-  const phones = { Ann: await phone('ann'), Bob: await phone('bob'), Cat: await phone('cat') };
+  const phones = { Ann: await phone('ann'), Bob: await phone('bob'), Cat: await phone('cat'), [WIDE]: await phone('wide', 320, 640) };
   for (const [name, page] of Object.entries(phones)) await joinAs(page, name);
+  const wide = Object.keys(room().s.profiles).find((id) => nameOf(id) === WIDE);
+  const cat = Object.keys(room().s.profiles).find((id) => nameOf(id) === 'Cat');
+  // The host on a phone (the PIN route; on this machine it's trusted): nothing may scroll sideways.
+  const hostPhone = watch(await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }), 'host-phone');
+  await hostPhone.goto(`${base}/host#/games`);
   await host.goto(`${base}/host#/games`);
   await host.waitForSelector('.game-card');
   const soon = await host.$$eval('.game-card', (l) => l.filter((c) => /Pass the mic|Applause meter|Party recap/.test(c.textContent) && c.classList.contains('soon')).length);
@@ -100,6 +165,21 @@ try {
   check(game()?.type === 'relay' && game().config.everyone && game().config.min === 5 && game().config.max === 20, 'host started pass the mic (everyone, 5–20 s)');
   await phones.Bob.waitForSelector('.g-guest.relay', { timeout: 5000 });
   check(true, 'phones jump to the game tab');
+  // Between songs the flash is big, across the middle; a long name gets a line of its own, in full.
+  rename(wide, LONG);
+  passTo(wide);
+  await tv.waitForFunction((n) => document.querySelector('.rl-flash .name')?.textContent === n, LONG, { timeout: 5000 });
+  await sleep(700);
+  const lobbyFlash = await tv.evaluate(() => {
+    const f = document.querySelector('.rl-flash');
+    const n = f.querySelector('.name');
+    const r = f.getBoundingClientRect();
+    return { top: f.classList.contains('top'), cut: n.scrollWidth > n.clientWidth + 1, inside: r.left >= 0 && r.right <= innerWidth && f.scrollWidth <= f.clientWidth, size: parseFloat(getComputedStyle(n).fontSize), vh: innerHeight };
+  });
+  check(!lobbyFlash.top && lobbyFlash.size >= lobbyFlash.vh * 0.12 && lobbyFlash.inside, 'between songs: a big flash across the middle of the TV');
+  check(!lobbyFlash.cut, `…with "${LONG}" in full`);
+  await shot(tv, 'tv-relay-flash-lobby', 0);
+  rename(wide, WIDE);
   queue('neon heart', 'Ann');
   await until(() => room().s.current && room().s.player.state === 'playing', 'the song plays on the TV', 30000);
   check(!room().gameBlocks(), 'pass the mic runs alongside the karaoke');
@@ -112,7 +192,8 @@ try {
   check(first && first !== ann, `the mic passed on by itself to ${nameOf(first)}, not back to Ann`);
   check(/pass the mic/i.test(flashText) && flashText.includes(nameOf(first)), `TV flashes "PASS THE MIC ➜ ${nameOf(first)}"`);
   check(room().s.player.state === 'playing', '…while the song plays');
-  await shot(tv, 'tv-relay-flash', 400);
+  checkFlashClear(await flashGeometry(tv, nameOf(first)), 'TV 16:9');
+  await shot(tv, 'tv-relay-flash', 0);
   const holderPhone = phones[nameOf(first)];
   await holderPhone.waitForSelector('.rl-mine', { timeout: 5000 });
   check(/You have the mic/.test(await holderPhone.textContent('.rl-mine')), 'the holder’s phone says "You have the mic!"');
@@ -128,6 +209,41 @@ try {
   check((await tv.textContent('.rl-badge')).includes(nameOf(game().holder)), 'after the flash a small badge shows who has the mic');
   await shot(tv, 'tv-relay-badge', 200);
   await shot(host, 'host-relay-control', 100);
+  // With a page of lyrics up: the flash stays in the band above them, and a long name fits.
+  room().seek({ pos: 5 }); // (the demo song is short: back to its first lines)
+  room().markDirty();
+  await sleep(1200);
+  rename(wide, LONG);
+  passTo(wide);
+  let geo = await flashGeometry(tv, LONG);
+  checkFlashClear(geo, 'TV 16:9, lyrics up');
+  check(!geo.nameCut, `…"${LONG}" in full`);
+  await shot(tv, 'tv-relay-flash-lyrics', 0);
+  // The widest name a guest can pick: cut short on the TV, and no phone scrolls sideways.
+  rename(wide, WIDE);
+  passTo(cat);
+  await flashGeometry(tv, 'Cat');
+  passTo(wide);
+  geo = await flashGeometry(tv, WIDE);
+  checkFlashClear(geo, `TV 16:9, ${WIDE.length} W’s`);
+  await phones.Ann.waitForFunction((n) => document.querySelector('.rl-now')?.textContent.includes(n), WIDE, { timeout: 5000 });
+  await phones.Bob.setViewportSize({ width: 320, height: 640 });
+  await sleep(300);
+  for (const [name, p] of Object.entries(phones)) {
+    if (name === WIDE) continue;
+    check(await sideways(p) <= 0, `${name}'s phone (${p.viewportSize().width} px) doesn’t scroll sideways while ${WIDE.length} W’s have the mic`);
+  }
+  await shot(phones.Bob, 'phone-relay-wide-name', 0);
+  await phones.Bob.setViewportSize({ width: 390, height: 844 });
+  await hostPhone.waitForSelector('.relay-control .rl-holder', { timeout: 5000 });
+  check(await sideways(hostPhone) <= 0, 'the host on a phone doesn’t scroll sideways either');
+  await shot(hostPhone, 'host-phone-relay', 0);
+  // A 4:3 TV: taller margins, the band fits above the lyrics.
+  await tv.setViewportSize({ width: 1024, height: 768 });
+  passTo(ann);
+  checkFlashClear(await flashGeometry(tv, 'Ann'), 'TV 4:3');
+  await shot(tv, 'tv-relay-flash-4x3', 0);
+  await tv.setViewportSize({ width: 1280, height: 720 });
   const passes = game().passes;
   room().pause();
   room().markDirty();
@@ -186,15 +302,49 @@ try {
   await tv.waitForSelector('.g-tv.applause .ap-list li', { timeout: 5000 });
   await shot(tv, 'tv-applause-result', 2000);
   await shot(phones.Ann, 'phone-applause-result', 0);
-  await host.fill('.ap-next input', 'Bob');
+  const family = 'Grandma Josephine & the Wonderful Family'; // 40 characters, the longest label
+  await host.fill('.ap-next input', family);
   await host.click('.ap-next .btn:has-text("Next measurement")');
   await until(() => game().results.length === 2 && game().phase === 'result', 'second measurement', 15000);
-  check(game().results[1].label === 'Bob' && game().results[1].score > 0, `Bob scored ${game().results[1].score}`);
+  check(game().results[1].label === family && game().results[1].score > 0, `the family scored ${game().results[1].score}`);
   await tv.waitForFunction(() => document.querySelectorAll('.g-tv.applause .ap-list li').length === 2, null, { timeout: 5000 });
   check(true, 'TV compares both results');
   check((await host.$$('.applause-control .ap-list li.best')).length >= 1, 'host sees the loudest marked');
   await shot(tv, 'tv-applause-compare', 2000);
   await shot(host, 'host-applause-control', 0);
+  await hostPhone.waitForFunction((l) => document.querySelector('.ap-next .btn.ap-again')?.textContent.includes(l), family, { timeout: 5000 });
+  check(await sideways(hostPhone) <= 0, 'host on a phone: "Measure … again" with a 40-character name doesn’t scroll sideways');
+  await hostPhone.evaluate(() => document.querySelector('.game-live')?.scrollIntoView({ block: 'start' }));
+  await shot(hostPhone, 'host-phone-applause', 300);
+  for (const [name, p] of Object.entries(phones)) check(await sideways(p) <= 0, `${name}'s phone: the applause results fit`);
+  // The TV loses the server in the middle of a measurement: it lets go of the microphone at once
+  // (and doesn't keep listening on the last state it got).
+  await tv.evaluate(() => {
+    const open = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    window.__mics = [];
+    navigator.mediaDevices.getUserMedia = async (c) => {
+      const stream = await open(c);
+      window.__mics.push(stream);
+      return stream;
+    };
+  });
+  await host.click('.ap-next .btn:has-text("again")');
+  await tv.waitForFunction(() => window.__mics.length > 0 && window.__mics.at(-1).getTracks().some((t) => t.readyState === 'live'), null, { timeout: 8000 });
+  check(['countdown', 'measure'].includes(game().phase), `the TV listens (${game().phase})`);
+  await tv.evaluate(() => {
+    window.__RealWebSocket = window.WebSocket;
+    window.WebSocket = class extends window.__RealWebSocket { constructor() { super('ws://127.0.0.1:9/'); } }; // the server is gone
+  });
+  for (const c of app.hub.list((x) => x.role === 'tv' && x.data.display === 'main')) c.close(1001, 'test: server gone');
+  await tv.waitForSelector('.conn-lost', { timeout: 5000 });
+  const released = await tv.waitForFunction(() => window.__mics.every((s) => s.getTracks().every((t) => t.readyState === 'ended')), null, { timeout: 2500 }).then(() => true, () => false);
+  check(released, 'the TV lets go of the microphone as soon as it loses the server');
+  game().action(HOST, { action: 'cancel' });
+  room().markDirty();
+  await tv.evaluate(() => { window.WebSocket = window.__RealWebSocket; });
+  await tv.waitForSelector('.conn-lost', { state: 'detached', timeout: 15000 });
+  await until(() => app.hub.list((x) => x.role === 'tv' && x.data.display === 'main').length === 1, 'the TV is back', 10000);
+  check(true, 'the TV reconnects');
   // A blocked microphone reaches the host with a hint.
   await tv.evaluate(() => {
     navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Permission denied', 'NotAllowedError'); };
@@ -224,6 +374,8 @@ try {
   await host.click('.recap-control .btn:has-text("Next")');
   await tv.waitForSelector('.rc-singers .g-podium', { timeout: 5000 });
   check(true, 'host → next: top singers podium');
+  const places = await tv.$$eval('.rc-singers .g-podium .step', (l) => l.map((s) => `${s.querySelector('b').textContent} ${s.querySelector('.block').textContent} ${s.className}`));
+  check(places.length === 2 && places.every((p) => / 1 step p1$/.test(p)), `one song each: Ann and Bob share first place (${places.join('; ')})`);
   await shot(tv, 'tv-recap-singers', 900);
   for (const [i, sel, name] of [[2, '.rc-rated', 'rated'], [3, '.rc-artists', 'artists'], [4, '.rc-fav', 'favourite'], [5, '.rc-games', 'games'], [6, '.rc-thanks', 'thanks']]) {
     await host.click(`.rc-slides .chip >> nth=${i}`);
@@ -248,9 +400,8 @@ try {
   await sleep(300);
   await phones.Cat.screenshot({ path: path.join(out, 'phone-recap-bottom.png') });
   await shot(host, 'host-recap-control', 0);
-  for (const [name, p] of Object.entries(phones)) {
-    const overflow = await p.evaluate(() => document.documentElement.scrollWidth - innerWidth);
-    check(overflow <= 0, `${name}'s phone fits without sideways scrolling`);
+  for (const [name, p] of Object.entries({ ...phones, 'The host': hostPhone })) {
+    check(await sideways(p) <= 0, `${name}'s phone (${p.viewportSize().width} px) fits without sideways scrolling`);
   }
   await endAndClose(host);
   await tv.waitForSelector('.lobby', { timeout: 10000 });

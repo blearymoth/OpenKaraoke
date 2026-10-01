@@ -19,6 +19,8 @@ import { logger } from '../util/log.js';
 
 const log = logger('room');
 const SESSION_IDLE_MS = 8 * 3600 * 1000;
+const MAX_HISTORY = 200; // tonight's history for the host's list (skipped songs too)
+const MAX_PERFS = 2000; // tonight's sung songs for the counts and the recap (a long night has a few hundred)
 // No party state change → no broadcast.
 const QUIET = new Set(['tv.status', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
 const HOST = 'host';
@@ -38,11 +40,21 @@ const DEFAULT_STATE = {
   songPrefs: {},
   trackPrefs: {},
   stats: { plays: {} },
-  tonight: { sung: [], history: [], games: [] },
+  tonight: { sung: [], history: [], perfs: [], games: [] },
   photos: [],
 };
 
 const newId = (bytes = 6) => crypto.randomBytes(bytes).toString('base64url');
+/** A sung song, compact, for tonight's counts and the party recap (oldest first in tonight.perfs). */
+const perfRecord = (h) => {
+  const perf = {
+    entryId: h.entryId, songId: h.songId, title: h.title, artist: h.artist,
+    singerIds: h.singerIds || [], singers: h.singers || [], playedSec: h.playedSec || 0,
+  };
+  if (h.reactions) perf.reactions = h.reactions;
+  if (h.rating) perf.rating = { ...h.rating };
+  return perf;
+};
 /** What a co-host's phone may do (never settings, bans, games or the library). */
 const COHOST_ACTIONS = new Set([
   'player.play', 'player.pause', 'player.resume', 'player.toggle', 'player.next', 'player.restart', 'player.seek',
@@ -113,6 +125,9 @@ export class Room {
     else Object.assign(p, { state: 'idle', pos: 0, dur: 0 });
     p.seek = { seq: 0, pos: p.pos || 0 };
     if (!Number.isFinite(p.volume)) p.volume = this.settings.get('playback.volume');
+    // State saved before tonight.perfs existed: rebuild it from what's left of tonight's history.
+    if (!Array.isArray(s.tonight.perfs)) s.tonight.perfs = [];
+    if (!s.tonight.perfs.length) s.tonight.perfs = s.tonight.history.filter((h) => h && !h.skipped).reverse().map(perfRecord);
     this.ensureSession();
     this.syncPlays();
     this.save();
@@ -144,7 +159,7 @@ export class Room {
   newSession() {
     const now = Date.now();
     this.s.session = { id: newId(), startedAt: now, lastActivity: now };
-    this.s.tonight = { sung: [], history: [], games: [] };
+    this.s.tonight = { sung: [], history: [], perfs: [], games: [] };
     for (const singer of this.s.singers) {
       singer.sung = 0;
       delete singer.stars;
@@ -771,8 +786,10 @@ export class Room {
     if (entry.source?.startsWith('game:')) record.game = entry.source.slice(5);
     this.appendHistory(record);
     s.tonight.history.unshift({ ...record, entryId: entry.id, singerIds: entry.singerIds });
-    s.tonight.history.length = Math.min(s.tonight.history.length, 200);
+    s.tonight.history.length = Math.min(s.tonight.history.length, MAX_HISTORY);
     if (completed) {
+      s.tonight.perfs.push(perfRecord({ ...record, entryId: entry.id, singerIds: [...entry.singerIds] }));
+      if (s.tonight.perfs.length > MAX_PERFS) s.tonight.perfs.splice(0, s.tonight.perfs.length - MAX_PERFS);
       for (const singer of singers) {
         singer.sung = (singer.sung || 0) + 1;
         singer.totalSung = (singer.totalSung || 0) + 1;
@@ -1377,7 +1394,10 @@ export class Room {
     return { stars };
   }
 
-  /** Ends the rating window: the average goes to tonight's history and the singers' stats. */
+  /**
+   * Ends the rating window: the average goes to tonight's history, the recap's performances
+   * and the singers' stats (and to a running game, e.g. a recap started meanwhile).
+   */
   closeRating() {
     const r = this.rating;
     if (!r) return;
@@ -1388,12 +1408,15 @@ export class Room {
     const avg = Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10;
     const h = this.s.tonight.history.find((x) => x.entryId === r.entryId);
     if (h) h.rating = { avg, n: values.length };
+    const perf = this.s.tonight.perfs.findLast((x) => x.entryId === r.entryId);
+    if (perf) perf.rating = { avg, n: values.length };
     for (const id of r.singerIds) {
       const singer = this.singer(id);
       if (!singer) continue;
       singer.stars = { sum: (singer.stars?.sum || 0) + avg, n: (singer.stars?.n || 0) + 1 };
     }
     this.appendHistory({ at: Date.now(), sessionId: this.s.session.id, type: 'rating', entryId: r.entryId, songId: r.songId, rating: avg, votes: values.length });
+    this.gameHook('onRatingClosed', r.entryId);
   }
 
   ratingView(role, deviceId) {
@@ -1623,7 +1646,7 @@ export class Room {
       favorites: s.hostFavorites,
       playlists: s.playlists,
       session: s.session,
-      tonight: { songs: s.tonight.history.filter((h) => !h.skipped).length, history: s.tonight.history.slice(0, 30) },
+      tonight: { songs: s.tonight.perfs.length, history: s.tonight.history.slice(0, 30) },
       game: this.game?.view({ role: HOST }) || null,
       rating: this.ratingView(HOST),
       sungTonight: s.tonight.sung.slice(-500),

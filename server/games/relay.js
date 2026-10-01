@@ -55,6 +55,8 @@ export class Relay extends Game {
     this.remaining = this.drawInterval();
     this.lastTick = this.now();
     this.refreshPool();
+    // Started mid-song: that song's lead singer already has the mic (like onSongStart).
+    if (this.room.s.current) this.onSongStart(this.room.s.current);
     this.tick();
     this.ticker = setInterval(() => this.tick(), TICK_MS);
     this.ticker.unref?.();
@@ -82,9 +84,14 @@ export class Relay extends Game {
     return !!s.current && s.player.state === 'playing';
   }
 
-  /** Everyone mode: every named guest who is online now joins in. */
+  /**
+   * Everyone mode: every named guest who is online now joins in. Only participants who can
+   * still get the mic count towards MAX_PARTICIPANTS: removing or banning someone frees a place.
+   */
   refreshPool() {
-    if (!this.config.everyone || this.pool.size >= MAX_PARTICIPANTS) return false;
+    if (!this.config.everyone) return false;
+    let live = this.eligible().length;
+    if (live >= MAX_PARTICIPANTS) return false;
     let added = false;
     for (const c of this.room.hub.list((x) => x.role === 'guest')) {
       const id = c.data?.deviceId;
@@ -93,7 +100,7 @@ export class Relay extends Game {
       if (!p?.name || p.banned) continue;
       this.pool.add(id);
       added = true;
-      if (this.pool.size >= MAX_PARTICIPANTS) break;
+      if (++live >= MAX_PARTICIPANTS) break;
     }
     return added;
   }
@@ -122,6 +129,8 @@ export class Relay extends Game {
     const step = Math.max(0, Math.min(now - this.lastTick, MAX_STEP_MS));
     this.lastTick = now;
     let dirty = this.refreshPool();
+    // A holder who can't play any more (banned, their profile gone) loses the mic and the flash.
+    if (this.dropGone()) dirty = true;
     const playing = this.isPlaying();
     const phase = playing ? 'live' : 'waiting';
     if (phase !== this.phase) {
@@ -140,6 +149,20 @@ export class Relay extends Game {
       dirty = true;
     }
     if (dirty) this.room.markDirty();
+  }
+
+  /** Clears the holder and the flash when that guest is no longer a participant; true if changed. */
+  dropGone(ids = this.eligible()) {
+    let changed = false;
+    if (this.holder && !ids.includes(this.holder)) {
+      this.holder = null;
+      changed = true;
+    }
+    if (this.flash && !ids.includes(this.flash.deviceId)) {
+      this.flash = null;
+      changed = true;
+    }
+    return changed;
   }
 
   /** Hands the mic to the next participant (the TV flashes, their phone buzzes). */
@@ -185,12 +208,15 @@ export class Relay extends Game {
         const p = this.room.profileOf(id);
         if (!p?.name) fail('That guest is not at the party.', 'not_found');
         if (m.action === 'remove') {
+          // Out of the pool (their place is free again); `removed` keeps "everyone" from
+          // adding them back, `turns` keeps their history.
+          this.pool.delete(id);
           this.removed.add(id);
-          if (this.holder === id) this.holder = null;
-          if (this.flash?.deviceId === id) this.flash = null;
+          this.dropGone();
         } else {
           if (p.banned) fail('That guest is banned.', 'forbidden');
-          if (!this.pool.has(id) && this.pool.size >= MAX_PARTICIPANTS) fail('The game is full.', 'full');
+          const ids = this.eligible();
+          if (!ids.includes(id) && ids.length >= MAX_PARTICIPANTS) fail('The game is full.', 'full');
           this.removed.delete(id);
           this.pool.add(id);
         }
@@ -206,26 +232,30 @@ export class Relay extends Game {
     const ids = this.eligible();
     const pub = (id, i) => Game.publicPlayer(this.player(id), `p${i}`);
     const now = this.now();
-    const flash = this.flash && this.flash.until > now ? this.flash : null;
-    const holderIndex = ids.indexOf(this.holder);
+    // Only participants can hold the mic: a guest banned a moment ago is never shown (tick()
+    // clears them for good within TICK_MS).
+    const holder = this.holder && ids.includes(this.holder) ? this.holder : null;
+    const flash = this.flash && this.flash.until > now && ids.includes(this.flash.deviceId) ? this.flash : null;
     v.min = this.config.min;
     v.max = this.config.max;
     v.everyone = this.config.everyone;
     v.passes = this.passes;
     v.count = ids.length;
-    v.holder = this.holder ? Game.publicPlayer(this.player(this.holder), holderIndex >= 0 ? `p${holderIndex}` : 'h') : null;
+    v.holder = holder ? Game.publicPlayer(this.player(holder), `p${ids.indexOf(holder)}`) : null;
     v.flash = flash ? { seq: flash.seq, until: flash.until, ...Game.publicPlayer(this.player(flash.deviceId), 'f') } : null;
     if (ctx.role === 'host') {
       const online = new Set(this.room.hub.list((c) => c.role === 'guest').map((c) => c.data?.deviceId));
-      v.participants = ids.map((id) => ({ deviceId: id, ...this.player(id), turns: this.turns.get(id) || 0, online: online.has(id), holder: id === this.holder }));
-      v.holderId = this.holder;
-      v.nextIn = this.phase === 'live' ? Math.max(0, Math.ceil(this.remaining / 1000)) : null;
+      v.participants = ids.map((id) => ({ deviceId: id, ...this.player(id), turns: this.turns.get(id) || 0, online: online.has(id), holder: id === holder }));
+      v.holderId = holder;
+      // Server time of the next pass while a song plays (the host counts down to it; pauses,
+      // passes and new songs broadcast a new one).
+      v.nextAt = this.phase === 'live' ? now + Math.max(0, this.remaining) : null;
       v.stuck = this.stuck;
     } else {
-      v.participants = ids.map((id, i) => ({ ...pub(id, i), turns: this.turns.get(id) || 0, holder: id === this.holder }));
+      v.participants = ids.map((id, i) => ({ ...pub(id, i), turns: this.turns.get(id) || 0, holder: id === holder }));
     }
     if (ctx.role === 'guest') {
-      v.mine = !!ctx.deviceId && this.holder === ctx.deviceId;
+      v.mine = !!ctx.deviceId && holder === ctx.deviceId;
       v.joined = ids.includes(ctx.deviceId);
       if (v.flash) v.flash.mine = flash.deviceId === ctx.deviceId;
     }

@@ -85,7 +85,7 @@ function Totals({ r }) {
 }
 
 function Singers({ r }) {
-  const rows = r.topSingers.map((s) => ({ ...s, score: s.songs, id: s.name }));
+  const rows = r.topSingers.map((s) => ({ ...s, score: s.songs, id: s.name })); // (ties share a `rank`)
   return html`<div class="rc-slide rc-singers">
     <h1 class="display">Top singers</h1>
     <${Podium} rows=${rows} />
@@ -97,8 +97,8 @@ function Singers({ r }) {
 function Rated({ r }) {
   return html`<div class="rc-slide rc-rated">
     <h1 class="display">Best rated performances</h1>
-    <ol class="rc-rows">${r.bestRated.slice(0, 4).map((p, i) => html`<li key=${i} style=${{ animationDelay: `${0.2 + i * 0.18}s` }}>
-      <span class="rank num">${i + 1}</span>
+    <ol class="rc-rows">${r.bestRated.slice(0, 4).map((p, i) => html`<li key=${i} class=${p.rank === 1 ? 'top' : ''} style=${{ animationDelay: `${0.2 + i * 0.18}s` }}>
+      <span class="rank num">${p.rank}</span>
       <${SongArt} songId=${p.songId} size=${250} />
       <div class="what"><b class="ellipsis">${namesOf(p.singers)}</b><span class="ellipsis">${p.title} · ${p.artist}</span></div>
       <div class="score"><${Stars} avg=${p.rating.avg} /><span class="num">${p.rating.avg.toFixed(1)} · ${plural(p.rating.n, 'vote')}</span></div>
@@ -119,7 +119,22 @@ function Artists({ r }) {
 }
 
 function Favourite({ r }) {
-  const p = r.favourite;
+  const list = r.favourites;
+  if (list.length > 1) {
+    // A tie for the most reactions: joint favourites, side by side.
+    return html`<div class="rc-slide rc-fav joint">
+      <div class="what head"><div class="kicker">Joint crowd favourites</div><p class="fire">🔥 ${plural(list[0].reactions, 'reaction')} each</p></div>
+      <div class="rc-favs">${list.map((p, i) => html`<div class="rc-fav-card" key=${i} style=${{ animationDelay: `${0.2 + i * 0.15}s` }}>
+        <${SongArt} songId=${p.songId} />
+        <div class="what">
+          <h1 class="display ellipsis">${namesOf(p.singers)}</h1>
+          <p class="song ellipsis">${p.title} · ${p.artist}</p>
+          ${p.rating && html`<${Stars} avg=${p.rating.avg} />`}
+        </div>
+      </div>`)}</div>
+    </div>`;
+  }
+  const p = list[0];
   return html`<div class="rc-slide rc-fav">
     <${SongArt} songId=${p.songId} />
     <div class="what">
@@ -168,7 +183,7 @@ function Slide({ kind, r, name }) {
     case 'singers': return html`<${Singers} r=${r} />`;
     case 'rated': return html`<${Rated} r=${r} />`;
     case 'artists': return html`<${Artists} r=${r} />`;
-    case 'favourite': return r.favourite ? html`<${Favourite} r=${r} />` : null;
+    case 'favourite': return r.favourites?.length ? html`<${Favourite} r=${r} />` : null;
     case 'games': return html`<${Games} r=${r} />`;
     case 'thanks': return html`<${Thanks} r=${r} name=${name} />`;
     default: return html`<${Empty} />`;
@@ -225,16 +240,16 @@ export function Guest({ game, state }) {
       </div>
     </section>
     ${r.topSingers.length > 0 && html`<section class=${`rc-card ${on('singers')}`}><h2>Top singers</h2>
-      <ol class="rc-list">${r.topSingers.map((s, i) => html`<li key=${i}><span class="rank num">${i + 1}</span><span class="avatar" style=${{ '--avatar': s.color }}>${s.emoji || '🎤'}</span><span class="ellipsis">${s.name}</span><b class="num">${plural(s.songs, 'song')}</b></li>`)}</ol>
+      <ol class="rc-list">${r.topSingers.map((s, i) => html`<li key=${i}><span class="rank num">${s.rank}</span><span class="avatar" style=${{ '--avatar': s.color }}>${s.emoji || '🎤'}</span><span class="ellipsis">${s.name}</span><b class="num">${plural(s.songs, 'song')}</b></li>`)}</ol>
     </section>`}
     ${r.bestRated.length > 0 && html`<section class=${`rc-card ${on('rated')}`}><h2>Best rated</h2>
-      <ol class="rc-list">${r.bestRated.map((p, i) => html`<li key=${i}><span class="rank num">${i + 1}</span><span class="what"><b class="ellipsis">${namesOf(p.singers)}</b><small class="ellipsis">${p.title}</small></span><b class="num">★ ${p.rating.avg.toFixed(1)}</b></li>`)}</ol>
+      <ol class="rc-list">${r.bestRated.map((p, i) => html`<li key=${i}><span class="rank num">${p.rank}</span><span class="what"><b class="ellipsis">${namesOf(p.singers)}</b><small class="ellipsis">${p.title}</small></span><b class="num">★ ${p.rating.avg.toFixed(1)}</b></li>`)}</ol>
     </section>`}
     ${r.topArtists.length > 0 && t.songs >= 2 && html`<section class=${`rc-card ${on('artists')}`}><h2>Most sung artists</h2>
-      <ol class="rc-list">${r.topArtists.map((a, i) => html`<li key=${i}><span class="rank num">${i + 1}</span><span class="ellipsis">${a.artist}</span><b class="num">${a.count}×</b></li>`)}</ol>
+      <ol class="rc-list">${r.topArtists.map((a, i) => html`<li key=${i}><span class="rank num">${a.rank}</span><span class="ellipsis">${a.artist}</span><b class="num">${a.count}×</b></li>`)}</ol>
     </section>`}
-    ${r.favourite && html`<section class=${`rc-card ${on('favourite')}`}><h2>Crowd favourite</h2>
-      <p><b>${namesOf(r.favourite.singers)}</b> — ${r.favourite.title}</p><p class="hint">🔥 ${plural(r.favourite.reactions, 'reaction')}</p>
+    ${r.favourites.length > 0 && html`<section class=${`rc-card ${on('favourite')}`}><h2>${r.favourites.length > 1 ? 'Joint crowd favourites' : 'Crowd favourite'}</h2>
+      ${r.favourites.map((p, i) => html`<p key=${i}><b>${namesOf(p.singers)}</b> — ${p.title}</p>`)}<p class="hint">🔥 ${plural(r.favourites[0].reactions, 'reaction')}${r.favourites.length > 1 ? ' each' : ''}</p>
     </section>`}
     ${r.games.length > 0 && html`<${GuestGames} r=${r} cls=${on('games')} />`}
     <p class=${`rc-thanks-line ${on('thanks')}`}>Thanks for singing! 🎤</p>

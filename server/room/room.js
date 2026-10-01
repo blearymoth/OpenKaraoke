@@ -1310,9 +1310,18 @@ export class Room {
     }
   }
 
-  /** Queues a song for a game (poll winner, wheel result…): host rules, no guest limits. */
+  /**
+   * Queues a song for a game (poll winner, wheel result, autoplay…): host rules, no guest limits —
+   * but with the explicit filter on, only a clean version (like gameSing; none → an error).
+   */
   gameQueue(song, { singerName = '', singerIds, position = 'next', source = 'game:x' } = {}) {
-    return this.queueAdd({ role: HOST, data: {} }, { songId: song.id, singerName, singerId: singerIds?.[0], partners: singerIds?.slice(1), position, source });
+    let trackId;
+    if (this.settings.get('queue.explicitFilter')) {
+      const clean = this.pickTrack(song, { noExplicit: true });
+      if (!clean) fail('Explicit songs are turned off for this party.', 'explicit');
+      trackId = clean.id;
+    }
+    return this.queueAdd({ role: HOST, data: {} }, { songId: song.id, trackId, singerName, singerId: singerIds?.[0], partners: singerIds?.slice(1), position, source });
   }
 
   /**

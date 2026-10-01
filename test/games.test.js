@@ -203,3 +203,35 @@ test('ratings: skipped songs and ratings turned off open no rating window', asyn
   room.finish('ended');
   assert.equal(room.rating, null);
 });
+
+test('games queue a clean version when the explicit filter is on (poll winner, wheel, autoplay)', async () => {
+  const { req, connect, guest, room, s, song, app } = await setupRoom({ queue: { explicitFilter: true }, library: { brandPriority: ['SF'] } });
+  const host = await connect('host');
+  const ana = await guest('Ana');
+  const cat = app.library.catalog;
+  const explicit = (e) => !!cat.track(e.trackId).p?.flags?.explicit;
+  const rapture = song('rapture'); // an explicit SF version (the preferred brand) and a clean SC one
+  assert.equal(cat.isExplicit(rapture), false, 'the song has a clean version');
+  assert.equal(explicit({ trackId: room.pickTrack(rapture).id }), true, 'without the filter the SF version wins');
+  const killer = song('killer queen'); // explicit only
+  // A poll the host seeded with both: the explicit-only song can't be queued, so it isn't offered.
+  await req(host, 'game.start', { type: 'poll', config: { songIds: [rapture.id, killer.id] } });
+  const candidates = room.game.candidates.map((c) => c.songId);
+  assert.equal(candidates[0], rapture.id);
+  assert.ok(!candidates.includes(killer.id));
+  await req(ana, 'game.input', { choice: 0 });
+  await req(host, 'game.action', { action: 'close' });
+  assert.equal(s().queue[0].songId, rapture.id);
+  assert.equal(explicit(s().queue[0]), false, 'the poll winner is the clean version');
+  await req(host, 'game.close');
+  // Autoplay / wheel results go through the same door.
+  s().queue = [];
+  room.gameQueue(rapture, { singerName: 'Everyone', position: 'end', source: 'game:autoplay' });
+  assert.equal(explicit(s().queue[0]), false, 'autoplay queues the clean version');
+  assert.throws(() => room.gameQueue(killer, { position: 'end', source: 'game:wheel' }), /Explicit songs are turned off/);
+  assert.equal(s().queue.length, 1);
+  // Filter off: host rules (the preferred version).
+  app.settings.update({ queue: { explicitFilter: false } });
+  room.gameQueue(killer, { position: 'end', source: 'game:wheel' });
+  assert.equal(s().queue[1].songId, killer.id);
+});

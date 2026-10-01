@@ -23,13 +23,15 @@ export class Poll extends Game {
   start() {
     const c = this.config;
     const room = this.room;
-    const picked = c.songIds.map((id) => this.catalog.song(id));
+    const noExplicit = !!this.settings.get('queue.explicitFilter');
+    // (With the explicit filter on, a song the host picked must have a clean version to be queued.)
+    const picked = c.songIds.map((id) => this.catalog.song(id)).filter((s) => !noExplicit || room.pickTrack(s, { noExplicit }));
     const exclude = new Set([...picked.map((s) => s.id), ...room.s.tonight.sung, ...room.s.queue.map((e) => e.songId)]);
     const filter = { exclude, minDuration: 20, maxDuration: 480 }; // no jingles, no 10-minute epics
     if (c.tag) filter.tag = c.tag;
     if (c.genre) filter.genre = c.genre;
     if (c.decade) filter.decade = c.decade;
-    if (this.settings.get('queue.explicitFilter')) filter.noExplicit = true;
+    if (noExplicit) filter.noExplicit = true;
     const more = this.catalog.random(4 - picked.length, filter);
     this.candidates = [...picked, ...more].slice(0, 4).map((s) => ({ songId: s.id, title: s.title, artist: s.artist }));
     if (this.candidates.length < 2) fail('Not enough songs for a poll — try it without filters.', 'empty');

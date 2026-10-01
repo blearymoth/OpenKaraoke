@@ -259,9 +259,10 @@ test('recap: a long night counts every song — not just the host’s history li
   assert.deepEqual(s().tonight.perfs, []);
 });
 
-test('recap: the rating of the last song, closed after the recap started, is added to it', async () => {
+/** The last song just ended, Ana rated it 5 ★ and the host started the recap straight away. */
+async function finale() {
   const env = await setupRoom({ playback: { countdown: 0, ratingAfterSong: true } });
-  const { req, room, view, connect, guest, s } = env;
+  const { req, room, connect, guest, s } = env;
   const host = await connect('host');
   const tv = await connect('tv');
   const ana = await guest('Ana');
@@ -272,7 +273,12 @@ test('recap: the rating of the last song, closed after the recap started, is add
   await req(tv, 'tv.ended', { entryId: cur.id });
   assert.ok(room.rating, 'the rating window is open');
   await req(ana, 'rate', { entryId: cur.id, stars: 5 });
-  await req(host, 'game.start', { type: 'recap' }); // the finale, straight away
+  await req(host, 'game.start', { type: 'recap' });
+  return { ...env, host, tv, ana };
+}
+
+test('recap: the rating of the last song, closed after the recap started, is added to it', async () => {
+  const { req, room, view, host, tv, ana, s } = await finale();
   assert.deepEqual(view(tv).game.slides, ['totals', 'singers', 'thanks']);
   await req(host, 'game.action', { action: 'next' });
   assert.equal(view(tv).game.slide, 'singers');
@@ -285,6 +291,14 @@ test('recap: the rating of the last song, closed after the recap started, is add
   assert.equal(v.slide, 'singers', 'the slide on screen stays');
   assert.deepEqual(s().tonight.perfs[0].rating, { avg: 5, n: 1 });
   assert.deepEqual(view(ana).game.recap, v.recap);
+});
+
+test('recap: shutting down with the rating still open saves it without waking the recap', async () => {
+  const { room, s } = await finale();
+  room.flush();
+  await room.close();
+  assert.deepEqual(s().tonight.perfs[0].rating, { avg: 5, n: 1 }, 'the votes are kept');
+  assert.equal(room.flushTimer, null, 'nothing is broadcast after closing');
 });
 
 test('recap: a party saved before the recap had its own list keeps tonight’s songs', async () => {

@@ -142,8 +142,8 @@ export class Room {
     clearTimeout(this.flushTimer);
     clearTimeout(this.announceTimer);
     clearTimeout(this.ratingTimer);
+    this.game?.dispose(); // (first: closing the rating must not wake up a game)
     this.closeRating();
-    this.game?.dispose();
     this.breakMusic.close();
     this.photos.close();
     await this.doc.flush();

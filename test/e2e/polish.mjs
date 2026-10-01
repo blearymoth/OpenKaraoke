@@ -23,6 +23,33 @@ const watch = (page, name) => {
   return page;
 };
 const shot = (page, name) => page.screenshot({ path: path.join(out, `${name}.png`) });
+const until = async (fn, ms = 10000) => {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    if (await fn()) return true;
+    await sleep(50);
+  }
+  return false;
+};
+/** Everything a page receives over its WebSocket. */
+const recordFrames = (page) => {
+  const frames = [];
+  page.on('websocket', (ws) => ws.on('framereceived', (f) => frames.push(String(f.payload))));
+  return frames;
+};
+/** Test only: expose a TV page's controller and connection so its playback can be inspected. */
+const exposeController = (page) => page.route('**/js/tv/main.js', async (route) => {
+  const res = await route.fetch();
+  await route.fulfill({ status: 200, contentType: 'text/javascript', body: `${await res.text()}\nwindow.__tvController = controller;\nwindow.__tvConn = conn;\n` });
+});
+/** Starts or resumes the party and waits until `page` (the main TV) plays the song. */
+const playOn = async (page) => {
+  const room = app.room;
+  const asHost = { role: 'host', data: {}, isLocal: true, send() {} };
+  if (!room.s.current) await room.request(asHost, { t: 'player.play' });
+  else if (room.s.player.state !== 'playing') await room.request(asHost, { t: 'player.resume' });
+  return until(async () => room.s.player.state === 'playing' && (await page.evaluate(() => window.__tvController.engine.playing)), 20000);
+};
 
 try {
   const host = watch(await browser.newPage({ viewport: { width: 1440, height: 900 } }), 'host');
@@ -136,6 +163,7 @@ try {
   const loaded = await host.$eval('.photo-tile.pending img', (img) => new Promise((r) => (img.complete ? r(img.naturalWidth) : img.addEventListener('load', () => r(img.naturalWidth)))));
   check(loaded > 0, `host sees the pending photo (${loaded}px wide, resized on the phone)`);
   const tv2 = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'tv2');
+  const mirrorFrames = recordFrames(tv2);
   await tv2.goto(`${base}/tv?display=mirror`);
   await tv2.waitForSelector('.scene, .lobby');
   await host.click('.photo-tile.pending .btn.primary');
@@ -155,6 +183,7 @@ try {
     return hello(client, msg);
   };
   const remote = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'remote-tv');
+  await exposeController(remote);
   await remote.goto(`${base}/tv`);
   await remote.waitForSelector('.pair-code b');
   const shown = (await remote.$$eval('.pair-code b', (l) => l.map((x) => x.textContent).join('')));
@@ -169,13 +198,62 @@ try {
 
   // Queue board layout for a second screen.
   const boardPage = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'board');
+  const boardFrames = recordFrames(boardPage);
   await boardPage.goto(`${base}/tv?layout=board`);
   await boardPage.waitForSelector('.board');
   const rows = await boardPage.$$eval('.board-list li', (l) => l.length);
   check(rows === Math.min(8, app.room.s.queue.length), `queue board lists who sings next (${rows})`);
   check(!(await boardPage.$('.start')), 'the board needs no click (it is muted)');
   await shot(boardPage, 'tv-board');
+
+  // The TV page reloads mid-song: the board and the mirror stay muted, the TV plays again.
+  const mains = () => app.hub.list((c) => c.role === 'tv' && c.data.display === 'main');
+  check(await playOn(remote) && mains().length === 1 && mains()[0].data.kind === 'main', 'the TV page plays the song');
+  await remote.reload();
+  check(await until(() => mains().length === 1 && mains()[0].data.kind === 'main' && mains()[0].open, 10000), 'after a reload the TV page is the main display again');
+  const promoted = [...boardFrames, ...mirrorFrames].filter((f) => /"t":"display","display":"main"/.test(f)).length;
+  check(promoted === 0, `the board and the mirror never took the sound (${promoted})`);
+  await remote.waitForSelector('.scene, .lobby, .intro');
+  check(!(await remote.$('.mirror-badge')) && !(await boardPage.$('.start')), 'the TV is not a muted mirror; the board still needs no click');
+
+  // Settings → Displays: what each screen is, and the host picks the main display.
+  await host.goto(`${base}/host#/settings/displays`);
+  await host.waitForSelector('.display-row');
+  const labels = await host.$$eval('.display-row b', (l) => l.map((x) => x.textContent).sort());
+  check(labels.join('|') === 'Main TV — plays the sound|Mirror — muted|Queue board — muted', `displays are labelled (${labels.join(', ')})`);
+  check((await host.$$('.display-row .btn')).length === 1, 'only the mirror can be made the main display');
+  await shot(host, 'host-displays');
+  await host.click('.display-row:has-text("Mirror — muted") .btn:has-text("Make main")');
+  check(await until(() => mains()[0]?.data.kind === 'mirror', 5000), 'the host made the mirror the main display');
+  check(await remote.waitForSelector('.mirror-badge', { timeout: 5000 }).then(() => true, () => false), 'the TV page is muted now');
+  const hostPhone = watch(await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }), 'host-phone');
+  await hostPhone.goto(`${base}/host#/settings/displays`);
+  await hostPhone.waitForSelector('.display-row .btn');
+  await hostPhone.evaluate(() => document.querySelector('.display-row')?.scrollIntoView({ block: 'center' }));
+  check(await hostPhone.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 0, 'Displays fit a phone without sideways scrolling');
+  await shot(hostPhone, 'host-displays-phone');
+  await hostPhone.close();
+  await host.click('.display-row .btn:has-text("Make main")');
+  check(await until(() => mains()[0]?.data.kind === 'main', 5000), 'and gave the sound back to the TV page');
   await boardPage.close();
+
+  // "Forget paired screens": the paired TV goes quiet at once (nothing would stop it later).
+  app.hub.onHello = (client, msg) => {
+    if (msg.role === 'tv' && !msg.display) client.isLocal = false;
+    return hello(client, msg);
+  };
+  await remote.reload();
+  await remote.waitForSelector('.scene, .lobby, .intro');
+  check(await until(() => mains()[0] && !mains()[0].isLocal, 10000), 'the TV page is a paired screen again');
+  check(await playOn(remote), 'the paired screen plays the song');
+  host.once('dialog', (d) => d.accept());
+  await host.click('.setting:has-text("Forget paired screens") .btn');
+  await remote.waitForSelector('.pair-code b', { timeout: 10000 });
+  const quiet = await remote.evaluate(() => ({ playing: window.__tvController.engine.playing, entry: window.__tvController.entryId, outbox: window.__tvConn.outbox.length }));
+  check(!quiet.playing && !quiet.entry && quiet.outbox === 0, `the forgotten screen stops playing (${JSON.stringify(quiet)})`);
+  await shot(remote, 'remote-tv-forgotten');
+  await remote.close();
+  app.hub.onHello = hello;
 
   // Live preview of the TV in the host.
   await host.click('.player button[title="Live preview of the TV"]');
@@ -184,6 +262,17 @@ try {
   const tvs = app.hub.list((c) => c.role === 'tv').length;
   check(app.room.hostView().displays.length === tvs - 1, 'the preview is not listed as a display');
   await shot(host, 'host-tv-preview');
+  await host.click('.tv-preview .icon-btn');
+  // A refused preview never asks to be paired (no stray pairing request from the host's device).
+  const waiting = app.room.waitingPairings().length;
+  app.hub.onHello = (client, msg) => (msg.display === 'preview' ? { ok: false, reason: 'pairing_required' } : hello(client, msg));
+  await host.click('.player button[title="Live preview of the TV"]');
+  const refused = await (await host.waitForSelector('.tv-preview iframe')).contentFrame();
+  check(await refused.waitForSelector('.denied:has-text("No preview")', { timeout: 10000 }).then(() => true, () => false), 'a refused preview says so');
+  await sleep(1000);
+  check(!(await refused.$('.pair-code')) && app.room.waitingPairings().length === waiting, 'and shows no pairing code');
+  await shot(host, 'host-tv-preview-refused');
+  app.hub.onHello = hello;
   await host.click('.tv-preview .icon-btn');
 
   // Printable songbook from Settings → Library.

@@ -120,19 +120,33 @@ try {
   await shot(tv, 'tv-lobby-mosaic');
   const song = [...app.library.catalog.songs.values()].find((s) => s.artist === 'Pixel Parade');
   app.settings.update({ playback: { countdown: 6 } });
-  await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'queue.add', songId: song.id, singerName: 'Eve' });
+  // A duet with long names: the name must keep its full width and height next to the artwork.
+  await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'queue.add', songId: song.id, singerName: 'Maximilian', partnerName: 'Josephine' });
   await tv.waitForSelector('.intro-cover', { timeout: 10000 });
   check(await until(async () => !!(await tv.$('.intro .artist-logo'))), 'intro card shows the cover and the artist logo');
   await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'player.key', semitones: 2 });
   await tv.waitForSelector('.intro .chip');
   await sleep(900);
-  const fit = await tv.evaluate(() => {
+  const introFit = () => tv.evaluate(() => {
     const name = document.querySelector('.intro .name');
     const box = (sel) => document.querySelector(sel).getBoundingClientRect();
-    return { name: name.clientHeight / name.scrollHeight, top: box('.intro .kicker').top, bottom: box('.intro .status').bottom };
+    return {
+      text: name.textContent, height: name.clientHeight / name.scrollHeight, width: name.clientWidth / name.scrollWidth,
+      size: parseFloat(getComputedStyle(name).fontSize) / (innerHeight * 0.15), top: box('.intro .kicker').top, bottom: box('.intro .status').bottom,
+    };
   });
-  check(fit.name >= 0.9 && fit.top >= 0 && fit.bottom <= 720, `the singer’s name keeps its full size next to cover, logo and key chip (${Math.round(fit.name * 100)} %)`);
+  let fit = await introFit();
+  check(fit.text === 'Maximilian & Josephine' && fit.height >= 0.9 && fit.width >= 1 && fit.size === 1 && fit.top >= 0 && fit.bottom <= 720,
+    `the singers’ names keep their full size next to cover, logo and key chip (${Math.round(fit.height * 100)} % high, ${Math.round(fit.width * 100)} % wide)`);
   await shot(tv, 'tv-intro');
+  // On a 4:3 screen the duet is wider than the card: it gets a little smaller instead of "…".
+  await tv.setViewportSize({ width: 1024, height: 768 });
+  await sleep(300);
+  fit = await introFit();
+  check(fit.width >= 1 && fit.size < 1 && fit.size >= 0.5 && fit.height >= 0.9 && fit.top >= 0 && fit.bottom <= 768,
+    `on a 4:3 screen a long name gets smaller to fit (${Math.round(fit.size * 100)} % size)`);
+  await shot(tv, 'tv-intro-4x3');
+  await tv.setViewportSize({ width: 1280, height: 720 });
   await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'player.key', semitones: 0 });
   check(await until(async () => !!(await tv.$('#bg .fanart-bg')), 15000), 'artist photos move behind the lyrics while singing');
   await sleep(600);

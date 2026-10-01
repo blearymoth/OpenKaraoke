@@ -203,7 +203,7 @@ function phaseText(game) {
     case 'vote': return 'Phones are voting for the better performance';
     case 'result': return resultText(game, game.match);
     case 'final':
-    case 'done': return game.champion >= 0 ? `${who(game, game.champion).name} wins the battle!` : 'The battle was ended early.';
+    case 'done': return game.champion >= 0 ? `${who(game, game.champion).name} wins the battle!` : game.ranking ? 'Nobody sang — no winner this time.' : 'The battle was ended early.';
     default: return '';
   }
 }

@@ -472,12 +472,26 @@ export class Battle extends Game {
     return w;
   }
 
+  /** Every match (or performance) that decides the battle is over: only the podium is left. */
+  decidedOverall() {
+    const cfg = this.config;
+    if (cfg.format === 'showcase') return this.perfs.every((p) => p.closed);
+    const m = this.match();
+    if (!m?.decided) return false;
+    if (cfg.format === 'knockout') return m.round >= this.roundCount - 1;
+    const need = Math.floor(cfg.rounds / 2) + 1;
+    return this.matches.length >= cfg.rounds || this.wins().some((w) => w >= need);
+  }
+
+  /** Did anybody actually sing? (A battle where every performance was skipped has no winner.) */
+  anySung() {
+    return this.perfs.some((p) => p.status === 'done');
+  }
+
   nextMatch() {
     const cfg = this.config;
     if (cfg.format === 'duel') {
-      const wins = this.wins();
-      const need = Math.floor(cfg.rounds / 2) + 1;
-      if (this.matches.length >= cfg.rounds || wins.some((w) => w >= need)) return this.finalize();
+      if (this.decidedOverall()) return this.finalize();
       this.addDuelRound();
     } else {
       this.propagate(this.match());
@@ -529,11 +543,16 @@ export class Battle extends Game {
     return { rows, lot };
   }
 
-  finalize() {
+  /** The final standings and the champion (none when nobody sang). */
+  settle() {
     const { rows, lot } = this.rank();
     this.ranking = rows;
-    this.finalLot = lot;
-    this.champion = rows[0].c;
+    this.champion = this.anySung() ? rows[0].c : -1;
+    this.finalLot = this.champion >= 0 && lot;
+  }
+
+  finalize() {
+    this.settle();
     this.perfIdx = -1;
     this.setPhase('final', FINAL_SECONDS, () => this.end());
     return { champion: this.champion };
@@ -541,12 +560,16 @@ export class Battle extends Game {
 
   end() {
     if (this.ended) return;
-    if (this.perfs) this.dropStaleEntries();
+    if (this.perfs) {
+      this.dropStaleEntries();
+      // Ended on the deciding match's result screen: the winner is known, keep it (podium, recap).
+      if (!this.ranking && this.decidedOverall()) this.settle();
+    }
     super.end();
   }
 
   summary() {
-    const c = this.champion >= 0 ? this.cView(this.champion) : null;
+    const c = this.champion >= 0 && this.anySung() ? this.cView(this.champion) : null;
     return c ? { title: 'Battle winner', winners: [c.name] } : null;
   }
 

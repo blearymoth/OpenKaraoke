@@ -575,3 +575,54 @@ test('battle: another song can’t start during a performance — “Play now”
   assert.equal(s().queue[0].id, host1.id, 'back at the top of the queue, not thrown away');
   assert.equal(s().tonight.history.filter((h) => h.title === host1.title).length, 0, 'and not in the history as skipped');
 });
+
+test('battle: ended on the deciding result screen → the winner is kept; nobody sang → no winner', async () => {
+  const ctx = await party(['Cy', 'Di']);
+  const { act, req, view, tv, s, g } = ctx;
+  await ctx.start({ contestants: ['Ana', 'Bo'] });
+  await ctx.perform();
+  await ctx.perform();
+  await req(g.Cy, 'game.input', { pick: 'b' });
+  await req(g.Di, 'game.input', { pick: 'b' });
+  await act('close');
+  assert.equal(view(tv).game.phase, 'result');
+  await req(ctx.host, 'game.end'); // "End game" while the TV says "Bo wins!"
+  let v = view(tv).game;
+  assert.equal(v.phase, 'done');
+  assert.equal(v.champion, 1);
+  assert.deepEqual(v.ranking.map((r) => r.c), [1, 0]);
+  assert.deepEqual(s().tonight.games.at(-1).winners, ['Bo']);
+
+  // Best of three, ended at 1–0 on the result screen: not decided yet → no winner.
+  const three = await party(['Cy']);
+  await three.start({ contestants: ['Ana', 'Bo'], rounds: 3 });
+  await three.perform();
+  await three.perform();
+  await three.req(three.g.Cy, 'game.input', { pick: 'a' });
+  await three.act('close');
+  await three.req(three.host, 'game.end');
+  assert.equal(three.view(three.tv).game.champion, -1);
+  assert.equal(three.s().tonight.games.length, 0);
+
+  // A showcase where every performance is skipped: nobody wins.
+  const sc = await party([]);
+  await sc.start({ format: 'showcase', contestants: ['Ana', 'Bo', 'Cy'] });
+  for (let i = 0; i < 3; i++) await sc.act('skip');
+  v = sc.view(sc.tv).game;
+  assert.equal(v.phase, 'final');
+  assert.equal(v.champion, -1);
+  assert.equal(v.finalLot, false);
+  sc.room.game.end();
+  assert.equal(sc.s().tonight.games.length, 0, 'no "Battle winner" in the recap');
+
+  // A duel where both skip: the match is drawn by lot, but nobody is the battle's champion.
+  const duel = await party([]);
+  await duel.start({ contestants: ['Ana', 'Bo'] });
+  await duel.act('skip');
+  await duel.act('skip');
+  assert.equal(duel.view(duel.tv).game.phase, 'result');
+  await duel.act('next');
+  assert.equal(duel.view(duel.tv).game.champion, -1);
+  duel.room.game.end();
+  assert.equal(duel.s().tonight.games.length, 0);
+});

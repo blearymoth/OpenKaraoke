@@ -170,7 +170,8 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   live everywhere (screens without a party connection — landing page, PIN and can't-join
   screens — within 2 s; the printable songbook on its next load); guests never see the setting.
 - **Studio** (new default): graphite surfaces, one blue accent, Figtree headings, smaller radii,
-  soft shadows instead of glows, calmer TV backgrounds and game colours. A first draft — its
+  soft shadows instead of glows, calmer TV backgrounds and game colours, and a graphite-and-blue
+  app icon (`public/img/icon-studio.svg`; Party keeps the pink one). A first draft — its
   values are the token block at the top of `public/css/base.css`.
 - **Party**: the original look, pixel for pixel (checked against a890418 rule by rule and on 47
   screens; `test/themes.test.js` pins the values). Existing parties switch to Studio; a custom

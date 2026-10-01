@@ -157,6 +157,13 @@ test('shell: the skin is written into <html> and theme-color', async () => {
   for (const f of ['index.html', 'host.html', 'tv.html', 'guest.html']) {
     const text = await fs.readFile(path.join(PUBLIC_DIR, f), 'utf8');
     assert.match(withAppearance(text, { theme: 'party' }), /<html lang="en" data-theme="party">[\s\S]*<meta name="theme-color" content="#150f26">/, `${f} has both`);
+    // the favicon is the skin's app icon; Party's page keeps the original links untouched
+    assert.equal(withAppearance(text, { theme: 'party' }).replace(/<html[^>]*>/, '').replace(/<meta name="theme-color"[^>]*>/, ''),
+      text.replace(/<html[^>]*>/, '').replace(/<meta name="theme-color"[^>]*>/, ''), `${f}: Party changes only <html> and theme-color`);
+    const studioText = withAppearance(text, { theme: 'studio' });
+    assert.match(studioText, /<link rel="icon" href="\/img\/icon-studio\.svg"/, `${f}: Studio favicon`);
+    assert.doesNotMatch(studioText, /href="\/img\/icon\.svg"/, `${f}: no Party icon link left in Studio`);
+    assert.equal(withAppearance(studioText, { theme: 'party' }), withAppearance(text, { theme: 'party' }), `${f}: and back`);
   }
   assert.match(notFoundPage({ theme: 'party' }), /data-theme="party"[\s\S]*background:#0e0b16[\s\S]*color:#ff3d8b/);
   assert.match(notFoundPage({ theme: 'studio', accent: '#00c2ff' }), /data-theme="studio"[\s\S]*background:#0f1216[\s\S]*color:#00c2ff/);
@@ -220,6 +227,11 @@ test('http: every page is served in the current skin; a switch changes the page 
   assert.match(tv.body.toString(), new RegExp(`data-theme="party" style="--neon: #00c2ff; --neon-ink: ${accentInk('#00c2ff')};"`));
   assert.match(tv.headers.etag, /party-00c2ff/);
 
+  // /favicon.ico (pages without an icon link: the songbook) follows the skin too, so no 301
+  const fav = await rawGet('/favicon.ico');
+  assert.equal(fav.status, 302);
+  assert.equal(fav.headers.location, '/img/icon.svg', 'Party: the original icon');
+
   const missing = await rawGet('/no-such-page');
   assert.equal(missing.status, 404);
   assert.match(missing.body.toString(), /data-theme="party"[\s\S]*color:#00c2ff/);
@@ -228,6 +240,12 @@ test('http: every page is served in the current skin; a switch changes the page 
   const back = await rawGet('/host');
   assert.equal(back.headers.etag, etags['/host'], 'back in Studio: the Studio copy is valid again');
   assert.match(back.body.toString(), /data-theme="studio">/);
+  assert.equal((await rawGet('/favicon.ico')).headers.location, '/img/icon-studio.svg');
+  for (const id of THEME_IDS) {
+    const icon = await rawGet(THEMES[id].icon);
+    assert.equal(icon.status, 200, `${id}: ${THEMES[id].icon} is served`);
+    assert.match(icon.headers['content-type'], /image\/svg\+xml/);
+  }
 });
 
 test('views: host, TV and guests get the skin; the TV pairing screen and /api/info too', async () => {
@@ -282,6 +300,11 @@ test('base.css: both skins define the same tokens, matching shared/themes.js', (
     assert.equal(skins[id].get('--neon'), THEMES[id].accent, `${id}: the accent picker starts at --neon`);
     assert.equal(skins[id].get('--neon-ink'), THEMES[id].accentInk, `${id}: text on the skin’s own accent is --neon-ink`);
   }
+  // the app icon: Party draws the original <img src="/img/icon.svg">, Studio its own variant
+  assert.equal(THEMES.party.icon, '/img/icon.svg');
+  assert.equal(skins.party.get('--app-icon'), 'normal');
+  assert.equal(skins.studio.get('--app-icon'), `url('${THEMES.studio.icon}')`);
+  assert.match(css, /^img\[src="\/img\/icon\.svg"\] \{ content: var\(--app-icon\); \}/m);
 });
 
 test('every token the app uses is defined (by the skins, a rule, or the code that sets it)', async () => {

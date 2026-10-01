@@ -52,6 +52,12 @@ const firstTheme = (page) => page.evaluate(() => window.__firstTheme);
 const tokenOf = (page, name) => page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
 const waitTheme = (page, theme) => page.waitForFunction((t) => document.documentElement.dataset.theme === t, theme, { timeout: 5000 }).then(() => true, () => false);
 const waitToken = (page, name, value) => page.waitForFunction(([n, v]) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() === v, [name, value], { timeout: 5000 }).then(() => true, () => false);
+/** Which app icon an <img src="/img/icon.svg"> shows: 'party' (the original) or 'studio' (swapped by --app-icon). */
+const iconOf = (page, sel) => page.$eval(sel, (img) => {
+  const c = getComputedStyle(img).content;
+  return c === 'normal' ? 'party' : c.includes('/img/icon-studio.svg') ? 'studio' : c;
+});
+const favicon = (page) => page.$eval('link[rel="icon"]', (l) => l.getAttribute('href'));
 const noSideways = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 
 async function setSkin(theme, open) {
@@ -94,6 +100,7 @@ try {
   }
   check(await tokenOf(tv, '--neon') === '#6ea8fe' && await tokenOf(guest, '--night') === '#0f1216', 'Studio tokens apply');
   check(!(await tv.evaluate(() => [...document.fonts].some((f) => f.family.includes('Bricolage') && f.status === 'loaded'))), 'Studio does not load the Party display font');
+  check(await iconOf(host, '.brand img') === 'studio' && await iconOf(tv, '.lobby-top img') === 'studio' && await favicon(host) === '/img/icon-studio.svg', 'Studio shows its own app icon (header, TV lobby, favicon)');
 
   // ---- switch to Party in Settings → Appearance: every open page follows, live --------------------
   await host.goto(`${base}/host#/settings/appearance`);
@@ -110,6 +117,7 @@ try {
   await tv.waitForFunction((before) => document.querySelector('.marquee img')?.getAttribute('src') !== before, tvQrBefore, { timeout: 5000 }).catch(() => {});
   check(/dark=%231b1230&light=%23fff8e6/.test(await tv.$eval('.marquee img', (i) => i.getAttribute('src'))), 'the TV redraws its QR code in the Party colours');
   check(await guest.$eval('meta[name="theme-color"]', (m) => m.content) === '#150f26', 'the phone’s theme-color follows the skin');
+  check(await iconOf(host, '.brand img') === 'party' && await iconOf(tv, '.lobby-top img') === 'party' && await favicon(tv) === '/img/icon.svg', 'Party shows the original app icon again (header, TV lobby, favicon)');
   check(app.settings.get('appearance.theme') === 'party', 'the choice is saved');
   await sleep(300);
   await shot(host, 'party-host-settings-appearance');

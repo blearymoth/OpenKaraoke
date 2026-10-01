@@ -474,13 +474,16 @@ drops unknown keys and coerces types. Host UI renders forms for every group ther
 **Skins** — `appearance: { theme: 'studio' | 'party', accent: '' | '#rrggbb' }`, Settings →
 Appearance. Studio (default) is calm graphite with one blue accent; Party is the original neon
 look. `accent` overrides the skin's accent (`--neon`) in either skin; text on it (`--neon-ink`)
-is near-black or white, whichever has the higher WCAG contrast. The server writes `data-theme`
+is near-black or white, whichever has the higher WCAG contrast (a skin's own accent keeps its own
+`--neon-ink`). Unknown skin ids in an update are ignored. The server writes `data-theme`
 (+ the accent) into every HTML page it serves, so the first paint is right and a page cached
 under another skin is never reused (the skin is part of the ETag); host, TV and phones follow
 changes live through their state (`appearance`), screens without party state (landing page, PIN
 and can't-join screens) check `/api/info` every 2 s. All colours
 are CSS tokens per skin in `public/css/base.css` (`:root` = Studio, `[data-theme="party"]`);
-JS that needs a colour (QR codes) reads the token. Settings saved before skins existed: a custom
+JS that needs a colour (QR codes) reads the token. The app icon follows the skin too: every
+`<img src="/img/icon.svg">` shows `--app-icon` (Studio: `img/icon-studio.svg`; Party: the
+original), and the favicon links and `/favicon.ico` point at the skin's icon. Settings saved before skins existed: a custom
 `display.accent` became `appearance.accent`, the old default pink was dropped.
 
 ## 15. Persistence (`data/`, git-ignored)

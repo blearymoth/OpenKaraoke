@@ -121,6 +121,8 @@
   --marquee-bulb: transparent;
   --marquee-bulb-halo: transparent;
   --marquee-bulbs: none;
+  /* the app icon, drawn in place of every <img src="/img/icon.svg">; normal = that original */
+  --app-icon: url('/img/icon-studio.svg');
   /* landing page, host, guest */
   --landing-bg: radial-gradient(1200px 600px at 15% -10%, #1a2231 0%, transparent 60%), var(--night);
   --landing-join-bg: linear-gradient(180deg, var(--stage-2), var(--stage));
@@ -271,6 +273,8 @@
   --marquee-bulb: var(--bulb);
   --marquee-bulb-halo: rgba(255, 201, 74, 0.35);
   --marquee-bulbs: block;
+  /* the app icon, drawn in place of every <img src="/img/icon.svg">; normal = that original */
+  --app-icon: normal;
   /* landing page, host, guest */
   --landing-bg: radial-gradient(1200px 600px at 15% -10%, #2c1c52 0%, transparent 60%), radial-gradient(900px 500px at 110% 110%, #3a1233 0%, transparent 55%), var(--night);
   --landing-join-bg: linear-gradient(180deg, #2a1d20, var(--stage));
@@ -367,6 +371,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 img, svg, canvas, video { display: block; max-width: 100%; }
+img[src="/img/icon.svg"] { content: var(--app-icon); } /* the skin's own app icon (header, PIN, lobby, placeholders) */
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: inherit; }
 h1, h2, h3, h4 { margin: 0; font-family: var(--font-display); font-weight: 700; line-height: 1.1; letter-spacing: -0.01em; }

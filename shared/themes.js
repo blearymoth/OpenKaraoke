@@ -1,7 +1,7 @@
 // App-wide skins (settings.appearance). The colours themselves live in /css/base.css as tokens;
 // this file names the skins and carries the few values needed outside CSS (validated server-side,
-// the browser's theme-color, the accent picker's starting value). Keep them in sync with base.css
-// (test/themes.test.js checks it).
+// the browser's theme-color, the accent picker's starting value, the text on that accent, the
+// favicon). Keep them in sync with base.css (test/themes.test.js checks it).
 export const THEMES = {
   studio: {
     name: 'Studio',
@@ -9,6 +9,7 @@ export const THEMES = {
     themeColor: '#0f1216', // --night
     accent: '#6ea8fe', // --neon
     accentInk: '#0b1526', // --neon-ink: text on the skin's own accent
+    icon: '/img/icon-studio.svg', // the app icon (favicon; --app-icon in CSS)
   },
   party: {
     name: 'Party',
@@ -16,6 +17,7 @@ export const THEMES = {
     themeColor: '#150f26',
     accent: '#ff3d8b',
     accentInk: '#fff',
+    icon: '/img/icon.svg',
   },
 };
 

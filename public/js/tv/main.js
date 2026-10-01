@@ -6,7 +6,7 @@ import { Icon } from '../lib/icons.js';
 import { TvController } from './controller.js';
 import { GAME_UI } from '../games/index.js';
 import { BreakPlayer } from './break-player.js';
-import { applyAppearance, followAppearance, qrSrc } from '../lib/theme.js';
+import { applyAppearance, followAppearance, qrSrc, appIcon } from '../lib/theme.js';
 import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 
 const params = new URLSearchParams(location.search);
@@ -192,7 +192,7 @@ function Background() {
     const art = cur.art || {};
     const fanart = art.fanart && state.display.fanart !== false && !cur.mystery;
     return html`
-      <div class="art-bg" key=${cur.songId} style=${{ backgroundImage: `url(${artUrl(cur.mystery ? null : cur.songId, 500)})` }}></div>
+      <div class="art-bg" key=${cur.songId} style=${{ backgroundImage: `url(${cur.mystery ? appIcon() : artUrl(cur.songId, 500)})` }}></div>
       ${fanart && html`<${FanartShow} artistKey=${art.fanart} count=${art.fanartCount || 1} key=${art.fanart} />`}
       <div class="scrim"></div>`;
   }

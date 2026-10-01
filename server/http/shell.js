@@ -1,15 +1,21 @@
 // The app's HTML shells carry the current skin (settings.appearance) so the very first paint
-// uses the right one: <html data-theme="…"> (+ the accent override as inline tokens) and the
-// browser's theme-color. The apps then follow changes live (public/js/lib/theme.js).
+// uses the right one: <html data-theme="…"> (+ the accent override as inline tokens), the
+// browser's theme-color and the favicon. The apps then follow changes live (public/js/lib/theme.js).
 import { THEMES, normalizeAppearance, accentInk } from '../../shared/themes.js';
 
-/** `html` with the skin written into <html> and <meta name="theme-color">. */
+/** `html` with the skin written into <html>, <meta name="theme-color"> and the favicon links. */
 export function withAppearance(html, appearance) {
   const { theme, accent } = normalizeAppearance(appearance);
   const style = accent ? ` style="--neon: ${accent}; --neon-ink: ${accentInk(accent)};"` : '';
   return html
     .replace(/<html\b([^>]*)>/i, (_, attrs) => `<html${attrs.replace(/\s+(?:data-theme|style)="[^"]*"/gi, '')} data-theme="${theme}"${style}>`)
-    .replace(/(<meta\s+name="theme-color"\s+content=")[^"]*(")/i, `$1${THEMES[theme].themeColor}$2`);
+    .replace(/(<meta\s+name="theme-color"\s+content=")[^"]*(")/i, `$1${THEMES[theme].themeColor}$2`)
+    .replace(/(<link\s+rel="(?:icon|apple-touch-icon)"\s+href=")\/img\/icon(?:-studio)?\.svg(")/gi, `$1${THEMES[theme].icon}$2`);
+}
+
+/** URL of the skin's app icon (for /favicon.ico). */
+export function appIconUrl(appearance) {
+  return THEMES[normalizeAppearance(appearance).theme].icon;
 }
 
 /** Short id of an appearance for ETags and cache keys: "studio", "party-00c2ff". */

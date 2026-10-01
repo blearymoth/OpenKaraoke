@@ -4,13 +4,13 @@
 // Screens without a live connection (landing page, PIN and can't-join screens) use
 // followAppearance(). Colours live in /css/base.css; code that needs one as a value (QR codes)
 // reads the token.
-import { THEMES, normalizeAppearance, accentInk } from '/shared/themes.js';
+import { THEMES, normalizeAppearance, normalizeTheme, accentInk } from '/shared/themes.js';
 
 const root = document.documentElement;
 const tokens = new Map();
 let applied = '';
 
-/** Switches data-theme, the accent override and theme-color when they changed. */
+/** Switches data-theme, the accent override, theme-color and the favicon when they changed. */
 export function applyAppearance(appearance) {
   if (!appearance) return;
   const { theme, accent } = normalizeAppearance(appearance);
@@ -27,7 +27,15 @@ export function applyAppearance(appearance) {
   }
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.content = THEMES[theme].themeColor;
+  for (const link of document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]')) {
+    if (link.getAttribute('href') !== THEMES[theme].icon) link.setAttribute('href', THEMES[theme].icon);
+  }
   tokens.clear();
+}
+
+/** URL of the current skin's app icon, for places CSS can't swap it (a background image). */
+export function appIcon() {
+  return THEMES[normalizeTheme(root.dataset.theme)].icon;
 }
 
 const FOLLOW_MS = 2000;

@@ -7,7 +7,7 @@ import { LibraryService } from './library/service.js';
 import { Auth } from './room/auth.js';
 import { Router, json, sendError, sendText } from './http/router.js';
 import { serveStatic, serveTransformed } from './http/static.js';
-import { withAppearance, appearanceVariant, notFoundPage } from './http/shell.js';
+import { withAppearance, appearanceVariant, notFoundPage, appIconUrl } from './http/shell.js';
 import { apiRoutes } from './http/api.js';
 import { mediaRoutes } from './http/media.js';
 import { Hub } from './ws/hub.js';
@@ -183,7 +183,8 @@ function pageRoutes(router, app) {
   for (const dir of ['js', 'css', 'img', 'fonts']) router.get(`/${dir}/*`, folder(path.join(PUBLIC_DIR, dir)));
   router.get('/shared/*', folder(SHARED_DIR));
   router.get('/favicon.ico', ({ res }) => {
-    res.writeHead(301, { location: '/img/icon.svg' });
+    // not 301: the icon follows the skin (pages without a <link rel="icon">: songbook, API)
+    res.writeHead(302, { location: appIconUrl(app.settings.get('appearance')) });
     res.end();
   });
 }

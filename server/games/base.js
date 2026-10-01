@@ -8,6 +8,7 @@
 import crypto from 'node:crypto';
 import { UserError } from '../util/errors.js';
 import { logger } from '../util/log.js';
+import { GAME_SETTLE_MS } from '../../shared/protocol.js';
 
 const log = logger('game');
 
@@ -68,6 +69,7 @@ export class Game {
     this.phase = 'setup';
     this.phaseEndsAt = 0; // server time (ms) when the current timed phase ends, 0 = untimed
     this.step = 0; // counts phase changes: host controls name the step they were drawn for
+    this.movedAt = 0; // when a host control last moved the game on (see control())
     this.timers = new Set();
     this.ended = false;
     this.startedAt = Date.now();
@@ -122,6 +124,25 @@ export class Game {
   /** Host controls: { action: 'next' | … }. */
   action(client, m) { // eslint-disable-line no-unused-vars
     fail('This game has no such control.');
+  }
+
+  /**
+   * A host control, through Room.gameAction. A phase control names the `step` it was drawn for
+   * and does nothing (`{ stale: true }`) once the game has moved on (a click that crossed a phase
+   * timer, or the second of two clicks sent together), nor for GAME_SETTLE_MS after a host
+   * control moved the game on: the second click of a human double click lands on the button the
+   * host's screen has meanwhile drawn for the new phase (or the one after, when the TV moved the
+   * game on again — a quiz question opens as soon as the clip plays), so it names a current step.
+   */
+  control(client, m) {
+    if (m.step !== undefined) {
+      const settling = this.now() - this.movedAt < GAME_SETTLE_MS;
+      if (m.step !== this.step || settling) return { stale: true, phase: this.phase };
+    }
+    const before = this.step;
+    const res = this.action(client, m);
+    if (this.step !== before) this.movedAt = this.now();
+    return res;
   }
 
   /** A guest's answer or vote. `deviceId` comes from the signed guest token. */
@@ -195,7 +216,7 @@ export class Game {
       ended: this.ended,
       exclusive: this.constructor.exclusive,
     };
-    if (ctx?.role === 'host') v.step = this.step; // sent back with phase controls (see Room.gameAction)
+    if (ctx?.role === 'host') v.step = this.step; // sent back with phase controls (see control())
     return v;
   }
 }

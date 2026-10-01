@@ -12,6 +12,7 @@ import { useFetch } from '../lib/components.js';
 import { CdgRenderer } from '../lib/cdg-canvas.js';
 import { findLyricsFrame } from '/shared/cdg.js';
 import { QUIZ_ROUNDS, QUIZ_ROUND_INFO } from '/shared/quiz.js';
+import { usePhaseControl } from './phase-control.js';
 
 ensureCss('/css/games/quiz.css');
 
@@ -85,14 +86,9 @@ export function Control({ game, act, now }) {
   const r = game.round;
   const rv = game.reveal;
   const over = game.phase === 'final' || game.ended;
-  const [busy, setBusy] = useState(false);
-  // `step`: the server ignores the click once the quiz has moved on (a double click, or a click
-  // just as a timer fired), so it never skips the answer reveal.
-  const run = async (body) => {
-    setBusy(true);
-    await act('game.action', { ...body, step: game.step });
-    setBusy(false);
-  };
+  // A double click never also presses the next phase's button (skipping the reveal, or opening
+  // the answers before the TV has played the clip).
+  const [busy, run] = usePhaseControl(game, act);
   return html`<div class="g-control quiz-control">
     <div class="qz-host-status">
       <${Countdown} endsAt=${game.endsAt} total=${game.phaseSeconds || game.seconds} now=${now} />

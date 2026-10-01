@@ -6,6 +6,7 @@ import { setupRoom, SONGS, MORE_SONGS } from './room-harness.js';
 import { Quiz, QUIZ_TIMING, decadeChoices } from '../server/games/quiz.js';
 import { QUIZ_ROUNDS, QUIZ_ROUND_INFO, QUIZ_STREAK_BONUS, quizPoints } from '../shared/quiz.js';
 import { fold } from '../shared/text.js';
+import { GAME_SETTLE_MS } from '../shared/protocol.js';
 import { writeTree } from './helpers.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -649,10 +650,14 @@ test('quiz: a double click on the host control moves on once (the answer reveal 
   const ana = await guest('Ana');
   await req(host, 'game.start', { type: 'quiz', config: { questions: 5 } });
   const g = room.game;
+  let later = 0; // the game's clock runs this far ahead of the real one
+  g.now = () => Date.now() + later;
+  const press = () => req(host, 'game.action', { action: 'next', step: view(host).game.step });
   const twice = async () => {
     const step = view(host).game.step;
     return Promise.all([0, 1].map(() => req(host, 'game.action', { action: 'next', step })));
   };
+  // Both clicks sent before the new state arrived: the second names the old step.
   // "Start the question now" (get-ready → question; the TV hasn't reported the clip yet).
   let [a, b] = await twice();
   assert.equal(a.phase, 'question');
@@ -660,6 +665,7 @@ test('quiz: a double click on the host control moves on once (the answer reveal 
   assert.equal(g.opened, false, 'the answer timer waits for the clip, not for the second click');
   await req(tv, 'tv.game', { event: 'clip', q: 0 });
   await req(ana, 'game.input', { q: 0, choice: songChoice(g) });
+  later += GAME_SETTLE_MS; // the question is open for a while
   // "Close the question" → reveal, and stays there.
   [a, b] = await twice();
   assert.equal(a.phase, 'reveal');
@@ -668,9 +674,26 @@ test('quiz: a double click on the host control moves on once (the answer reveal 
   assert.equal(view(ana).game.me.result.correct, true, 'the phones get their result');
   // A click drawn for an older step (it crossed a timer) does nothing either.
   const old = view(host).game.step;
+  later += GAME_SETTLE_MS;
   g.afterReveal();
   assert.equal((await req(host, 'game.action', { action: 'next', step: old })).stale, true);
   assert.equal(g.phase, 'get-ready');
+  assert.equal(g.qi, 1);
+  // A human double click on "Start the question now": by the second click the host shows
+  // "Close the question" in its place (the new step). It does nothing, so the answers still
+  // wait for the TV's clip…
+  assert.equal((await press()).phase, 'question');
+  await sleep(100);
+  assert.equal((await press()).stale, true, 'the second click of the double click');
+  assert.equal(g.opened, false, 'the answer timer waits for the clip');
+  // … and when the TV reported the clip in between (the question is open: a newer step), the
+  // second click doesn't close the question it just started.
+  await req(tv, 'tv.game', { event: 'clip', q: 1 });
+  assert.equal(g.opened, true);
+  assert.equal((await press()).stale, true);
+  assert.equal(g.phase, 'question');
+  later += GAME_SETTLE_MS; // a deliberate click once the buttons have settled does close it
+  assert.equal((await press()).phase, 'reveal');
   assert.equal(g.qi, 1);
   await req(host, 'game.close');
 });

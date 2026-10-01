@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
 import { segmentAt } from '../../shared/wheel.js';
-import { loadPlaywright, startParty, WsClient, check, results, sleep } from './lib.mjs';
+import { loadPlaywright, startParty, WsClient, check, results, sleep, doubleClick } from './lib.mjs';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
 const out = path.resolve(process.argv[2] || 'test-results/e2e-wheel');
@@ -48,7 +48,9 @@ async function startWheel(host, setup) {
 
 /** Clicks a spin button, checks the secrecy while it turns, returns the result once it stops. */
 async function spinAndLand(host, tv, spy, button, label, { dbl = false } = {}) {
-  await host[dbl ? 'dblclick' : 'click'](`.game-live .btn:has-text("${button}")`);
+  const sel = `.game-live .btn:has-text("${button}")`;
+  if (dbl) await doubleClick(host, sel);
+  else await host.click(sel);
   await tv.waitForSelector('.wheel-tv .wheel.is-spinning');
   const secret = room().game.spin;
   const st = await spy.until((s) => s.game?.phase === 'spinning' && s.game.spin?.seq === secret.seq, 5000);

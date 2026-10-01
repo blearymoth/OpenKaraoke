@@ -4,6 +4,7 @@ import { html, useEffect, useState } from '../vendor/preact.js';
 import { useStore, useDebounced } from '../lib/store.js';
 import { useFetch, Switch } from '../lib/components.js';
 import { Countdown, AnswerTile, SongArt, SelectField, FilterFields, Confetti, ensureCss } from './common.js';
+import { usePhaseControl } from './phase-control.js';
 import { ANSWER_COLORS, ANSWER_SHAPES } from '/shared/protocol.js';
 
 ensureCss('/css/games/battle.css');
@@ -211,14 +212,9 @@ function phaseText(game) {
 export function Control({ game, act, now }) {
   const ph = game.phase;
   const m = game.match;
-  const [busy, setBusy] = useState(false);
-  // `step`: the server ignores the click once the battle has moved on (a double click on
-  // "Close voting now" must not skip the result screen).
-  const run = async (action) => {
-    setBusy(true);
-    await act('game.action', { action, step: game.step });
-    setBusy(false);
-  };
+  // A double click on "Close voting now" must not also press "Continue" (skipping the result).
+  const [busy, go] = usePhaseControl(game, act);
+  const run = (action) => go({ action });
   const lock = (p) => p.status === 'pending' && (game.songMode !== 'same' || lineup(game).every((x) => x.status === 'pending'));
   const canSong = (p) => !game.ended && lock(p) && (game.format !== 'showcase' || p.id === game.perf?.id || (ph === 'vs' && p.id === game.next?.id));
   const canJudge = (p) => game.judges && !game.ended && (p.status === 'done' || p.status === 'singing') && !m?.decided && !game.ranking;

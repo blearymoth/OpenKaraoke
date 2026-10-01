@@ -316,7 +316,10 @@ game.start {type, config}  game.action {...}  game.answer {...}  game.vote {...}
 display.approve {code}   tv.status / tv.ended / tv.error / tv.ready   ping {c}
 ```
 `game.action` may carry the game's `step` (in the host view; it counts phase changes): a control
-drawn for an older step is ignored (`{ stale: true }`), so a double click never skips a phase.
+drawn for an older step is ignored (`{ stale: true }`), and so is one that arrives within
+`GAME_SETTLE_MS` (600 ms) of a host control that moved the game on — the second click of a double
+click lands on the button the host's screen has meanwhile drawn for the new phase. The host's
+phase buttons stay disabled for that long too, so a double click never skips a phase.
 
 Server → client: `welcome`, `state`, `time`, `tv`, `res`, `toast`, `notify` (to one device:
 "You're up next!"), `reaction`, `announce`, `game`, `lib` (scan progress), `art` (song ids whose

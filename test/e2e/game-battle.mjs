@@ -8,7 +8,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
-import { loadPlaywright, startParty, check, results, sleep } from './lib.mjs';
+import { loadPlaywright, startParty, check, results, sleep, doubleClick } from './lib.mjs';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
 const out = path.resolve(process.argv[2] || 'test-results/e2e-battle');
@@ -152,11 +152,12 @@ try {
       await shot(host, 'host-vote');
     }
     if (rounds === 1) {
-      // A double click closes the vote once: the result screen stays up.
-      await host.dblclick('.game-live .btn:has-text("Close voting now")');
+      // A double click closes the vote once: by the second click "Continue" is in the button's
+      // place, and it must not skip the result screen.
+      const under = await doubleClick(host, '.game-live .btn:has-text("Close voting now")');
       await tv.waitForSelector('.bt-result', { timeout: 10000 });
-      await sleep(400);
-      check(game().phase === 'result' && !!(await tv.$('.bt-result')), 'a double click on "Close voting now" keeps the result on the TV');
+      await sleep(700);
+      check(game().phase === 'result' && !!(await tv.$('.bt-result')) && /disabled/.test(under), `a double click on "Close voting now" keeps the result on the TV (the second click hit ${under})`);
     } else {
       await host.click('.game-live .btn:has-text("Close voting now")');
       await tv.waitForSelector('.bt-result', { timeout: 10000 });

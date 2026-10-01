@@ -4,6 +4,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupRoom, SONGS, MORE_SONGS } from './room-harness.js';
 import { Battle, buildBracket, seedOrder, roundName } from '../server/games/battle.js';
+import { GAME_SETTLE_MS } from '../shared/protocol.js';
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const ALL = [...SONGS, ...MORE_SONGS];
 
@@ -659,19 +662,43 @@ test('battle: a double click on “Close voting now” or “Continue” never s
   const ctx = await party(['Cy']);
   const { req, view, tv, host } = ctx;
   await ctx.start({ format: 'knockout', contestants: ['Ana', 'Bo', 'Cy', 'Di'] });
+  const g = ctx.game();
+  let later = 0; // the game's clock runs this far ahead of the real one
+  g.now = () => Date.now() + later;
   await ctx.perform();
   await ctx.perform();
+  const press = (action) => req(host, 'game.action', { action, step: view(host).game.step });
   const twice = async (action) => {
     const step = view(host).game.step;
     return Promise.all([0, 1].map(() => req(host, 'game.action', { action, step })));
   };
+  later += GAME_SETTLE_MS; // the songs take a while
+  // Both clicks sent before the new state arrived: the second names the old step.
   let [a, b] = await twice('close');
   assert.equal(b.stale, true);
   assert.ok(a.winner >= 0);
   assert.equal(view(tv).game.phase, 'result', 'the result is on the TV');
+  later += GAME_SETTLE_MS;
   [a, b] = await twice('next');
   assert.equal(b.stale, true);
   assert.equal(view(tv).game.phase, 'vs', 'the next match’s intro, not further');
+  // A human double click: the second click lands on the button drawn for the new phase
+  // ("Continue" under "Close voting now"), so it names the new step — ignored for a moment.
+  later += GAME_SETTLE_MS;
+  await ctx.perform();
+  await ctx.perform();
+  later += GAME_SETTLE_MS;
+  a = await press('close');
+  assert.ok(a.winner >= 0);
+  const step = view(host).game.step;
+  assert.equal(step, g.step, 'the host has the result screen’s step');
+  await sleep(100);
+  b = await press('next');
+  assert.equal(b.stale, true, 'the second click of the double click');
+  assert.equal(g.phase, 'result', 'the result stays on the TV');
+  later += GAME_SETTLE_MS; // the host clicks “Continue” once they've seen the result
+  assert.equal((await press('next')).stale, undefined);
+  assert.equal(g.phase, 'vs');
   // Without a step, "close" outside a vote is refused instead of moving on.
   await ctx.perform();
   await ctx.perform();

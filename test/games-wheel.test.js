@@ -11,6 +11,7 @@ import {
   DEFAULT_DARES, MAX_DARES, MAX_DARE_LENGTH, SPIN_SECONDS, WHEEL_COLORS,
   landingRotation, segmentAt, rotationAt, spinEase, segmentColor,
 } from '../shared/wheel.js';
+import { GAME_SETTLE_MS } from '../shared/protocol.js';
 
 const ALL = [...SONGS, ...MORE_SONGS];
 // Most tests need no more than one song (each harness song is a 1.4 MB file on disk).
@@ -586,16 +587,22 @@ test('wheel: a double click on a spin button spins once (and never takes a newer
   const { req, host, room, view } = await party();
   await req(host, 'game.start', { type: 'wheel', config: { kind: 'dares', count: 6 } });
   const g = room.game;
+  let later = 0; // the game's clock: the wheel turns for a few seconds before it lands
+  g.now = () => Date.now() + later;
+  const landed = () => {
+    land(room);
+    later += GAME_SETTLE_MS;
+  };
   let step = view(host).game.step;
   const [a, b] = await Promise.all([0, 1].map(() => req(host, 'game.action', { action: 'spin', step })));
   assert.equal(a.seq, 1);
   assert.equal(b.stale, true);
   assert.equal(g.seq, 1);
-  land(room);
+  landed();
   step = view(host).game.step;
   const shown = g.result.seg.label;
   await req(host, 'game.action', { action: 'spin', remove: true, step });
-  land(room);
+  landed();
   // The second click of "Spin again without …" arrives late (drawn for the old result).
   assert.equal((await req(host, 'game.action', { action: 'spin', remove: true, step })).stale, true);
   assert.equal(g.segments.length, 5, 'only the shown result was taken off');

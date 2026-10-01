@@ -1296,14 +1296,9 @@ export class Room {
     return this.game;
   }
 
-  /**
-   * Host controls. A control that names the game's `step` it was drawn for does nothing once
-   * the game has moved on (a double click, or a click that crossed a phase timer).
-   */
+  /** Host controls (a phase control that is stale or part of a double click does nothing: Game.control). */
   gameAction(client, m) {
-    const game = this.activeGame();
-    if (m.step !== undefined && m.step !== game.step) return { stale: true, phase: game.phase };
-    return game.action(client, m);
+    return this.activeGame().control(client, m);
   }
 
   gameInput(client, m) {

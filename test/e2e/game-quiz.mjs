@@ -7,7 +7,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
-import { loadPlaywright, startParty, check, results, sleep } from './lib.mjs';
+import { loadPlaywright, startParty, check, results, sleep, doubleClick } from './lib.mjs';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
 const out = path.resolve(process.argv[2] || 'test-results/e2e-quiz');
@@ -124,11 +124,24 @@ try {
   // ---- five questions ----
   for (let i = 0; i < 5; i++) {
     const q = g.questions[i];
+    let dbl = '';
+    if (i === 1) {
+      // The host double-clicks "Start the question now" (once the TV had a moment to load the
+      // clip). By the second click the button reads "Close the question": the question still
+      // opens with the TV's clip, and stays open.
+      await until(() => g.qi === 1 && g.phase === 'get-ready', 12000);
+      await sleep(800);
+      dbl = await doubleClick(host, '.game-live .btn:has-text("Start the question now")');
+    }
     await tv.waitForSelector('.qz-question', { timeout: 10000 });
     const opened = await until(() => g.qi === i && g.opened, 6000);
     const clipEvent = tvEvents.find((e) => e.q === i && e.event === 'clip');
     const delay = clipEvent && askedAt[i] ? clipEvent.at - askedAt[i] : -1;
     check(opened && !!clipEvent && !clipEvent.opened && delay >= 0 && delay < 3000, `Q${i + 1} (${q.type}): the TV started the ${q.clip.kind} and reported it ${delay} ms after the question appeared`);
+    if (dbl) {
+      await sleep(700);
+      check(g.qi === 1 && g.phase === 'question' && g.opened && /disabled/.test(dbl), `Q2: a double click on "Start the question now" starts it once (the second click hit ${dbl})`);
+    }
     if (q.type === 'lyrics') {
       const colours = await tv.$eval('.qz-lyrics canvas', (c) => {
         const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
@@ -168,10 +181,10 @@ try {
     }
     if (i === 3) {
       // Bob doesn't answer; the host double-clicks "Close the question": the reveal stays up.
-      await host.dblclick('.game-live .btn:has-text("Close the question")');
+      const under = await doubleClick(host, '.game-live .btn:has-text("Close the question")');
       await tv.waitForSelector('.qz-reveal', { timeout: 5000 });
-      await sleep(400);
-      check(g.phase === 'reveal' && g.qi === 3 && !!(await tv.$('.qz-reveal')), 'Q4: a double click on "Close the question" shows the answer (doesn’t skip it)');
+      await sleep(700);
+      check(g.phase === 'reveal' && g.qi === 3 && !!(await tv.$('.qz-reveal')), `Q4: a double click on "Close the question" shows the answer (doesn’t skip it; the second click hit ${under})`);
       await ann.waitForSelector('.qz-verdict.right');
       await bob.waitForSelector('.qz-verdict.wrong:has-text("Too slow")');
     } else {

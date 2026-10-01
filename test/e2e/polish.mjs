@@ -255,6 +255,37 @@ try {
   await remote.close();
   app.hub.onHello = hello;
 
+  // The TV's connection dies but the server still holds it (a network change; only the next
+  // heartbeat would notice): the page reconnects and keeps the sound, it does not come back as
+  // a muted mirror and then "stand in" for itself.
+  const lossy = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'lossy-tv');
+  await exposeController(lossy);
+  const sockets = [];
+  await lossy.routeWebSocket(/\/ws$/, (ws) => {
+    const server = ws.connectToServer();
+    if (!sockets.length) ws.onClose(() => {}); // the first connection: the server never hears it close
+    sockets.push({ ws, server });
+  });
+  await lossy.goto(`${base}/tv`);
+  await lossy.waitForSelector('.scene, .lobby, .intro');
+  const tvClients = () => app.hub.list((c) => c.role === 'tv' && c.data.kind === 'main');
+  const stale = mains()[0];
+  check(!!stale && (await playOn(lossy)), 'a TV page plays the song');
+  await sockets[0].ws.close();
+  check(await until(() => sockets.length === 2 && mains()[0] && mains()[0] !== stale, 10000), 'the page reconnected');
+  check(stale.open && stale.data.display === 'mirror', 'while the server still holds its dead connection (now muted)');
+  check(!mains()[0].data.standIn && app.room.s.player.state === 'playing' && !app.room.s.player.displayLost, 'the page is still the main TV and the song goes on');
+  await sockets[0].server.close();
+  check(await until(() => !app.hub.clients.has(stale.id), 5000), 'the dead connection is dropped');
+  check(mains().length === 1 && !mains()[0].data.standIn, 'the TV is not "standing in" for itself');
+  check(!(await lossy.$('.mirror-badge')) && (await lossy.evaluate(() => window.__tvController.engine.playing)), 'the TV page never went quiet');
+  const extra = watch(await browser.newPage({ viewport: { width: 640, height: 360 } }), 'extra-tv');
+  await extra.goto(`${base}/tv`);
+  await extra.waitForSelector('.mirror-badge');
+  check(tvClients().length === 2 && mains().length === 1 && mains()[0] === tvClients()[0], 'so another TV page opened later is only a mirror');
+  await extra.close();
+  await lossy.close();
+
   // Live preview of the TV in the host.
   await host.click('.player button[title="Live preview of the TV"]');
   const frame = await (await host.waitForSelector('.tv-preview iframe')).contentFrame();

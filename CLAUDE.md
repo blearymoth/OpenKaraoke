@@ -53,7 +53,8 @@ Server (`server/`)
   clustering, search, browse, cache), `service.js` (cache load/save, background rescans,
   offline/online watcher, `absPath`).
 - `http/` — `router.js`, `static.js` (ETag, gzip, byte ranges, `safeJoin`), `media.js`
-  (`/media/:trackId/audio|cdg|video`, zip entries), `api.js` (PLAN §8).
+  (`/media/:trackId/audio|cdg|video`, zip entries), `api.js` (PLAN §8), `shell.js` (writes the
+  current skin into every HTML page: `<html data-theme>`, theme-color; part of the ETag).
 - `room/` — `room.js` (party state machine, all WebSocket actions, role views), `rotation.js`
   (fair rotation + ETA, pure), `auth.js` (localhost trust, PIN → host token, device tokens,
   Host/Origin trust).
@@ -64,7 +65,7 @@ Server (`server/`)
 
 Shared (`shared/`, imported by server and browser): `text.js`, `cdg.js` (CD+G decoder,
 Scale2x, RGBA), `protocol.js` (constants: channel modes, key/tempo ranges, reactions,
-avatars, denial messages).
+avatars, denial messages), `themes.js` (the skins' ids/names, validation of `settings.appearance`).
 
 Browser (`public/`, plain ES modules, Preact + htm)
 - `tv.html` + `js/tv/` — `controller.js` (follows server state, owns the media clock, reports
@@ -75,7 +76,8 @@ Browser (`public/`, plain ES modules, Preact + htm)
   `player.js`, `queue.js`, `views.js`, `dialogs.js`, `settings.js`.
 - `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts.
 - `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`,
-  `components.js`, `icons.js`. CSS: `css/base.css` (tokens), `host.css`, `tv.css`, `guest.css`.
+  `components.js`, `icons.js`, `theme.js` (follows the skin live, `token()` for code that needs
+  a colour). CSS: `css/base.css` (the two skins' tokens + components), `host.css`, `tv.css`, `guest.css`.
 
 Tests (`test/`): node:test suites + helpers; `test/e2e/` Playwright scripts. Dev tooling:
 `scripts/lib/cdg-writer.js` (+ `cdg-font.js`) writes synthetic CDGs for tests and the demo.
@@ -98,7 +100,12 @@ Planned modules and their responsibilities are specified in `docs/PLAN.md` §4.
   client strings. New POST endpoints use `readJsonBody` (requires `application/json`).
 - Single-column CSS grids need `grid-template-columns: minmax(0, 1fr)` or long unwrapped
   text widens the page on phones.
-- UI text is English. Dark "party" theme; TV UI must be legible from across a room.
+- UI text is English. Two dark skins (`settings.appearance.theme`): **Studio** (default, calm
+  graphite + one accent) and **Party** (neon pink/purple). Every skin-specific colour, gradient,
+  glow, font or radius is a token defined per skin at the top of `css/base.css` (`--neon` is the
+  accent) — never hard-code one in CSS or JS; canvas/SVG code reads tokens. Party must keep
+  looking exactly as it did (test/themes.test.js pins its values). TV UI must be legible from
+  across a room.
 
 ## Owner's environment (for local testing)
 

@@ -162,6 +162,23 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
 9. Tests create temp folders through `tmpDir()` (removed on exit) and sparse fake CDGs — the
    sandbox disk filled up with ≈30 GB of leftovers before this was fixed.
 
+## Skins: Studio (default) and Party
+- The owner asked for a more professional look as the default while keeping today's one:
+  **Settings → Appearance** picks the skin for every screen (host, TV incl. mirrors/preview/
+  board/pairing, phones, landing page, games) and an optional accent colour ("Use the skin's
+  colour" resets it). Changes show live everywhere; guests never see the setting.
+- **Studio** (new default): graphite surfaces, one blue accent, Figtree headings, smaller radii,
+  soft shadows instead of glows, calmer TV backgrounds and game colours. A first draft — its
+  values are the token block at the top of `public/css/base.css`.
+- **Party**: the original look, pixel for pixel (checked against a890418 rule by rule and on 47
+  screens; `test/themes.test.js` pins the values). Existing parties switch to Studio; a custom
+  `display.accent` became `appearance.accent`.
+- How: `settings.appearance` → `server/http/shell.js` writes `data-theme` into each served page
+  (ETag per skin, no flash) → `public/js/lib/theme.js` follows changes live. Every skin colour is
+  a token; never hard-code one. `test/e2e/themes.mjs` saves screenshots of both skins to
+  `test-results/e2e-themes/`.
+- Owner: look at both skins on the TV from across the room and on a phone.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, optional

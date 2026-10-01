@@ -612,3 +612,32 @@ test('quiz: ties share the win, nobody wins with 0 points — TV, phones and rec
   assert.equal(s().tonight.games.at(-1).title, 'Quiz champions');
   assert.deepEqual(view(tv).game.winners, ['Ana', 'Ben'], 'still shown after the end');
 });
+
+test('quiz: a banned guest leaves the leaderboard, the podium and the recap (and comes back after an unban)', async () => {
+  const { req, connect, guest, room, view, s } = await quizRoom();
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const ana = await guest('Ana');
+  const troll = await guest('OffensiveName');
+  await req(host, 'game.start', { type: 'quiz', config: { questions: 5 } });
+  const g = room.game;
+  await openQuestion(room, req, tv);
+  await req(troll, 'game.input', { q: 0, choice: songChoice(g) });
+  await req(ana, 'game.input', { q: 0, choice: wrongChoice(g) });
+  const trollId = troll.data.deviceId;
+  await req(host, 'guest.ban', { deviceId: trollId });
+  assert.equal(view(tv).game.answered, 1, 'their answer is not counted');
+  g.close();
+  assert.equal(view(tv).game.reveal.rightCount, 0, 'nobody (still here) got it right');
+  assert.equal(view(tv).game.reveal.counts.reduce((a, b) => a + b, 0), 1);
+  g.final();
+  const names = view(tv).game.leaderboard.map((r) => r.name);
+  assert.deepEqual(names, ['Ana']);
+  assert.equal(view(tv).game.players, 1);
+  assert.deepEqual(view(tv).game.winners, []);
+  assert.equal(JSON.stringify(view(host).game).includes('OffensiveName'), false);
+  g.end();
+  assert.deepEqual(s().tonight.games, [], 'no champion for the recap');
+  await req(host, 'guest.unban', { deviceId: trollId });
+  assert.deepEqual(view(tv).game.leaderboard.map((r) => [r.name, r.score]).sort(), [['Ana', 0], ['OffensiveName', 0]], 'unbanned: listed again (0 points for the question they were banned in)');
+});

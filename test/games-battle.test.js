@@ -626,3 +626,31 @@ test('battle: ended on the deciding result screen → the winner is kept; nobody
   duel.room.game.end();
   assert.equal(duel.s().tonight.games.length, 0);
 });
+
+test('battle: a banned guest’s votes stop counting', async () => {
+  const ctx = await party(['Cy', 'Troll', 'Ed']);
+  const { act, req, view, tv, g } = ctx;
+  await ctx.start({ contestants: ['Ana', 'Bo'] });
+  await ctx.perform();
+  await ctx.perform();
+  await req(g.Cy, 'game.input', { pick: 'a' });
+  await req(g.Troll, 'game.input', { pick: 'b' });
+  await req(g.Ed, 'game.input', { pick: 'b' });
+  assert.deepEqual(view(tv).game.match.votes, { a: 1, b: 2 });
+  await req(ctx.host, 'guest.ban', { deviceId: g.Troll.data.deviceId });
+  assert.deepEqual(view(tv).game.match.votes, { a: 1, b: 1 });
+  assert.equal(view(tv).game.match.voters, 2);
+  await act('close');
+  assert.deepEqual(view(tv).game.match.points, { a: 1, b: 1 }, 'a tie without the troll');
+
+  // Score voting: the average leaves the banned guest's score out.
+  const sc = await party(['Cy', 'Troll']);
+  await sc.start({ format: 'showcase', contestants: ['Ana', 'Bo'] });
+  await sc.perform();
+  await sc.req(sc.g.Cy, 'game.input', { score: 8 });
+  await sc.req(sc.g.Troll, 'game.input', { score: 1 });
+  assert.equal(sc.view(sc.host).game.perf.score, 4.5);
+  await sc.req(sc.host, 'guest.ban', { deviceId: sc.g.Troll.data.deviceId });
+  assert.equal(sc.view(sc.host).game.perf.score, 8);
+  assert.equal(sc.view(sc.tv).game.perf.votes, 1);
+});

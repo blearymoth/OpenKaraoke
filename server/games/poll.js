@@ -56,9 +56,10 @@ export class Poll extends Game {
     return fail('Unknown poll control.');
   }
 
+  /** Votes per candidate (banned guests' votes don't count). */
   counts() {
     const counts = this.candidates.map(() => 0);
-    for (const i of this.votes.values()) counts[i]++;
+    for (const i of this.liveVotes(this.votes)) counts[i]++;
     return counts;
   }
 
@@ -86,8 +87,8 @@ export class Poll extends Game {
     const counts = this.counts();
     v.seconds = this.config.seconds;
     v.candidates = this.candidates.map((c, i) => ({ ...c, votes: counts[i] }));
-    v.total = this.votes.size;
-    v.winner = this.phase === 'vote' ? -1 : this.winner;
+    v.total = counts.reduce((a, b) => a + b, 0);
+    v.winner = this.phase === 'vote' ? -1 : this.winner; // still -1 when the host ended the poll during the vote
     v.tie = !!this.tie;
     if (ctx.role === 'guest') v.myVote = this.votes.has(ctx.deviceId) ? this.votes.get(ctx.deviceId) : -1;
     if (ctx.role === 'host') v.queueError = this.queueError || null;

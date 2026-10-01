@@ -156,6 +156,18 @@ export class Game {
     this.clearTimers();
   }
 
+  /** Has the host banned this guest? Their answers and votes stop counting (and count again after an unban). */
+  banned(deviceId) {
+    return !!this.room.profileOf(deviceId)?.banned;
+  }
+
+  /** The votes in a deviceId → vote map, without banned guests' votes. */
+  liveVotes(map) {
+    const out = [];
+    for (const [deviceId, vote] of map) if (!this.banned(deviceId)) out.push(vote);
+    return out;
+  }
+
   /** A guest as shown in games: { deviceId, name, emoji, color } (null when unknown). */
   player(deviceId) {
     const p = this.room.profileOf(deviceId);

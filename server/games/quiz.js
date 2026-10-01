@@ -356,6 +356,7 @@ export class Quiz extends Game {
     const T = this.config.seconds;
     const counts = q.choices.map(() => 0);
     for (const [deviceId, p] of this.players) {
+      if (this.banned(deviceId)) continue; // removed by the host: off the board, answers don't count
       const a = this.answers.get(deviceId);
       if (!a) {
         p.streak = 0;
@@ -466,11 +467,12 @@ export class Quiz extends Game {
 
   // ---- results ---------------------------------------------------------------------------------
 
-  /** Players by score (ties: whoever joined first). */
+  /** Players by score (ties: whoever joined first). Banned guests are left out. */
   ranking() {
     const rows = [];
     for (const [deviceId, p] of this.players) {
       const prof = this.room.profileOf(deviceId);
+      if (prof?.banned) continue;
       rows.push({
         deviceId, id: p.pid, name: prof?.name || 'Player', emoji: prof?.emoji || '🎤', color: prof?.color || '',
         score: p.score, delta: p.last?.q === this.qi ? p.last.points : 0, correct: p.correct, streak: p.streak, best: p.best, order: p.order,
@@ -506,9 +508,9 @@ export class Quiz extends Game {
     v.total = this.questions.length;
     v.index = this.qi;
     v.open = phase === 'question' && this.opened;
-    v.answered = this.answers.size;
+    v.answered = [...this.answers.keys()].filter((id) => !this.banned(id)).length;
     v.expected = this.expected().size;
-    v.players = this.players.size;
+    v.players = rows.length;
     if (q && phase !== 'final' && phase !== 'done') {
       const info = QUIZ_ROUND_INFO[q.type];
       v.round = { type: q.type, label: info.label, icon: info.icon, prompt: info.prompt, ask: info.ask };

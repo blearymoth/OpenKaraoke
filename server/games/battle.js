@@ -418,7 +418,7 @@ export class Battle extends Game {
     const { a, b } = this.sides(m);
     if (this.config.voting === 'score') return { a: this.perfScore(a), b: this.perfScore(b) };
     const out = { a: 0, b: 0 };
-    for (const side of m.votes.values()) out[side]++;
+    for (const side of this.liveVotes(m.votes)) out[side]++; // (banned guests' votes don't count)
     const judged = this.judgeSide(a, b);
     if (judged) out[judged] += this.config.judgeWeight;
     return out;
@@ -434,7 +434,7 @@ export class Battle extends Game {
     if (!p || p.status === 'skipped') return 0;
     let sum = 0;
     let n = 0;
-    for (const v of p.votes.values()) {
+    for (const v of this.liveVotes(p.votes)) {
       sum += v;
       n++;
     }
@@ -706,7 +706,7 @@ export class Battle extends Game {
     const open = p.closed || role === 'host';
     const out = {
       id: p.id, c: p.c, side: p.side, status: p.status, songId: song?.id || null,
-      title: song?.title || '', artist: song?.artist || '', votes: p.votes.size, reactions: p.reactions,
+      title: song?.title || '', artist: song?.artist || '', votes: this.liveVotes(p.votes).length, reactions: p.reactions,
     };
     if (this.config.voting === 'score' && open) out.score = this.perfScore(p);
     if (this.config.judges && open) out.judge = p.judge || 0;
@@ -723,11 +723,12 @@ export class Battle extends Game {
     out.order = m.perfs.map((i) => this.perfs[i].side);
     out.perfs = { a: this.perfView(a, role), b: this.perfView(b, role) };
     if (this.config.voting === 'ab') {
-      out.voters = m.votes.size;
+      const votes = this.liveVotes(m.votes);
+      out.voters = votes.length;
       // Live A/B bars on the TV (and the host); phones only see their own vote until the result.
       if (role !== 'guest' || m.decided) {
         out.votes = { a: 0, b: 0 };
-        for (const side of m.votes.values()) out.votes[side]++;
+        for (const side of votes) out.votes[side]++;
       }
       if (role === 'host' || m.decided) out.judged = this.judgeSide(a, b);
     }

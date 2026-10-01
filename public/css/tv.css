@@ -213,9 +213,19 @@ body.preview .conn-lost, body.preview .corner-qr { display: none; }
 .photo-flash { position: absolute; left: 50%; top: 50%; z-index: 6; margin: 0; padding: 1.6vh 1.6vh 1vh; background: #fff; border-radius: 1vh; box-shadow: 0 3vh 8vh rgba(0, 0, 0, 0.7); transform: translate(-50%, -50%) rotate(-3deg); animation: photo-in 0.7s var(--ease) both, photo-out 0.6s ease 6.3s forwards; }
 .photo-flash img { max-width: 60vw; max-height: 62vh; object-fit: contain; border-radius: 0.4vh; }
 .photo-flash figcaption { margin-top: 1vh; text-align: center; font-size: 3vh; font-weight: 700; color: #1b1230; }
-.photo-flash.corner { left: auto; top: auto; right: 3vw; bottom: 12vh; transform: rotate(3deg); animation: photo-in-corner 0.7s var(--ease) both, photo-out 0.6s ease 6.3s forwards; }
-.photo-flash.corner img { max-width: 24vw; max-height: 28vh; }
-.photo-flash.corner figcaption { font-size: 2vh; }
+/* While someone sings: in the strip right of the lyrics (#cdg is 3:2, min(86vh, 86vw / 1.5) high), never over them. */
+.photo-flash.corner { left: auto; top: auto; right: 2.5vw; bottom: 12vh; max-width: calc((100vw - min(86vh, 86vw / 1.5) * 1.5) / 2 - 2.5vw - 2.5vh); padding: 1vh 1vh 0.6vh; transform: rotate(3deg); animation: photo-in-corner 0.7s var(--ease) both, photo-out 0.6s ease 6.3s forwards; }
+.photo-flash.corner img { display: block; max-width: 100%; max-height: 28vh; }
+.photo-flash.corner figcaption { width: 0; min-width: 100%; margin-top: 0.6vh; font-size: 2vh; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* as wide as the photo */
+/* No room beside the lyrics (screens narrower than about 16:10) or a full-screen video: just the name, at the top. */
+@media (max-aspect-ratio: 17/10) {
+  .photo-flash.corner { left: 0; right: 0; top: 1vh; bottom: auto; width: max-content; max-width: 60vw; margin: 0 auto; padding: 0.8vh 2vh; transform: none; animation: fanart-in 0.6s ease both, photo-out 0.6s ease 6.3s forwards; }
+  .photo-flash.corner img { display: none; }
+  .photo-flash.corner figcaption { width: auto; min-width: 0; margin: 0; }
+}
+body:has(#video:not([hidden])) .photo-flash.corner { left: 0; right: 0; top: 1vh; bottom: auto; width: max-content; max-width: 60vw; margin: 0 auto; padding: 0.8vh 2vh; transform: none; animation: fanart-in 0.6s ease both, photo-out 0.6s ease 6.3s forwards; }
+body:has(#video:not([hidden])) .photo-flash.corner img { display: none; }
+body:has(#video:not([hidden])) .photo-flash.corner figcaption { width: auto; min-width: 0; margin: 0; }
 @keyframes photo-in { from { opacity: 0; transform: translate(-50%, -40%) rotate(8deg) scale(0.8); } }
 @keyframes photo-in-corner { from { opacity: 0; transform: translateY(10vh) rotate(10deg); } }
 @keyframes photo-out { to { opacity: 0; } }

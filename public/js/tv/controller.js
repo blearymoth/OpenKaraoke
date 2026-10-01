@@ -66,6 +66,20 @@ export class TvController extends EventTarget {
     return this.engine.running;
   }
 
+  /** Stops all local playback (this screen was refused); the next apply() loads the song again. */
+  stop() {
+    this.entryId = null;
+    this.loaded = false;
+    this.loadedTrackId = null;
+    this.readySent = null;
+    this.mirror = null;
+    this.engine.unload();
+    this.cdg.unload();
+    this.video.pause();
+    this.video.hidden = true;
+    this.changed();
+  }
+
   setDisplay(kind) {
     if (kind === this.display) return;
     this.display = kind;

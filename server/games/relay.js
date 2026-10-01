@@ -89,6 +89,7 @@ export class Relay extends Game {
    * still get the mic count towards MAX_PARTICIPANTS: removing or banning someone frees a place.
    */
   refreshPool() {
+    this.prune();
     if (!this.config.everyone) return false;
     let live = this.eligible().length;
     if (live >= MAX_PARTICIPANTS) return false;
@@ -103,6 +104,18 @@ export class Relay extends Game {
       if (++live >= MAX_PARTICIPANTS) break;
     }
     return added;
+  }
+
+  /**
+   * Banned guests (and profiles that are gone) leave the pool for good, so their place really
+   * is free: an unban later can't take the game past MAX_PARTICIPANTS. In everyone mode they
+   * rejoin by themselves when there's room again; with a picked list the host adds them back.
+   */
+  prune() {
+    for (const id of this.pool) {
+      const p = this.room.profileOf(id);
+      if (!p?.name || p.banned) this.pool.delete(id);
+    }
   }
 
   /** Participants who can get the mic right now (named, not banned, not removed). */
@@ -215,6 +228,7 @@ export class Relay extends Game {
           this.dropGone();
         } else {
           if (p.banned) fail('That guest is banned.', 'forbidden');
+          this.prune();
           const ids = this.eligible();
           if (!ids.includes(id) && ids.length >= MAX_PARTICIPANTS) fail('The game is full.', 'full');
           this.removed.delete(id);

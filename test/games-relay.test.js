@@ -325,6 +325,41 @@ test('relay: removed and banned guests free their place — the cap counts only 
   g.tick();
   assert.equal(g.eligible().length, MAX_PARTICIPANTS);
   assert.ok(!g.eligible().includes(away), 'the guest taken out stays out');
+  // Lifting a ban never takes the game past the cap: the late guest kept the freed place.
+  await req(host, 'guest.unban', { deviceId: ids[1] });
+  g.tick();
+  assert.equal(g.eligible().length, MAX_PARTICIPANTS, 'still full after the unban');
+  assert.ok(g.eligible().includes(late) && !g.eligible().includes(ids[1]), 'the unbanned guest waits for a place');
+  assert.equal(view(host).game.participants.length, MAX_PARTICIPANTS);
+  // Several bans, late arrivals filling every place, then all the unbans (and passes between).
+  for (const id of ids.slice(10, 20)) await req(host, 'guest.ban', { deviceId: id });
+  for (let i = 0; i < 10; i++) fake(200 + i);
+  await req(host, 'game.action', { action: 'pass' }); // (a pass refreshes the pool too)
+  g.tick();
+  for (const id of ids.slice(10, 20)) await req(host, 'guest.unban', { deviceId: id });
+  g.tick();
+  await req(host, 'game.action', { action: 'pass' });
+  assert.equal(g.eligible().length, MAX_PARTICIPANTS, 'never more than the cap');
+  assert.equal(view(host).game.count, MAX_PARTICIPANTS);
+  // When a place frees up, an unbanned guest (still online) joins by themselves again.
+  await req(host, 'game.action', { action: 'remove', deviceId: late });
+  g.tick();
+  assert.equal(g.eligible().length, MAX_PARTICIPANTS);
+  assert.ok([ids[1], ...ids.slice(10, 20)].some((id) => g.eligible().includes(id)), 'an unbanned guest took the place');
+});
+
+test('relay: a picked list — a banned guest leaves it; after the unban the host can add them back', async () => {
+  const { req, host, room, ids, view } = await party(3);
+  await req(host, 'game.start', { type: 'relay', config: { participants: ids, min: 60, max: 60 } });
+  const g = room.game;
+  await req(host, 'guest.ban', { deviceId: ids[0] });
+  g.tick();
+  await req(host, 'guest.unban', { deviceId: ids[0] });
+  g.tick();
+  assert.ok(!g.eligible().includes(ids[0]), 'a ban takes them out of the game');
+  assert.equal(view(host).game.count, 2);
+  await req(host, 'game.action', { action: 'add', deviceId: ids[0] });
+  assert.ok(g.eligible().includes(ids[0]), 'the host adds them back');
 });
 
 test('relay: the host counts down to the next pass (a server time, no broadcasts needed)', async () => {

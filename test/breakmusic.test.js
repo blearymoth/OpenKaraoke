@@ -250,25 +250,6 @@ test('break music folder scan: follows symbolic links (once, no loops) and sampl
   assert.ok(artists.size > 15, `drawn from the whole folder, not the first few artists (${artists.size} of 30)`);
 });
 
-test('autoplay: an empty queue gets a popular sing-along for everyone after the wait', async () => {
-  const { connect, s, room, app } = await setupRoom({ playback: { whenQueueEmpty: 'autoplay', autoplayAfter: 5, countdown: 0 } }, { songs: [...SONGS, ...MORE_SONGS] });
-  await connect('host');
-  await connect('tv');
-  room.flush();
-  assert.ok(room.breakMusic.autoplayTimer, 'waiting');
-  clearTimeout(room.breakMusic.autoplayTimer);
-  room.breakMusic.autoplayTimer = null;
-  app.settings.update({ playback: { autoplayAfter: 0.05 } });
-  room.breakMusic.checkAutoplay();
-  await sleep(5200); // minimum wait is 5 s
-  assert.ok(s().current, 'a song started');
-  assert.equal(room.singer(s().current.singerIds[0]).name, 'Everyone');
-  assert.equal(s().current.source, 'game:autoplay');
-  app.settings.update({ playback: { whenQueueEmpty: 'lobby' } });
-  room.breakMusic.checkAutoplay();
-  assert.equal(room.breakMusic.autoplayTimer, null);
-});
-
 test('autoplay: a finished poll stays on the TV until its winner starts, then the lobby and autoplay come back', async () => {
   const { connect, req, view, s, room } = await setupRoom(
     { playback: { autoStart: true, countdown: 0, whenQueueEmpty: 'autoplay', autoplayAfter: 60 } },
@@ -327,4 +308,23 @@ test('autoplay: the results of a game that ended with nothing queued hold it bac
   await req(host, 'game.close');
   view(tv);
   assert.ok(room.breakMusic.autoplayTimer, 'closed: autoplay is armed');
+});
+
+test('autoplay: an empty queue gets a popular sing-along for everyone after the wait', async () => {
+  const { connect, s, room, app } = await setupRoom({ playback: { whenQueueEmpty: 'autoplay', autoplayAfter: 5, countdown: 0 } }, { songs: [...SONGS, ...MORE_SONGS] });
+  await connect('host');
+  await connect('tv');
+  room.flush();
+  assert.ok(room.breakMusic.autoplayTimer, 'waiting');
+  clearTimeout(room.breakMusic.autoplayTimer);
+  room.breakMusic.autoplayTimer = null;
+  app.settings.update({ playback: { autoplayAfter: 0.05 } });
+  room.breakMusic.checkAutoplay();
+  await sleep(5200); // minimum wait is 5 s
+  assert.ok(s().current, 'a song started');
+  assert.equal(room.singer(s().current.singerIds[0]).name, 'Everyone');
+  assert.equal(s().current.source, 'game:autoplay');
+  app.settings.update({ playback: { whenQueueEmpty: 'lobby' } });
+  room.breakMusic.checkAutoplay();
+  assert.equal(room.breakMusic.autoplayTimer, null);
 });

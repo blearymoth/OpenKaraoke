@@ -70,15 +70,19 @@ export function Leaderboard({ rows, max = 10, highlight }) {
   </li>`)}</ol>`;
 }
 
-/** Top three on a podium (2nd, 1st, 3rd). */
+/** Top three on a podium (2nd, 1st, 3rd). Rows with a `rank` share a step when tied (1, 1, 3). */
 export function Podium({ rows }) {
   const order = [rows[1], rows[0], rows[2]];
-  return html`<div class="g-podium">${order.map((r, i) => r && html`<div class=${`step p${[2, 1, 3][i]}`} key=${r.id || r.name}>
-    <span class="avatar" style=${{ '--avatar': r.color }}>${r.emoji || '🎤'}</span>
-    <b class="ellipsis">${r.name}</b>
-    <span class="num">${Math.round(r.score).toLocaleString()}</span>
-    <div class="block">${[2, 1, 3][i]}</div>
-  </div>`)}</div>`;
+  return html`<div class="g-podium">${order.map((r, i) => {
+    if (!r) return null;
+    const place = Math.min(3, r.rank || [2, 1, 3][i]);
+    return html`<div class=${`step p${place}`} key=${r.id || r.name}>
+      <span class="avatar" style=${{ '--avatar': r.color }}>${r.emoji || '🎤'}</span>
+      <b class="ellipsis">${r.name}</b>
+      <span class="num">${Math.round(r.score).toLocaleString()}</span>
+      <div class="block">${place}</div>
+    </div>`;
+  })}</div>`;
 }
 
 /** Song cover (placeholder while unknown) for game screens. */

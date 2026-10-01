@@ -85,3 +85,37 @@ test('autoplay: an empty queue gets a popular sing-along for everyone after the 
   room.breakMusic.checkAutoplay();
   assert.equal(room.breakMusic.autoplayTimer, null);
 });
+
+test('autoplay: pass the mic runs alongside the karaoke — the sing-along still comes; a game on the TV holds it back', async () => {
+  const { connect, req, s, room, app } = await setupRoom({ playback: { whenQueueEmpty: 'autoplay', autoplayAfter: 5, countdown: 0 } }, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  await connect('tv');
+  const armed = () => {
+    room.flush();
+    return !!room.breakMusic.autoplayTimer;
+  };
+  assert.ok(armed(), 'waiting');
+  // An exclusive game (the recap) owns the TV — also while its results are still up.
+  await req(host, 'game.start', { type: 'recap' });
+  assert.equal(armed(), false, 'not during a game on the TV');
+  await req(host, 'game.end');
+  assert.equal(armed(), false, 'nor while its results are on the TV');
+  await req(host, 'game.close');
+  assert.ok(armed());
+  // Pass the mic plays along with the songs: autoplay carries on, before and after it ends.
+  await req(host, 'game.start', { type: 'relay', config: { participants: 'everyone' } });
+  assert.ok(armed(), 'waiting while pass the mic runs');
+  clearTimeout(room.breakMusic.autoplayTimer);
+  room.breakMusic.autoplayTimer = null;
+  app.settings.update({ playback: { autoplayAfter: 0.05 } });
+  room.breakMusic.checkAutoplay();
+  await sleep(5200); // minimum wait is 5 s
+  assert.ok(s().current, 'the sing-along started');
+  assert.equal(s().current.source, 'game:autoplay');
+  assert.equal(room.game?.type, 'relay', 'with pass the mic still on');
+  room.finish('skipped', { advance: false });
+  await req(host, 'game.end');
+  assert.ok(armed(), 'an ended pass the mic doesn’t hold it back either');
+  app.settings.update({ playback: { whenQueueEmpty: 'lobby' } });
+  assert.equal(armed(), false);
+});

@@ -245,7 +245,7 @@ function App() {
   const p = st.player;
   const game = st.game;
   const gameUi = game && GAME_UI[game.type];
-  const tv = { conn, controller, main: s.display === 'main', send: (m) => conn.request('tv.game', m).catch(() => null) };
+  const tv = { conn, controller, main: s.display === 'main', open: s.status === 'open', send: (m) => conn.request('tv.game', m).catch(() => null) };
   // An exclusive game owns the TV; its results stay up until the next song starts. A game that
   // sings songs itself (`showSongs`: battle) lets the karaoke scene show while its song is on.
   const gameScene = !!(game?.exclusive && gameUi?.Tv && (!game.ended || !st.current) && !(game.showSongs && st.current));

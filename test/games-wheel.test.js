@@ -508,7 +508,7 @@ test('wheel: ending mid-spin never reveals the drawn result; summary for the rec
   assert.ok(!JSON.stringify(view(host).game).includes('"index"'));
   const rec = s().tonight.games.at(-1);
   assert.equal(rec.type, 'wheel');
-  assert.match(rec.title, /Roulette wheel/);
+  assert.equal(rec.title, 'Singers drawn', 'the recap adds the game’s name itself (no “Roulette wheel · Roulette wheel”)');
   assert.deepEqual(rec.winners, [first]);
   assert.deepEqual(rec.results, [first]);
   await req(host, 'game.close');

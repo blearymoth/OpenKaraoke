@@ -232,7 +232,7 @@ test('relay: views — guests see names but never device ids; guests can’t con
     for (const id of ids) assert.ok(!json.includes(id), 'no device ids leak');
     assert.equal(v.participants.length, 3);
     assert.equal(v.holder.name, room.game.player(holder).name);
-    assert.equal(v.nextIn, undefined, 'the next pass is a surprise');
+    assert.equal(v.nextAt, undefined, 'the next pass is a surprise');
   }
   assert.equal(view(guests[0]).game.joined, true);
   const hv = view(host).game;
@@ -241,4 +241,154 @@ test('relay: views — guests see names but never device ids; guests can’t con
   await assert.rejects(req(guests[0], 'game.action', { action: 'pass' }), /not allowed/);
   await assert.rejects(req(guests[0], 'game.input', { pass: true }), /not taking answers/);
   assert.equal(room.game.summary(), null, 'nothing to remember for the recap');
+});
+
+test('relay: started during a song, its lead singer already has the mic — the first pass goes to someone else', async () => {
+  const { req, host, room, ids, tv, s } = await party(3);
+  const ann = room.s.profiles[ids[0]];
+  await req(host, 'queue.add', { songId: room.catalog.search('hello').items[0].id, singerId: ann.singerId });
+  await req(host, 'player.play');
+  await req(tv, 'tv.ready', { entryId: s().current.id, dur: 200 });
+  assert.equal(s().player.state, 'playing');
+  await req(host, 'game.start', { type: 'relay', config: { participants: ids, min: 5, max: 5 } });
+  const g = room.game;
+  assert.equal(g.holder, ids[0], 'Ann is singing: she holds the mic from the start');
+  const clock = fakeClock(g);
+  for (let i = 0; i < 3; i++) {
+    const before = g.holder;
+    clock.advance(5000);
+    assert.equal(g.passes, i + 1);
+    assert.notEqual(g.holder, before, 'never to the one already singing');
+  }
+});
+
+test('relay: a banned holder is gone from every screen at once and loses the mic', async () => {
+  const { req, host, room, ids, guests, view, tv, play } = await party(3);
+  await play('hello', 'Someone Else');
+  await req(host, 'game.start', { type: 'relay', config: { participants: ids, min: 60, max: 60 } });
+  const g = room.game;
+  await req(host, 'game.action', { action: 'pass' });
+  const holder = g.holder;
+  const name = g.player(holder).name;
+  assert.equal(view(tv).game.flash.name, name);
+  assert.equal(view(tv).game.holder.name, name);
+  await req(host, 'guest.ban', { deviceId: holder }); // e.g. an offensive name
+  const others = guests.filter((c) => c.data.deviceId !== holder);
+  for (const c of [tv, host, ...others]) {
+    const v = view(c).game;
+    assert.equal(v.holder, null, `${c.role}: no holder badge`);
+    assert.equal(v.flash, null, `${c.role}: no flash`);
+    assert.ok(!v.participants.some((p) => p.name === name), `${c.role}: not a participant`);
+    if (c.role === 'guest') assert.equal(v.mine, false);
+  }
+  assert.equal(view(host).game.holderId, null);
+  assert.equal(view(host).game.count, 2);
+  g.tick();
+  assert.equal(g.holder, null, 'the mic is free again');
+  assert.equal(g.flash, null);
+  for (let i = 0; i < 6; i++) {
+    await req(host, 'game.action', { action: 'pass' });
+    assert.notEqual(g.holder, holder, 'the banned guest never gets the mic again');
+  }
+});
+
+test('relay: removed and banned guests free their place — the cap counts only who can still play', async () => {
+  const { req, host, room, app, view } = await party(0);
+  const fake = (i, { online = true } = {}) => {
+    const id = `dev-${i}-cap`;
+    room.s.profiles[id] = { name: `G${i}` };
+    if (online) app.hub.clients.set(`fake-${i}`, { id: `fake-${i}`, role: 'guest', data: { deviceId: id }, send() {}, sendRaw() {}, close() {} });
+    return id;
+  };
+  const ids = Array.from({ length: MAX_PARTICIPANTS }, (_, i) => fake(i));
+  await req(host, 'game.start', { type: 'relay', config: { participants: 'everyone' } });
+  const g = room.game;
+  assert.equal(view(host).game.count, MAX_PARTICIPANTS);
+  const late = fake(100);
+  g.tick();
+  assert.equal(g.eligible().includes(late), false, 'the game is full');
+  await assert.rejects(req(host, 'game.action', { action: 'add', deviceId: late }), /full/);
+  // The host takes one guest out and bans another: two places free up.
+  await req(host, 'game.action', { action: 'remove', deviceId: ids[0] });
+  await req(host, 'guest.ban', { deviceId: ids[1] });
+  g.tick();
+  assert.ok(g.eligible().includes(late), 'a guest who came later joins by themselves');
+  assert.ok(!g.eligible().includes(ids[0]), 'the removed guest isn’t added back');
+  assert.ok(!g.eligible().includes(ids[1]), 'nor the banned one');
+  const away = fake(101, { online: false });
+  await req(host, 'game.action', { action: 'add', deviceId: away });
+  assert.equal(view(host).game.count, MAX_PARTICIPANTS, 'full again');
+  await assert.rejects(req(host, 'game.action', { action: 'add', deviceId: ids[0] }), /full/, 'no room to bring the removed guest back');
+  await req(host, 'game.action', { action: 'remove', deviceId: away });
+  await req(host, 'game.action', { action: 'add', deviceId: ids[0] });
+  assert.ok(g.eligible().includes(ids[0]), 'the host can bring a removed guest back when there’s room');
+  g.tick();
+  assert.equal(g.eligible().length, MAX_PARTICIPANTS);
+  assert.ok(!g.eligible().includes(away), 'the guest taken out stays out');
+  // Lifting a ban never takes the game past the cap: the late guest kept the freed place.
+  await req(host, 'guest.unban', { deviceId: ids[1] });
+  g.tick();
+  assert.equal(g.eligible().length, MAX_PARTICIPANTS, 'still full after the unban');
+  assert.ok(g.eligible().includes(late) && !g.eligible().includes(ids[1]), 'the unbanned guest waits for a place');
+  assert.equal(view(host).game.participants.length, MAX_PARTICIPANTS);
+  // Several bans, late arrivals filling every place, then all the unbans (and passes between).
+  for (const id of ids.slice(10, 20)) await req(host, 'guest.ban', { deviceId: id });
+  for (let i = 0; i < 10; i++) fake(200 + i);
+  await req(host, 'game.action', { action: 'pass' }); // (a pass refreshes the pool too)
+  g.tick();
+  for (const id of ids.slice(10, 20)) await req(host, 'guest.unban', { deviceId: id });
+  g.tick();
+  await req(host, 'game.action', { action: 'pass' });
+  assert.equal(g.eligible().length, MAX_PARTICIPANTS, 'never more than the cap');
+  assert.equal(view(host).game.count, MAX_PARTICIPANTS);
+  // When a place frees up, an unbanned guest (still online) joins by themselves again.
+  await req(host, 'game.action', { action: 'remove', deviceId: late });
+  g.tick();
+  assert.equal(g.eligible().length, MAX_PARTICIPANTS);
+  assert.ok([ids[1], ...ids.slice(10, 20)].some((id) => g.eligible().includes(id)), 'an unbanned guest took the place');
+});
+
+test('relay: a picked list — a banned guest leaves it; after the unban the host can add them back', async () => {
+  const { req, host, room, ids, view } = await party(3);
+  await req(host, 'game.start', { type: 'relay', config: { participants: ids, min: 60, max: 60 } });
+  const g = room.game;
+  await req(host, 'guest.ban', { deviceId: ids[0] });
+  g.tick();
+  await req(host, 'guest.unban', { deviceId: ids[0] });
+  g.tick();
+  assert.ok(!g.eligible().includes(ids[0]), 'a ban takes them out of the game');
+  assert.equal(view(host).game.count, 2);
+  await req(host, 'game.action', { action: 'add', deviceId: ids[0] });
+  assert.ok(g.eligible().includes(ids[0]), 'the host adds them back');
+});
+
+test('relay: the host counts down to the next pass (a server time, no broadcasts needed)', async () => {
+  const { req, host, room, ids, guests, view, tv, play } = await party(2);
+  await req(host, 'game.start', { type: 'relay', config: { participants: ids, min: 20, max: 20 } });
+  const g = room.game;
+  const clock = fakeClock(g);
+  clock.advance(500);
+  assert.equal(view(host).game.nextAt, null, 'no song: the clock doesn’t run');
+  await play();
+  clock.advance(250);
+  const v = view(host).game;
+  assert.equal(v.phase, 'live');
+  assert.ok(Math.abs(v.nextAt - (clock.t + 20_000)) <= 250, `next pass in 20 s (${v.nextAt - clock.t})`);
+  // Singing on: the host gets no new state, and needs none — nextAt stays right.
+  room.flush();
+  clock.advance(12_000);
+  assert.equal(room.flushTimer, null, 'nothing to broadcast while the clock just runs');
+  assert.ok(Math.abs(v.nextAt - clock.t - 8000) <= 250, `the host's countdown shows ${Math.ceil((v.nextAt - clock.t) / 1000)} s left`);
+  assert.ok(Math.abs(view(host).game.nextAt - v.nextAt) <= 250, 'a later view has the same time');
+  // Paused: no countdown; resumed: the rest of the interval.
+  await req(host, 'player.pause');
+  clock.advance(250);
+  assert.equal(view(host).game.nextAt, null);
+  clock.advance(30_000);
+  await req(host, 'player.resume');
+  clock.advance(250);
+  assert.ok(Math.abs(view(host).game.nextAt - clock.t - 8000) <= 500, 'the pause didn’t eat into the interval');
+  for (const c of [tv, ...guests]) assert.equal(view(c).game.nextAt, undefined, 'only the host knows');
+  clock.advance(8000);
+  assert.equal(g.passes, 1);
 });

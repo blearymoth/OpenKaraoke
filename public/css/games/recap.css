@@ -44,6 +44,9 @@
 .rc-rows li:first-child .rank { color: var(--bulb); }
 .rc-rows .g-art { width: 11vh; }
 .rc-rows .what { display: grid; min-width: 0; gap: 0.4vh; }
+/* everyone tied for first place gets the first row's highlight */
+.rc-rows li.top { background: var(--bulb-soft); border: 1px solid color-mix(in srgb, var(--bulb) 35%, transparent); }
+.rc-rows li.top .rank { color: var(--bulb); }
 .rc-rows .what b { font-size: 4vh; }
 .rc-rows .what span { font-size: 2.8vh; color: var(--ink-2); }
 .rc-rows .score { display: grid; justify-items: end; gap: 0.4vh; font-size: 2.6vh; color: var(--ink-2); }
@@ -68,6 +71,15 @@
 .rc-fav .fire { font-size: 5vh; font-weight: 700; }
 .rc-fav .rc-stars { font-size: 5vh; }
 @keyframes rc-spin-in { from { opacity: 0; transform: rotate(-8deg) scale(0.85); } }
+/* joint favourites (a tie for the most reactions): side by side */
+.rc-fav.joint { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; gap: 5vh; }
+.rc-fav.joint .head { justify-items: center; gap: 1vh; }
+.rc-favs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4vw; width: min(100%, 170vh); }
+.rc-fav-card { display: grid; justify-items: center; align-content: start; gap: 2.4vh; min-width: 0; animation: rc-pop 0.6s var(--ease) both; }
+.rc-fav-card .what { justify-items: center; max-width: 100%; }
+.rc-fav.joint .g-art { width: 36vh; }
+.rc-fav.joint .rc-fav-card h1 { font-size: 6vh; max-width: 100%; }
+.rc-fav-card .song { font-size: 3.2vh; max-width: 100%; }
 
 /* game winners */
 .rc-trophies { display: flex; flex-wrap: wrap; justify-content: center; gap: 3vh; width: min(100%, 170vh); }

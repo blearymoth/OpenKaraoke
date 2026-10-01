@@ -133,11 +133,14 @@ export class BreakMusic {
 
   /**
    * "When the queue is empty: autoplay": after `playback.autoplayAfter` idle seconds with an
-   * empty queue and a TV on, queue a popular song for everyone to sing along.
+   * empty queue and a TV on, queue a popular song for everyone to sing along. A game that
+   * takes over the TV (running, or its results still up) holds it back; one that runs
+   * alongside the karaoke (pass the mic) doesn't.
    */
   checkAutoplay() {
     const room = this.room;
-    const idle = !room.s.current && !room.s.queue.length && !room.game && room.mainDisplay() && !room.s.player.hold;
+    const gameOnTv = () => !!room.game?.constructor.exclusive;
+    const idle = !room.s.current && !room.s.queue.length && !gameOnTv() && room.mainDisplay() && !room.s.player.hold;
     if (!idle || room.settings.get('playback.whenQueueEmpty') !== 'autoplay') {
       clearTimeout(this.autoplayTimer);
       this.autoplayTimer = null;
@@ -147,7 +150,7 @@ export class BreakMusic {
     const wait = Math.max(5, Number(room.settings.get('playback.autoplayAfter')) || 45) * 1000;
     this.autoplayTimer = setTimeout(() => {
       this.autoplayTimer = null;
-      if (room.s.current || room.s.queue.length || room.game || room.settings.get('playback.whenQueueEmpty') !== 'autoplay') return;
+      if (room.s.current || room.s.queue.length || gameOnTv() || room.settings.get('playback.whenQueueEmpty') !== 'autoplay') return;
       const exclude = new Set(room.s.tonight.sung);
       const [song] = room.catalog.random(1, { exclude, minDuration: 90, maxDuration: 360, noExplicit: !!room.settings.get('queue.explicitFilter') }, { popularBias: 0.9 });
       if (!song) return;

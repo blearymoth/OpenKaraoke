@@ -337,7 +337,7 @@ export class Wheel extends Game {
     const winners = [];
     for (const h of this.history) for (const p of h.seg.people || []) if (!winners.includes(p.name)) winners.push(p.name);
     return {
-      title: `Roulette wheel · ${WHEEL_KIND_LABELS[this.config.kind]}`,
+      title: `${WHEEL_KIND_LABELS[this.config.kind]} drawn`, // (the recap puts the game's name in front)
       winners: winners.slice(0, 12),
       results: this.history.slice(-10).map((h) => h.seg.label),
     };

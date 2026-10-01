@@ -539,3 +539,31 @@ test('quiz: distractors prefer the same decade and genre when metadata is known'
   // 18 songs: 6–7 per decade, so random picks would share the decade ~1/3 of the time.
   assert.ok(same / total > 0.55, `same decade ${same}/${total}`);
 });
+
+test('quiz: an answer still on its way when the countdown hits 0 counts (grace window), later ones don’t', async () => {
+  const { req, connect, guest, room, view } = await quizRoom();
+  const host = await connect('host');
+  const ana = await guest('Ana');
+  const ben = await guest('Ben');
+  await guest('Cy'); // never answers, so the question doesn't close early
+  await req(host, 'game.start', { type: 'quiz', config: { questions: 5, seconds: 10 } });
+  const saved = QUIZ_TIMING.graceMs;
+  QUIZ_TIMING.graceMs = 800; // (wider than the real 400 ms: room for a busy test machine)
+  try {
+    const g = room.game;
+    g.config.seconds = 0.2; // a 200 ms question (the real minimum is 10 s)
+    g.ask(); // no TV: opens at once
+    assert.equal(g.opened, true);
+    assert.ok(view(ana).game.endsAt <= Date.now() + 200, 'the countdown still shows the real deadline');
+    await sleep(260); // past the countdown, inside the grace window
+    assert.equal(g.phase, 'question', 'still open for answers in flight');
+    await req(ana, 'game.input', { q: 0, choice: songChoice(g) });
+    await sleep(1000);
+    assert.equal(g.phase, 'reveal', 'the timer closes it after the grace window');
+    await assert.rejects(req(ben, 'game.input', { q: 0, choice: songChoice(g) }), /closed/);
+    assert.deepEqual(view(ana).game.me.result, { correct: true, answered: true, points: 500, bonus: 0 }, 'late but right: the minimum points');
+  } finally {
+    QUIZ_TIMING.graceMs = saved;
+  }
+  await req(host, 'game.close');
+});

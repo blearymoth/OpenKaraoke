@@ -343,7 +343,10 @@ export class Quiz extends Game {
     if (this.phase !== 'question' || this.opened) return;
     this.opened = true;
     this.openedAt = this.now();
-    this.setPhase('question', this.config.seconds, () => this.close());
+    // The countdown shows `seconds`; the question closes a moment later, so answers that were
+    // still on their way when the countdown hit 0 count (input() checks the same limit).
+    this.setPhase('question', this.config.seconds);
+    this.later(this.config.seconds * 1000 + QUIZ_TIMING.graceMs, () => this.close());
   }
 
   /** Scores the question and shows the answer. */

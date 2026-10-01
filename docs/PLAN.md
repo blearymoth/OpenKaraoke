@@ -319,7 +319,11 @@ Server → client: `welcome`, `state`, `time`, `tv`, `res`, `toast`, `notify` (t
 "You're up next!"), `reaction`, `announce`, `game`, `lib` (scan progress), `art` (song ids whose
 art became available), `pong {c, s}`.
 
-Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min.
+Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min. Photo
+uploads are checked (photos on, named, not banned, rate limit) before their body is read; one
+upload at a time per phone, 2 per address, 4 in all, 30 s each. At most 5 photos per phone and
+50 in all wait for the host; 300 approved/rejected are kept (rejected, then the oldest approved,
+go first — waiting photos never push out approved ones).
 
 ## 8. HTTP API
 
@@ -338,7 +342,7 @@ GET  /api/art/artist/:key?type=picture|fanart|logo|cutout
 GET  /media/:trackId/audio     audio (Range) — from file or zip entry
 GET  /media/:trackId/cdg       CDG bytes (gzip when accepted; cache a few in memory)
 GET  /media/:trackId/video     video (Range)
-POST /api/photos               guest photo upload (raw image body ≤ 4 MB, x-device-id header)
+POST /api/photos               guest photo upload (raw image body ≤ 4 MB, x-guest-token header)
 GET  /api/photos/:id           approved photo
 GET  /api/fs/list?path=…       (host only) list sub-folders for the library folder picker
 GET  /api/history?limit        (host only)   GET /api/export/songbook?format=html|csv&…

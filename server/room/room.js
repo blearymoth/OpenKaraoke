@@ -965,6 +965,7 @@ export class Room {
       profile.banned = true;
       this.s.queue = this.s.queue.filter((e) => e.addedBy !== m.deviceId);
       this.s.pending = this.s.pending.filter((e) => e.addedBy !== m.deviceId);
+      this.photos.dropPending(m.deviceId);
     }
     for (const c of this.hub.list((x) => x.role === GUEST && x.data.deviceId === m.deviceId)) {
       c.send({ t: 'denied', reason: ban ? 'banned' : 'kicked' });
@@ -1629,6 +1630,7 @@ export class Room {
       sungTonight: s.tonight.sung.slice(-500),
       breakMusic: (({ title, artist } = {}) => (title ? { title, artist } : null))(this.breakMusic.view() || {}),
       photos: this.photos.hostView(),
+      photoCounts: this.photos.counts(),
     };
   }
 

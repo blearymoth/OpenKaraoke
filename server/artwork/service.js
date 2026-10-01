@@ -55,6 +55,8 @@ const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const IMAGE_TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
 const ARTIST_TYPES = ['picture', 'fanart', 'logo', 'cutout', 'banner'];
 const FILE_RE = /^([0-9a-f]{40})\.(jpg|png|webp|gif)$/;
+/** Song metadata the catalog ranks, filters or shows (a change must reach its caches). */
+const CATALOG_FIELDS = ['cover', 'rank', 'explicit', 'genre', 'year'];
 
 /** ?s=250|500|1000 → 's' | 'm' | 'l'. */
 export function sizeKey(s, def = 's') {
@@ -307,13 +309,19 @@ export class ArtworkService extends EventEmitter {
     await fsp.rename(tmp, this.metaFile);
   }
 
-  /** Rankings / facets in the catalog use the metadata: tell it (at most every 3 s). */
+  /**
+   * Rankings, filters and facets in the catalog use the metadata: tell it. A lookup shows up
+   * within 3 s; while the crawler keeps finding things, at most every 30 s (each change means
+   * re-sorting the popular list and re-filtering the genre/decade pages on the next request).
+   */
   metaChangedSoon() {
     if (this.timers.meta) return;
+    const wait = Math.max(3000, (this.metaChangedAt || 0) + 30_000 - Date.now());
     this.timers.meta = setTimeout(() => {
       this.timers.meta = null;
+      this.metaChangedAt = Date.now();
       this.catalog.metaChanged();
-    }, 3000);
+    }, wait);
     this.timers.meta.unref?.();
   }
 
@@ -344,7 +352,7 @@ export class ArtworkService extends EventEmitter {
     const prev = this.songs.get(song.key);
     this.songs.set(song.key, compactEntry(entry));
     this.saveSoon(entry.manual ? SAVE_MS : undefined); // the host's own choices are written soon
-    this.metaChangedSoon();
+    if (CATALOG_FIELDS.some((f) => (prev?.[f] || 0) !== (entry[f] || 0))) this.metaChangedSoon();
     if ((prev?.cover || null) !== (entry.cover || null)) this.artChanged({ songs: [song.id] });
     this.statusChanged();
   }
@@ -1089,7 +1097,33 @@ export class ArtworkService extends EventEmitter {
     if (!e?.cover) return false;
     const img = (await this.image(e.cover, sizeKey(ctx.query.get('s')), PRIO.visible, { mayDownload: () => this.mayFetch(ctx) })) || this.anyImage(e.cover);
     if (!img) return false;
-    return this.sendImage(ctx, img, 'public, max-age=3600');
+    return this.sendImage(ctx, img);
+  }
+
+  /**
+   * Sends a cached image file. The image behind a cover/artist URL changes when the host picks
+   * another cover or "No cover", so browsers must ask again every time (a cheap 304 on the LAN):
+   * no max-age, and an ETag that names the file (each image URL has its own cache file).
+   * False when the file is gone from the disk after all (evicted meanwhile, deleted by hand): it
+   * is dropped from the cache index and the caller sends the placeholder. Candidate thumbnails
+   * never change for the same URL and pass their own `cacheControl`.
+   */
+  async sendImage(ctx, img, cacheControl = 'no-cache') {
+    let st;
+    try {
+      st = await fsp.stat(img.abs);
+    } catch {
+      const m = FILE_RE.exec(path.basename(img.abs));
+      const f = m && this.files.get(m[1]);
+      if (f && f.ext === m[2]) {
+        this.files.delete(m[1]);
+        this.bytes -= f.size;
+      }
+      return false;
+    }
+    const etag = `W/"${path.basename(img.abs).slice(0, 16)}-${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+    await sendFile(ctx.req, ctx.res, img.abs, { st, contentType: img.type, cacheControl, etag });
+    return true;
   }
 
   /** ?type=picture|fanart|logo|cutout|banner (&i=n for the n-th fanart). */
@@ -1110,28 +1144,7 @@ export class ArtworkService extends EventEmitter {
     const size = sizeKey(ctx.query.get('s'), type === 'picture' ? 'm' : 'l');
     const img = (await this.image(ref, size, PRIO.visible, { mayDownload: () => this.mayFetch(ctx) })) || this.anyImage(ref);
     if (!img) return false;
-    return this.sendImage(ctx, img, 'public, max-age=3600');
-  }
-
-  /**
-   * Sends a cached image file; false when it is gone from the disk after all (deleted by hand,
-   * say): it is dropped from the cache index and the caller sends the placeholder.
-   */
-  async sendImage(ctx, img, cacheControl) {
-    let st;
-    try {
-      st = await fsp.stat(img.abs);
-    } catch {
-      const m = FILE_RE.exec(path.basename(img.abs));
-      const f = m && this.files.get(m[1]);
-      if (f && f.ext === m[2]) {
-        this.files.delete(m[1]);
-        this.bytes -= f.size;
-      }
-      return false;
-    }
-    await sendFile(ctx.req, ctx.res, img.abs, { st, contentType: img.type, cacheControl });
-    return true;
+    return this.sendImage(ctx, img);
   }
 
   /** No artist picture: use the cover of their most popular song that has one. */
@@ -1264,6 +1277,7 @@ export class ArtworkService extends EventEmitter {
     const prev = this.songs.get(song.key);
     this.songs.delete(song.key);
     if (prev?.cover) this.artChanged({ songs: [song.id] });
+    if (CATALOG_FIELDS.some((f) => prev?.[f])) this.metaChangedSoon();
     const found = await this.request('song', song, 'now');
     return { found: !!found, meta: this.publicSongMeta(song.key) };
   }

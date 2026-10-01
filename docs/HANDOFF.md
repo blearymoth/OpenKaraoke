@@ -177,6 +177,8 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
 - Years come from Deezer album release dates (a compilation or remaster can show a later year).
 - Video karaoke (MP4/WEBM) is implemented through element mode but untested with real files.
 - Phone vibration only works on Android; iPhones get the toast/card only.
+- "Preview on headphones" (Song details → Choose headphones…) needs the browser's
+  permission once (Chrome: microphone, to name the outputs); check it on the party PC.
 - `catalog.js` heap ~200–400 MB while building 90k tracks (unchanged).
 - Rotation edge case: after Stop re-queues a song of someone who already sang, a newcomer
   can be placed before an earlier newcomer (manual reordering fixes it).

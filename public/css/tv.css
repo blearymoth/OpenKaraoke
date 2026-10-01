@@ -100,7 +100,8 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 
 .intro { display: grid; place-content: center; justify-items: center; text-align: center; gap: 2.6vh; padding: 6vh; }
 .intro .kicker { font-size: 3.6vh; color: var(--bulb); font-weight: 700; }
-.intro .name { font-size: 15vh; max-width: 88vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-bottom: 1vh; }
+/* min-height: the name (overflow: hidden) must never be the row that shrinks */
+.intro .name { font-size: calc(15vh * var(--fit, 1)); max-width: 88vw; min-height: min-content; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-bottom: 1vh; }
 .intro .song { font-size: 4.6vh; color: var(--ink-2); max-width: 80vw; }
 .intro .song b { color: var(--ink); font-weight: 700; }
 .intro .meta { display: flex; gap: 1.5vh; }
@@ -112,11 +113,14 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .countdown .arc { stroke: var(--neon); stroke-linecap: round; transition: stroke-dashoffset 0.25s linear; }
 .countdown b { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-display); font-size: 7vh; font-weight: 800; }
 .intro .status { font-size: 3vh; color: var(--ink-2); min-height: 4vh; }
-.intro-art { position: relative; margin-bottom: 2vh; }
-.intro-cover { display: block; width: 28vh; height: 28vh; object-fit: cover; border-radius: 2vh; box-shadow: 0 3vh 8vh -2vh rgba(0, 0, 0, 0.85); animation: cover-in 0.8s var(--ease) both; }
-.intro-art .avatar-big { position: absolute; right: -6vh; bottom: -4vh; width: 12vh; height: 12vh; font-size: 7vh; }
+.intro-main { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 7vh; max-width: 80vw; }
+.intro-text { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: 2vh; min-width: 0; text-align: left; }
+.intro-text .song { max-width: 100%; }
+.intro-art { position: relative; }
+.intro-cover { display: block; width: 26vh; height: 26vh; object-fit: cover; border-radius: 2vh; box-shadow: 0 3vh 8vh -2vh rgba(0, 0, 0, 0.85); animation: cover-in 0.8s var(--ease) both; }
+.intro-art .avatar-big { position: absolute; right: -5vh; bottom: -2.5vh; width: 11vh; height: 11vh; font-size: 6.5vh; }
 @keyframes cover-in { from { transform: rotate(-6deg) scale(0.9); opacity: 0; } }
-.intro .artist-logo { display: block; max-height: 9vh; max-width: 40vw; object-fit: contain; filter: drop-shadow(0 0.4vh 1vh rgba(0, 0, 0, 0.8)); animation: tv-fade 0.8s var(--ease) 0.3s both; }
+.intro .artist-logo { display: block; max-height: 9vh; max-width: min(40vw, 100%); object-fit: contain; filter: drop-shadow(0 0.4vh 1vh rgba(0, 0, 0, 0.8)); animation: tv-fade 0.8s var(--ease) 0.3s both; }
 .intro .year { color: var(--ink-3, var(--ink-2)); }
 .intro .status.warn { color: var(--bulb); }
 

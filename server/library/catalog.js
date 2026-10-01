@@ -2,6 +2,7 @@
 // spelling variants, and provides fast search/browse over ~100k tracks.
 import { fold, compact, editDistance, shortId, splitCredits } from '../../shared/text.js';
 import { parseName, titleKeyOf, BRAND_NAMES } from './parse.js';
+import { Lru } from '../util/lru.js';
 
 export const PARSER_VERSION = 4;
 
@@ -123,6 +124,8 @@ export class Catalog {
     this.metaFor = () => null; // injected: songKey -> metadata (genre, year, rank...)
     this.metaVersion = 0; // bump with metaChanged() when metadata arrives
     this.builtAt = 0;
+    this._popularCache = null; // { v, list }: every song, most popular first
+    this._filtered = new Lru({ max: 32, maxBytes: 400_000 }); // filtered popular lists (size = songs)
   }
 
   get size() { return this.tracks.size; }
@@ -306,6 +309,7 @@ export class Catalog {
     this.brandCounts = [...brandCounts].map(([brand, count]) => ({ brand, name: BRAND_NAMES[brand] || brand, count })).sort((a, b) => b.count - a.count);
     this.vocab = null;
     this._popularCache = null;
+    this._filtered.clear();
   }
 
   track(id) { return this.tracks.get(id); }
@@ -456,13 +460,66 @@ export class Catalog {
     this.metaVersion++;
   }
 
-  popular({ limit = 100, offset = 0, filter = null } = {}) {
+  /** Every song, most popular first (ties keep the catalogue order); rebuilt after changes. */
+  popularList() {
     const v = `${this.version}:${this.metaVersion}`;
-    if (!this._popularCache || this._popularCache.v !== v) {
-      this._popularCache = { v, list: [...this.songList].sort((a, b) => this.popularity(b) - this.popularity(a)) };
+    if (this._popularCache?.v !== v) {
+      this._popularCache = { v, list: this._byPopularity(this.songList) };
+      this._filtered.clear(); // filters use the metadata too
     }
-    const list = filter ? this._popularCache.list.filter((s) => this._passes(s, filter)) : this._popularCache.list;
+    return this._popularCache.list;
+  }
+
+  /**
+   * `list` sorted by popularity. Each song's popularity is computed once and packed with its
+   * position into one number, so a native numeric sort does the work (~20 ms for 55k songs
+   * instead of ~150 ms with two popularity() calls per comparison).
+   */
+  _byPopularity(list) {
+    const n = list.length;
+    const span = 2 ** Math.max(1, Math.ceil(Math.log2(n + 1)));
+    const pop = new Float64Array(n);
+    let max = 0;
+    for (let i = 0; i < n; i++) {
+      const p = Math.round(this.popularity(list[i]) * 1e6);
+      pop[i] = p > 0 ? p : 0; // (also NaN from odd metadata)
+      if (pop[i] > max) max = pop[i];
+    }
+    if (!Number.isSafeInteger((max + 1) * span)) return [...list].sort((a, b) => this.popularity(b) - this.popularity(a));
+    const keys = new Float64Array(n);
+    for (let i = 0; i < n; i++) keys[i] = pop[i] * span + (span - 1 - i);
+    keys.sort();
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) out[i] = list[span - 1 - (keys[n - 1 - i] % span)];
+    return out;
+  }
+
+  /** Popular songs passing `filter` (null = all). Filtered lists are cached for paging. */
+  _popularFiltered(filter) {
+    const all = this.popularList();
+    if (!filter) return all;
+    const key = filter.exclude ? null : JSON.stringify(filter); // a Set of ids: not cacheable
+    let list = key && this._filtered.get(key);
+    if (!list) {
+      list = all.filter((s) => this._passes(s, filter));
+      if (key) this._filtered.set(key, list);
+    }
+    return list;
+  }
+
+  popular({ limit = 100, offset = 0, filter = null } = {}) {
+    const list = this._popularFiltered(filter);
     return { total: list.length, items: list.slice(offset, offset + limit) };
+  }
+
+  /** The `n` most popular songs passing `filter` (stops early, no total: e.g. the TV mosaic). */
+  topSongs(n, filter = null) {
+    const out = [];
+    for (const s of this.popularList()) {
+      if (out.length >= n) break;
+      if (this._passes(s, filter)) out.push(s);
+    }
+    return out;
   }
 
   /** Songs performed at this party place, most performed first ("Most sung here"). */
@@ -478,29 +535,26 @@ export class Catalog {
 
   byTag(tag, { limit = 100, offset = 0, sort = 'popular', filter = null } = {}) {
     const f = { ...(filter || {}), tag };
-    let list = this.songList.filter((s) => this._passes(s, f));
-    list = sort === 'title'
-      ? list.sort((a, b) => a.title.localeCompare(b.title))
-      : list.sort((a, b) => this.popularity(b) - this.popularity(a));
+    const list = sort === 'title'
+      ? this.songList.filter((s) => this._passes(s, f)).sort((a, b) => a.title.localeCompare(b.title))
+      : this._popularFiltered(f);
     return { total: list.length, items: list.slice(offset, offset + limit) };
   }
 
   filterSongs(filter, { limit = 100, offset = 0, sort = 'popular' } = {}) {
-    let list = this.songList.filter((s) => this._passes(s, filter));
-    if (sort === 'title') list.sort((a, b) => a.title.localeCompare(b.title));
-    else if (sort === 'artist') list.sort((a, b) => a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title));
-    else list.sort((a, b) => this.popularity(b) - this.popularity(a));
+    let list;
+    if (sort === 'title') list = this.songList.filter((s) => this._passes(s, filter)).sort((a, b) => a.title.localeCompare(b.title));
+    else if (sort === 'artist') list = this.songList.filter((s) => this._passes(s, filter)).sort((a, b) => a.artist.localeCompare(b.artist) || a.title.localeCompare(b.title));
+    else list = this._popularFiltered(filter);
     return { total: list.length, items: list.slice(offset, offset + limit) };
   }
 
   /** Random songs, weighted towards popular ones when `popularBias` > 0. */
   random(n, filter = null, { popularBias = 0.7, rng = Math.random } = {}) {
-    let pool = filter ? this.songList.filter((s) => this._passes(s, filter)) : this.songList;
+    let pool = popularBias > 0 ? this._popularFiltered(filter) : filter ? this.songList.filter((s) => this._passes(s, filter)) : this.songList;
     if (!pool.length) return [];
     if (popularBias > 0 && pool.length > n * 8) {
-      const sorted = [...pool].sort((a, b) => this.popularity(b) - this.popularity(a));
-      const top = sorted.slice(0, Math.max(n * 20, Math.floor(sorted.length * (1 - popularBias) * 0.2) + n * 20));
-      pool = top;
+      pool = pool.slice(0, Math.max(n * 20, Math.floor(pool.length * (1 - popularBias) * 0.2) + n * 20));
     }
     const out = [];
     const used = new Set();

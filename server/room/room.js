@@ -1450,13 +1450,39 @@ export class Room {
     this.app.artwork?.focus(ids.map((id) => id && this.catalog.song(id)).filter(Boolean));
   }
 
-  /** Popular songs with covers for the TV lobby mosaic (refreshed at most once a minute). */
+  /**
+   * Songs guests must not learn about through `art` events yet: the queued (or pending)
+   * mystery songs, which guests only see as "Surprise!", and their artists. Also the songs
+   * that are out in the open (playing, queued without the mystery) and their artists: what
+   * was withheld from guests may be told once it's among these (server/artwork/feed.js).
+   */
+  artSecrets() {
+    const songs = new Set();
+    const artists = new Set();
+    const openSongs = new Set(this.s.queue.filter((e) => !e.mystery).map((e) => e.songId));
+    if (this.s.current) openSongs.add(this.s.current.songId);
+    const artistsOf = (id) => this.catalog.song(id)?.artistKeys || [];
+    const openArtists = new Set([...openSongs].flatMap(artistsOf));
+    for (const e of [...this.s.queue, ...this.s.pending]) {
+      if (!e.mystery || openSongs.has(e.songId)) continue;
+      songs.add(e.songId);
+      for (const key of artistsOf(e.songId)) artists.add(key);
+    }
+    return { songs, artists, openSongs, openArtists };
+  }
+
+  /**
+   * Popular songs with covers for the TV lobby mosaic. The explicit filter and a new library
+   * apply at once; new metadata (the crawler) at most once a minute.
+   */
   mosaic() {
     const now = Date.now();
-    const v = `${this.catalog.version}:${this.catalog.metaVersion}`;
-    if (this.mosaicCache && (this.mosaicCache.v === v || now - this.mosaicCache.at < 60_000)) return this.mosaicCache.ids;
-    const ids = this.catalog.popular({ limit: 36, filter: { hasArt: true, noExplicit: !!this.settings.get('queue.explicitFilter') } }).items.map((s) => s.id);
-    this.mosaicCache = { v, at: now, ids };
+    const noExplicit = !!this.settings.get('queue.explicitFilter');
+    const c = this.mosaicCache;
+    if (c && c.version === this.catalog.version && c.noExplicit === noExplicit
+      && (c.meta === this.catalog.metaVersion || now - c.at < 60_000)) return c.ids;
+    const ids = this.catalog.topSongs(36, { hasArt: true, noExplicit }).map((s) => s.id);
+    this.mosaicCache = { version: this.catalog.version, meta: this.catalog.metaVersion, noExplicit, at: now, ids };
     return ids;
   }
 
@@ -1755,6 +1781,7 @@ export class Room {
     }
     this.checkUpNext();
     this.focusArtwork();
+    this.app.artFeed?.release(); // a mystery song started (or was unmasked): its art is no secret
     this.breakMusic.checkAutoplay();
     this.save();
   }

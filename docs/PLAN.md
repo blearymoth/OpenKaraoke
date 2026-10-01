@@ -290,8 +290,10 @@ settings subset, game public state) + per-device `me` block.
 ## 7. WebSocket protocol & auth
 
 Endpoint `/ws`. Client first sends
-`{ t:'hello', role:'host'|'tv'|'guest', token?, deviceId, name?, room?, display?:'main'|'mirror' }`.
-Server replies `{ t:'welcome', clientId, role, token?, serverTime, state }` or `{ t:'denied', reason }`.
+`{ t:'hello', role:'host'|'tv'|'guest', token?, deviceId, name?, room?, display?:'main'|'mirror', artSeq? }`.
+Server replies `{ t:'welcome', clientId, role, token?, serverTime, state, art }` or `{ t:'denied', reason }`.
+`art` = `{ seq }` plus the artwork changes after the hello's `artSeq` (`songs`, `artists`), or
+`all: true` when the server can't tell any more (restart, long offline).
 
 Auth rules:
 - **host**: request from this computer (loopback or own IP) when `party.trustLocalhost`, or a
@@ -316,8 +318,10 @@ game.start {type, config}  game.action {...}  game.answer {...}  game.vote {...}
 display.approve {code}   tv.status / tv.ended / tv.error / tv.ready   ping {c}
 ```
 Server → client: `welcome`, `state`, `time`, `tv`, `res`, `toast`, `notify` (to one device:
-"You're up next!"), `reaction`, `announce`, `game`, `lib` (scan progress), `art` (song ids whose
-art became available), `pong {c, s}`.
+"You're up next!"), `reaction`, `announce`, `game`, `lib` (scan progress), `art`
+`{ seq, songs, artists, all? }` (images that became available or changed; guests don't get
+queued mystery songs or their artists until the song is out in the open: it starts, or is queued
+without the mystery; one removed unplayed stays withheld), `pong {c, s}`.
 
 Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min.
 
@@ -433,7 +437,9 @@ Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safar
 - Priorities: current/next entries > songs visible in UIs (on-demand) > background crawl
   (popular first). Per-provider token-bucket limiters, exponential back-off on 429/quota errors.
 - Placeholder: deterministic gradient from `hash32(artist)` with initials, served as SVG.
-- Clients: `<img src="/api/art/song/ID?s=250">`; server pushes `art` events so UIs refresh.
+- Clients: `<img src="/api/art/song/ID?s=250">`; server pushes `art` events so UIs refresh
+  (the event's `seq` becomes `&v=` in the URL). Images and placeholders are sent `no-cache`
+  with an ETag, so a changed cover also reaches pages opened later (a 304 otherwise).
 
 ## 13. Games
 All games are server state machines (`server/games/*.js`) with a public view for TV/phones.

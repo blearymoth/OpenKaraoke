@@ -86,6 +86,31 @@ try {
   await host.goto(`${base}/host#/artist/${encodeURIComponent(artistKey)}`);
   check(await until(async () => !!(await host.$('.artist-head.with-fanart .artist-logo img'))), 'artist page shows fanart and the logo once TheAudioDB answers');
   await shot(host, 'host-artist');
+  // A logo that can't be loaded (dead link, offline): the name as text, no broken image.
+  const tadb = app.artwork.artists.get(artistKey);
+  const goodLogo = tadb.logo;
+  tadb.logo = 'url:https://logos.example.invalid/gone.png';
+  app.artwork.artChanged({ artists: [artistKey] });
+  check(await until(async () => !(await host.$('.artist-logo img')) && /Pixel Parade/.test(await host.textContent('.artist-head h1'))), 'artist page falls back to the name when the logo is missing');
+  tadb.logo = goodLogo;
+  app.artwork.artChanged({ artists: [artistKey] });
+
+  // Changed covers reach pages that are opened later: a reload shows "No cover", not the
+  // image the browser loaded before.
+  await host.goto(`${base}/host#/`);
+  await host.reload(); // a fresh page: the browser caches the covers under their plain URLs
+  await host.waitForSelector('.song-card img');
+  const firstCard = await host.$eval('.song-card', (el) => el.textContent);
+  const fixSong = [...app.library.catalog.songs.values()].find((s) => firstCard.includes(s.title) && app.artwork.songs.get(s.key)?.cover);
+  const coverOf = (page, id) => page.$$eval('img', (imgs, sid) => imgs.filter((i) => i.src.includes(`/api/art/song/${sid}?`)).map((i) => i.complete && i.naturalWidth), id);
+  check(await until(async () => (await coverOf(host, fixSong.id)).includes(48)), `the host shows the cover of ${fixSong.title}`);
+  const artSeq = app.artFeed.seq;
+  app.artwork.setNone(fixSong);
+  await until(() => app.artFeed.seq > artSeq); // the open page was told; a reloaded one is not
+  await host.reload();
+  await host.waitForSelector('.song-card img');
+  check(await until(async () => { const w = await coverOf(host, fixSong.id); return w.length && !w.includes(48) && w.every(Boolean); }), 'after “No cover” a reloaded page shows the placeholder');
+  await app.artwork.refresh(fixSong);
 
   // TV: lobby mosaic, then cover + logo on the intro card and artist photos while singing.
   const tv = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'tv');
@@ -95,10 +120,34 @@ try {
   await shot(tv, 'tv-lobby-mosaic');
   const song = [...app.library.catalog.songs.values()].find((s) => s.artist === 'Pixel Parade');
   app.settings.update({ playback: { countdown: 6 } });
-  await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'queue.add', songId: song.id, singerName: 'Eve' });
+  // A duet with long names: the name must keep its full width and height next to the artwork.
+  await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'queue.add', songId: song.id, singerName: 'Maximilian', partnerName: 'Josephine' });
   await tv.waitForSelector('.intro-cover', { timeout: 10000 });
   check(await until(async () => !!(await tv.$('.intro .artist-logo'))), 'intro card shows the cover and the artist logo');
+  await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'player.key', semitones: 2 });
+  await tv.waitForSelector('.intro .chip');
+  await sleep(900);
+  const introFit = () => tv.evaluate(() => {
+    const name = document.querySelector('.intro .name');
+    const box = (sel) => document.querySelector(sel).getBoundingClientRect();
+    return {
+      text: name.textContent, height: name.clientHeight / name.scrollHeight, width: name.clientWidth / name.scrollWidth,
+      size: parseFloat(getComputedStyle(name).fontSize) / (innerHeight * 0.15), top: box('.intro .kicker').top, bottom: box('.intro .status').bottom,
+    };
+  });
+  let fit = await introFit();
+  check(fit.text === 'Maximilian & Josephine' && fit.height >= 0.9 && fit.width >= 1 && fit.size === 1 && fit.top >= 0 && fit.bottom <= 720,
+    `the singers’ names keep their full size next to cover, logo and key chip (${Math.round(fit.height * 100)} % high, ${Math.round(fit.width * 100)} % wide)`);
   await shot(tv, 'tv-intro');
+  // On a 4:3 screen the duet is wider than the card: it gets a little smaller instead of "…".
+  await tv.setViewportSize({ width: 1024, height: 768 });
+  await sleep(300);
+  fit = await introFit();
+  check(fit.width >= 1 && fit.size < 1 && fit.size >= 0.5 && fit.height >= 0.9 && fit.top >= 0 && fit.bottom <= 768,
+    `on a 4:3 screen a long name gets smaller to fit (${Math.round(fit.size * 100)} % size)`);
+  await shot(tv, 'tv-intro-4x3');
+  await tv.setViewportSize({ width: 1280, height: 720 });
+  await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'player.key', semitones: 0 });
   check(await until(async () => !!(await tv.$('#bg .fanart-bg')), 15000), 'artist photos move behind the lyrics while singing');
   await sleep(600);
   await shot(tv, 'tv-singing-fanart');
@@ -120,6 +169,21 @@ try {
   const overflow = await guest.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(overflow <= 0, 'guest app still fits the phone screen');
   await shot(guest, 'guest-genre');
+
+  // A phone that was asleep missed an `art` event: the welcome after it reconnects brings it.
+  const shownId = await guest.$eval('.g-songs img', (i) => decodeURIComponent(new URL(i.src).pathname.split('/').pop()));
+  const shown = app.library.catalog.song(shownId);
+  const broadcast = app.hub.broadcast.bind(app.hub);
+  app.hub.broadcast = (msg, filter) => broadcast(msg, (c) => !(msg.t === 'art' && c.role === 'guest') && (!filter || filter(c)));
+  const seqBefore = app.artFeed.seq;
+  app.artwork.setNone(shown);
+  await until(() => app.artFeed.seq > seqBefore);
+  await sleep(300);
+  check((await coverOf(guest, shown.id)).includes(48), 'the sleeping phone missed the change');
+  app.hub.broadcast = broadcast;
+  for (const c of app.hub.clients.values()) if (c.role === 'guest') c.ws.terminate();
+  check(await until(async () => { const w = await coverOf(guest, shown.id); return w.length && !w.includes(48) && w.every(Boolean); }), 'after reconnecting the phone shows the change without a reload');
+  await app.artwork.refresh(shown);
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);
 } finally {

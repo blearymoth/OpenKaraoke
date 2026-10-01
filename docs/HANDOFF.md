@@ -122,8 +122,10 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
    the toast). Firewall on Fedora: `sudo firewall-cmd --add-port=8080/tcp` (+ `--permanent`).
 8. **Second TV / laptop**: open `http://<PC address>:8080/tv` on it → a pairing code appears →
    approve it in the host. Check it mirrors without sound.
-9. **Preview on headphones**: in the song dialog pick the headphone output (Chrome shows the
-   device list once it may use audio devices).
+9. **Preview on headphones**: in the song dialog click "Choose headphones…" and pick the
+   headphone output (Chrome names the outputs once the page may use the microphone). On a PC
+   without a microphone, check the note's route: site settings → Microphone: Allow, after which
+   the outputs appear. Never move the system's default output instead — the TV plays on it.
 10. **Service**: `bin/install-service.sh --library "/run/media/ruutu/SMILE-2/<folder>"`, reboot
     or log out/in, check `bin/install-service.sh --status`.
 11. Print the songbook (Settings → Library → Songbook) to PDF once to see page breaks.

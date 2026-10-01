@@ -5,6 +5,7 @@ import { Icon } from '../lib/icons.js';
 import { createStore, useStore } from '../lib/store.js';
 
 const SINK_KEY = 'ok.previewSink';
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 const audio = typeof Audio !== 'undefined' ? new Audio() : null;
 export const previewStore = createStore({ trackId: null, playing: false, error: null });
 
@@ -83,8 +84,10 @@ export function PreviewButton({ trackId }) {
  * Where previews play: pick headphones so the party doesn't hear them (browsers that can
  * choose the output: Chrome/Edge, Firefox). Browsers only name the outputs, and let a page
  * use them, after the person allowed it once: "Choose headphones…" asks.
+ * The TV page never chooses an output: on this computer it plays on the system's default one,
+ * so the advice here never says to change that (it would move the party's sound too).
  */
-export function PreviewOutput() {
+export function PreviewOutput({ displays = [] }) {
   const canChoose = !!(audio?.setSinkId && window.isSecureContext && navigator.mediaDevices?.enumerateDevices);
   const [devices, setDevices] = useState([]);
   const [sink, setSink] = useState(storedSink);
@@ -92,14 +95,37 @@ export function PreviewOutput() {
   const [note, setNote] = useState('');
   const st = useStore(previewStore);
   const [inUse, setInUse] = useState(audio?.sinkId || '');
-  const refresh = () => listOutputs().then(setDevices).catch(() => {});
+  // The host page and the TV that plays the party's sound run on this same computer.
+  const tvHere = typeof location !== 'undefined' && LOOPBACK.has(location.hostname) && displays.some((d) => d.local && d.display === 'main');
+  const refresh = () => listOutputs().then((list) => {
+    setDevices(list);
+    if (list.some((d) => d.named)) setNote('');
+  }).catch(() => {});
   useEffect(() => {
     if (!canChoose) return undefined;
-    refresh();
-    // The output previews will really use (the headphones chosen before may not be allowed yet).
-    applySink().then(() => setInUse(audio.sinkId || ''));
-    navigator.mediaDevices.addEventListener?.('devicechange', refresh);
-    return () => navigator.mediaDevices.removeEventListener?.('devicechange', refresh);
+    // Outputs, and the output previews will really use (the headphones chosen before may not
+    // be allowed yet): again when devices change, when the microphone is allowed in the site
+    // settings (the way to name outputs on a computer without one) and when the page is back.
+    const recheck = () => {
+      refresh();
+      applySink().then(() => setInUse(audio.sinkId || ''));
+    };
+    recheck();
+    let perm = null;
+    let gone = false;
+    navigator.permissions?.query({ name: 'microphone' }).then((p) => {
+      if (gone) return;
+      perm = p;
+      p.addEventListener('change', recheck);
+    }).catch(() => {});
+    navigator.mediaDevices.addEventListener?.('devicechange', recheck);
+    window.addEventListener('focus', recheck);
+    return () => {
+      gone = true;
+      perm?.removeEventListener('change', recheck);
+      navigator.mediaDevices.removeEventListener?.('devicechange', recheck);
+      window.removeEventListener('focus', recheck);
+    };
   }, []);
   useEffect(() => () => stopPreview(), []);
   const choose = (id) => {
@@ -131,7 +157,7 @@ export function PreviewOutput() {
       }
     } catch (e) {
       setNote(!picker && e?.name === 'NotFoundError'
-        ? 'The browser only lists sound outputs to pages that may use a microphone, and this computer has none. Make the headphones the default output in the system’s sound settings instead.'
+        ? `This computer has no microphone, and the browser only names sound outputs to pages allowed to use one. To allow it (nothing is recorded): click the icon left of the address → Site settings → Microphone: Allow. The outputs then appear here. A headset with a microphone works too.${tvHere ? ' Don’t change the system’s default output instead: the TV plays on it.' : ''}`
         : 'The browser didn’t allow it. You can allow it with the icon next to the address.');
     }
     setAsking(false);
@@ -142,11 +168,13 @@ export function PreviewOutput() {
     ${canChoose && (named || inUse)
       ? html`<label class="field"><span>Preview plays on</span>
           <select class="select" value=${sink} onChange=${(e) => choose(e.currentTarget.value)}>
-            <option value="">This computer’s default output</option>
+            <option value="">${tvHere ? 'This computer’s default output (the TV’s)' : 'This computer’s default output'}</option>
             ${devices.map((d) => html`<option value=${d.id}>${d.label}</option>`)}
             ${sink && !devices.some((d) => d.id === sink) && html`<option value=${sink}>${inUse === sink ? 'The headphones chosen before' : 'Your headphones (not connected)'}</option>`}
           </select></label>`
-      : html`<p class="hint">Previews play on this computer’s default sound output — use headphones if that is also the party speaker.
+      : html`<p class="hint">${tvHere
+          ? 'Previews play on this computer’s default sound output, like the TV, so the party hears them.'
+          : 'Previews play on this computer’s default sound output — use headphones if that is also the party speaker.'}
           ${canChoose && html` <button class="link" disabled=${asking} onClick=${ask}>Choose headphones…</button>`}</p>`}
     ${note && html`<p class="hint">${note}</p>`}
   </div>`;

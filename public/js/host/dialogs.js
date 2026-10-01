@@ -118,7 +118,7 @@ export function SongDialog({ songId }) {
           <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
         </tr>`)}</tbody>
       </table>
-      <${PreviewOutput} />
+      <${PreviewOutput} displays=${state.displays} />
     `}
   </${Modal}>`;
 }

@@ -366,7 +366,7 @@ body.host .toasts { bottom: 104px; }
 .check-row { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-2); }
 .songbook-form { margin-top: 4px; }
 .versions td.actions { display: flex; gap: 6px; justify-content: flex-end; }
-.preview-output { margin-top: 10px; max-width: 420px; }
+.preview-output { margin-top: 10px; max-width: 420px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .playlist-queue { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 0 16px; }
 .playlist-queue .input { max-width: 320px; }
 .playlist-select { width: auto; min-height: 40px; border-radius: 999px; }

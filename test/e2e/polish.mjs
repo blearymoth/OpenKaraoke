@@ -6,7 +6,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
-import { loadPlaywright, startParty, check, results, sleep } from './lib.mjs';
+import { loadPlaywright, startParty, check, results, sleep, WsClient } from './lib.mjs';
 import { pngImage } from '../fake-art.js';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
@@ -40,6 +40,8 @@ try {
   await host.click('.versions .btn:has-text("Stop")');
   check(await host.waitForSelector('.versions .btn:has-text("Stop")', { state: 'detached', timeout: 5000 }).then(() => true, () => false), 'preview stops');
   // Headphones: the browser names its sound outputs once asked; the choice is kept.
+  const plainHint = await host.$eval('.preview-output', (el) => el.textContent);
+  check(!/like the TV/.test(plainHint), 'with no TV on this computer the hint doesn’t say the TV shares the output');
   const pick = await host.$('.preview-output button:has-text("Choose headphones")');
   await pick?.click();
   const outputs = await host.waitForSelector('.preview-output select', { timeout: 5000 }).then(() => host.$$eval('.preview-output option', (l) => l.map((o) => o.value)), () => []);
@@ -52,6 +54,50 @@ try {
   }
   await host.keyboard.press('Escape');
   await host.waitForSelector('table.versions', { state: 'detached' });
+
+  // A computer without a microphone (Chrome then won't name its outputs), alone and then with
+  // the TV on it: the host learns how to allow it in the site settings, and is never told to
+  // move the system's default output (the TV plays there). Once allowed, the outputs appear.
+  const noMic = watch(await browser.newPage({ viewport: { width: 1440, height: 900 } }), 'host-no-mic');
+  await noMic.addInitScript(() => {
+    let allowed = false;
+    const perm = new EventTarget();
+    Object.defineProperty(perm, 'state', { get: () => (allowed ? 'granted' : 'prompt') });
+    const md = navigator.mediaDevices;
+    md.getUserMedia = () => Promise.reject(new DOMException('Requested device not found', 'NotFoundError'));
+    md.enumerateDevices = async () => [{ kind: 'audiooutput', deviceId: allowed ? 'usb-headphones' : '', label: allowed ? 'USB headphones' : '', groupId: '' }];
+    const query = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = (d) => (d?.name === 'microphone' ? Promise.resolve(perm) : query(d));
+    window.allowMicrophone = () => {
+      allowed = true;
+      perm.dispatchEvent(new Event('change'));
+    };
+  });
+  await noMic.goto(`${base}/host#/search?q=neon`);
+  await noMic.fill('.search-box input', 'neon heart');
+  await noMic.click('.song-row');
+  await noMic.click('.preview-output button:has-text("Choose headphones")');
+  const aloneNote = await noMic.waitForSelector('.preview-output .hint:has-text("no microphone")', { timeout: 5000 }).then((el) => el.textContent(), () => '');
+  check(/Microphone: Allow/.test(aloneNote) && !/default output/i.test(aloneNote), `no microphone, no TV here: the note never mentions the system's default output (${aloneNote})`);
+  const tvHere = new WsClient(`${base.replace('http', 'ws')}/ws`);
+  await tvHere.open({ role: 'tv' });
+  await noMic.waitForSelector('.preview-output .hint:has-text("like the TV")', { timeout: 5000 }).catch(() => {});
+  const tvHint = await noMic.textContent('.preview-output .hint');
+  check(/like the TV/.test(tvHint), `with the TV on this computer the hint says the party hears previews (${tvHint.trim()})`);
+  await noMic.click('.preview-output button:has-text("Choose headphones")');
+  const noMicNote = await noMic.waitForSelector('.preview-output .hint:has-text("the TV plays on it")', { timeout: 5000 }).then((el) => el.textContent(), () => '');
+  check(/Site settings/.test(noMicNote) && /Microphone: Allow/.test(noMicNote), `no microphone: the note says how to allow it (${noMicNote})`);
+  check(!/Make the headphones the default|default output in the system/i.test(noMicNote) && /Don’t change the system’s default output/.test(noMicNote), 'no microphone: the note never says to move the default output, which the TV uses');
+  await shot(noMic, 'host-preview-no-mic');
+  await noMic.evaluate(() => window.allowMicrophone());
+  const allowedOutputs = await noMic.waitForSelector('.preview-output select', { timeout: 5000 })
+    .then(() => noMic.$$eval('.preview-output option', (l) => l.map((o) => o.textContent)), () => []);
+  check(allowedOutputs.includes('USB headphones'), `once the microphone is allowed in the site settings the outputs appear (${allowedOutputs.join(', ')})`);
+  check(!(await noMic.$('.preview-output .hint:has-text("no microphone")')), 'and the note goes away');
+  check(allowedOutputs[0] === 'This computer’s default output (the TV’s)', `the default output is marked as the TV’s (${allowedOutputs[0]})`);
+  await noMic.close();
+  tvHere.close();
+  await sleep(200);
 
   // A preview stopped while it is still loading (the dialog closed) leaves no error behind.
   await host.route('**/media/*/audio', async (route) => {

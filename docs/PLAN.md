@@ -430,8 +430,13 @@ Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safar
   (`n`, and `pictureFor` for a picture that came with a matched song); art found under an old
   name is dropped, also when the library changes during a lookup. A fragment in several acts
   ("Peter": Peter, Paul & Mary / Peter & Gordon) holds the most common act's art, so the TV only
-  shows fanart/logos found for one of the song's own acts or for a performer's own name.
-  Deezer's "no picture" images (`images/artist//…`, MD5 of "" `d41d8cd9…`) are ignored.
+  shows fanart/logos found for one of the song's own acts. Art found under a performer's own
+  name stands in only when the providers were asked about the act and know nothing ("Elton John"
+  for "Elton John & Kiki Dee"), since that name may be a namesake ("Dave" the rapper and the
+  Dave of "Sam & Dave" are one catalog artist); the two are never mixed.
+  Deezer's "no picture" images (`images/artist//…`, MD5 of "" `d41d8cd9…`) are ignored, and
+  so are version-1 pictures that came with a matched song (no mark; then any performer in the
+  track's credit got it): they are looked up again for the current search name.
 - Cache: `data/art/<sha1(url)>.jpg` (download 250 px for lists, 1000 px for TV on demand),
   metadata in `data/meta.json` keyed by song key: `{ provider, id, cover:{s,m,l}, artistPic,
   genre, year, explicit, rank, album, confidence, fetchedAt }`; misses retried after 30 days.

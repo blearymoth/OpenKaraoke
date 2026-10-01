@@ -8,7 +8,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
-import { ArtworkService, PRIO } from '../server/artwork/service.js';
+import { ArtworkService, PRIO, MATCH_VERSION } from '../server/artwork/service.js';
 import { imageUrls } from '../server/artwork/providers.js';
 import { Throttle } from '../server/util/throttle.js';
 import { RateLimiter } from '../server/util/ratelimit.js';
@@ -304,7 +304,7 @@ test('the host’s "no cover" made while an automatic lookup is under way is kep
   art.setNone(s);
   hold.open();
   assert.equal(await lookup, true);
-  assert.deepEqual({ ...art.songs.get(s.key), at: 0 }, { miss: true, manual: true, at: 0, v: 1 });
+  assert.deepEqual({ ...art.songs.get(s.key), at: 0 }, { miss: true, manual: true, at: 0, v: MATCH_VERSION });
   await art.close();
 });
 
@@ -459,7 +459,7 @@ test('a big picture downloaded into a full cache is kept and served; pictures us
 
   // Over HTTP, with the cache full again: the TV gets the picture, not an error.
   const s = song('Hello');
-  art.songs.set(s.key, { p: 'deezer', id: '1', cover: coverRef(8), at: Date.now(), v: 1 });
+  art.songs.set(s.key, { p: 'deezer', id: '1', cover: coverRef(8), at: Date.now(), v: MATCH_VERSION });
   for (let i = 0; art.bytes + 25 * kb <= art.cacheMax(); i++) add(`t${String(i).padStart(39, '0')}`, 25 * kb, 2000 + i);
   const http1 = await serveOver((ctx) => art.serveSong(ctx, s));
   const res = await globalThis.fetch(`${http1.url}/?s=1000`);
@@ -541,10 +541,10 @@ test('crawler: the artist phase doesn’t pile artists onto TheAudioDB, and it p
   const { art, settings, library } = await makeService({ names, fetch });
   // Every song is known already (no artist picture came with it), one artist has a picture.
   const songs = [...library.catalog.songs.values()];
-  for (const s of songs) art.songs.set(s.key, { p: 'deezer', id: '1', cover: coverRef(s.title.length), at: Date.now(), v: 1 });
+  for (const s of songs) art.songs.set(s.key, { p: 'deezer', id: '1', cover: coverRef(s.title.length), at: Date.now(), v: MATCH_VERSION });
   const pictured = library.catalog.artistList[0];
   const picture = coverRef(4242).replace('/cover/', '/artist/');
-  art.artists.set(pictured.key, { picture, tried: ['deezer'], at: Date.now(), v: 1 });
+  art.artists.set(pictured.key, { picture, tried: ['deezer'], at: Date.now(), v: MATCH_VERSION });
   settings.update({ artwork: { crawl: true } });
   art.crawlTick();
   let most = 0;
@@ -568,14 +568,14 @@ test('crawler: songs and artists waiting for a provider in a long back-off are l
   const pending = [];
   for (const s of library.catalog.songs.values()) {
     if (i++ % 10 === 0) {
-      art.songs.set(s.key, { miss: true, tried: ['deezer'], at: Date.now(), v: 1 });
+      art.songs.set(s.key, { miss: true, tried: ['deezer'], at: Date.now(), v: MATCH_VERSION });
       pending.push(s);
       continue;
     }
-    art.songs.set(s.key, { p: 'deezer', id: '1', cover: coverRef(i), at: Date.now(), v: 1 });
+    art.songs.set(s.key, { p: 'deezer', id: '1', cover: coverRef(i), at: Date.now(), v: MATCH_VERSION });
     art.files.set(art.fileKey(imageUrls(coverRef(i)).s), { ext: 'jpg', size: 20_000, used: 1 });
   }
-  for (const a of library.catalog.artistList) art.artists.set(a.key, { tried: ['deezer'], at: Date.now(), v: 1 });
+  for (const a of library.catalog.artistList) art.artists.set(a.key, { tried: ['deezer'], at: Date.now(), v: MATCH_VERSION });
   assert.deepEqual(art.artistChain(library.catalog.artistList[0].key), ['theaudiodb']);
   // Both answer HTTP 502: a back-off of a minute.
   art.failed('musicbrainz', 'error', 'HTTP 502');

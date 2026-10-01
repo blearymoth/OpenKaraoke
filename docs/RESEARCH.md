@@ -95,7 +95,9 @@ picks music that fits the next song; scrolling banner with upcoming singers + cu
 track `id, title, title_short, title_version, duration, rank, preview, explicit_lyrics,
 explicit_content_lyrics, explicit_content_cover, md5_image, link`; `artist{id,name,picture,picture_small|medium|big|xl}`;
 `album{id,title,cover,cover_small|medium|big|xl,md5_image}`. Image URL pattern:
-`https://…dzcdn.net/images/{cover|artist}/{md5}/{N}x{N}-000000-80-0-0.jpg`.
+`https://…dzcdn.net/images/{cover|artist}/{md5}/{N}x{N}-000000-80-0-0.jpg`. "No picture" is an
+empty md5 (`images/artist//…`) or the MD5 of the empty string (`d41d8cd98f00b204e9800998ecf8427e`,
+a grey silhouette); both must be treated as missing.
 Genre/date are **not** in search results: `/album/{id}` → `genre_id, genres.data[].name, release_date, label`;
 `/track/{id}` → `release_date, bpm, isrc`.
 

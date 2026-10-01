@@ -429,8 +429,30 @@ Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safar
   `100x100bb` with `600x600bb`; ToS: no caching — off by default), optional **Fanart.tv** (user key).
 - Matching: clean artist (primary credit, drop "(Duet)", "feat …") and title (drop variants,
   "karaoke", brackets). Score candidates with `similarity()` on artist & title (≥ 0.75 & ≥ 0.7),
-  prefer original albums (penalise "karaoke", "tribute", "hits", "cover", "in the style of"),
-  prefer duration within ±15 s. Store confidence.
+  prefer original albums (penalise "karaoke", "tribute", "hits", "cover", "in the style of"
+  unless our own title or artist has that word — "Cover Girls"), prefer duration within ±15 s.
+  Duos credited by surname match ("Hall & Oates" = "Daryl Hall & John Oates"), number words
+  match digits ("Jackson Five"). Store confidence.
+- Artists: the catalog splits credits on "&", "+", "/", commas, so band names fall apart
+  ("Sam & Dave" → Sam, Dave). A performer never credited alone is searched by the act it
+  appears in ("Sam & Dave"), never by the fragment (a namesake's photos); each performer of a
+  featured list ("feat. Pharrell Williams, Katy Perry & Big Sean") is searched by name unless
+  that list leads songs of its own ("with Brooks & Dunn"). The name searched for is stored
+  (`n`, and `pictureFor` for a picture that came with a matched song); art found under an old
+  name is dropped, also when the library changes during a lookup. A fragment in several acts
+  ("Peter": Peter, Paul & Mary / Peter & Gordon) holds the most common act's art, so the TV only
+  shows fanart/logos found for one of the song's own acts. Art found under a performer's own
+  name stands in only when the providers were asked about the act and know nothing ("Elton John"
+  for "Elton John & Kiki Dee"), since that name may be a namesake ("Dave" the rapper and the
+  Dave of "Sam & Dave" are one catalog artist); the two are never mixed. An act never looked up
+  gets no stand-ins (also offline); one looked up long ago keeps them while it is asked again or
+  can't be asked (a refresh starts `tried` over; `asked` keeps the databases that searched for
+  the name before until they answer again, so one backing off changes nothing). When the act's
+  first lookup ends with nothing found, an `artChoice` event (server-internal: no image changed)
+  rebuilds the TV's view.
+  Deezer's "no picture" images (`images/artist//…`, MD5 of "" `d41d8cd9…`) are ignored, and
+  so are version-1 pictures that came with a matched song (no mark; then any performer in the
+  track's credit got it): they are looked up again for the current search name.
 - Cache: `data/art/<sha1(url)>.jpg` (download 250 px for lists, 1000 px for TV on demand),
   metadata in `data/meta.json` keyed by song key: `{ provider, id, cover:{s,m,l}, artistPic,
   genre, year, explicit, rank, album, confidence, fetchedAt }`; misses retried after 30 days.

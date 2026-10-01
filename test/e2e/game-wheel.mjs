@@ -113,6 +113,14 @@ try {
   await shot(tv, 'tv-wheel-result-song');
   await shot(ann, 'ann-wheel-result');
 
+  // A guest who calls themself Everyone can be picked as well, next to the sing-along.
+  const eve = room().createSinger({ name: 'Everyone', deviceId: 'e2e-eve-phone' });
+  room().markDirty();
+  await host.waitForSelector(`.game-live .wheel-queue select option[value="${eve.id}"]`, { state: 'attached', timeout: 5000 }).catch(() => {});
+  const sungBy = await host.$$eval('.game-live .wheel-queue select option', (l) => l.map((o) => [o.value, o.textContent.trim()]));
+  check(sungBy.some(([v, t]) => v === 'everyone' && /sing-along/.test(t)) && sungBy.some(([v, t]) => v === eve.id && t === 'Everyone'), '“Sung by” offers the sing-along and a guest called Everyone');
+  room().s.singers.splice(room().s.singers.indexOf(eve), 1);
+  room().markDirty();
   await host.selectOption('.game-live .wheel-queue select', 'everyone');
   await host.click('.game-live .btn:has-text("Queue it next")');
   await host.waitForSelector('.game-live .wheel-ok');

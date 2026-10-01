@@ -385,7 +385,8 @@ export function Control({ game, act, state }) {
   };
   const spinning = game.phase === 'spinning';
   const canQueue = r && ['songs', 'genres', 'duets'].includes(game.kind);
-  const singers = (state?.singers || []).filter((x) => x.name && x.name.toLowerCase() !== 'everyone');
+  // The sing-along singer is the first option; a guest who calls themself Everyone has a phone.
+  const singers = (state?.singers || []).filter((x) => x.name && (x.deviceId || x.name.toLowerCase() !== 'everyone'));
   const queueLabel = game.kind === 'songs' ? 'Queue it next' : game.kind === 'genres' ? `Queue a random ${r?.label || ''} song` : 'Queue a duet for both';
   let status = `The wheel is on the TV with ${game.segments.length} ${game.kindLabel.toLowerCase()}.`;
   if (spinning) status = 'Spinning… the result shows on the TV when the wheel stops.';

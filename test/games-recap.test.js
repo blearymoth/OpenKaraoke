@@ -69,6 +69,26 @@ test('recap: tonight’s statistics from the history (skipped songs don’t coun
   assert.deepEqual(slidesFor(r), ['totals', 'singers', 'rated', 'artists', 'favourite', 'games', 'thanks']);
 });
 
+test('recap: a guest who calls themself Everyone is one of tonight’s singers; the sing-along isn’t', () => {
+  const people = {
+    guest: { name: 'Everyone', emoji: '🦄', color: '#f0f', deviceId: 'phone-1' },
+    along: { name: 'Everyone', emoji: '🎉', color: '#fff', singAlong: true },
+    old: { name: 'everyone', emoji: '🎉', color: '#fff' }, // a sing-along singer from before the flag
+  };
+  const of = (id) => (Object.hasOwn(people, id) ? people[id] : null);
+  const history = [
+    rec('Hello', 'Adele', ['guest']),
+    rec('Waterloo', 'ABBA', ['along']),
+    rec('Africa', 'Toto', ['old']),
+    rec('Wonderwall', 'Oasis', ['gone'], { singers: ['Everyone'] }), // removed since: just the name
+    rec('Call Me', 'Blondie', [], { singers: ['EVERYONE'] }), // an old record without ids
+  ].reverse();
+  const r = buildRecap({ history, singerOf: of });
+  assert.equal(r.totals.songs, 5);
+  assert.equal(r.totals.singers, 1);
+  assert.deepEqual(r.topSingers.map((x) => [x.name, x.songs, x.emoji]), [['Everyone', 1, '🦄']]);
+});
+
 test('recap: slides without data are left out; an empty night says so', () => {
   const empty = buildRecap({});
   assert.deepEqual(empty.totals, { songs: 0, minutes: 0, singers: 0, reactions: 0, games: 0 });
@@ -179,6 +199,27 @@ test('recap: the game — built from tonight in the room, host slide controls, s
   assert.equal(view(ana).game.phase, 'done');
   await req(host, 'game.close');
   assert.equal(s().current, null, 'the stopped song waits for Play');
+});
+
+test('recap: in the room, a guest called Everyone is on the top singers slide; sing-alongs aren’t', async () => {
+  const env = await setupRoom({ playback: { countdown: 0 } });
+  const { req, view, connect, guest, s } = env;
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const eve = await guest('Everyone');
+  await req(eve, 'queue.add', { songId: env.song('hello').id }); // from her phone
+  await req(host, 'player.play');
+  const cur = s().current;
+  await req(tv, 'tv.ready', { entryId: cur.id, dur: 200 });
+  await req(tv, 'tv.ended', { entryId: cur.id });
+  await sing(env, host, tv, 'waterloo', 'Everyone'); // the host's sing-along
+  await req(host, 'game.start', { type: 'recap' });
+  const r = view(tv).game.recap;
+  assert.equal(r.totals.songs, 2);
+  assert.equal(r.totals.singers, 1);
+  assert.deepEqual(r.topSingers.map((x) => [x.name, x.songs]), [['Everyone', 1]]);
+  assert.equal(r.topSingers[0].emoji, s().singers.find((x) => x.deviceId === eve.data.deviceId).emoji, 'the guest, not the sing-along');
+  await req(host, 'game.close');
 });
 
 test('recap: an empty night — one slide, no auto-advance', async () => {

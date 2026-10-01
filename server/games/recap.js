@@ -25,11 +25,18 @@ function singersOf(h, singerOf) {
   ids.forEach((id, i) => {
     const s = singerOf(id);
     const name = s?.name || (aligned ? names[i] : '');
-    if (name) out.push({ key: `id:${id}`, name, emoji: s?.emoji || '🎤', color: s?.color || '' });
+    if (name) out.push({ key: `id:${id}`, name, emoji: s?.emoji || '🎤', color: s?.color || '', singAlong: singAlong(s, name) });
   });
-  if (!ids.length) for (const name of names) if (typeof name === 'string' && name) out.push({ key: `name:${fold(name) || name}`, name, emoji: '🎤', color: '' });
+  if (!ids.length) for (const name of names) if (typeof name === 'string' && name) out.push({ key: `name:${fold(name) || name}`, name, emoji: '🎤', color: '', singAlong: singAlong(null, name) });
   return out;
 }
+
+/**
+ * The room's sing-along singer (flagged; one from before the flag is an "Everyone" without a
+ * phone) isn't a person — a guest who calls themself Everyone is. A singer removed since only
+ * left their name.
+ */
+const singAlong = (s, name) => (s ? !!s.singAlong || (!s.deviceId && fold(name) === EVERYONE) : fold(name) === EVERYONE);
 
 const perfOf = (h, singers) => ({
   songId: h.songId || '',
@@ -60,7 +67,7 @@ export function buildRecap({ history = [], games = [], singerOf = () => null, si
     const r = Math.max(0, Math.round(Number(h.reactions) || 0));
     reactions += r;
     for (const s of singers) {
-      if (fold(s.name) === EVERYONE) continue;
+      if (s.singAlong) continue;
       people.add(s.key);
       const row = singerCount.get(s.key) || { ...s, songs: 0, last: 0 };
       row.songs++;

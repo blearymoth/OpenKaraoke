@@ -23,28 +23,49 @@ export function Setup({ onStart, busy }) {
   </div>`;
 }
 
+/** What the result screens say: a winner only when the vote was closed (not when the host ended the poll). */
+function outcome(game) {
+  const win = game.winner >= 0 ? game.candidates[game.winner] : null;
+  return {
+    win,
+    voting: game.phase === 'vote',
+    cancelled: !win && game.phase !== 'vote',
+    // Only promise "up next" when the song really was queued; a sing-along only for 'everyone'.
+    next: win && game.queued ? (game.singer === 'nobody' ? 'Up next!' : 'Up next — everybody sing!') : '',
+  };
+}
+
 export function Control({ game, act }) {
+  const [busy, setBusy] = useState(false);
+  const { win, cancelled } = outcome(game);
+  const close = async () => {
+    setBusy(true);
+    await act('game.action', { action: 'close', step: game.step }); // a double click closes it once
+    setBusy(false);
+  };
+  let line = '';
+  if (win && game.queued) line = game.phase === 'result' ? ` ${win.title} is next in the queue.` : ` ${win.title} was queued next.`;
+  else if (cancelled) line = ' The poll was ended before the vote closed — nothing was queued.';
   return html`<div class="g-control">
     <${VoteBars} items=${game.candidates.map((c) => ({ label: `${c.title} — ${c.artist}`, votes: c.votes }))} winner=${game.winner} />
-    <p class="hint">${game.total} ${game.total === 1 ? 'vote' : 'votes'} so far.${game.phase === 'result' ? ` ${game.candidates[game.winner]?.title} is next in the queue.` : ''}</p>
+    <p class="hint">${game.total} ${game.total === 1 ? 'vote' : 'votes'} so far.${line}</p>
     ${game.queueError && html`<p class="warn-text">${game.queueError}</p>`}
-    ${game.phase === 'vote' && html`<button class="btn" onClick=${() => act('game.action', { action: 'close' })}>Close voting now</button>`}
+    ${game.phase === 'vote' && html`<button class="btn" disabled=${busy} onClick=${close}>Close voting now</button>`}
   </div>`;
 }
 
 export function Tv({ game, now }) {
-  const result = game.phase !== 'vote';
-  const win = game.candidates[game.winner];
+  const { win, voting, cancelled, next } = outcome(game);
   return html`<div class="scene g-tv poll fade-in">
     <header class="g-tv-head">
-      <h1 class="display">${result ? 'The crowd has spoken!' : 'What’s next? Vote on your phone!'}</h1>
-      ${!result && html`<${Countdown} endsAt=${game.endsAt} total=${game.seconds} now=${now} />`}
+      <h1 class="display">${win ? 'The crowd has spoken!' : cancelled ? 'Poll cancelled' : 'What’s next? Vote on your phone!'}</h1>
+      ${voting && html`<${Countdown} endsAt=${game.endsAt} total=${game.seconds} now=${now} />`}
     </header>
-    ${result && win
+    ${win
       ? html`<div class="poll-winner">
           <${SongArt} songId=${win.songId} />
           <div><div class="kicker">${game.tie ? 'A tie — decided by lot' : `${win.votes} ${win.votes === 1 ? 'vote' : 'votes'}`}</div>
-            <h2 class="display">${win.title}</h2><p>${win.artist}</p><p class="next">Up next — everybody sing!</p></div>
+            <h2 class="display">${win.title}</h2><p>${win.artist}</p>${next && html`<p class="next">${next}</p>`}</div>
         </div>`
       : html`<div class="poll-grid">${game.candidates.map((c, i) => html`<div class="poll-card" key=${c.songId}>
           <${SongArt} songId=${c.songId} />
@@ -55,16 +76,19 @@ export function Tv({ game, now }) {
 }
 
 export function Guest({ game, send, now }) {
-  const result = game.phase !== 'vote';
+  const { win, voting, cancelled } = outcome(game);
+  let hint = game.myVote >= 0 ? 'Vote counted — you can still change it.' : 'Tap a song to vote.';
+  if (win) hint = game.queued ? 'It’s next in the queue.' : '';
+  else if (cancelled) hint = 'Nothing was queued this time.';
   return html`<div class="g-guest poll">
-    <h1 class="g-h1">${result ? 'The winner is…' : 'What should we sing next?'}</h1>
-    ${!result && html`<${Countdown} endsAt=${game.endsAt} total=${game.seconds} now=${now} />`}
+    <h1 class="g-h1">${win ? 'The winner is…' : cancelled ? 'The poll was cancelled' : 'What should we sing next?'}</h1>
+    ${voting && html`<${Countdown} endsAt=${game.endsAt} total=${game.seconds} now=${now} />`}
     <div class="g-answers">${game.candidates.map((c, i) => {
-      const state = result ? (i === game.winner ? 'right' : 'dim') : game.myVote === i ? 'picked' : game.myVote >= 0 ? 'dim' : 'idle';
-      return html`<${AnswerTile} key=${c.songId} index=${i} state=${state} disabled=${result} onClick=${result ? undefined : () => send({ choice: i })}>
+      const state = win ? (i === game.winner ? 'right' : 'dim') : cancelled ? 'dim' : game.myVote === i ? 'picked' : game.myVote >= 0 ? 'dim' : 'idle';
+      return html`<${AnswerTile} key=${c.songId} index=${i} state=${state} disabled=${!voting} onClick=${voting ? () => send({ choice: i }) : undefined}>
         <b class="ellipsis">${c.title}</b><small class="ellipsis">${c.artist}</small>
       </${AnswerTile}>`;
     })}</div>
-    <p class="hint">${result ? 'It’s next in the queue.' : game.myVote >= 0 ? 'Vote counted — you can still change it.' : 'Tap a song to vote.'}</p>
+    ${hint && html`<p class="hint">${hint}</p>`}
   </div>`;
 }

@@ -90,6 +90,8 @@ export class Poll extends Game {
     v.total = counts.reduce((a, b) => a + b, 0);
     v.winner = this.phase === 'vote' ? -1 : this.winner; // still -1 when the host ended the poll during the vote
     v.tie = !!this.tie;
+    v.singer = this.config.singer; // 'everyone' (a sing-along) or 'nobody' (the host picks)
+    v.queued = !!this.queuedEntryId; // the winner really is in the queue
     if (ctx.role === 'guest') v.myVote = this.votes.has(ctx.deviceId) ? this.votes.get(ctx.deviceId) : -1;
     if (ctx.role === 'host') v.queueError = this.queueError || null;
     return v;

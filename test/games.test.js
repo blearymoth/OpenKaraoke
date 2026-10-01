@@ -298,3 +298,57 @@ test('singer names without letters (emoji) are matched exactly, not all as one',
   assert.equal(room.findOrCreateSinger(' 🦄🦄 ').id, unicorn.id);
   assert.equal(room.findOrCreateSinger('Ana').id, room.findOrCreateSinger('ANA').id);
 });
+
+test('poll: ended during the vote → no winner, nothing queued; the view says who sings and whether it was queued', async () => {
+  const { req, connect, guest, s, view } = await setupRoom({ playback: { countdown: 0, autoStart: false } }, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const ana = await guest('Ana');
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 60 } });
+  await req(ana, 'game.input', { choice: 1 });
+  assert.equal(view(tv).game.queued, false);
+  assert.equal(view(tv).game.singer, 'everyone');
+  await req(host, 'game.end');
+  for (const c of [tv, ana, host]) {
+    const g = view(c).game;
+    assert.equal(g.phase, 'done');
+    assert.equal(g.winner, -1, 'no winner: the screens say the poll was cancelled');
+    assert.equal(g.queued, false);
+  }
+  assert.deepEqual(s().queue, []);
+  await req(host, 'game.close');
+  // "Nobody" polls: queued, but not as a sing-along.
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 60, singer: 'nobody' } });
+  await req(host, 'game.action', { action: 'close' });
+  const g = view(tv).game;
+  assert.equal(g.singer, 'nobody');
+  assert.equal(g.queued, true);
+  assert.ok(g.winner >= 0);
+});
+
+test('poll: a banned guest’s vote stops counting; a double click on "Close voting now" closes it once', async () => {
+  const { req, connect, guest, view, room } = await setupRoom({ playback: { countdown: 0, autoStart: false } }, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const ana = await guest('Ana');
+  const troll = await guest('Troll');
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 60 } });
+  await req(ana, 'game.input', { choice: 1 });
+  await req(troll, 'game.input', { choice: 2 });
+  assert.equal(view(tv).game.total, 2);
+  await req(host, 'guest.ban', { deviceId: troll.data.deviceId });
+  assert.deepEqual(view(tv).game.candidates.map((c) => c.votes), [0, 1, 0, 0]);
+  assert.equal(view(tv).game.total, 1);
+  const step = view(host).game.step;
+  assert.ok(Number.isInteger(step));
+  const [first, second] = await Promise.all([
+    req(host, 'game.action', { action: 'close', step }),
+    req(host, 'game.action', { action: 'close', step }),
+  ]);
+  assert.equal(first.winner, 1, 'only Ana’s vote counts');
+  assert.equal(second.stale, true, 'the second click does nothing');
+  assert.equal(room.game.phase, 'result');
+  assert.equal(room.s.queue.length, 1);
+  // Without a step (older clients) a late close is harmless too — no "unknown control" error.
+  assert.equal((await req(host, 'game.action', { action: 'close' })).winner, 1);
+});

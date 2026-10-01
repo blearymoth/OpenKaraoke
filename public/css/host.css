@@ -349,6 +349,20 @@ body.host .toasts { bottom: 104px; }
   .row-2 { grid-template-columns: 1fr; }
 }
 
+/* Phones: a table marked "stack" shows each row as a small card — the "lead" cell and the
+   actions on one line, the other cells (labelled by data-label) wrapped below. */
+@media (max-width: 600px) {
+  .table.stack thead { display: none; }
+  .table.stack tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .table.stack tr::after { content: ''; order: 1; flex-basis: 100%; }
+  .table.stack td { order: 2; border: 0; padding: 0; font-size: 13px; }
+  .table.stack td.lead { order: 0; flex: 1 1 0; min-width: 0; font-size: inherit; }
+  .table.stack td.actions { order: 1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; font-size: inherit; }
+  .table.stack td[colspan] { order: 0; flex-basis: 100%; font-size: inherit; }
+  .table.stack .num { text-align: left; }
+  .table.stack td[data-label]::before { content: attr(data-label) ' '; font-size: 12px; }
+}
+
 .check-row { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-2); }
 .songbook-form { margin-top: 4px; }
 .versions td.actions { display: flex; gap: 6px; justify-content: flex-end; }

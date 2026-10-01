@@ -290,7 +290,7 @@ settings subset, game public state) + per-device `me` block.
 ## 7. WebSocket protocol & auth
 
 Endpoint `/ws`. Client first sends
-`{ t:'hello', role:'host'|'tv'|'guest', token?, deviceId, name?, room?, display?:'main'|'mirror' }`.
+`{ t:'hello', role:'host'|'tv'|'guest', token?, deviceId, name?, room?, display?:'main'|'mirror'|'board'|'preview' }`.
 Server replies `{ t:'welcome', clientId, role, token?, serverTime, state }` or `{ t:'denied', reason }`.
 
 Auth rules:
@@ -298,7 +298,13 @@ Auth rules:
   valid host token (obtained with the PIN via `{ t:'auth.pin', pin }`). If no PIN is set,
   remote host access is refused with a hint to set one on the PC.
 - **tv**: local → allowed. Remote → pairing: display shows a 4-digit code, host approves
-  (`display.approve`) → token issued and stored by the display.
+  (`display.approve`) → token issued and stored by the display. Only waiting codes count towards
+  the limit of 20; one address holds at most two (a new one replaces its oldest); a denied code
+  is dropped after a minute. A hidden `preview` is only for this computer or a host token.
+- **main display** (plays the sound): the first plain `/tv`. When it disconnects, another plain
+  `/tv` stands in and hands the sound back to the next plain `/tv` that connects; mirrors
+  (`display=mirror`), queue boards (`layout=board`) and previews never take it by themselves
+  (playback pauses instead). The host can pick any non-board display (`display.main {id}`).
 - **guest**: `room` must match `party.roomCode`; `deviceId` (random, stored in localStorage) must not be banned.
 - Tokens = HMAC-SHA256(secret, role + ':' + pinVersion + ':' + id), secret in `data/secret.json`.
 
@@ -313,7 +319,8 @@ singer.add/update/remove/merge     guest.update(me) guest.kick guest.ban guest.c
 favorite.toggle {songId}  playlist.save/delete/queue   settings.update {patch}   library.rescan
 announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve/reject
 game.start {type, config}  game.action {...}  game.answer {...}  game.vote {...}  game.end
-display.approve {code}   tv.status / tv.ended / tv.error / tv.ready   ping {c}
+display.approve {code}  display.deny {id|code|all}  display.main {id}  display.forget
+tv.status / tv.ended / tv.error / tv.ready   ping {c}
 ```
 Server → client: `welcome`, `state`, `time`, `tv`, `res`, `toast`, `notify` (to one device:
 "You're up next!"), `reaction`, `announce`, `game`, `lib` (scan progress), `art` (song ids whose

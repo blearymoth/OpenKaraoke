@@ -172,7 +172,7 @@
   --glow-bracket: 0 0 0 0.4vh var(--neon-soft);
   --glow-badge: 0 1.5vh 4vh rgba(0, 0, 0, 0.45);
   --glow-flash: 0 2vh 6vh rgba(0, 0, 0, 0.5);
-  --quiz-bg: radial-gradient(120% 90% at 50% 0%, rgba(110, 168, 254, 0.08), transparent 60%), var(--night);
+  --quiz-bg: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--neon) 8%, transparent), transparent 60%), var(--night);
   --eq-helium: linear-gradient(0deg, #5fb0d6, #8e98d6);
   --wheel-rim: #171b22;
   --wheel-rim-stroke: #3b4350;

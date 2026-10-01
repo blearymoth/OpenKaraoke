@@ -307,6 +307,14 @@ test('base.css: both skins define the same tokens, matching shared/themes.js', (
   assert.match(css, /^img\[src="\/img\/icon\.svg"\] \{ content: var\(--app-icon\); \}/m);
 });
 
+test('base.css: Studio derives every accent tint from var(--neon), so a custom accent recolours it', () => {
+  const hex = THEMES.studio.accent.toLowerCase();
+  const n = parseInt(hex.slice(1), 16);
+  const rgb = new RegExp(`\\b${(n >> 16) & 255},\\s*${(n >> 8) & 255},\\s*${n & 255}\\b`);
+  const hardCoded = [...skins.studio].filter(([k, v]) => k !== '--neon' && (v.toLowerCase().includes(hex) || rgb.test(v))).map(([k]) => k);
+  assert.deepEqual(hardCoded, [], 'Studio tokens that hard-code the default accent');
+});
+
 test('every token the app uses is defined (by the skins, a rule, or the code that sets it)', async () => {
   const read = async (dir, filter) => {
     const files = (await fs.readdir(dir, { recursive: true })).filter(filter);

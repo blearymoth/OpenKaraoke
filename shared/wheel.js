@@ -39,16 +39,30 @@ export const DEFAULT_DARES = [
   'Lead the room in a slow-motion wave',
 ];
 
-/** Palette for the segments (12 distinct, bright colours: neighbours never match). */
-export const WHEEL_COLORS = ['#ff3d8b', '#ffc94a', '#45e2a6', '#4cc3ff', '#b388ff', '#ff8a3d', '#7cf05a', '#ff6262', '#3de0d0', '#f06bff', '#ffe066', '#5c7cff'];
+/**
+ * Palette for the segments: 12 distinct colours (neighbours never match), as CSS tokens that each
+ * skin defines in /css/base.css (--wheel-1…12), with a readable label colour for each
+ * (--wheel-ink-1…12).
+ */
+export const WHEEL_COLORS = Array.from({ length: 12 }, (_, i) => `var(--wheel-${i + 1})`);
+export const WHEEL_INKS = Array.from({ length: 12 }, (_, i) => `var(--wheel-ink-${i + 1})`);
 
 const mod = (a, n) => ((a % n) + n) % n;
 
-/** Colour of segment i of n (the last one never repeats the first one's colour). */
-export function segmentColor(i, n) {
+/** Palette index of segment i of n (the last one never repeats the first one's colour). */
+export function segmentIndex(i, n) {
   const k = WHEEL_COLORS.length;
-  if (n % k === 1 && i === n - 1) return WHEEL_COLORS[(i + 1) % k];
-  return WHEEL_COLORS[i % k];
+  return n % k === 1 && i === n - 1 ? (i + 1) % k : i % k;
+}
+
+/** Colour of segment i of n (a CSS value). */
+export function segmentColor(i, n) {
+  return WHEEL_COLORS[segmentIndex(i, n)];
+}
+
+/** Label colour on segment i of n (a CSS value). */
+export function segmentInk(i, n) {
+  return WHEEL_INKS[segmentIndex(i, n)];
 }
 
 /** The segment under the pointer when the wheel is turned by `rotation` degrees. */

@@ -15,7 +15,7 @@ const FORMATS = [['duel', 'Head-to-head duel (2 singers)'], ['knockout', 'Knocko
 const MAX = 8;
 const PHASE_SECONDS = { vs: 6, waiting: 10, result: 7, final: 12 }; // as on the server (countdown rings)
 
-const who = (game, i) => game.contestants?.[i] || { name: 'To be decided', emoji: '❔', color: '#3a2f5c' };
+const who = (game, i) => game.contestants?.[i] || { name: 'To be decided', emoji: '❔', color: 'var(--avatar-tbd)' };
 const sideOf = (m, side) => (side === 'a' ? m.a : m.b);
 const score1 = (x) => (Number.isFinite(x) ? x.toFixed(1) : '–');
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;

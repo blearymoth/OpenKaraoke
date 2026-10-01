@@ -93,7 +93,7 @@ export function Confetti({ run = 0, count = 90 }) {
   useEffect(() => {
     if (!run) return undefined;
     seed.current++;
-    const colors = ['#ff3d8b', '#ffc94a', '#45e2a6', '#4cc3ff', '#b388ff', '#fff'];
+    const colors = [1, 2, 3, 4, 5, 6].map((n) => `var(--confetti-${n})`); // per skin, in base.css
     setPieces(Array.from({ length: count }, (_, i) => ({
       id: `${seed.current}-${i}`,
       left: Math.random() * 100,

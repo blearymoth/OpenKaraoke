@@ -6,6 +6,7 @@ import { Icon } from '../lib/icons.js';
 import { TvController } from './controller.js';
 import { GAME_UI } from '../games/index.js';
 import { BreakPlayer } from './break-player.js';
+import { applyAppearance, qrSrc } from '../lib/theme.js';
 import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 
 const params = new URLSearchParams(location.search);
@@ -32,6 +33,7 @@ const controller = new TvController({
 });
 
 conn.on('welcome', (m) => {
+  applyAppearance(m.state.appearance);
   store.update({ state: m.state, display: m.display, denied: null });
   controller.setDisplay(m.display);
   controller.apply(m.state);
@@ -42,6 +44,7 @@ const breakPlayer = new BreakPlayer({ onEnded: (id) => conn.request('tv.break', 
 const applyBreak = (st) => breakPlayer.apply(st?.breakMusic || null, { main: store.get().display === 'main' && !preview, unlocked: controller.unlocked, master: st?.player?.volume ?? 1 });
 
 conn.on('state', (m) => {
+  applyAppearance(m.state.appearance);
   store.update({ state: m.state });
   controller.apply(m.state);
   applyBreak(m.state);
@@ -232,9 +235,6 @@ function Mosaic({ ids }) {
 function App() {
   const s = useStore(store);
   const st = s.state;
-  useEffect(() => {
-    if (st?.display?.accent) document.documentElement.style.setProperty('--neon', st.display.accent);
-  }, [st?.display?.accent]);
   if (s.denied === 'pairing_required') return html`<${Pairing} />`;
   if (s.denied) {
     return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>This screen can't join</h2><p>${DENIED_MESSAGES[s.denied] || s.denied}</p></div>`;
@@ -299,6 +299,7 @@ function Pairing() {
     if (!pair?.id) return;
     try {
       const r = await (await fetch(`/api/pair/${encodeURIComponent(pair.id)}`)).json();
+      applyAppearance(r.appearance);
       if (r.status === 'approved' && r.token) {
         localStorage.setItem('ok.tvToken', r.token);
         store.update({ denied: null });
@@ -352,7 +353,7 @@ function Clock() {
 function Board({ st }) {
   useTick(5000);
   const cur = st.current;
-  const qr = `/api/qr.svg?margin=0&dark=%231b1230&light=%23fff8e6&text=${encodeURIComponent(st.info.joinUrl)}`;
+  const qr = qrSrc(st.info.joinUrl);
   return html`<div class="scene board fade-in">
     <header class="board-head"><img src="/img/icon.svg" alt="" /><h1 class="display">${st.info.name}</h1><${Clock} /></header>
     <section class="board-now">
@@ -376,7 +377,7 @@ function Board({ st }) {
 
 function Lobby({ st }) {
   const info = st.info;
-  const qr = `/api/qr.svg?margin=0&dark=%231b1230&light=%23fff8e6&text=${encodeURIComponent(info.joinUrl)}`;
+  const qr = qrSrc(info.joinUrl);
   const next = st.queue.slice(0, 4);
   return html`<div class="scene lobby fade-in">
     <div class="lobby-top">
@@ -461,7 +462,7 @@ function Singing({ st }) {
       <span class="avatar" style=${{ '--avatar': cur.singers[0]?.color }}>${cur.singers[0]?.emoji || '🎤'}</span>
       <div class="ellipsis"><b class="display ellipsis">${singersText(cur.singers) || 'Sing along!'}</b><span>${cur.title} by ${cur.artist}</span></div>
     </div>`}
-    ${d.showQr !== false && html`<div class="corner-qr"><img src=${`/api/qr.svg?margin=0&dark=%231b1230&light=%23fff8e6&text=${encodeURIComponent(st.info.joinUrl)}`} alt="" /><span>${st.info.roomCode}</span></div>`}
+    ${d.showQr !== false && html`<div class="corner-qr"><img src=${qrSrc(st.info.joinUrl)} alt="" /><span>${st.info.roomCode}</span></div>`}
     ${showUpNext && html`<div class="upnext-banner">
       <span class="avatar" style=${{ '--avatar': next.singers[0]?.color }}>${next.singers[0]?.emoji || '🎤'}</span>
       <div><small>Up next, get ready</small><b>${singersText(next.singers) || 'Next song'}</b></div>

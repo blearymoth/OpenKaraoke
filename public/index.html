@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#150f26">
+  <meta name="theme-color" content="#0f1216">
   <title>OpenKaraoke</title>
   <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/base.css">
   <style>
     body { min-height: 100vh; display: grid; place-items: center; padding: 32px 20px 48px;
-      background: radial-gradient(1200px 600px at 15% -10%, #2c1c52 0%, transparent 60%), radial-gradient(900px 500px at 110% 110%, #3a1233 0%, transparent 55%), var(--night); }
+      background: var(--landing-bg); }
     main { width: min(1040px, 100%); display: grid; gap: 36px; }
     .brand { display: flex; align-items: center; gap: 14px; }
     .brand img { width: 52px; height: 52px; }
@@ -25,7 +25,7 @@
     .tile p { color: var(--ink-2); }
     .tile .go { margin-top: 8px; justify-self: start; }
     .glyph { font-size: 34px; line-height: 1; }
-    .join { justify-items: center; text-align: center; background: linear-gradient(180deg, #2a1d20, var(--stage)); }
+    .join { justify-items: center; text-align: center; background: var(--landing-join-bg); }
     .join .marquee { width: min(210px, 70%); margin: 18px 0 12px; }
     .code { font-family: var(--font-display); font-size: 30px; font-weight: 800; letter-spacing: 0.18em; color: var(--bulb); }
     .url { font-size: 14px; color: var(--ink-2); word-break: break-all; }

@@ -10,6 +10,7 @@ import { html, useEffect, useRef, useState } from '../vendor/preact.js';
 import { Countdown, AnswerTile, Leaderboard, Podium, PlayerChip, SongArt, Confetti, SelectField, FilterFields, ensureCss } from './common.js';
 import { useFetch } from '../lib/components.js';
 import { CdgRenderer } from '../lib/cdg-canvas.js';
+import { qrSrc } from '../lib/theme.js';
 import { findLyricsFrame } from '/shared/cdg.js';
 import { QUIZ_ROUNDS, QUIZ_ROUND_INFO } from '/shared/quiz.js';
 
@@ -297,7 +298,7 @@ function JoinCorner({ st }) {
   const url = st?.info?.joinUrl;
   if (!url || st.display?.showQr === false) return null;
   return html`<div class="qz-join">
-    <img src=${`/api/qr.svg?margin=0&dark=%231b1230&light=%23fff8e6&text=${encodeURIComponent(url)}`} alt="" />
+    <img src=${qrSrc(url)} alt="" />
     <span>Play along on your phone<b>${url.replace(/^https?:\/\//, '')}</b></span>
   </div>`;
 }

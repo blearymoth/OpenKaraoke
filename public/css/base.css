@@ -35,10 +35,182 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* ---- skins ----------------------------------------------------------------------
+   Every rule in the app's CSS is shared by the two skins; only the tokens below differ.
+   - Studio (default): :root, also without a data-theme attribute, and [data-theme="studio"].
+   - Party: [data-theme="party"] — a dim karaoke bar lit by one neon sign and marquee bulbs.
+   The server writes data-theme on <html> of every page it serves (no flash of the other skin)
+   and the apps switch it live (js/lib/theme.js, setting appearance.theme). A [data-theme]
+   element inside a page previews that skin in its subtree (Settings → Appearance).
+   Names: --neon is the accent (appearance.accent overrides it inline on <html>, with
+   --neon-ink for text on it); --bulb the second highlight (room codes, "up next", warnings);
+   --night → --stage → --stage-2 → --stage-3 surfaces from the page up; --ink, --ink-2, --ink-3
+   text; --line* borders; --*-rgb colour channels for translucent tints, used as
+   rgba(var(--night-rgb), 0.9). Both skin blocks define the same tokens, in the same order
+   (test/themes.test.js checks that, and pins Party to the values it always had).
+   Shared literals: black shadows for depth and legibility, white (slider thumbs, needles,
+   photo prints, the Wi-Fi QR code), black behind videos and lyrics. */
+
 :root {
+  --font-ui: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+:root, [data-theme="studio"] {
   color-scheme: dark;
-  /* palette: a dim karaoke bar lit by one neon sign and a row of marquee bulbs */
+  /* surfaces, lines, text: calm graphite */
+  --night: #0f1216;
+  --night-rgb: 15, 18, 22;
+  --stage: #161a20;
+  --stage-2: #1d222a;
+  --stage-3: #29303a;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.15);
+  --ink: #eceff4;
+  --ink-2: #aab2bf;
+  --ink-3: #87909e;
+  /* the accent and the second highlight */
+  --neon: #6ea8fe;
+  --neon-ink: #0b1526;
+  --neon-soft: color-mix(in srgb, var(--neon) 16%, transparent);
+  --neon-hover: color-mix(in srgb, var(--neon) 88%, #fff);
+  --neon-end: color-mix(in srgb, var(--neon) 65%, var(--ink)); /* where accent gradients end: barely a gradient */
+  --bulb: #e8b556;
+  --bulb-rgb: 232, 181, 86;
+  --bulb-soft: rgba(232, 181, 86, 0.14);
+  --bulb-ink: #221700;
+  --bulb-ink-2: #4d3907;
+  /* status */
+  --ok: #4cc38a;
+  --ok-rgb: 76, 195, 138;
+  --ok-bg: #12352a;
+  --ok-bg-ink: #d2f5e6;
+  --bad: #f06b73;
+  --bad-rgb: 240, 107, 115;
+  --bad-bg: #3a1c21;
+  --bad-bg-ink: #ffd6da;
+  --bad-pill-ink: #ffc2c7;
+  --bad-panel: rgba(58, 28, 33, 0.95);
+  --danger-ink: #ff9ca3;
+  --warn-bg: #33270f;
+  --warn-bg-ink: #f5e1b5;
+  /* dark tints behind dialogs, sheets and TV overlays */
+  --shade-rgb: 6, 8, 11;
+  --deep-rgb: 9, 11, 14;
+  --overlay-rgb: 12, 14, 18;
+  /* type, shape, depth */
+  --font-display: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 8px; /* buttons, chips, search boxes, segmented controls */
+  --glow: 0 1px 2px rgba(0, 0, 0, 0.4); /* raised accent buttons */
+  --halo: 0; /* 0–1: coloured glow around big avatars and vote cards */
+  --avatar-veil: linear-gradient(rgba(var(--night-rgb), 0.2), rgba(var(--night-rgb), 0.2)); /* tones down singers’ colours */
+  --avatar-tbd: #353c47;
+  /* QR codes and the frame around them */
+  --paper: #ffffff;
+  --paper-ink: #111418;
+  --qr-dark: #111418;
+  --qr-light: #ffffff;
+  --marquee-bg: #ffffff;
+  --marquee-ring: 0;
+  --marquee-frame: transparent;
+  --marquee-edge: #353c47;
+  --marquee-glow: 0 18px 50px -16px rgba(0, 0, 0, 0.7);
+  --marquee-bulb: transparent;
+  --marquee-bulb-halo: transparent;
+  --marquee-bulbs: none;
+  /* landing page, host, guest */
+  --landing-bg: radial-gradient(1200px 600px at 15% -10%, #1a2231 0%, transparent 60%), var(--night);
+  --landing-join-bg: linear-gradient(180deg, var(--stage-2), var(--stage));
+  --hero-bg: linear-gradient(135deg, #1c2533, var(--stage));
+  --guest-bg: radial-gradient(120% 50% at 50% -10%, #1a2231 0%, transparent 60%), var(--night);
+  --alert-bg: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--neon) 26%, var(--night)), var(--night) 75%);
+  --glow-banner: 0 10px 24px -12px rgba(0, 0, 0, 0.7);
+  /* TV */
+  --tv-bg: #0a0c0f;
+  --tv-rgb: 10, 12, 15;
+  --aurora-bg: radial-gradient(120vh 80vh at 50% 120%, #17202d, transparent 70%), var(--night);
+  --aurora-1: #2a4468;
+  --aurora-2: #1e2f45;
+  --aurora-3: #3b4656;
+  --aurora-opacity: 0.4;
+  --aurora-3-opacity: 0.2;
+  --art-bg-filter: blur(7vh) saturate(0.8) brightness(0.42);
+  --fanart-filter: brightness(0.55) saturate(0.85);
+  --mosaic-opacity: 0.22;
+  --mosaic-filter: saturate(0.6);
+  --corner-qr-bg: rgba(255, 255, 255, 0.96);
+  --progress-fill: var(--neon);
+  --progress-glow: none;
+  --glow-text-bulb: none;
+  --glow-upnext: 0 1.5vh 4vh rgba(0, 0, 0, 0.45);
+  --glow-announce: 0 3vh 8vh -2vh rgba(0, 0, 0, 0.6);
+  /* games */
+  --answer-1: #b5475a;
+  --answer-2: #2f63b8;
+  --answer-3: #8a6410;
+  --answer-4: #2e7a3c;
+  --confetti-1: var(--neon);
+  --confetti-2: var(--bulb);
+  --confetti-3: #4cc38a;
+  --confetti-4: #aab2bf;
+  --confetti-5: #5b8def;
+  --confetti-6: #eceff4;
+  --podium-gold: linear-gradient(180deg, var(--bulb), #9a7131);
+  --meter-lo: #4cc38a;
+  --meter-mid: #e8b556;
+  --meter-hi: #e7646d;
+  --meter-gradient: linear-gradient(90deg, var(--meter-lo), var(--meter-mid) 55%, var(--meter-hi));
+  --glow-gauge: none;
+  --glow-text-gauge: none;
+  --glow-text-count: none;
+  --glow-text-vs: none;
+  --glow-bracket: 0 0 0 0.4vh var(--neon-soft);
+  --glow-badge: 0 1.5vh 4vh rgba(0, 0, 0, 0.45);
+  --glow-flash: 0 2vh 6vh rgba(0, 0, 0, 0.5);
+  --quiz-bg: radial-gradient(120% 90% at 50% 0%, rgba(110, 168, 254, 0.08), transparent 60%), var(--night);
+  --eq-helium: linear-gradient(0deg, #5fb0d6, #8e98d6);
+  --wheel-rim: #171b22;
+  --wheel-rim-stroke: #3b4350;
+  --wheel-divider: rgba(0, 0, 0, 0.3);
+  --wheel-bulb-on: #d9dee6;
+  --wheel-bulb-odd: #7d8795;
+  --wheel-bulb-off: #3b4350;
+  --wheel-hub-bg: radial-gradient(circle at 35% 30%, #3a4250, #181c23 70%);
+  --wheel-hub-border: #3b4350;
+  --wheel-1: #5b8def;
+  --wheel-2: #d9a94e;
+  --wheel-3: #4fae86;
+  --wheel-4: #4aa7c9;
+  --wheel-5: #8f7fd6;
+  --wheel-6: #d4804f;
+  --wheel-7: #86b35a;
+  --wheel-8: #d0616b;
+  --wheel-9: #45b3a8;
+  --wheel-10: #b86fb3;
+  --wheel-11: #cdbd6a;
+  --wheel-12: #6a7be0;
+  --wheel-ink-1: #111418;
+  --wheel-ink-2: #111418;
+  --wheel-ink-3: #111418;
+  --wheel-ink-4: #111418;
+  --wheel-ink-5: #111418;
+  --wheel-ink-6: #111418;
+  --wheel-ink-7: #111418;
+  --wheel-ink-8: #111418;
+  --wheel-ink-9: #111418;
+  --wheel-ink-10: #111418;
+  --wheel-ink-11: #111418;
+  --wheel-ink-12: #111418;
+}
+
+[data-theme="party"] {
+  color-scheme: dark;
+  /* surfaces, lines, text: night-club purple */
   --night: #150f26;
+  --night-rgb: 21, 15, 38;
   --stage: #1d1535;
   --stage-2: #271d45;
   --stage-3: #33275a;
@@ -47,22 +219,141 @@
   --ink: #f6f1ff;
   --ink-2: #b6aad8;
   --ink-3: #8174a8;
-  --neon: #ff3d8b; /* overridden by settings.display.accent */
+  /* the accent (a neon sign) and the second highlight (marquee bulbs) */
+  --neon: #ff3d8b;
   --neon-ink: #fff;
   --neon-soft: color-mix(in srgb, var(--neon) 18%, transparent);
+  --neon-hover: color-mix(in srgb, var(--neon) 88%, #fff);
+  --neon-end: var(--bulb); /* where accent gradients end: neon into marquee gold */
   --bulb: #ffc94a;
+  --bulb-rgb: 255, 201, 74;
   --bulb-soft: rgba(255, 201, 74, 0.16);
+  --bulb-ink: #2a1a00;
+  --bulb-ink-2: #5a3f00;
+  /* status */
   --ok: #45e2a6;
+  --ok-rgb: 69, 226, 166;
+  --ok-bg: #123d31;
+  --ok-bg-ink: #d4ffee;
   --bad: #ff6262;
-
+  --bad-rgb: 255, 98, 98;
+  --bad-bg: #4a1729;
+  --bad-bg-ink: #ffd9e2;
+  --bad-pill-ink: #ffc2d0;
+  --bad-panel: rgba(74, 23, 41, 0.95);
+  --danger-ink: #ff9aa8;
+  --warn-bg: #3a2412;
+  --warn-bg-ink: #ffe2b0;
+  /* dark tints behind dialogs, sheets and TV overlays */
+  --shade-rgb: 8, 5, 18;
+  --deep-rgb: 10, 6, 22;
+  --overlay-rgb: 14, 11, 22;
+  /* type, shape, depth */
   --font-display: 'Bricolage', 'Figtree', system-ui, sans-serif;
-  --font-ui: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-
   --r-sm: 8px;
   --r-md: 12px;
   --r-lg: 18px;
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --r-pill: 999px;
   --glow: 0 0 0 1px color-mix(in srgb, var(--neon) 60%, transparent), 0 8px 28px -8px color-mix(in srgb, var(--neon) 70%, transparent);
+  --halo: 1;
+  --avatar-veil: none;
+  --avatar-tbd: #3a2f5c;
+  /* QR codes and the marquee-light frame around them */
+  --paper: #fff8e6;
+  --paper-ink: #1b1230;
+  --qr-dark: #1b1230;
+  --qr-light: #fff8e6;
+  --marquee-bg: #fff8e6;
+  --marquee-ring: 1.6;
+  --marquee-frame: #2b1d10;
+  --marquee-edge: #4a3419;
+  --marquee-glow: 0 20px 60px -10px rgba(255, 201, 74, 0.35);
+  --marquee-bulb: var(--bulb);
+  --marquee-bulb-halo: rgba(255, 201, 74, 0.35);
+  --marquee-bulbs: block;
+  /* landing page, host, guest */
+  --landing-bg: radial-gradient(1200px 600px at 15% -10%, #2c1c52 0%, transparent 60%), radial-gradient(900px 500px at 110% 110%, #3a1233 0%, transparent 55%), var(--night);
+  --landing-join-bg: linear-gradient(180deg, #2a1d20, var(--stage));
+  --hero-bg: linear-gradient(135deg, #2c1a52, var(--stage));
+  --guest-bg: radial-gradient(120% 50% at 50% -10%, #34185f 0%, transparent 60%), var(--night);
+  --alert-bg: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--neon) 60%, var(--night)), var(--night) 75%);
+  --glow-banner: 0 10px 30px -10px rgba(255, 201, 74, 0.6);
+  /* TV */
+  --tv-bg: #07040f;
+  --tv-rgb: 7, 4, 15;
+  --aurora-bg: radial-gradient(120vh 80vh at 50% 120%, #2b1150, transparent 70%), var(--night);
+  --aurora-1: #ff3d8b;
+  --aurora-2: #5b2bd6;
+  --aurora-3: #ffc94a;
+  --aurora-opacity: 0.55;
+  --aurora-3-opacity: 0.28;
+  --art-bg-filter: blur(7vh) saturate(1.35) brightness(0.5);
+  --fanart-filter: brightness(0.62) saturate(1.1);
+  --mosaic-opacity: 0.38;
+  --mosaic-filter: none;
+  --corner-qr-bg: rgba(255, 248, 230, 0.96);
+  --progress-fill: linear-gradient(90deg, var(--neon), #ff8fbd);
+  --progress-glow: 0 0 1.5vh var(--neon);
+  --glow-text-bulb: 0 0 3vh rgba(255, 201, 74, 0.45);
+  --glow-upnext: 0 0 4vh rgba(255, 201, 74, 0.3);
+  --glow-announce: 0 0 8vh color-mix(in srgb, var(--neon) 55%, transparent);
+  /* games */
+  --answer-1: #e21b3c;
+  --answer-2: #1368ce;
+  --answer-3: #d89e00;
+  --answer-4: #26890c;
+  --confetti-1: #ff3d8b;
+  --confetti-2: #ffc94a;
+  --confetti-3: #45e2a6;
+  --confetti-4: #4cc3ff;
+  --confetti-5: #b388ff;
+  --confetti-6: #fff;
+  --podium-gold: linear-gradient(180deg, var(--bulb), #a1700d);
+  --meter-lo: #45e2a6;
+  --meter-mid: #ffc94a;
+  --meter-hi: #ff3d8b;
+  --meter-gradient: linear-gradient(90deg, var(--meter-lo), var(--meter-mid) 55%, var(--meter-hi));
+  --glow-gauge: drop-shadow(0 0 4px rgba(255, 61, 139, 0.45));
+  --glow-text-gauge: 0 0 4vh rgba(255, 61, 139, 0.5);
+  --glow-text-count: 0 0 6vh rgba(255, 201, 74, 0.5);
+  --glow-text-vs: 0 0 4vh var(--neon), 0 0 10vh color-mix(in srgb, var(--neon) 50%, transparent);
+  --glow-bracket: 0 0 0 0.4vh var(--neon-soft), 0 0 3vh color-mix(in srgb, var(--neon) 40%, transparent);
+  --glow-badge: 0 0 4vh color-mix(in srgb, var(--neon) 35%, transparent);
+  --glow-flash: 0 0 10vh color-mix(in srgb, var(--neon) 45%, transparent);
+  --quiz-bg: radial-gradient(120% 90% at 50% 0%, rgba(255, 61, 139, 0.14), transparent 60%), var(--night);
+  --eq-helium: linear-gradient(0deg, #4cc3ff, #b388ff);
+  --wheel-rim: #1a1030;
+  --wheel-rim-stroke: var(--bulb);
+  --wheel-divider: rgba(10, 4, 24, 0.35);
+  --wheel-bulb-on: #fff6d6;
+  --wheel-bulb-odd: var(--bulb);
+  --wheel-bulb-off: #5b4a1a;
+  --wheel-hub-bg: radial-gradient(circle at 35% 30%, #5a4790, #1d1535 70%);
+  --wheel-hub-border: var(--bulb);
+  --wheel-1: #ff3d8b;
+  --wheel-2: #ffc94a;
+  --wheel-3: #45e2a6;
+  --wheel-4: #4cc3ff;
+  --wheel-5: #b388ff;
+  --wheel-6: #ff8a3d;
+  --wheel-7: #7cf05a;
+  --wheel-8: #ff6262;
+  --wheel-9: #3de0d0;
+  --wheel-10: #f06bff;
+  --wheel-11: #ffe066;
+  --wheel-12: #5c7cff;
+  --wheel-ink-1: #fff;
+  --wheel-ink-2: #111;
+  --wheel-ink-3: #111;
+  --wheel-ink-4: #111;
+  --wheel-ink-5: #111;
+  --wheel-ink-6: #111;
+  --wheel-ink-7: #111;
+  --wheel-ink-8: #fff;
+  --wheel-ink-9: #111;
+  --wheel-ink-10: #111;
+  --wheel-ink-11: #111;
+  --wheel-ink-12: #fff;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -101,7 +392,7 @@ p { margin: 0; }
   --btn-ink: var(--ink);
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: 40px; padding: 0 16px;
-  border: 1px solid var(--line); border-radius: 999px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
   background: var(--btn-bg); color: var(--btn-ink);
   font-weight: 650; font-size: 14px; white-space: nowrap;
   cursor: pointer; user-select: none; text-decoration: none;
@@ -111,8 +402,8 @@ p { margin: 0; }
 .btn:active { transform: translateY(1px); }
 .btn:disabled, .btn[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; transform: none; }
 .btn.primary { --btn-bg: var(--neon); --btn-ink: var(--neon-ink); border-color: transparent; box-shadow: var(--glow); }
-.btn.primary:hover { --btn-bg: color-mix(in srgb, var(--neon) 88%, #fff); }
-.btn.bulb { --btn-bg: var(--bulb); --btn-ink: #2a1a00; border-color: transparent; }
+.btn.primary:hover { --btn-bg: var(--neon-hover); }
+.btn.bulb { --btn-bg: var(--bulb); --btn-ink: var(--bulb-ink); border-color: transparent; }
 .btn.ghost { --btn-bg: transparent; border-color: transparent; }
 .btn.ghost:hover { --btn-bg: var(--stage-2); }
 .btn.danger { --btn-ink: var(--bad); }
@@ -162,7 +453,7 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
 .chip {
   display: inline-flex; align-items: center; gap: 6px;
   min-height: 32px; padding: 0 12px;
-  border: 1px solid var(--line); border-radius: 999px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
   background: var(--stage); color: var(--ink-2);
   font-size: 13px; font-weight: 600; white-space: nowrap;
   cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -177,7 +468,7 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
   font-size: 11px; font-weight: 800; line-height: 1;
 }
 .badge.neon { background: var(--neon); color: var(--neon-ink); }
-.badge.bulb { background: var(--bulb); color: #2a1a00; }
+.badge.bulb { background: var(--bulb); color: var(--bulb-ink); }
 .tag-e {
   display: inline-grid; place-items: center; width: 16px; height: 16px; flex: none;
   border-radius: 4px; background: var(--ink-3); color: var(--night);
@@ -194,7 +485,7 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
 .avatar {
   display: inline-grid; place-items: center; flex: none;
   width: 32px; height: 32px; border-radius: 50%;
-  background: var(--avatar, var(--stage-3)); font-size: 17px; line-height: 1;
+  background: var(--avatar-veil) var(--avatar, var(--stage-3)); font-size: 17px; line-height: 1;
 }
 
 .muted { color: var(--ink-2); }
@@ -231,15 +522,15 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
   box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.6);
   font-weight: 600; animation: toast-in 0.25s var(--ease);
 }
-.toast.error { background: #4a1729; color: #ffd9e2; }
-.toast.ok { background: #123d31; color: #d4ffee; }
+.toast.error { background: var(--bad-bg); color: var(--bad-bg-ink); }
+.toast.ok { background: var(--ok-bg); color: var(--ok-bg-ink); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } }
 
 /* ---- dialogs ------------------------------------------------------------------ */
 
 .scrim {
   position: fixed; inset: 0; z-index: 900;
-  background: rgba(8, 5, 18, 0.66); backdrop-filter: blur(3px);
+  background: rgba(var(--shade-rgb), 0.66); backdrop-filter: blur(3px);
   display: grid; place-items: center; padding: 20px;
   animation: fade-in 0.15s ease;
 }
@@ -272,16 +563,17 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
   --gap: 18px;
   position: relative; padding: calc(var(--bulb-size) * 2.4);
   border-radius: 22px;
-  background: #fff8e6;
-  box-shadow: 0 0 0 calc(var(--bulb-size) * 1.6) #2b1d10, 0 0 0 calc(var(--bulb-size) * 1.6 + 2px) #4a3419, 0 20px 60px -10px rgba(255, 201, 74, 0.35);
+  background: var(--marquee-bg);
+  box-shadow: 0 0 0 calc(var(--bulb-size) * var(--marquee-ring)) var(--marquee-frame), 0 0 0 calc(var(--bulb-size) * var(--marquee-ring) + 2px) var(--marquee-edge), var(--marquee-glow);
 }
 .marquee::before {
   content: '';
+  display: var(--marquee-bulbs);
   position: absolute; inset: calc(var(--bulb-size) * -1.3);
   border-radius: 28px; pointer-events: none;
   padding: 0;
   background:
-    radial-gradient(circle, var(--bulb) 0 calc(var(--bulb-size) / 2 - 1px), rgba(255, 201, 74, 0.35) calc(var(--bulb-size) / 2), transparent calc(var(--bulb-size) / 2 + 3px)) 0 0 / var(--gap) var(--gap) round;
+    radial-gradient(circle, var(--marquee-bulb) 0 calc(var(--bulb-size) / 2 - 1px), var(--marquee-bulb-halo) calc(var(--bulb-size) / 2), transparent calc(var(--bulb-size) / 2 + 3px)) 0 0 / var(--gap) var(--gap) round;
   -webkit-mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
   padding: var(--bulb-size);

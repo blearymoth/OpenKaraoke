@@ -147,10 +147,6 @@ function PinScreen({ reason }) {
 function App() {
   const s = useStore(store);
   const route = useHashRoute();
-  useEffect(() => {
-    const accent = s.state?.settings?.display?.accent;
-    if (accent) document.documentElement.style.setProperty('--neon', accent);
-  }, [s.state?.settings?.display?.accent]);
   if (s.denied) return html`<${PinScreen} reason=${s.denied} />`;
   if (!s.state) return html`<div class="gate"><${Spinner} /><p class="muted">Connecting to OpenKaraoke…</p></div>`;
   return html`<div class="app">

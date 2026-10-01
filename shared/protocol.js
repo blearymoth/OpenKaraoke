@@ -65,8 +65,11 @@ export const GAME_LABELS = {
   applause: 'Applause meter',
   recap: 'Party recap',
 };
-/** Answer buttons on phones (Kahoot-style colour + shape, so colour-blind players can play). */
-export const ANSWER_COLORS = ['#e21b3c', '#1368ce', '#d89e00', '#26890c'];
+/**
+ * Answer buttons on phones (Kahoot-style colour + shape, so colour-blind players can play).
+ * The colours are CSS tokens each skin defines in /css/base.css.
+ */
+export const ANSWER_COLORS = ['var(--answer-1)', 'var(--answer-2)', 'var(--answer-3)', 'var(--answer-4)'];
 export const ANSWER_SHAPES = ['▲', '◆', '●', '■'];
 
 /** Seconds guests have to rate a performance after it ends. */

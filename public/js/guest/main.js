@@ -6,6 +6,7 @@ import { Icon } from '../lib/icons.js';
 import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, Toasts, SongBadges } from '../lib/components.js';
 import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, GAME_LABELS, formatKey } from '/shared/protocol.js';
 import { GAME_UI } from '../games/index.js';
+import { applyAppearance } from '../lib/theme.js';
 
 const pathCode = (location.pathname.match(/^\/j\/([A-Za-z]{4})\/?$/) || [])[1];
 const toasts = toastStore();
@@ -27,6 +28,7 @@ const conn = new Connection({
 conn.on('welcome', (m) => {
   if (m.token) localStorage.setItem('ok.guestToken', m.token);
   localStorage.setItem('ok.lastRoom', store.get().code);
+  applyAppearance(m.state.appearance);
   setMarks(m.state);
   store.update({ state: m.state, denied: null });
 });
@@ -38,6 +40,7 @@ conn.on('state', (m) => {
   if (game && !game.ended && game.id !== lastGameId && m.state.rules?.games && GAME_UI[game.type]?.Guest) patch.tab = 'game';
   else if (!game && store.get().tab === 'game') patch.tab = 'home';
   lastGameId = game?.id || null;
+  applyAppearance(m.state.appearance);
   setMarks(m.state);
   store.update(patch);
 });
@@ -153,7 +156,7 @@ function ProfileForm({ initial, submitLabel, onDone }) {
       <div class="emoji-grid" role="radiogroup" aria-label="Avatar">${AVATARS.map((a) => html`<button type="button" role="radio" aria-checked=${a === emoji} class=${a === emoji ? 'on' : ''} onClick=${() => setEmoji(a)}>${a}</button>`)}</div>
     </div>
     <div class="field"><span>And a colour</span>
-      <div class="color-row" role="radiogroup" aria-label="Colour">${COLORS.map((c) => html`<button type="button" role="radio" aria-checked=${c === color} aria-label=${c} class=${c === color ? 'on' : ''} style=${{ background: c }} onClick=${() => setColor(c)}></button>`)}</div>
+      <div class="color-row" role="radiogroup" aria-label="Colour">${COLORS.map((c) => html`<button type="button" role="radio" aria-checked=${c === color} aria-label=${c} class=${c === color ? 'on' : ''} style=${{ backgroundColor: c }} onClick=${() => setColor(c)}></button>`)}</div>
     </div>
     <button class="btn primary large block" disabled=${busy || !name.trim()}>${submitLabel}</button>
   </form>`;
@@ -599,10 +602,6 @@ function Tabs({ state, tab }) {
 
 function App() {
   const s = useStore(store);
-  useEffect(() => {
-    const accent = s.state?.accent;
-    if (accent) document.documentElement.style.setProperty('--neon', accent);
-  }, [s.state?.accent]);
   if (!s.code) return html`<${EnterCode} />`;
   if (s.denied) return html`<${Denied} reason=${s.denied} />`;
   const st = s.state;

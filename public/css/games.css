@@ -59,7 +59,7 @@ button.g-answer:active:not(:disabled) { transform: scale(0.97); }
 .g-podium .step { display: grid; justify-items: center; gap: 6px; width: 120px; }
 .g-podium .avatar { width: 56px; height: 56px; font-size: 32px; }
 .g-podium .block { width: 100%; display: grid; place-items: center; border-radius: 12px 12px 0 0; font-family: var(--font-display); font-size: 32px; font-weight: 800; background: linear-gradient(180deg, var(--stage-3), var(--stage)); }
-.g-podium .p1 .block { height: 150px; background: linear-gradient(180deg, var(--bulb), #a1700d); color: #2a1a00; }
+.g-podium .p1 .block { height: 150px; background: var(--podium-gold); color: var(--bulb-ink); }
 .g-podium .p2 .block { height: 110px; }
 .g-podium .p3 .block { height: 80px; }
 .tv .g-podium { gap: 3vh; }
@@ -111,6 +111,6 @@ button.g-answer:active:not(:disabled) { transform: scale(0.97); }
 .rate-stars button { flex: 1; min-height: 52px; border: 0; border-radius: 12px; background: var(--stage-3); color: var(--ink-3); font-size: 28px; cursor: pointer; transition: transform 0.1s, background 0.15s, color 0.15s; }
 .rate-stars button.on { color: var(--bulb); background: var(--bulb-soft); }
 .rate-stars button:active { transform: scale(0.94); }
-.tv-rating { position: absolute; right: 3vw; top: 15vh; display: flex; flex-direction: column; align-items: flex-start; gap: 1vh; max-width: 24vw; padding: 1.8vh 2.6vh; border-radius: 2vh; background: rgba(21, 15, 38, 0.9); border: 1px solid rgba(255, 201, 74, 0.35); font-size: 2.6vh; animation: tv-fade 0.6s var(--ease) both; z-index: 5; }
+.tv-rating { position: absolute; right: 3vw; top: 15vh; display: flex; flex-direction: column; align-items: flex-start; gap: 1vh; max-width: 24vw; padding: 1.8vh 2.6vh; border-radius: 2vh; background: rgba(var(--night-rgb), 0.9); border: 1px solid rgba(var(--bulb-rgb), 0.35); font-size: 2.6vh; animation: tv-fade 0.6s var(--ease) both; z-index: 5; }
 .tv-rating .stars { font-size: 3.6vh; color: var(--bulb); white-space: nowrap; }
 .tv-rating b { display: block; font-size: 3vh; }

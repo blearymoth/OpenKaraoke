@@ -212,6 +212,9 @@ test('break music: from a music folder (only scanned files are served)', async (
     assert.equal(res.status, 200);
     assert.equal((await res.arrayBuffer()).byteLength, 2000);
     assert.equal((await fetch(`http://127.0.0.1:${app.port}/media/break/nope`)).status, 404);
+    // A rescan whose sample leaves the playing file out: the TV can still stream it.
+    room.breakMusic.folder.files = room.breakMusic.folder.files.filter((f) => f.id !== bm.id);
+    assert.equal((await fetch(`http://127.0.0.1:${app.port}${bm.url}`)).status, 200);
     assert.equal((await fetch(`http://127.0.0.1:${app.port}/media/break/..%2F..%2Fetc%2Fpasswd`)).status, 404);
   } finally {
     await app.close();

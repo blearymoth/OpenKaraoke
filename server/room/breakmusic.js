@@ -25,7 +25,7 @@ const REST_MS = 60_000; // …and break music rests this long (no request/broadc
 export class BreakMusic {
   constructor(room) {
     this.room = room;
-    this.track = null; // { id, url, title, artist, source, songId?, at, with }
+    this.track = null; // { id, url, title, artist, source, songId? (library), abs? (folder), at, with }
     this.recent = []; // ids played lately (not repeated soon)
     this.folder = { dir: '', at: 0, files: [], scanning: null };
     this.nothing = null; // { key, until }: the last pick found nothing playable (not searched again on every broadcast)
@@ -71,7 +71,8 @@ export class BreakMusic {
       this.track = null;
       return null;
     }
-    // (A guest asked for the backing track that was playing: not as music to its own countdown.)
+    // A new pick: none yet, the settings it was picked with changed, or a guest asked for the
+    // backing track that was playing (not as music to its own countdown).
     const t = this.track;
     if (!t || t.with !== this.pickSettings() || (t.songId && t.songId === this.room.s.current?.songId)) this.pick();
     if (!this.track) return null;
@@ -133,7 +134,7 @@ export class BreakMusic {
     const pool = files.length ? files : this.folder.files;
     if (!pool.length) return null;
     const f = pool[Math.floor(Math.random() * pool.length)];
-    return { id: f.id, url: `/media/break/${f.id}`, title: f.title, artist: f.artist, source: 'folder' };
+    return { id: f.id, url: `/media/break/${f.id}`, title: f.title, artist: f.artist, source: 'folder', abs: f.abs };
   }
 
   /** Scans the music folder in the background (at most every 10 minutes). */
@@ -156,8 +157,12 @@ export class BreakMusic {
     return f.scanning;
   }
 
-  /** Absolute path of a folder track by id (only files found by the scan are served). */
+  /**
+   * Absolute path of a folder track by id: only files found by the scan are served (and the one
+   * playing, which a rescan's new sample may have left out while the TV still streams it).
+   */
   folderFile(id) {
+    if (this.track?.source === 'folder' && this.track.id === id) return this.track.abs;
     return this.folder.files.find((x) => x.id === id)?.abs || null;
   }
 

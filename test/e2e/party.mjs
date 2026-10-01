@@ -10,6 +10,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
 import { loadPlaywright, startParty, WsClient, check, results, sleep } from './lib.mjs';
+import { tmpDir } from '../helpers.js';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
 const out = path.resolve(process.argv[2] || 'test-results/e2e');
@@ -39,6 +40,21 @@ if (isMain) {
     check(heard, 'break music plays in the lobby');
     check(!!(await tv.$('.break-now')), 'the lobby says which break song is playing');
     await tv.screenshot({ path: path.join(out, 'tv-1-lobby.png') });
+
+    // Skip the break song while other updates reach the TV during its fade-out: the new one plays.
+    const breakSrc = () => tv.$eval('#break-audio', (a) => new URL(a.src).pathname).catch(() => '');
+    const skippedFrom = await breakSrc();
+    app.room.breakMusic.skip();
+    app.room.markDirty();
+    for (let i = 0; i < 4; i++) {
+      await sleep(200);
+      app.room.markDirty(); // (rating votes, phones joining…)
+    }
+    const skippedTo = app.room.breakMusic.track.url;
+    let switched = false;
+    for (let i = 0; i < 30 && !switched; i++) { switched = (await breakSrc()) === skippedTo && (await breakOn()); if (!switched) await sleep(150); }
+    check(switched && skippedTo !== skippedFrom, 'skipping the break song plays the next one, even with updates arriving meanwhile');
+    const lobbySrc = await breakSrc();
 
     const host = new WsClient(`${base.replace('http', 'ws')}/ws`);
     await host.open({ role: 'host' });
@@ -106,12 +122,32 @@ if (isMain) {
     check(true, 'song ended on the TV and the next singer is up');
     check(app.room.s.tonight.history[0]?.title === 'Neon Heart' && !app.room.s.tonight.history[0].skipped, 'history records the finished song');
     await tv.waitForSelector('.intro');
+    let introSrc = '';
+    for (let i = 0; i < 30 && !introSrc; i++) { if (await breakOn()) introSrc = await breakSrc(); else await sleep(150); }
+    check(introSrc && introSrc !== lobbySrc, `the next break plays a fresh track, not the same intro again (${lobbySrc} → ${introSrc})`);
     await tv.screenshot({ path: path.join(out, 'tv-5-next-intro.png') });
 
     await host.req('player.next');
     await host.until((s) => !s.current && s.player.state === 'idle', 10000);
     await tv.waitForSelector('.lobby');
     check(true, 'skipping the last song returns to the lobby');
+
+    // Break music the TV can't play (here: files it can't decode): it asks for the next one a
+    // little later each time and the server rests after a few — no request/broadcast loop.
+    const bad = await tmpDir('ok-e2e-bad-music-');
+    for (const name of ['One', 'Two', 'Three', 'Four']) await fs.writeFile(path.join(bad, `Noise - ${name}.mp3`), Buffer.alloc(40_000, 0x5a));
+    const reports = [];
+    const ended = app.room.breakMusic.ended.bind(app.room.breakMusic);
+    app.room.breakMusic.ended = (id, opts) => { reports.push({ id, error: !!opts?.error, at: Date.now() }); return ended(id, opts); };
+    await host.req('settings.update', { patch: { playback: { breakMusic: { source: 'folder', folder: bad } } } });
+    const t0 = Date.now();
+    for (let i = 0; i < 100 && !(app.room.breakMusic.restUntil > Date.now()); i++) await sleep(200);
+    const resting = app.room.breakMusic.restUntil > Date.now();
+    await sleep(3000);
+    check(resting && reports.length === 3 && reports.every((r) => r.error), `unplayable break tracks: reported as errors and then a rest (${reports.length} reports in ${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+    check(reports.length < 2 || reports[1].at - reports[0].at > 1000, 'the TV waits before asking for another track');
+    check(!(await breakOn()), 'silence while resting');
+    await host.req('settings.update', { patch: { playback: { breakMusic: { source: 'library' } } } });
 
     // A TV opened in a normal browser needs one click before it may play sound.
     await tv.close();

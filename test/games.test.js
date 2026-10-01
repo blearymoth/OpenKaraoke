@@ -252,3 +252,49 @@ test('"Play now" while a game owns the TV is refused and leaves the queue alone'
   assert.equal(s().current?.title, 'Hello');
   assert.equal(room.game, null);
 });
+
+test('the "Everyone" sing-along singer is never a guest who calls themself that', async () => {
+  const { req, connect, guest, room, s, song } = await setupRoom({ playback: { countdown: 0, autoStart: false } }, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  const everyone = await guest('everyone'); // a guest really named that
+  const mal = await guest('Mal');
+  const mine = room.profileOf(everyone.data.deviceId).singerId;
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 60 } });
+  await req(host, 'game.action', { action: 'close' });
+  const sa = room.singer(s().queue[0].singerIds[0]);
+  assert.notEqual(sa.id, mine, 'not the guest’s own singer');
+  assert.equal(sa.deviceId, undefined, 'no phone: nobody is buzzed, rated or held back in the rotation');
+  assert.equal(sa.singAlong, true);
+  assert.equal(sa.name, 'Everyone');
+  await req(host, 'game.close');
+  // A guest renaming to "Everyone" later doesn't capture the sing-alongs either.
+  await req(mal, 'guest.update', { name: 'Everyone' });
+  room.gameQueue(song('waterloo'), { singerName: 'Everyone', position: 'end', source: 'game:autoplay' });
+  assert.equal(s().queue.at(-1).singerIds[0], sa.id);
+  // Typed by the host (add dialog, playlists, Singers page): the same sing-along singer.
+  const typed = (await req(host, 'queue.add', { songId: song('call me').id, singerName: 'EVERYONE' })).entry;
+  assert.equal(s().queue.find((e) => e.id === typed.id).singerIds[0], sa.id);
+  assert.equal((await req(host, 'singer.add', { name: 'everyone' })).singer.id, sa.id);
+  assert.equal(s().singers.filter((x) => x.singAlong).length, 1);
+  // The guest's own requests still use their own singer.
+  const own = (await req(everyone, 'queue.add', { songId: song('hello').id })).entry;
+  assert.equal(s().queue.find((e) => e.id === own.id).singerIds[0], mine);
+});
+
+test('an "Everyone" singer from before the sing-along flag is reused (not a guest named Everyone)', async () => {
+  const { guest, room, s } = await setupRoom();
+  await guest('Everyone');
+  const old = room.createSinger({ name: 'Everyone' }); // made by an earlier version
+  assert.equal(room.findOrCreateSinger('everyone').id, old.id);
+  assert.equal(old.singAlong, true);
+  assert.equal(s().singers.filter((x) => x.singAlong).length, 1);
+});
+
+test('singer names without letters (emoji) are matched exactly, not all as one', async () => {
+  const { room } = await setupRoom();
+  const unicorn = room.findOrCreateSinger('🦄🦄');
+  const guitar = room.findOrCreateSinger('🎸');
+  assert.notEqual(unicorn.id, guitar.id);
+  assert.equal(room.findOrCreateSinger(' 🦄🦄 ').id, unicorn.id);
+  assert.equal(room.findOrCreateSinger('Ana').id, room.findOrCreateSinger('ANA').id);
+});

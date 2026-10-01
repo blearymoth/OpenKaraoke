@@ -61,6 +61,9 @@ const num = (v, min, max, def) => {
 const fail = (message, code) => {
   throw new UserError(message, { code });
 };
+/** A singer name for matching: folded, or as typed when it has no letters or digits ("🦄🦄"). */
+const nameKey = (name) => fold(name) || String(name || '').trim().toLowerCase();
+const EVERYONE = 'everyone'; // the sing-along singer's name key
 
 export class Room {
   constructor(app) {
@@ -885,9 +888,31 @@ export class Room {
     return singer;
   }
 
+  /**
+   * The singer called `name` (or a new one). "Everyone" is always the sing-along singer — never a
+   * guest who calls themself that. A host re-adding a name marks that singer as here tonight.
+   */
   findOrCreateSinger(name) {
-    const f = fold(name);
-    return this.s.singers.find((x) => fold(x.name) === f) || this.createSinger({ name });
+    const singer = this.singerNamed(name) || this.createSinger({ name });
+    singer.seenAt = Date.now();
+    return singer;
+  }
+
+  singerNamed(name) {
+    const key = nameKey(name);
+    if (key === EVERYONE) return this.singAlongSinger();
+    return this.s.singers.find((x) => !x.singAlong && nameKey(x.name) === key) || null;
+  }
+
+  /** "Everyone" (poll winners, wheel results, autoplay, the host's sing-alongs): no phone, no guest. */
+  singAlongSinger() {
+    let singer = this.s.singers.find((x) => x.singAlong);
+    if (!singer) {
+      // One made before the flag existed, or a new one.
+      singer = this.s.singers.find((x) => !x.deviceId && nameKey(x.name) === EVERYONE) || this.createSinger({ name: 'Everyone' });
+      singer.singAlong = true;
+    }
+    return singer;
   }
 
   singerForProfile(deviceId) {
@@ -903,9 +928,10 @@ export class Room {
   singerAdd(m) {
     const name = str(m.name, 40);
     if (!name) fail('Give the singer a name.', 'bad_request');
-    const existing = this.s.singers.find((x) => fold(x.name) === fold(name));
-    if (existing) return { singer: existing };
-    return { singer: this.createSinger({ name, emoji: str(m.emoji, 16) || undefined, color: validColor(m.color) }) };
+    const existing = this.singerNamed(name);
+    const singer = existing || this.createSinger({ name, emoji: str(m.emoji, 16) || undefined, color: validColor(m.color) });
+    singer.seenAt = Date.now(); // here tonight (the wheel's "everyone singing tonight")
+    return { singer };
   }
 
   singerUpdate(m) {

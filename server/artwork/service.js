@@ -160,7 +160,7 @@ export class ArtworkService extends EventEmitter {
       load(this.songs, data.songs);
       load(this.artists, data.artists);
       load(this.albums, data.albums);
-      this.dropPlaceholders();
+      this.dropUntrusted();
     }
     this.installMeta();
     this.library.on('changed', () => {
@@ -186,8 +186,14 @@ export class ArtworkService extends EventEmitter {
     }
   }
 
-  /** Deezer's "no picture" images saved as art before they were recognised: look those up again. */
-  dropPlaceholders() {
+  /**
+   * Art saved by older versions that can't be trusted is looked up again: Deezer's "no picture"
+   * images (not recognised before), and artist pictures that came with a matched song before
+   * `pictureFor` (version 1 gave the track artist's picture to every performer in its credit:
+   * "Elton John" got the "Elton John & Kiki Dee" one). Those carry no mark, but Deezer's
+   * pictures only came that way or from a Deezer search, which `tried` records.
+   */
+  dropUntrusted() {
     let n = 0;
     for (const [key, e] of this.songs) {
       if (e.manual || !placeholderRef(e.cover)) continue;
@@ -195,15 +201,17 @@ export class ArtworkService extends EventEmitter {
       n++;
     }
     for (const [key, e] of this.artists) {
-      if (!placeholderRef(e.picture)) continue;
-      // No `at`: every provider is asked again, TheAudioDB for a picture too. `tried` stays: it
-      // tells artistEntry that the rest was found by searching for the artist's name.
+      const songPicture = (e.v || 0) < MATCH_VERSION && !e.pictureFor && String(e.picture || '').startsWith('dz:') && !e.tried?.includes('deezer');
+      if (!songPicture && !placeholderRef(e.picture)) continue;
+      // No `at`: every provider is asked again (Deezer and TheAudioDB for a picture too), for the
+      // current search name. `tried` stays: it tells artistEntry that the rest was found by
+      // searching for the artist's name.
       const { picture, pictureFor, at, ...rest } = e;
       this.artists.set(key, rest);
       n++;
     }
     if (n) {
-      log.info(`${n} placeholder pictures dropped`);
+      log.info(`${n} unchecked pictures dropped`);
       this.saveSoon();
     }
   }
@@ -834,45 +842,54 @@ export class ArtworkService extends EventEmitter {
         if (found && e?.cover) this.image(e.cover, 'm', PRIO.now);
       });
       if (i > 1) return;
-      for (const key of song.artistKeys || []) {
-        const artist = this.catalog.artist(key);
-        if (!artist) continue;
-        this.request('artist', artist, 'now', 'all').then(() => {
-          // Only what the TV will show (artFor): not a band member's art of another act.
-          const art = this.artFor(song);
-          const a = this.artists.get(key);
-          if (art.fanart === key && a?.fanart?.[0]) this.image(a.fanart[0], 'l', PRIO.now);
-          if (art.logo === key && a?.logo) this.image(a.logo, 'l', PRIO.now);
-        });
-      }
+      const artists = (song.artistKeys || []).map((key) => this.catalog.artist(key)).filter(Boolean);
+      Promise.all(artists.map((artist) => this.request('artist', artist, 'now', 'all'))).then(() => {
+        // Only what the TV will show (artFor), which depends on all of the song's artists.
+        const art = this.artFor(song);
+        const fanart = art.fanart && this.artists.get(art.fanart)?.fanart?.[0];
+        const logo = art.logo && this.artists.get(art.logo)?.logo;
+        if (fanart) this.image(fanart, 'l', PRIO.now);
+        if (logo) this.image(logo, 'l', PRIO.now);
+      });
     });
   }
 
   /**
-   * The song's artists whose fanart and logo fit it, best first: art found for one of the song's
-   * own acts ("Peter & Gordon"), then art found under a performer's own name ("Elton John" for
-   * "Elton John & Kiki Dee"). A band member holding another act's art is left out: "Peter" is
-   * looked up as "Peter, Paul & Mary", which is not who sings "A World Without Love".
+   * The song's artists whose fanart and logo fit it. Art found for one of the song's own acts
+   * ("Peter & Gordon", "Sam & Dave") comes first. Art found under a performer's own name is only
+   * a stand-in for an act the providers don't know ("Elton John" for "Elton John & Kiki Dee"):
+   * when the act was found, or is still to be looked up, a member's own name may well be a
+   * namesake ("Dave" the rapper next to "Sam & Dave" in one catalog artist), so it is left out.
+   * A band member holding another act's art never fits: "Peter" is looked up as "Peter, Paul &
+   * Mary", which is not who sings "A World Without Love".
    */
   songArtists(song) {
     const acts = actsOf(song.artist);
     const exact = [];
     const own = [];
+    let known = false;
+    let pending = false;
     for (const key of song.artistKeys || []) {
-      const e = this.artists.get(key);
       const artist = this.catalog.artist(key);
-      if (!e || !artist) continue;
-      const name = e.n || artist.name;
-      if (acts.some((act) => sameSearchName(act, name))) exact.push(key);
-      else if (sameSearchName(name, artist.name)) own.push(key);
+      if (!artist) continue;
+      const e = this.artistEntry(artist); // only what was found for its current search name
+      const name = this.searchName(artist);
+      if (acts.some((act) => sameSearchName(act, name))) {
+        if (e && (e.picture || SEARCHED.some((k) => e[k]?.length))) known = true;
+        else if (this.artistChain(key, 'all').length) pending = true;
+        if (e) exact.push(key);
+      } else if (e && sameSearchName(name, artist.name)) {
+        own.push(key);
+      }
     }
-    return [...exact, ...own];
+    return known || pending ? exact : [...exact, ...own];
   }
 
   /** What the TV can show for a song: { cover, fanart: artistKey?, logo: artistKey? }. */
   artFor(song) {
     if (!song) return null;
     const out = { cover: !!this.songs.get(song.key)?.cover };
+    // Either the act's own art or the stand-ins (see songArtists), never one of each.
     for (const key of this.songArtists(song)) {
       const a = this.artists.get(key);
       if (a?.fanart?.length && !out.fanart) {

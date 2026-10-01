@@ -42,8 +42,18 @@ const shot = async (page, name, wait = 700) => {
 const phone = async (name, width = 390, height = 844) => watch(await browser.newPage({ viewport: { width, height }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }), name);
 const room = () => app.room;
 const game = () => app.room.game;
-/** How far a page scrolls sideways (0 = fits): the document and the host's .main scroller. */
-const sideways = (page) => page.evaluate(() => Math.max(document.documentElement.scrollWidth - innerWidth, ...[...document.querySelectorAll('.main')].map((m) => m.scrollWidth - m.clientWidth)));
+/**
+ * How far a phone's page scrolls sideways (0 = fits). Measured against the viewport the phone
+ * was given, not innerWidth: a mobile browser widens its layout viewport (and zooms out) to fit
+ * content that sticks out, so innerWidth grows with it and scrollWidth - innerWidth stays 0.
+ */
+const sideways = (page) => page.evaluate((width) => Math.max(document.documentElement.scrollWidth - width, innerWidth - width), page.viewportSize().width);
+/**
+ * The same for the host's page area on a phone (.main: the game controls), which scrolls by
+ * itself. (Not the whole host page: its bottom navigation is wider than a 390 px phone since
+ * M6/M7 added Games, Playlists and Photos — a separate fix.)
+ */
+const mainSideways = (page) => page.evaluate((width) => Math.max(...[...document.querySelectorAll('.main')].map((m) => Math.max(m.scrollWidth - m.clientWidth, m.getBoundingClientRect().right - width))), page.viewportSize().width);
 const WIDE = 'W'.repeat(24); // the widest name a guest can pick
 const LONG = 'Maximiliano Fernández'; // a long, real one
 const until = async (pred, what, timeout = 20000) => {
@@ -236,7 +246,7 @@ try {
   await shot(phones.Bob, 'phone-relay-wide-name', 0);
   await phones.Bob.setViewportSize({ width: 390, height: 844 });
   await hostPhone.waitForSelector('.relay-control .rl-holder', { timeout: 5000 });
-  check(await sideways(hostPhone) <= 0, 'the host on a phone doesn’t scroll sideways either');
+  check(await mainSideways(hostPhone) <= 0, 'the host’s game controls on a phone don’t scroll sideways either');
   await shot(hostPhone, 'host-phone-relay', 0);
   // A 4:3 TV: taller margins, the band fits above the lyrics.
   await tv.setViewportSize({ width: 1024, height: 768 });
@@ -313,7 +323,7 @@ try {
   await shot(tv, 'tv-applause-compare', 2000);
   await shot(host, 'host-applause-control', 0);
   await hostPhone.waitForFunction((l) => document.querySelector('.ap-next .btn.ap-again')?.textContent.includes(l), family, { timeout: 5000 });
-  check(await sideways(hostPhone) <= 0, 'host on a phone: "Measure … again" with a 40-character name doesn’t scroll sideways');
+  check(await mainSideways(hostPhone) <= 0, 'host on a phone: "Measure … again" with a 40-character name doesn’t scroll sideways');
   await hostPhone.evaluate(() => document.querySelector('.game-live')?.scrollIntoView({ block: 'start' }));
   await shot(hostPhone, 'host-phone-applause', 300);
   for (const [name, p] of Object.entries(phones)) check(await sideways(p) <= 0, `${name}'s phone: the applause results fit`);
@@ -402,9 +412,10 @@ try {
   await sleep(300);
   await phones.Cat.screenshot({ path: path.join(out, 'phone-recap-bottom.png') });
   await shot(host, 'host-recap-control', 0);
-  for (const [name, p] of Object.entries({ ...phones, 'The host': hostPhone })) {
+  for (const [name, p] of Object.entries(phones)) {
     check(await sideways(p) <= 0, `${name}'s phone (${p.viewportSize().width} px) fits without sideways scrolling`);
   }
+  check(await mainSideways(hostPhone) <= 0, 'the host’s recap controls on a phone fit without sideways scrolling');
   await endAndClose(host);
   await tv.waitForSelector('.lobby', { timeout: 10000 });
   check(true, 'after the recap the TV goes back to the lobby');

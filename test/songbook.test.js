@@ -28,13 +28,13 @@ test('songbook: order by artist ("The" ignored) or title, filters, popular top N
   assert.equal(songbookSongs(catalog, { tag: 'Duets' }).length, 1);
 });
 
-test('songbook: CSV is spreadsheet-safe; HTML escapes names and carries the join QR code', () => {
+test('songbook: CSV is spreadsheet-safe; HTML escapes names and carries the join QR code', async () => {
   const songs = songbookSongs(catalog, {});
-  const csv = songbookCsv(catalog, songs);
+  const csv = await songbookCsv(catalog, songs);
   assert.ok(csv.startsWith('﻿Artist,Title,Versions,Length,Year,Genre,Tags\r\n'));
   assert.match(csv, /\r\n"'=cmd\|calc","""Tricky, Title""",1,/, 'formula-looking cells are neutralised and quotes escaped');
   assert.match(csv, /ABBA,Dancing Queen,2,3:\d\d,,,/);
-  const html = songbookHtml(catalog, songs, { title: 'Party <3', joinUrl: 'http://192.168.1.2:8080/j/ABCD', roomCode: 'ABCD' });
+  const html = await songbookHtml(catalog, songs, { title: 'Party <3', joinUrl: 'http://192.168.1.2:8080/j/ABCD', roomCode: 'ABCD' });
   assert.match(html, /<title>Party &lt;3 · Songbook<\/title>/);
   assert.match(html, /&quot;Tricky, Title&quot;/);
   assert.doesNotMatch(html, /<3/);
@@ -43,6 +43,28 @@ test('songbook: CSV is spreadsheet-safe; HTML escapes names and carries the join
   assert.match(html, /<h2>A<\/h2>/);
   assert.match(html, /<i title="Explicit">E<\/i>/);
   assert.match(html, /<i title="Duet">♥<\/i>/);
+});
+
+test('songbook: a big library is built in slices, so the server keeps answering meanwhile', async () => {
+  const words = ['Love', 'Night', 'Heart', 'Dance', 'Fire', 'Rain', 'Star', 'River'];
+  const names = Array.from({ length: 12000 }, (_, i) => `${i % 7 ? '' : 'The '}${words[i % 8]} Band ${i % 3000} - ${words[(i * 5) % 8]} Song ${i} [SF Karaoke]`);
+  const big = new Catalog().load(rawTracks(names));
+  const byArtist = songbookSongs(big, {});
+  assert.equal(byArtist.length, 12000);
+  const key = (s) => `${s.artistFold.replace(/^the /, '')}\0${s.titleFold}`;
+  assert.ok(byArtist.every((s, i) => !i || key(byArtist[i - 1]) <= key(s)), 'in artist order ("The" ignored)');
+  assert.deepEqual(songbookSongs(big, {}), byArtist, 'same order from the kept sort');
+  assert.equal(songbookSongs(big, { letter: 'L' }).length, byArtist.filter((s) => s.letter === 'L').length);
+  for (const build of [() => songbookHtml(big, byArtist, { title: 'Big' }), () => songbookCsv(big, byArtist)]) {
+    let turns = 0;
+    let building = true;
+    const spin = () => { if (building) { turns++; setImmediate(spin); } };
+    setImmediate(spin);
+    const text = await build();
+    building = false;
+    assert.ok(text.length > 12000 * 10);
+    assert.ok(turns >= 4, `the event loop turned ${turns} times during the build`);
+  }
 });
 
 test('songbook endpoint: host only, HTML or CSV download', async () => {
@@ -56,6 +78,9 @@ test('songbook endpoint: host only, HTML or CSV download', async () => {
     const text = await html.text();
     assert.match(text, /column-count: 2/);
     assert.equal((text.match(/<li>/g) || []).length, 5);
+    const [a, b] = await Promise.all([1, 2].map(() => fetch(`${base}/api/export/songbook?sort=title`).then((r) => r.text())));
+    assert.equal(a, b, 'two clicks at once: one book');
+    assert.equal((a.match(/<p class="t">/g) || []).length, app.library.catalog.songList.length);
     const csv = await fetch(`${base}/api/export/songbook?format=csv`);
     assert.match(csv.headers.get('content-disposition'), /songbook\.csv/);
     assert.equal((await csv.text()).trim().split('\r\n').length, 1 + app.library.catalog.songList.length);

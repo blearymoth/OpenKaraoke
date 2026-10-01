@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
 import { PROVIDERS, placeholderRef } from '../server/artwork/providers.js';
-import { songQuery, scoreCandidate, artistSimilarity, pickArtist, pickBest, rankCandidates, artistSearchName, MIN_CONFIDENCE } from '../server/artwork/match.js';
+import { songQuery, scoreCandidate, artistSimilarity, pickArtist, pickBest, rankCandidates, artistSearchName, actsOf, MIN_CONFIDENCE } from '../server/artwork/match.js';
 import { ArtworkService } from '../server/artwork/service.js';
 import { Settings } from '../server/config.js';
 import { Catalog } from '../server/library/catalog.js';
@@ -42,6 +42,10 @@ async function makeService(names, { fetch = fakeArtFetch(), meta } = {}) {
   const artist = (name) => library.catalog.artistList.find((a) => a.name === name);
   return { art, library, song, artist, fetch };
 }
+
+const until = async (fn, ms = 3000) => {
+  for (const end = Date.now() + ms; !fn(); await new Promise((r) => setTimeout(r, 10))) if (Date.now() > end) throw new Error('timed out');
+};
 
 /** Names searched for, in order: TheAudioDB (?s=) or Deezer's artist search (?q=). */
 const searched = (fetch, provider) => fetch.calls
@@ -184,6 +188,24 @@ test('matching: performers never credited alone are searched by the act they bel
   assert.equal(name('Elton John', 2, ['Elton John & Kiki Dee', 'Elton John']), 'Elton John', 'credited alone somewhere');
   assert.equal(name('The Heartbreakers', 0, ['Tom Petty & The Heartbreakers', 'Tom Petty & The Heartbreakers', 'Stevie Nicks & The Heartbreakers']), 'Tom Petty & The Heartbreakers', 'the most common act');
   assert.equal(name('Nobody', 0, []), 'Nobody');
+  assert.equal(name('Jr.', 0, ['Harry Connick, Jr.', 'Ray Parker, Jr.', 'Harry Connick, Jr.']), 'Harry Connick, Jr.');
+  assert.equal(name('Peter', 0, ['Peter & Gordon', 'Peter & Gordon', 'Peter, Paul & Mary', 'Peter, Paul and Mary', 'Peter, Paul & Mary']), 'Peter, Paul & Mary', 'spellings of one act count together');
+});
+
+test('matching: each performer of a featured list is searched by name, unless the list is a band', () => {
+  const name = (n, credits) => artistSearchName({ name: n, solo: 0 }, credits);
+  const feels = 'Calvin Harris feat. Pharrell Williams, Katy Perry & Big Sean';
+  assert.deepEqual(actsOf(feels), ['Calvin Harris', 'Pharrell Williams, Katy Perry & Big Sean']);
+  assert.equal(name('Big Sean', [feels]), 'Big Sean');
+  assert.equal(name('Pharrell Williams', [feels]), 'Pharrell Williams');
+  assert.equal(name('Calvin Harris', [feels]), 'Calvin Harris');
+  assert.equal(name('Afrojack', ['Pitbull feat. Ne-Yo, Afrojack & Nayer']), 'Afrojack');
+  assert.equal(name('Kim Carnes', ['Kenny Rogers with Kim Carnes & James Ingram']), 'Kim Carnes');
+  // "Brooks & Dunn" leads its own songs: a band, also when it is featured.
+  const reba = 'Reba McEntire with Brooks & Dunn';
+  assert.equal(name('Brooks', [reba, 'Brooks & Dunn', 'Brooks & Dunn']), 'Brooks & Dunn');
+  assert.equal(name('Dunn', ['Brooks & Dunn', reba]), 'Brooks & Dunn');
+  assert.equal(name('Earth', ['Earth, Wind & Fire feat. The Emotions']), 'Earth, Wind & Fire', 'the lead act is never split');
 });
 
 const BANDS = [
@@ -219,10 +241,12 @@ test('service: artists split out of a band name get the band’s art, never a na
   assert.equal(await art.request('artist', artist('Lil Jon'), 'now', 'all'), true);
   assert.equal(art.artists.get('liljon').logo, tadb('Lil Jon', 'logo.png'));
 
-  // The library changes and "Dave" now also sings alone: what was found for Sam & Dave goes.
+  // The library changes and "Dave" now also sings alone: what was found for Sam & Dave goes,
+  // the duo's picture too.
+  assert.match(art.artists.get('dave').picture, /^dz:/);
   library.catalog = new Catalog().load(rawTracks([...BANDS, 'Dave - Location [SF Karaoke]']));
   art.installMeta();
-  assert.equal(art.artists.get('dave').fanart, undefined);
+  assert.deepEqual(art.artists.get('dave'), {});
   assert.deepEqual(art.artistChain('dave', 'all'), ['deezer', 'theaudiodb']);
   assert.equal(art.artists.get('sam').n, 'Sam & Dave', 'Sam is still only credited with Dave');
   await art.close();
@@ -233,7 +257,7 @@ test('service: pictures from matched songs go to the artists the track is credit
   assert.equal(await art.request('song', song('Soul Man'), 'now'), true);
   const sam = art.artists.get('sam');
   assert.match(sam.picture, /^dz:/);
-  assert.equal(sam.pictureFrom, 'song');
+  assert.equal(sam.pictureFor, 'Sam & Dave');
   assert.equal(art.artists.get('dave').picture, sam.picture, 'the duo’s picture for both');
 
   // Deezer credits the duet to "Elton John & Kiki Dee": that is not a picture of Elton John.
@@ -244,6 +268,13 @@ test('service: pictures from matched songs go to the artists the track is credit
   const elton = art.artists.get(artist('Elton John').key).picture;
   assert.match(elton, /^dz:/);
   assert.notEqual(elton, art.artists.get('kikidee').picture);
+
+  // "Dave" now also sings alone: the duo's picture is not his, Deezer is asked for "Dave".
+  art.library.catalog = new Catalog().load(rawTracks([...BANDS, 'Dave - Location [SF Karaoke]']));
+  art.installMeta();
+  assert.equal(art.artists.get('dave').picture, undefined);
+  assert.deepEqual(art.artistChain('dave', 'picture'), ['deezer', 'theaudiodb']);
+  assert.equal(art.artists.get('sam').picture, sam.picture, 'Sam is still only credited with Dave');
   await art.close();
 });
 
@@ -257,8 +288,14 @@ test('service: art found for a band member’s own name by an older version is d
         dave: { picture: rapper('thumb.jpg'), fanart: [rapper('fanart.jpg')], logo: rapper('logo.png'), mbid: '11111111-2222-4333-8444-555555555555', genre: 'Rap/Hip Hop', tried: ['deezer', 'theaudiodb'], at: now, v: 1 },
         // only a picture that came with a matched song: kept
         sam: { picture: 'dz:https://e-cdns-images.dzcdn.net/images/artist/0123456789abcdef0123456789abcdef/1000x1000-000000-80-0-0.jpg', at: now, v: 1 },
-        // searched for "Wind" after a song gave it a picture: the song's picture stays
-        wind: { picture: 'dz:https://e-cdns-images.dzcdn.net/images/artist/abcdefabcdefabcdefabcdefabcdefab/1000x1000-000000-80-0-0.jpg', pictureFrom: 'song', n: 'Wind', fanart: [rapper('wind.jpg')], tried: ['theaudiodb'], at: now, v: 2 },
+        // searched for "Wind" after a song gave it a picture for the band: the song's picture stays
+        wind: { picture: 'dz:https://e-cdns-images.dzcdn.net/images/artist/abcdefabcdefabcdefabcdefabcdefab/1000x1000-000000-80-0-0.jpg', pictureFor: 'Earth, Wind & Fire', n: 'Wind', fanart: [rapper('wind.jpg')], tried: ['theaudiodb'], at: now, v: 2 },
+        // a song's picture accepted for "Earth" alone: dropped
+        earth: { picture: 'dz:https://e-cdns-images.dzcdn.net/images/artist/bcdefabcdefabcdefabcdefabcdefabc/1000x1000-000000-80-0-0.jpg', pictureFor: 'Earth', at: now, v: 2 },
+        // searched for "Fire": Deezer had no photo (the placeholder), TheAudioDB a namesake
+        fire: { picture: dzEmpty('artist'), fanart: [rapper('fire.jpg')], logo: rapper('fire.png'), mbid: '11111111-2222-4333-8444-555555555555', genre: 'Metal', tried: ['deezer', 'theaudiodb'], at: now, v: 1 },
+        // what only a name search gives, without `tried`: searched for "Kiki Dee"
+        kikidee: { logo: rapper('kiki.png'), mbid: '21111111-2222-4333-8444-555555555555', at: now, v: 1 },
         // a solo artist searched for its own name: kept
         eltonjohn: { picture: tadb('Elton John', 'thumb.jpg'), fanart: [tadb('Elton John', 'fanart1.jpg')], tried: ['deezer', 'theaudiodb'], at: now, v: 1 },
       },
@@ -266,13 +303,97 @@ test('service: art found for a band member’s own name by an older version is d
   });
   assert.deepEqual(art.artists.get('dave'), {});
   assert.match(art.artists.get('sam').picture, /0123456789abcdef/);
-  assert.deepEqual(Object.keys(art.artists.get('wind')).sort(), ['at', 'picture', 'pictureFrom', 'v']);
+  assert.deepEqual(Object.keys(art.artists.get('wind')).sort(), ['picture', 'pictureFor']);
+  assert.deepEqual(art.artists.get('earth'), {});
+  assert.deepEqual(art.artists.get('fire'), {}, 'the placeholder goes, and so does the namesake’s art');
+  assert.deepEqual(art.artists.get('kikidee'), {});
   assert.deepEqual(art.artists.get('eltonjohn').fanart, [tadb('Elton John', 'fanart1.jpg')]);
+  assert.deepEqual(art.artFor(song('September')), { cover: false });
+  await Promise.all(song('September').artistKeys.map((k) => art.request('artist', art.catalog.artist(k), 'now', 'all')));
+  assert.equal(art.artists.get('fire').logo, tadb('Earth, Wind & Fire', 'logo.png'));
+  assert.equal(art.artists.get('fire').mbid, undefined, 'not the namesake’s MusicBrainz id');
   const soulMan = song('Soul Man');
   assert.equal(art.artFor(soulMan).fanart, undefined, 'the rapper’s fanart is gone from the TV');
   assert.equal(await art.request('artist', art.catalog.artist('dave'), 'now', 'all'), true);
   assert.equal(art.artFor(soulMan).fanart, 'dave');
   assert.deepEqual(art.artists.get('dave').fanart, [tadb('Sam & Dave', 'fanart1.jpg'), tadb('Sam & Dave', 'fanart2.jpg')]);
   assert.ok(!searched(fetch, 'theaudiodb').includes('Dave'));
+  await art.close();
+});
+
+test('service: a performer in two acts never shows one act’s art during the other’s songs', async () => {
+  const names = [
+    'Peter, Paul & Mary - Leaving On A Jet Plane [SF Karaoke]',
+    'Peter, Paul & Mary - Puff The Magic Dragon [SF Karaoke]',
+    'Peter & Gordon - A World Without Love [SF Karaoke]',
+    'Harry Connick, Jr. - It Had To Be You [SF Karaoke]',
+    'Harry Connick, Jr. - Recipe For Love [SF Karaoke]',
+    'Ray Parker, Jr. - Ghostbusters [SF Karaoke]',
+    'Elton John & Kiki Dee - True Love [SF Karaoke]',
+    'Elton John - Rocket Man [SF Karaoke]',
+  ];
+  // TheAudioDB has just a photo of Ray Parker Jr., and nothing for the duet.
+  const fetch = fakeArtFetch({
+    unknown: new Set(['elton john & kiki dee']),
+    override: (u) => (u.hostname === 'www.theaudiodb.com' && /^ray parker/i.test(u.searchParams.get('s'))
+      ? json({ artists: [{ idArtist: '9', strArtist: 'Ray Parker Jr.', strArtistThumb: 'https://r2.theaudiodb.com/images/media/artist/rp/thumb.jpg' }] })
+      : undefined),
+  });
+  const { art, library, song, artist } = await makeService(names, { fetch });
+  for (const s of library.catalog.songList) {
+    await Promise.all(s.artistKeys.map((k) => art.request('artist', library.catalog.artist(k), 'now', 'all')));
+  }
+  assert.equal(art.searchName(artist('Peter')), 'Peter, Paul & Mary');
+  assert.equal(art.searchName(artist('Jr.')), 'Harry Connick, Jr.');
+  const shown = (title) => {
+    const out = art.artFor(song(title));
+    return { fanart: out.fanart && art.artists.get(out.fanart).fanart[0], logo: out.logo && art.artists.get(out.logo).logo };
+  };
+  assert.deepEqual(shown('A World Without Love'), { fanart: tadb('Peter & Gordon', 'fanart1.jpg'), logo: tadb('Peter & Gordon', 'logo.png') });
+  assert.deepEqual(shown('Puff The Magic Dragon'), { fanart: tadb('Peter, Paul & Mary', 'fanart1.jpg'), logo: tadb('Peter, Paul & Mary', 'logo.png') });
+  assert.deepEqual(shown('Ghostbusters'), { fanart: undefined, logo: undefined }, 'not Harry Connick, Jr.’s');
+  assert.deepEqual(shown('Recipe For Love'), { fanart: tadb('Harry Connick, Jr.', 'fanart1.jpg'), logo: tadb('Harry Connick, Jr.', 'logo.png') });
+  // A duet: what was found for one singer's own name fits.
+  assert.deepEqual(shown('True Love'), { fanart: tadb('Elton John', 'fanart1.jpg'), logo: tadb('Elton John', 'logo.png') });
+
+  // The TV's prefetch fetches what it will show, not the other act's images.
+  fetch.calls.length = 0;
+  art.focus([song('A World Without Love')]);
+  const dir = (n) => `/artist/${hash32(n).toString(36)}/`;
+  await until(() => fetch.calls.some((u) => u.includes(dir('Peter & Gordon'))) && !art.downloads.size);
+  assert.ok(!fetch.calls.some((u) => u.includes(dir('Peter, Paul & Mary'))));
+  await art.close();
+});
+
+test('service: a lookup running while the library changes keeps nothing found under the old name', async () => {
+  const base = fakeArtFetch();
+  const waiting = [];
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const fetch = Object.assign(async (u) => {
+    if (String(u).includes('/search/artist')) {
+      waiting.push(String(u));
+      await gate; // a slow Deezer
+    }
+    return base(u);
+  }, { calls: base.calls });
+  const { art, library, song } = await makeService(['Sam & Dave - Soul Man [SF Karaoke]', 'Dave - Location [SF Karaoke]'], { fetch });
+  const before = library.catalog.artist('dave');
+  assert.equal(art.searchName(before), 'Dave');
+  const lookup = art.request('artist', before, 'now', 'all');
+  await until(() => waiting.length);
+  // Meanwhile "Dave - Location" leaves the library: Dave is only the Dave of Sam & Dave now.
+  library.catalog.load(rawTracks(['Sam & Dave - Soul Man [SF Karaoke]']));
+  art.installMeta();
+  release();
+  assert.equal(await lookup, true);
+  assert.equal(art.searchName(before), 'Sam & Dave', 'an older artist object gives the current name');
+  assert.deepEqual(searched(fetch, 'theaudiodb'), ['Sam & Dave']);
+  const e = art.artists.get('dave');
+  assert.equal(e.n, 'Sam & Dave');
+  assert.equal(e.picture, tadb('Sam & Dave', 'thumb.jpg'), 'not Deezer’s answer for "Dave"');
+  assert.ok(!e.tried.includes('deezer'), 'Deezer is asked again later');
+  const out = art.artFor(song('Soul Man'));
+  assert.equal(art.artists.get(out.logo).logo, tadb('Sam & Dave', 'logo.png'));
   await art.close();
 });

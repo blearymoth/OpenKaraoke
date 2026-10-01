@@ -21,7 +21,7 @@ import { UserError } from '../util/errors.js';
 import { sendFile } from '../http/static.js';
 import { logger } from '../util/log.js';
 import { PROVIDERS, SONG_CHAIN, USER_AGENT, imageUrls, allowedImageUrl, placeholderRef } from './providers.js';
-import { songQuery, pickBest, pickArtist, rankCandidates, artistNameScore, artistSearchName, sameSearchName } from './match.js';
+import { songQuery, pickBest, pickArtist, rankCandidates, artistNameScore, artistSearchName, sameSearchName, actsOf } from './match.js';
 import { compact } from '../../shared/text.js';
 
 const log = logger('artwork');
@@ -36,6 +36,8 @@ const VISIBLE_CAP = 120; // on-demand lookups kept (newest first)
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const IMAGE_TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
 const ARTIST_TYPES = ['picture', 'fanart', 'logo', 'cutout', 'banner'];
+// What an artist entry gets only from searching an artist database by name (see artistEntry).
+const SEARCHED = ['fanart', 'logo', 'cutout', 'banner', 'mbid', 'genre'];
 const FILE_RE = /^([0-9a-f]{40})\.(jpg|png|webp|gif)$/;
 
 /** ?s=250|500|1000 → 's' | 'm' | 'l'. */
@@ -94,7 +96,9 @@ export class ArtworkService extends EventEmitter {
     this.ua = USER_AGENT(version);
     this.crawlDelayMs = crawlDelayMs;
     this.songs = new Map(); // song key → { p, id, cover, album, genre, year, explicit, rank, confidence, at, v } | { miss, tried[], at, v }
-    // artist key → { picture, pictureFrom?: 'song', fanart[], logo, cutout, banner, mbid, genre, n: name searched for, tried[], at, v }
+    // artist key → { picture, pictureFor?, fanart[], logo, cutout, banner, mbid, genre, n, tried[], at, v }
+    // n: the name searched for (see searchName); pictureFor: the picture came with a matched song
+    // and was accepted for that name.
     this.artists = new Map();
     this.nameSearches = new Lru({ max: 64 }); // "provider|name" → artist search result (band members share one)
     this.albums = new Map(); // "provider:id" → { genre, year, type }
@@ -192,8 +196,10 @@ export class ArtworkService extends EventEmitter {
     }
     for (const [key, e] of this.artists) {
       if (!placeholderRef(e.picture)) continue;
-      const { picture, pictureFrom, tried, ...rest } = e;
-      this.artists.set(key, rest); // nothing tried: TheAudioDB is asked for a picture too
+      // No `at`: every provider is asked again, TheAudioDB for a picture too. `tried` stays: it
+      // tells artistEntry that the rest was found by searching for the artist's name.
+      const { picture, pictureFor, at, ...rest } = e;
+      this.artists.set(key, rest);
       n++;
     }
     if (n) {
@@ -697,39 +703,55 @@ export class ArtworkService extends EventEmitter {
       if (!artist || e?.picture) continue;
       // The track's artist must be the one we'd search for: "Sam & Dave" for Sam, but a track
       // credited to "Elton John & Kiki Dee" is not a picture of Elton John alone.
-      if (artistNameScore(c.artist, this.searchName(artist)) < 0.9) continue;
-      this.setArtist(key, { ...(e || { tried: [], at: this.now(), v: MATCH_VERSION }), picture: c.artistPicture, pictureFrom: 'song' }, true);
+      const name = this.searchName(artist);
+      if (artistNameScore(c.artist, name) < 0.9) continue;
+      this.setArtist(key, { ...(e || { at: this.now(), v: MATCH_VERSION }), picture: c.artistPicture, pictureFor: name }, true);
     }
   }
 
-  /** The name artist databases are searched for (see artistSearchName), cached per catalog version. */
+  /**
+   * The name artist databases are searched for (see artistSearchName), cached per catalog version.
+   * Always worked out from the current catalog's artist: a queued lookup may hold an older one.
+   */
   searchName(artist) {
     const { catalog } = this;
+    const credits = (a) => (a.songIds || []).map((id) => catalog.song(id)?.artist).filter(Boolean);
+    const current = catalog.artist(artist.key);
+    if (!current) return artistSearchName(artist, credits(artist)); // not in the library (any more)
     const memo = this._searchNames;
     if (memo?.catalog !== catalog || memo.version !== catalog.version) this._searchNames = { catalog, version: catalog.version, map: new Map() };
     const map = this._searchNames.map;
-    let name = map.get(artist.key);
+    let name = map.get(current.key);
     if (name === undefined) {
-      const credits = (artist.songIds || []).map((id) => this.catalog.song(id)?.artist).filter(Boolean);
-      name = artistSearchName(artist, credits);
-      map.set(artist.key, name);
+      name = artistSearchName(current, credits(current));
+      map.set(current.key, name);
     }
     return name;
   }
 
   /**
    * The stored entry of a catalog artist. What was found by searching for another name (a band
-   * member's own name before, or the library changed) is dropped first; pictures that came with
-   * matched songs stay. Entries saved without `n` were searched for the artist's own name.
+   * member's own name before, or the library changed) is dropped first, and so is a picture from
+   * a matched song that was accepted for another name. Entries saved without `n` were searched
+   * for the artist's own name when they have anything only a name search gives.
    */
   artistEntry(artist) {
-    const e = this.artists.get(artist.key);
+    const current = this.catalog.artist(artist.key) || artist;
+    const e = this.artists.get(current.key);
     if (!e) return null;
-    const searched = e.n || (e.tried?.length ? artist.name : '');
-    if (!searched || sameSearchName(searched, this.searchName(artist))) return e;
-    const keep = e.pictureFrom === 'song' ? { picture: e.picture, pictureFrom: 'song', at: e.at, v: e.v } : {};
-    this.setArtist(artist.key, keep, true);
-    return this.artists.get(artist.key);
+    const name = this.searchName(current);
+    const searched = e.n || (e.tried?.length || SEARCHED.some((k) => e[k]?.length) ? current.name : '');
+    const searchOk = searched && sameSearchName(searched, name);
+    const pictureOk = !e.pictureFor || sameSearchName(e.pictureFor, name);
+    if ((!searched || searchOk) && pictureOk) return e;
+    let next = searchOk ? { ...e } : e.pictureFor ? { picture: e.picture, pictureFor: e.pictureFor } : {};
+    if (!pictureOk) {
+      // Deezer may have been asked while that picture was there: ask again.
+      const { picture, pictureFor, tried, ...rest } = next;
+      next = rest;
+    }
+    this.setArtist(current.key, next, true);
+    return this.artists.get(current.key);
   }
 
   /** Searches provider `name`'s artist database for `query`; null when no artist matches. */
@@ -746,40 +768,53 @@ export class ArtworkService extends EventEmitter {
   }
 
   async artistStep(job, name) {
-    const artist = job.obj;
-    const prev = this.artistEntry(artist);
+    // The current catalog's artist and entry: job.obj may be from before a library change.
+    const artist = this.catalog.artist(job.key);
+    if (!artist) return 'unavailable'; // no longer in the library
+    const start = this.artistEntry(artist);
+    if (name === 'theaudiodb' && job.want !== 'all' && start?.picture) return 'next'; // got one already
+    const query = this.searchName(artist);
+    const mbid = start?.mbid;
+    // Fanart.tv is asked by MusicBrainz id, which comes from TheAudioDB: not asked before that answer.
+    const audiodbAsked = start && !this.stale(start) && start.tried?.includes('theaudiodb');
+    if (name === 'fanarttv' && !mbid && !audiodbAsked && this.providerOn('theaudiodb')) return 'unavailable';
+    let info = null;
+    if (name === 'fanarttv') {
+      const url = mbid ? PROVIDERS.fanarttv.artistUrl(mbid, this.cfg().fanartKey) : null;
+      info = url ? PROVIDERS.fanarttv.parseArtist(await this.getJson(name, url, job.prio)) : null;
+    } else {
+      info = await this.searchArtist(name, query, job.prio);
+    }
+    // The library may have changed meanwhile: an answer for a name that no longer applies is
+    // not kept (asked again later), and it goes into the entry as it is now.
+    const current = this.catalog.artist(job.key);
+    if (!current || !sameSearchName(query, this.searchName(current))) return 'unavailable';
+    const prev = this.artistEntry(current);
+    if (name === 'fanarttv' && prev?.mbid !== mbid) return 'unavailable';
     const fresh = prev && !this.stale(prev);
     const e = { ...(prev || {}), tried: fresh ? [...(prev.tried || [])] : [] };
     const signature = (x) => JSON.stringify([x.picture, x.fanart, x.logo, x.cutout, x.banner, x.mbid, x.genre]);
     const before = signature(e);
-    if (name === 'theaudiodb' && job.want !== 'all' && e.picture) return 'next'; // got one already
-    if (name === 'fanarttv') {
-      const url = e.mbid ? PROVIDERS.fanarttv.artistUrl(e.mbid, this.cfg().fanartKey) : null;
-      const info = url ? PROVIDERS.fanarttv.parseArtist(await this.getJson(name, url, job.prio)) : null;
-      if (info) {
-        if (info.fanart.length) e.fanart = [...new Set([...(e.fanart || []), ...info.fanart])].slice(0, 8);
-        e.logo ||= info.logo;
-        e.picture ||= info.picture;
-        e.banner ||= info.banner;
-      }
-    } else {
-      e.n = this.searchName(artist);
-      const info = await this.searchArtist(name, e.n, job.prio);
-      if (info) {
-        e.picture ||= info.picture;
-        if (info.fanart?.length) e.fanart = [...new Set([...(e.fanart || []), ...info.fanart])].slice(0, 8);
-        e.logo ||= info.logo;
-        e.cutout ||= info.cutout;
-        e.banner ||= info.banner;
-        e.mbid ||= info.mbid;
-        e.genre ||= info.genre;
-      }
+    e.n = query;
+    if (info && name === 'fanarttv') {
+      if (info.fanart.length) e.fanart = [...new Set([...(e.fanart || []), ...info.fanart])].slice(0, 8);
+      e.logo ||= info.logo;
+      e.picture ||= info.picture;
+      e.banner ||= info.banner;
+    } else if (info) {
+      e.picture ||= info.picture;
+      if (info.fanart?.length) e.fanart = [...new Set([...(e.fanart || []), ...info.fanart])].slice(0, 8);
+      e.logo ||= info.logo;
+      e.cutout ||= info.cutout;
+      e.banner ||= info.banner;
+      e.mbid ||= info.mbid;
+      e.genre ||= info.genre;
     }
     if (!e.tried.includes(name)) e.tried.push(name);
     e.at = this.now();
     e.v = MATCH_VERSION;
     const changed = signature(e) !== before;
-    this.setArtist(artist.key, e, changed);
+    this.setArtist(current.key, e, changed);
     if (changed) job.found = true;
     if (job.want !== 'all' && e.picture) return 'found';
     return 'next';
@@ -803,19 +838,42 @@ export class ArtworkService extends EventEmitter {
         const artist = this.catalog.artist(key);
         if (!artist) continue;
         this.request('artist', artist, 'now', 'all').then(() => {
+          // Only what the TV will show (artFor): not a band member's art of another act.
+          const art = this.artFor(song);
           const a = this.artists.get(key);
-          if (a?.fanart?.[0]) this.image(a.fanart[0], 'l', PRIO.now);
-          if (a?.logo) this.image(a.logo, 'l', PRIO.now);
+          if (art.fanart === key && a?.fanart?.[0]) this.image(a.fanart[0], 'l', PRIO.now);
+          if (art.logo === key && a?.logo) this.image(a.logo, 'l', PRIO.now);
         });
       }
     });
+  }
+
+  /**
+   * The song's artists whose fanart and logo fit it, best first: art found for one of the song's
+   * own acts ("Peter & Gordon"), then art found under a performer's own name ("Elton John" for
+   * "Elton John & Kiki Dee"). A band member holding another act's art is left out: "Peter" is
+   * looked up as "Peter, Paul & Mary", which is not who sings "A World Without Love".
+   */
+  songArtists(song) {
+    const acts = actsOf(song.artist);
+    const exact = [];
+    const own = [];
+    for (const key of song.artistKeys || []) {
+      const e = this.artists.get(key);
+      const artist = this.catalog.artist(key);
+      if (!e || !artist) continue;
+      const name = e.n || artist.name;
+      if (acts.some((act) => sameSearchName(act, name))) exact.push(key);
+      else if (sameSearchName(name, artist.name)) own.push(key);
+    }
+    return [...exact, ...own];
   }
 
   /** What the TV can show for a song: { cover, fanart: artistKey?, logo: artistKey? }. */
   artFor(song) {
     if (!song) return null;
     const out = { cover: !!this.songs.get(song.key)?.cover };
-    for (const key of song.artistKeys || []) {
+    for (const key of this.songArtists(song)) {
       const a = this.artists.get(key);
       if (a?.fanart?.length && !out.fanart) {
         out.fanart = key;

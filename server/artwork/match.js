@@ -202,30 +202,44 @@ export function pickArtist(artists, name) {
 // Separators between different acts in a credit ("A feat. B", "A with B", "A x B", "A vs. B").
 // "&", "and", "+", "/" and commas also occur inside band names, so they don't count here.
 const ACTS_RE = /\s+(?:feat\.?|ft\.?|featuring|with|w\/|vs\.?|versus|x)\s+/i;
-const nameKey = (s) => compact(stripThe(spellSymbols(s)));
+const nameKey = (s) => compact(stripThe(spellSymbols(s))); // "&" = "and" (see fold)
+
+/** The acts in a credit, lead first: "A feat. B, C & D" → ["A", "B, C & D"]. */
+export function actsOf(credit) {
+  return String(credit || '').replace(/\((?:duet|solo|trio)\)/gi, ' ').split(ACTS_RE).map((s) => s.trim()).filter(Boolean);
+}
 
 /**
  * The name to search artist databases for. The catalog splits credits into performers on "&",
  * "+", "/", "and" and commas, which also cuts band names apart ("Sam & Dave" → "Sam", "Dave";
  * "Earth, Wind & Fire" → "Earth", "Wind", "Fire"), and a search for such a part finds some other
- * artist of that name. So a performer that is never credited on its own (and never as a whole
- * act next to "feat.", "with"…) is looked up by the act it appears in, e.g. "Sam & Dave".
+ * artist of that name. So a performer that is never credited on its own is looked up by the act
+ * it appears in, e.g. "Sam & Dave" (the most common one when there are several).
+ * A whole act next to "feat.", "with"… is its own name ("DJ Snake feat. Lil Jon"), and so is each
+ * performer in a featured list ("feat. Pharrell Williams, Katy Perry & Big Sean"), unless that
+ * list leads one of the credits too: then it is a band ("Reba McEntire with Brooks & Dunn").
  * @param {{ name: string, solo?: number }} artist catalog artist
  * @param {string[]} credits the full artist credit of each of its songs
  */
 export function artistSearchName(artist, credits = []) {
   if (artist.solo > 0 || !credits.length) return artist.name;
   const me = nameKey(artist.name);
-  const counts = new Map();
-  for (const credit of credits) {
-    const acts = String(credit || '').split(ACTS_RE).map((s) => s.trim()).filter(Boolean);
-    if (acts.some((act) => nameKey(act) === me)) return artist.name;
-    const act = acts.find((x) => creditsOf(x).some((c) => nameKey(c) === me)) || String(credit || '').trim();
-    if (act) counts.set(act, (counts.get(act) || 0) + 1);
+  const parsed = credits.map((credit) => ({ credit: String(credit || '').trim(), acts: actsOf(credit) }));
+  const leads = new Set(parsed.filter(({ acts }) => acts.length).map(({ acts }) => nameKey(acts[0])));
+  const named = (act) => creditsOf(act).some((c) => nameKey(c) === me);
+  const counts = new Map(); // act key → [spelling, songs]
+  for (const { credit, acts } of parsed) {
+    if (acts.some((act, i) => nameKey(act) === me || (i > 0 && !leads.has(nameKey(act)) && named(act)))) return artist.name;
+    const act = acts.find(named) || credit;
+    if (!act) continue;
+    const k = nameKey(act);
+    const c = counts.get(k);
+    if (c) c[1]++;
+    else counts.set(k, [act, 1]);
   }
   let best = artist.name;
   let n = 0;
-  for (const [act, count] of counts) if (count > n) { best = act; n = count; }
+  for (const [act, count] of counts.values()) if (count > n) { best = act; n = count; }
   return best;
 }
 

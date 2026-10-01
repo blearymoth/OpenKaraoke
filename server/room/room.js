@@ -190,17 +190,24 @@ export class Room {
       const asked = typeof msg.display === 'string' && TV_KINDS.has(msg.display) ? msg.display : 'main';
       // A remote host (PIN) may watch the preview; other remote screens need pairing.
       const previewByHost = asked === 'preview' && !client.isLocal && this.auth.isHost(client.ip, msg.hostToken);
-      if (!client.isLocal && !previewByHost && !this.auth.verify(msg.token, 'tv')) return { ok: false, reason: 'pairing_required' };
+      const paired = this.auth.verify(msg.token, 'tv');
+      if (!client.isLocal && !previewByHost && !paired) return { ok: false, reason: 'pairing_required' };
       // 'preview' = the host's small live preview: a muted mirror that isn't listed as a display.
       // Only this computer or a signed-in host gets one; a paired screen asking for it is a mirror.
       const kind = asked === 'preview' && !client.isLocal && !previewByHost ? 'mirror' : asked;
       client.data.kind = kind;
       client.data.preview = kind === 'preview';
       client.data.hostPreview = previewByHost; // admitted by the host's token, not a pairing
+      client.data.screen = paired?.id || ''; // the paired device (every tab of its browser shares it)
       // A plain TV becomes the main display unless one is already on; it takes the sound back
       // from a screen that only stood in while the main TV was away (a reload, a Wi-Fi blip).
+      // The same paired screen coming back before its old connection timed out (after a Wi-Fi
+      // drop the server only notices at the next heartbeat) takes that connection's place: it
+      // stays the main display, and a stand-in only if the old connection was one.
       const main = this.mainDisplay();
-      client.data.display = kind === 'main' && (!main || main.data.standIn) ? 'main' : 'mirror';
+      const again = !!(main && client.data.screen && main.data.screen === client.data.screen && main.data.kind === kind);
+      client.data.display = again || (kind === 'main' && (!main || main.data.standIn)) ? 'main' : 'mirror';
+      client.data.standIn = again && !!main.data.standIn;
       return { ok: true, role, welcome: { display: client.data.display, state: this.tvView() } };
     }
     if (role === GUEST) {
@@ -225,7 +232,7 @@ export class Room {
   onJoin(client) {
     if (client.role === TV && client.data.display === 'main') {
       log.info(`TV display connected (${client.isLocal ? 'this computer' : client.ip})`);
-      this.setMain(client);
+      this.setMain(client, { standIn: client.data.standIn });
     }
     this.markDirty();
   }
@@ -233,10 +240,13 @@ export class Room {
   onLeave(client) {
     if (client.role === TV && client.data.display === 'main') {
       // Another plain TV stands in until the main TV is back. Mirrors, queue boards and the
-      // host's preview asked to stay muted: they never take the sound by themselves.
-      const next = this.hub.list((c) => c.role === TV && c !== client && c.open && c.data.kind === 'main')[0];
+      // host's preview asked to stay muted: they never take the sound by themselves. Another tab
+      // of the same paired screen is that screen, not a stand-in.
+      const others = this.hub.list((c) => c.role === TV && c !== client && c.open && c.data.kind === 'main');
+      const same = client.data.screen ? others.find((c) => c.data.screen === client.data.screen) : null;
+      const next = same || others[0];
       if (next) {
-        this.setMain(next, { standIn: true });
+        this.setMain(next, { standIn: same ? !!client.data.standIn : true });
       } else {
         const p = this.s.player;
         if (this.s.current) {

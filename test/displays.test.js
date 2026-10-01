@@ -164,3 +164,81 @@ test('displays: a paired screen asking to be the host preview is listed (and log
   assert.equal(phonePreview.open, true);
   assert.equal((await connect('tv', { display: 'preview', hostToken }, { local: false })).denied, undefined, 'and can reconnect');
 });
+
+test('displays: the same paired screen reconnecting before its old connection timed out stays the main TV', async () => {
+  const env = await setupRoom();
+  const { room, connect, leave, req, view, s } = env;
+  const pair = async (host, ip) => {
+    const { id } = room.pairRequest(ip);
+    await req(host, 'display.approve', { id });
+    return room.pairStatus(id).token;
+  };
+  const { host, entry } = await playing(env);
+  const token = await pair(host, '192.168.1.50');
+  const tv = await connect('tv', { token }, { local: false });
+  const board = await connect('tv', { display: 'board' });
+  assert.equal(tv.welcome.display, 'main');
+  await req(tv, 'tv.ready', { entryId: entry.id, dur: 200 });
+  assert.equal(s().player.state, 'playing');
+
+  // Wi-Fi drop on the TV: it reconnects while the server still holds its dead socket.
+  const tvNew = await connect('tv', { token }, { local: false });
+  assert.equal(tvNew.welcome.display, 'main', 'the TV is back with the sound at once');
+  assert.equal(tvNew.data.standIn, false);
+  assert.equal(tv.data.display, 'mirror');
+  assert.ok(got(tv, 'mirror'), 'the dead socket is demoted');
+  assert.equal(board.data.display, 'mirror');
+  leave(tv); // the heartbeat drops the dead socket
+  assert.equal(tvNew.data.display, 'main');
+  assert.equal(tvNew.data.standIn, false, 'not "standing in" for itself');
+  assert.equal(got(tvNew, 'main'), false, 'no second "main" message');
+  assert.equal(s().player.displayLost, false);
+  assert.deepEqual(view(host).displays.map((d) => [d.id, d.display, d.standIn]), [[board.id, 'mirror', false], [tvNew.id, 'main', false]]);
+  // So the next plain /tv (Open TV on the PC, bin/open-tv.sh) is only a mirror.
+  const another = await connect('tv');
+  assert.equal(another.welcome.display, 'mirror');
+  assert.equal(room.mainDisplay(), tvNew);
+
+  // Another paired screen is not the same screen: it stays a mirror.
+  const otherToken = await pair(host, '192.168.1.51');
+  const otherScreen = await connect('tv', { token: otherToken }, { local: false });
+  assert.equal(otherScreen.welcome.display, 'mirror');
+  // Nor is the same screen's mirror tab (it asked to stay muted).
+  const mirrorTab = await connect('tv', { token, display: 'mirror' }, { local: false });
+  assert.equal(mirrorTab.welcome.display, 'mirror');
+  assert.equal(room.mainDisplay(), tvNew);
+
+  // Two tabs of the main screen: closing the one with the sound hands it to the other tab,
+  // which is that screen (not a stand-in), even before the other plain TVs.
+  const tab2 = await connect('tv', { token }, { local: false });
+  assert.equal(tab2.welcome.display, 'main');
+  assert.equal(tvNew.data.display, 'mirror');
+  leave(tab2);
+  assert.equal(tvNew.data.display, 'main');
+  assert.equal(tvNew.data.standIn, false);
+  assert.equal(another.data.display, 'mirror');
+});
+
+test('displays: a paired stand-in reconnecting is still only standing in', async () => {
+  const env = await setupRoom();
+  const { room, connect, leave, req, s } = env;
+  const { host, entry } = await playing(env);
+  const { id } = room.pairRequest('192.168.1.50');
+  await req(host, 'display.approve', { id });
+  const { token } = room.pairStatus(id);
+  const tv = await connect('tv');
+  const other = await connect('tv', { token }, { local: false });
+  await req(tv, 'tv.ready', { entryId: entry.id, dur: 200 });
+  leave(tv);
+  assert.equal(other.data.display, 'main');
+  assert.equal(other.data.standIn, true);
+  const otherNew = await connect('tv', { token }, { local: false });
+  assert.equal(otherNew.welcome.display, 'main');
+  assert.equal(otherNew.data.standIn, true, 'it keeps standing in');
+  leave(other);
+  assert.equal(otherNew.data.display, 'main');
+  assert.equal(s().player.displayLost, false);
+  const back = await connect('tv');
+  assert.equal(back.welcome.display, 'main', 'the real TV still takes the sound back');
+  assert.equal(otherNew.data.display, 'mirror');
+});

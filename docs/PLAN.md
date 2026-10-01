@@ -305,6 +305,9 @@ Auth rules:
   `/tv` stands in and hands the sound back to the next plain `/tv` that connects; mirrors
   (`display=mirror`), queue boards (`layout=board`) and previews never take it by themselves
   (playback pauses instead). The host can pick any non-board display (`display.main {id}`).
+  A paired screen (same TV token) that reconnects while its old socket still looks open (Wi-Fi
+  drop, caught only by the heartbeat) replaces that socket as main display, and stands in only
+  if the old one did.
 - **guest**: `room` must match `party.roomCode`; `deviceId` (random, stored in localStorage) must not be banned.
 - Tokens = HMAC-SHA256(secret, role + ':' + pinVersion + ':' + id), secret in `data/secret.json`.
 

@@ -74,6 +74,7 @@ const PAIR_PER_ADDRESS = 2; // codes one address may hold (a new one replaces th
 const PAIR_TTL_MS = 10 * 60_000;
 const PAIR_DENIED_MS = 60_000; // long enough for the refused screen to read "denied"
 const PAIR_TOAST_MS = 10_000; // at most one "a screen wants to pair" toast this often
+const MAX_OPEN_INVITES = 3; // duet invitations waiting for one guest at a time
 const validId = (id) => typeof id === 'string' && /^[\w-]{4,64}$/.test(id) && id !== '__proto__' && id !== 'constructor' && id !== 'prototype';
 const str = (v, max = 100) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const num = (v, min, max, def) => {
@@ -112,7 +113,10 @@ export class Room {
       favorite: new RateLimiter({ capacity: 30, perMs: 60_000 }),
       game: new RateLimiter({ capacity: 20, perMs: 10_000 }), // answers/votes per guest
       pair: new RateLimiter({ capacity: 5, perMs: 10 * 60_000 }), // pairing codes per address
+      invite: new RateLimiter({ capacity: 3, perMs: 10 * 60_000 }), // duet invitations per inviter → invitee
+      invited: new RateLimiter({ capacity: 6, perMs: 10 * 60_000 }), // duet invitations one guest receives
     };
+    this.declined = new Set(); // "inviter>invitee>song" duet invitations turned down this session
     this.handlers = this.buildHandlers();
     this.breakMusic = new BreakMusic(this);
     this.photos = new Photos(this);
@@ -175,6 +179,7 @@ export class Room {
       delete singer.stars;
     }
     this.notified.clear();
+    this.declined.clear();
     log.info('new party session started');
   }
 
@@ -365,6 +370,7 @@ export class Room {
       'display.forget': [H, () => this.displayForget()],
       'display.main': [H, (c, m) => this.displayMain(m)],
       'duet.answer': [[GUEST], (c, m) => this.duetAnswer(c, m)],
+      'duet.invites': [[GUEST], (c, m) => this.duetInvites(c, m)],
       'settings.update': [H, (c, m) => this.settingsUpdate(m)],
       'library.rescan': [H, () => this.libraryRescan()],
       'library.paths': [H, (c, m) => this.libraryPaths(m)],
@@ -478,7 +484,10 @@ export class Room {
       const partner = typeof pid === 'string' ? this.singer(pid) : null;
       if (!partner || singerIds.includes(pid)) continue;
       if (!isGuest) singerIds.push(pid);
-      else if (partner.deviceId && !this.profileOf(partner.deviceId)?.banned) invites.push(pid);
+      else if (partner.deviceId && !this.profileOf(partner.deviceId)?.banned) {
+        this.checkInvite(deviceId, partner, song);
+        invites.push(pid);
+      }
     }
     if (!isGuest && str(m.partnerName, 40)) {
       const partner = this.findOrCreateSinger(str(m.partnerName, 40));
@@ -505,12 +514,9 @@ export class Room {
     const note = str(m.note, 80);
     if (note) entry.note = note;
     if (invites.length) entry.invites = invites;
-    for (const pid of invites) {
-      this.notifyDevice(this.singer(pid).deviceId, { t: 'notify', kind: 'duet', entryId: entry.id, title: song.title, by: this.singer(singerIds[0])?.name || '' });
-    }
 
     if (isGuest && this.settings.get('queue.requireApproval')) {
-      this.s.pending.push(entry);
+      this.s.pending.push(entry); // a duet invitation goes out once the host approves (queueApprove)
       this.toastHosts(`${profile.name} requested ${song.title}`, 'info');
       return { pending: true, entry: this.entryView(entry) };
     }
@@ -523,7 +529,55 @@ export class Room {
     const index = this.insertEntry(entry, !isGuest ? m.position : undefined);
     if (wasEmpty) this.maybeAutoStart();
     const started = this.s.current?.id === entry.id;
+    this.sendInvites(entry); // (none left if it started right away)
     return { pending: false, index, started, eta: started ? 0 : this.etaList()[this.s.queue.indexOf(entry)], entry: this.entryView(entry) };
+  }
+
+  /**
+   * May this guest invite `partner` to sing `song`? Throws a message for the inviter when not:
+   * the partner turned invitations off, already has enough waiting, already has one from this
+   * guest, said no to this song, or has been asked too often lately (a phone that buzzes on
+   * every invitation must not become a target).
+   */
+  checkInvite(deviceId, partner, song) {
+    const name = partner.name || 'Your partner';
+    if (this.profileOf(partner.deviceId)?.noInvites) fail(`${name} isn’t taking duet invitations right now.`, 'invites_off');
+    const open = [...this.s.queue, ...this.s.pending].filter((e) => e.invites?.includes(partner.id));
+    if (open.some((e) => e.addedBy === deviceId)) fail(`You already invited ${name} — wait for their answer first.`, 'invite_open');
+    if (open.length >= MAX_OPEN_INVITES) fail(`${name} has enough duet invitations waiting — try again later.`, 'invite_limit');
+    if (this.declined.has(`${deviceId}>${partner.id}>${song.id}`)) fail(`${name} said no to this one — pick another song, or sing it solo.`, 'invite_declined');
+    if (!this.limits.invite.take(`${deviceId}>${partner.id}`)) fail(`You’ve asked ${name} a lot — give them a few minutes.`, 'rate_limited');
+    if (!this.limits.invited.take(partner.id)) fail(`${name} has had lots of invitations — try again in a few minutes.`, 'rate_limited');
+  }
+
+  /** Asks the invited guests on their phones; only once the entry is in the queue. */
+  sendInvites(entry) {
+    if (!entry.invites?.length) return;
+    const by = this.singer(entry.singerIds[0])?.name || '';
+    for (const pid of entry.invites) {
+      this.notifyDevice(this.singer(pid)?.deviceId, { t: 'notify', kind: 'duet', entryId: entry.id, title: entry.title, by });
+    }
+  }
+
+  /** Withdraws every open invitation to `singerId` (the guest left, was banned or removed). */
+  dropInvites(singerId) {
+    for (const e of [...this.s.queue, ...this.s.pending]) {
+      if (!e.invites?.includes(singerId)) continue;
+      e.invites = e.invites.filter((x) => x !== singerId);
+      if (!e.invites.length) delete e.invites;
+    }
+  }
+
+  /** Open duet invitations for this singer: queued songs only (pending ones wait for the host). */
+  invitesFor(singerId, eta = this.etaList()) {
+    const out = [];
+    if (!singerId) return out;
+    this.s.queue.forEach((e, i) => {
+      if (!e.invites?.includes(singerId) || e.singerIds.includes(singerId)) return;
+      // The invited partner sees the real song, even a mystery one: they are asked to sing it.
+      out.push({ entryId: e.id, title: e.title, artist: e.artist, by: this.singerView(e.singerIds[0]), position: i + 1, eta: eta[i] ?? null });
+    });
+    return out.slice(0, MAX_OPEN_INVITES);
   }
 
   /**
@@ -624,6 +678,10 @@ export class Room {
       const name = str(patch.singerName, 40);
       e.singerIds = name ? [this.findOrCreateSinger(name).id] : [];
     }
+    if (e.invites) { // someone the host added by hand needs no invitation any more
+      e.invites = e.invites.filter((id) => !e.singerIds.includes(id));
+      if (!e.invites.length) delete e.invites;
+    }
     if (patch.mystery !== undefined) e.mystery = !!patch.mystery || undefined;
     if (patch.note !== undefined) e.note = str(patch.note, 80) || undefined;
     return { entry: this.entryView(e) };
@@ -637,6 +695,7 @@ export class Room {
     const index = this.insertEntry(entry, m.position);
     this.notifyDevices(entry, { t: 'notify', kind: 'approved', entryId: entry.id, title: entry.title });
     if (wasEmpty) this.maybeAutoStart();
+    this.sendInvites(entry); // (none left if it started right away)
     return { index };
   }
 
@@ -689,6 +748,7 @@ export class Room {
     const s = this.s;
     const track = this.catalog.track(entry.trackId);
     s.current = entry;
+    delete entry.invites; // too late to join now: the song is on
     const countdown = Math.max(0, Number(this.settings.get('playback.countdown')) || 0);
     const p = s.player;
     Object.assign(p, {
@@ -996,6 +1056,7 @@ export class Room {
     if (i < 0) fail('Singer not found.', 'not_found');
     const [singer] = this.s.singers.splice(i, 1);
     for (const e of [...this.s.queue, ...this.s.pending]) e.singerIds = e.singerIds.filter((id) => id !== singer.id);
+    this.dropInvites(singer.id);
     for (const prof of Object.values(this.s.profiles)) if (prof.singerId === singer.id) delete prof.singerId;
     return { removed: singer.id };
   }
@@ -1036,6 +1097,7 @@ export class Room {
       delete this.s.profiles[id];
       const singer = singerId && this.singer(singerId);
       if (singer && !singer.sung) this.s.singers = this.s.singers.filter((x) => x.id !== singerId);
+      if (singerId) this.dropInvites(singerId);
     }
   }
 
@@ -1046,6 +1108,7 @@ export class Room {
       profile.banned = true;
       this.s.queue = this.s.queue.filter((e) => e.addedBy !== m.deviceId);
       this.s.pending = this.s.pending.filter((e) => e.addedBy !== m.deviceId);
+      if (profile.singerId) this.dropInvites(profile.singerId);
     }
     for (const c of this.hub.list((x) => x.role === GUEST && x.data.deviceId === m.deviceId)) {
       c.send({ t: 'denied', reason: ban ? 'banned' : 'kicked' });
@@ -1164,10 +1227,42 @@ export class Room {
     e.invites = e.invites.filter((x) => x !== me);
     if (!e.invites.length) delete e.invites;
     if (m.accept && !e.singerIds.includes(me)) e.singerIds.push(me);
-    const inviter = this.singer(e.singerIds[0]);
-    const name = this.singer(me)?.name || 'Your partner';
-    if (inviter?.deviceId) this.notifyDevice(inviter.deviceId, { t: 'notify', kind: m.accept ? 'duet-yes' : 'duet-no', entryId: e.id, title: e.title, by: name });
+    if (!m.accept) this.rememberDecline(e, me);
+    this.tellInviter(e, me, !!m.accept);
     return { accepted: !!m.accept };
+  }
+
+  /** A guest turns duet invitations off (or back on); turning them off declines the open ones. */
+  duetInvites(client, m) {
+    const deviceId = client.data.deviceId;
+    const profile = this.profileOf(deviceId);
+    if (!profile?.name) fail('Choose a name first.', 'no_profile');
+    if (typeof m.allow !== 'boolean') fail('Say whether duet invitations are allowed.', 'bad_request');
+    if (!this.limits.profile.take(deviceId)) fail('Too many changes — try again in a minute.', 'rate_limited');
+    if (m.allow) {
+      delete profile.noInvites;
+    } else {
+      profile.noInvites = true;
+      const me = profile.singerId;
+      for (const e of [...this.s.queue, ...this.s.pending]) {
+        if (!me || !e.invites?.includes(me)) continue;
+        this.rememberDecline(e, me);
+        this.tellInviter(e, me, false);
+      }
+      if (me) this.dropInvites(me);
+    }
+    return { allow: !profile.noInvites };
+  }
+
+  rememberDecline(entry, singerId) {
+    if (this.declined.size >= 2000) this.declined.delete(this.declined.values().next().value);
+    this.declined.add(`${entry.addedBy}>${singerId}>${entry.songId}`);
+  }
+
+  tellInviter(entry, singerId, accepted) {
+    const inviter = this.singer(entry.singerIds[0]);
+    const name = this.singer(singerId)?.name || 'Your partner';
+    if (inviter?.deviceId) this.notifyDevice(inviter.deviceId, { t: 'notify', kind: accepted ? 'duet-yes' : 'duet-no', entryId: entry.id, title: entry.title, by: name });
   }
 
   // ---- remote displays (pairing) --------------------------------------------------------------------
@@ -1640,7 +1735,7 @@ export class Room {
   profileView(deviceId) {
     const p = this.profileOf(deviceId);
     if (!p) return null;
-    return { name: p.name, emoji: p.emoji, color: p.color, singerId: p.singerId || null, favorites: p.favorites || [], coHost: !!p.coHost };
+    return { name: p.name, emoji: p.emoji, color: p.color, singerId: p.singerId || null, favorites: p.favorites || [], coHost: !!p.coHost, duetInvites: !p.noInvites };
   }
 
   entryView(e, { mask = false } = {}) {
@@ -1839,7 +1934,7 @@ export class Room {
   duetPartners() {
     const online = new Set(this.hub.list((c) => c.role === GUEST).map((c) => c.data.deviceId));
     return this.s.singers
-      .filter((x) => x.deviceId && online.has(x.deviceId) && !this.profileOf(x.deviceId)?.banned)
+      .filter((x) => x.deviceId && online.has(x.deviceId) && !this.profileOf(x.deviceId)?.banned && !this.profileOf(x.deviceId)?.noInvites)
       .slice(0, 60)
       .map((x) => ({ id: x.id, name: x.name, emoji: x.emoji, color: x.color }));
   }
@@ -1873,6 +1968,7 @@ export class Room {
         pending,
         queued,
         left: max > 0 ? Math.max(0, max - queued) : null,
+        invites: this.invitesFor(profile?.singerId, base.queue.map((e) => e.eta)),
       },
     };
   }

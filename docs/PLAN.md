@@ -323,6 +323,7 @@ player.seek {pos}  player.key {semitones}  player.tempo {rate}  player.channel {
 singer.add/update/remove/merge     guest.update(me) guest.kick guest.ban guest.cohost
 favorite.toggle {songId}  playlist.save/delete/queue   settings.update {patch}   library.rescan
 announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve/reject
+duet.answer {entryId, accept}  duet.invites {allow}   (guest: answer / turn off duet invitations)
 game.start {type, config}  game.action {...}  game.answer {...}  game.vote {...}  game.end
 display.approve {code}  display.deny {id|code|all}  display.main {id}  display.forget
 tv.status / tv.ended / tv.error / tv.ready   ping {c}
@@ -334,6 +335,12 @@ queued mystery songs or their artists until the song is out in the open: it star
 without the mystery; one removed unplayed stays withheld), `pong {c, s}`.
 
 Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min.
+Duet invitations (a guest's `queue.add` with `partners: [singerId]`): the partner is asked
+(`notify` kind `duet`) only once the song is in the queue (after host approval when that is
+on), and every open invitation is in the partner's own state (`me.invites`) so a locked or
+reloaded phone still shows it. One open invitation per inviter → partner, at most 3 waiting
+per partner, 3 per pair and 6 per partner per 10 min, a "no" sticks for that song; a guest can
+turn invitations off (`duet.invites`). Bans, singer removal and the song starting withdraw them.
 
 ## 8. HTTP API
 

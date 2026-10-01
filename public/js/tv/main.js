@@ -13,17 +13,20 @@ const store = createStore({ status: 'connecting', state: null, display: 'main', 
 
 const preview = params.get('display') === 'preview'; // the host's small live preview
 const board = params.get('layout') === 'board'; // a queue board for a second screen (muted)
+const muted = preview || board; // never plays sound, whatever the server says
 if (board) document.body.classList.add('board-layout');
 if (preview) document.body.classList.add('preview');
 const conn = new Connection({
   hello: () => ({
     role: 'tv',
-    display: preview ? 'preview' : board || params.get('display') === 'mirror' ? 'mirror' : undefined,
+    display: preview ? 'preview' : board ? 'board' : params.get('display') === 'mirror' ? 'mirror' : undefined,
     token: localStorage.getItem('ok.tvToken') || undefined, // a screen paired by the host
     hostToken: preview ? localStorage.getItem('ok.hostToken') || undefined : undefined,
     artSeq: lastArtSeq(),
   }),
 });
+/** This screen's role: what the server says, but a board or a preview is always a muted mirror. */
+const roleOf = (display) => (muted ? 'mirror' : display);
 const now = () => conn.serverNow();
 const controller = new TvController({
   conn,
@@ -34,14 +37,17 @@ const controller = new TvController({
 
 conn.on('welcome', (m) => {
   noteArt(m.art);
-  store.update({ state: m.state, display: m.display, denied: null });
-  controller.setDisplay(m.display);
+  store.update({ state: m.state, display: roleOf(m.display), denied: null });
+  controller.setDisplay(roleOf(m.display));
   controller.apply(m.state);
   controller.onWelcome();
   applyBreak(m.state);
 });
 const breakPlayer = new BreakPlayer({ onEnded: (id) => conn.request('tv.break', { id }).catch(() => {}) });
-const applyBreak = (st) => breakPlayer.apply(st?.breakMusic || null, { main: store.get().display === 'main' && !preview, unlocked: controller.unlocked, master: st?.player?.volume ?? 1 });
+const applyBreak = (st) => {
+  const s = store.get();
+  breakPlayer.apply(st?.breakMusic || null, { main: s.display === 'main' && !s.denied, unlocked: controller.unlocked, master: st?.player?.volume ?? 1 });
+};
 
 conn.on('state', (m) => {
   store.update({ state: m.state });
@@ -49,12 +55,20 @@ conn.on('state', (m) => {
   applyBreak(m.state);
 });
 conn.on('display', (m) => {
-  store.update({ display: m.display });
-  controller.setDisplay(m.display);
+  store.update({ display: roleOf(m.display) });
+  controller.setDisplay(roleOf(m.display));
+  applyBreak(store.get().state);
 });
 conn.on('time', (m) => controller.onTime(m));
 conn.on('status', (status) => store.update({ status }));
-conn.on('denied', (m) => store.update({ denied: m.reason }));
+conn.on('denied', (m) => {
+  // Refused (e.g. the host forgot paired screens): nothing will tell this screen to stop
+  // later, so go quiet now. A later welcome reloads the song where the party is.
+  store.update({ denied: m.reason });
+  controller.stop();
+  applyBreak(null);
+  conn.outbox.length = 0; // reports about a song this screen no longer plays
+});
 conn.on('reaction', (m) => addReaction(m));
 conn.on('art', (m) => noteArt(m));
 controller.addEventListener('change', () => {
@@ -237,6 +251,8 @@ function App() {
   useEffect(() => {
     if (st?.display?.accent) document.documentElement.style.setProperty('--neon', st.display.accent);
   }, [st?.display?.accent]);
+  // The host's preview never asks to be paired: it signs in with the host's own token.
+  if (s.denied && preview) return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>No preview</h2><p>Sign in to the host again to see the TV here.</p></div>`;
   if (s.denied === 'pairing_required') return html`<${Pairing} />`;
   if (s.denied) {
     return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>This screen can't join</h2><p>${DENIED_MESSAGES[s.denied] || s.denied}</p></div>`;
@@ -263,10 +279,10 @@ function App() {
     ${st.announcement && html`<div class="announce" key=${st.announcement.id}><div>${st.announcement.text}</div></div>`}
     <div class="reactions">${s.reactions.map((r) => html`<div class="reaction" key=${r.id} style=${{ left: `${r.x}%`, '--dx': r.dx }}><b>${r.emoji}</b>${r.name && html`<span>${r.name}</span>`}</div>`)}</div>
     ${s.status !== 'open' && html`<div class="conn-lost">Reconnecting to the server…</div>`}
-    ${s.display === 'mirror' && !preview && !board && html`<div class="mirror-badge">Mirror display (muted)</div>`}
+    ${s.display === 'mirror' && !muted && html`<div class="mirror-badge">Mirror display (muted)</div>`}
     ${s.toast && html`<div class="conn-lost" style="background:var(--stage-3);color:var(--ink)">${s.toast}</div>`}
     ${s.help && html`<${Help} />`}
-    ${!s.unlocked && s.display === 'main' && !preview && html`<${StartOverlay} />`}
+    ${!s.unlocked && s.display === 'main' && html`<${StartOverlay} />`}
   `;
 }
 

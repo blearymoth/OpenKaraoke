@@ -63,3 +63,32 @@ test('host preview: a muted mirror that never counts as (or becomes) the main di
   assert.equal((await connect('tv', { display: 'preview', hostToken: token }, { local: false })).denied, undefined);
   assert.equal((await connect('tv', { display: 'preview', hostToken: 'host.x.y' }, { local: false })).denied, 'pairing_required');
 });
+
+test('pairing: refused codes free their slot; one address holds two codes; deny all; quiet toasts', async () => {
+  const { room, connect, req, view } = await setupRoom();
+  const host = await connect('host');
+  // Ten addresses with two codes each fill the list…
+  const asked = [];
+  for (let i = 0; i < 10; i++) for (let k = 0; k < 2; k++) asked.push(room.pairRequest(`10.0.1.${i}`));
+  assert.equal(view(host).pairings.length, 20);
+  assert.throws(() => room.pairRequest('10.0.2.1'), /Too many screens are waiting/);
+  assert.equal(host.inbox.filter((m) => m.t === 'toast' && /wants to be a TV display/.test(m.text)).length, 1, 'one heads-up, not twenty toasts');
+  // …a screen asking again replaces its oldest code (and is never locked out)…
+  const again = room.pairRequest('10.0.1.0');
+  assert.deepEqual(room.pairStatus(asked[0].id), { status: 'expired' });
+  assert.deepEqual(room.pairStatus(asked[1].id), { status: 'waiting' });
+  assert.deepEqual(room.pairStatus(again.id), { status: 'waiting' });
+  assert.equal(view(host).pairings.length, 20);
+  // …and refusing them frees the slots (the refused screen can still read "denied").
+  await req(host, 'display.deny', { id: again.id });
+  assert.deepEqual(room.pairStatus(again.id), { status: 'denied' });
+  const fresh = room.pairRequest('10.0.2.1');
+  assert.equal((await req(host, 'display.deny', { all: true })).denied, 20);
+  assert.equal(view(host).pairings.length, 0);
+  assert.deepEqual(room.pairStatus(fresh.id), { status: 'denied' });
+  for (let i = 0; i < 10; i++) assert.doesNotThrow(() => room.pairRequest(`10.0.3.${i}`));
+  await assert.rejects(req(host, 'display.approve', { id: fresh.id }), /no longer waiting/);
+  // A refused code goes away after a minute (a waiting one after ten).
+  room.pairings.get(fresh.id).until = Date.now() - 1;
+  assert.deepEqual(room.pairStatus(fresh.id), { status: 'expired' });
+});

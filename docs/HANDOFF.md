@@ -71,7 +71,9 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   approves it (Photos page; approval can be turned off), the TV flashes it and can use the
   photos as its background slideshow.
 - **Remote display pairing**: a `/tv` on another machine shows a code; the host approves it
-  (Settings → Displays lists them and can forget them all, which revokes their tokens).
+  (Settings → Displays lists them and can forget them all, which revokes their tokens). The
+  same page shows which screen plays the sound and lets the host make another one the main
+  display; queue boards and mirrors never take the sound by themselves.
 - **Live TV preview** in the host player bar (a muted mini mirror).
 - **Preview on headphones**: play a song on the host computer's second audio output.
 - **Printable songbook** (Settings → Library: HTML to print to PDF, or CSV; letter/tag/genre/

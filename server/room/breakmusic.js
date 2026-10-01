@@ -23,7 +23,7 @@ const REST_MS = 60_000; // …and break music rests this long (no request/broadc
 export class BreakMusic {
   constructor(room) {
     this.room = room;
-    this.track = null; // { id, url, title, artist, source, songId? }
+    this.track = null; // { id, url, title, artist, source, songId?, at, with }
     this.recent = []; // ids played lately (not repeated soon)
     this.folder = { dir: '', at: 0, files: [], scanning: null };
     this.nothing = null; // { key, until }: the last pick found nothing playable (not searched again on every broadcast)
@@ -41,12 +41,23 @@ export class BreakMusic {
     return this.settings.get('playback.breakMusic') || {};
   }
 
+  /** Break music volume, 0–1 (0 is silence, not the default). */
+  volume() {
+    const v = Number(this.cfg().volume);
+    return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.35;
+  }
+
+  /** The settings a pick depends on: a new volume only fades the track that is on. */
+  pickSettings() {
+    const c = this.cfg();
+    return c.source === 'folder' ? `folder:${c.folder || ''}` : `library:${c.matchNext !== false}`;
+  }
+
   /** Should the TV play break music right now? */
   wanted() {
     const room = this.room;
     const p = room.s.player;
-    if (!this.cfg().enabled || room.gameBlocks()) return false;
-    if (room.game && !room.game.ended && room.game.constructor.exclusive) return false;
+    if (!this.cfg().enabled || this.volume() <= 0 || room.gameBlocks()) return false;
     return !room.s.current || p.state === 'intro' || p.state === 'ready' || p.state === 'idle';
   }
 
@@ -59,10 +70,10 @@ export class BreakMusic {
       return null;
     }
     // (A guest asked for the backing track that was playing: not as music to its own countdown.)
-    if (!this.track || (this.track.songId && this.track.songId === this.room.s.current?.songId)) this.pick();
+    const t = this.track;
+    if (!t || t.with !== this.pickSettings() || (t.songId && t.songId === this.room.s.current?.songId)) this.pick();
     if (!this.track) return null;
-    const volume = Math.max(0, Math.min(1, Number(this.cfg().volume) || 0.35));
-    return { id: this.track.id, url: this.track.url, title: this.track.title, artist: this.track.artist, volume };
+    return { id: this.track.id, url: this.track.url, title: this.track.title, artist: this.track.artist, volume: this.volume() };
   }
 
   /** Picks the next track (library or folder); keeps the last few from repeating. */
@@ -71,7 +82,7 @@ export class BreakMusic {
     const key = this.pickKey();
     if (this.nothing?.key === key && Date.now() < this.nothing.until) return (this.track = null);
     const next = cfg.source === 'folder' ? this.pickFolder(cfg.folder) : this.pickLibrary(cfg.matchNext !== false);
-    this.track = next && { ...next, at: Date.now() };
+    this.track = next && { ...next, at: Date.now(), with: this.pickSettings() };
     this.nothing = next ? null : { key, until: Date.now() + RETRY_MS };
     if (next) {
       this.recent.push(next.id);
@@ -80,9 +91,9 @@ export class BreakMusic {
     return this.track;
   }
 
-  /** What a pick that found nothing depends on: the catalog, which library drives are connected, the folder scan. */
+  /** What a pick that found nothing depends on: settings, catalog, which library drives are connected, the folder scan. */
   pickKey() {
-    return `${this.room.catalog.version}|${this.room.library.rootsOnline.join()}|${this.folder.at}`;
+    return `${this.pickSettings()}|${this.room.catalog.version}|${this.room.library.rootsOnline.join()}|${this.folder.at}`;
   }
 
   pickLibrary(matchNext) {
@@ -182,9 +193,9 @@ export class BreakMusic {
     return { track: this.track ? { title: this.track.title, artist: this.track.artist } : null };
   }
 
-  settingsChanged() {
-    this.track = null;
-    this.folder.at = 0;
+  /** The host changed break-music settings (`changed`: the ones they sent). */
+  settingsChanged(changed = {}) {
+    if (Object.hasOwn(changed, 'source') || Object.hasOwn(changed, 'folder')) this.folder.at = 0; // (scan it again)
     this.nothing = null; // (the host may just have fixed what was wrong: try again straight away)
     this.fails = [];
     this.restUntil = 0;

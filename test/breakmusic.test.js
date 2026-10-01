@@ -88,6 +88,29 @@ test('break music: every break gets a fresh track that matches the song coming u
   assert.equal(new Set(ids).size, ids.length, `a new track at every break: ${ids.join(' ')}`);
 });
 
+test('break music: a new volume fades the song that is on (0% is silence); a new source picks anew', async () => {
+  const music = await tmpDir('ok-music-');
+  await writeTree(music, { 'Band - Tune One.mp3': 2000 });
+  const { connect, req, view, room } = await setupRoom({}, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const id = view(tv).breakMusic.id;
+  for (const volume of [0.3, 0.2, 0.15]) {
+    await req(host, 'settings.update', { patch: { playback: { breakMusic: { volume } } } });
+    assert.equal(view(tv).breakMusic.id, id, 'the same song');
+    assert.equal(view(tv).breakMusic.volume, volume);
+  }
+  await req(host, 'settings.update', { patch: { playback: { breakMusic: { volume: 0 } } } });
+  assert.equal(view(tv).breakMusic, null, '0% is silence (not the 35% default)');
+  assert.equal(view(host).breakMusic, null);
+  await req(host, 'settings.update', { patch: { playback: { breakMusic: { volume: 0.25 } } } });
+  assert.equal(view(tv).breakMusic.volume, 0.25);
+  await req(host, 'settings.update', { patch: { playback: { breakMusic: { source: 'folder', folder: music } } } });
+  assert.equal(view(tv).breakMusic, null, 'the folder is being scanned');
+  await room.breakMusic.folder.scanning;
+  assert.equal(view(tv).breakMusic.title, 'Tune One', 'the music comes from the folder now');
+});
+
 test('break music: explicit songs never play; a mystery-free pool excludes queued songs', async () => {
   const { connect, view, room } = await setupRoom({}, { songs: ['Queen - Killer Queen (Explicit) [SF Karaoke]', 'Blondie - Rapture (Explicit) [SF Karaoke]'] });
   const tv = await connect('tv');

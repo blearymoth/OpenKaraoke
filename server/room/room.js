@@ -1195,7 +1195,7 @@ export class Room {
     const clean = this.settings.update(patch);
     if (paths) await this.libraryPaths({ paths });
     if (clean.artwork) this.app.artwork?.settingsChanged();
-    if (clean.playback?.breakMusic) this.breakMusic.settingsChanged();
+    if (clean.playback?.breakMusic) this.breakMusic.settingsChanged(clean.playback.breakMusic);
     return { settings: clean };
   }
 

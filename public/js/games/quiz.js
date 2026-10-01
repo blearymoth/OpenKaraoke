@@ -459,8 +459,8 @@ function TvFinal({ game }) {
       <div class="kicker">${icon} Music quiz · final results</div>
       <h1 class="display">${title}</h1>
     </header>
-    ${rows.length ? html`<${Podium} rows=${rows} />` : html`<p class="qz-empty">Nobody answered this time.</p>`}
-    ${rest.length > 0 && html`<p class="g-tv-foot qz-rest">${rest.map((r, i) => html`<span key=${r.id}>${r.place || i + 4}. ${r.name} <b class="num">${fmt(r.score)}</b></span>`)}</p>`}
+    ${winners.length ? html`<${Podium} rows=${rows} />` : html`<p class="qz-empty">${rows.length ? 'Not a single right answer this time.' : 'Nobody answered this time.'}</p>`}
+    ${winners.length > 0 && rest.length > 0 && html`<p class="g-tv-foot qz-rest">${rest.map((r, i) => html`<span key=${r.id}>${r.rank || i + 4}. ${r.name} <b class="num">${fmt(r.score)}</b></span>`)}</p>`}
   </div>`;
 }
 

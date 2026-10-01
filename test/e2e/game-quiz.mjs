@@ -249,6 +249,16 @@ try {
   await sleep(500);
   await shot(tv, 'tv-final-tie');
   await shot(bob, 'bob-final-tie');
+  // Nobody scored: nobody is crowned, and there's no podium of zeros.
+  const scores = [...players.values()].map((p) => p.score);
+  for (const p of players.values()) p.score = 0;
+  room().markDirty();
+  const nobody = await tv.waitForSelector('.qz-final h1:has-text("Nobody scored")', { timeout: 5000 }).then(() => true, () => false);
+  check(nobody && !(await tv.$('.qz-final .g-podium')) && /Not a single right answer/.test(await tv.textContent('.qz-final')), 'TV: nobody scored — no podium');
+  await shot(tv, 'tv-final-nobody');
+  [...players.values()].forEach((p, i) => { p.score = scores[i]; });
+  room().markDirty();
+  await tv.waitForSelector('.qz-final .g-podium');
   await host.click('.game-live .btn:has-text("Finish")');
   await host.waitForSelector('.game-live .btn:has-text("Close")', { timeout: 5000 });
   const recap = room().s.tonight.games.at(-1);

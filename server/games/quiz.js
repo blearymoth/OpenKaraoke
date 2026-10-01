@@ -479,7 +479,7 @@ export class Quiz extends Game {
       });
     }
     rows.sort((a, b) => b.score - a.score || a.order - b.order);
-    rows.forEach((r, i) => { r.place = i && rows[i - 1].score === r.score ? rows[i - 1].place : i + 1; }); // ties share a place
+    rows.forEach((r, i) => { r.rank = i && rows[i - 1].score === r.score ? rows[i - 1].rank : i + 1; }); // ties share a place (1, 1, 3)
     return rows;
   }
 
@@ -548,7 +548,7 @@ export class Quiz extends Game {
       const p = this.players.get(ctx.deviceId);
       const mine = this.answers.get(ctx.deviceId);
       const row = rows.find((r) => r.deviceId === ctx.deviceId);
-      const rank = row?.place || 0;
+      const rank = row?.rank || 0;
       v.me = {
         id: p?.pid || null,
         choice: mine ? mine.choice : -1,

@@ -607,7 +607,7 @@ test('quiz: ties share the win, nobody wins with 0 points — TV, phones and rec
   assert.equal(view(ben).game.me.tied, true);
   assert.equal(view(cy).game.me.rank, 3);
   assert.equal(view(cy).game.me.tied, false);
-  assert.deepEqual(view(tv).game.leaderboard.map((r) => r.place), [1, 1, 3], 'the leaderboard shows the shared place');
+  assert.deepEqual(view(tv).game.leaderboard.map((r) => r.rank), [1, 1, 3], 'the leaderboard shows the shared place');
   q.end();
   assert.deepEqual(s().tonight.games.at(-1).winners, ['Ana', 'Ben'], 'both are in the recap');
   assert.equal(s().tonight.games.at(-1).title, 'Quiz champions');

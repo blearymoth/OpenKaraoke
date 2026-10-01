@@ -22,6 +22,8 @@ const TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
 const fail = (message, code = 'bad_request', status = 400) => {
   throw new UserError(message, { code, status });
 };
+const decided = (p) => p.decidedAt || p.createdAt;
+const byDecision = (a, b) => decided(a) - decided(b);
 // (Not 408: browsers quietly send a request again when that comes back on a reused connection.)
 const tooSlow = () => new UserError('Your photo took too long to arrive — try again.', { code: 'timeout', status: 400 });
 
@@ -206,7 +208,6 @@ export class Photos {
    */
   async prune() {
     const list = this.list;
-    const decided = (p) => p.decidedAt || p.createdAt;
     const oldest = (status) => {
       let at = -1;
       for (let i = 0; i < list.length; i++) {
@@ -309,19 +310,21 @@ export class Photos {
 
   /** The newest `n` approved photos for the TV's photo wall (in the order the host approved them). */
   approved(n = 40) {
-    const decided = (p) => p.decidedAt || p.createdAt;
-    return this.list.filter((p) => p.status === 'approved').sort((a, b) => decided(a) - decided(b)).slice(-n).map((p) => ({ id: p.id, name: p.name }));
+    return this.list.filter((p) => p.status === 'approved').sort(byDecision).slice(-n).map((p) => ({ id: p.id, name: p.name }));
   }
 
   guestView(p) {
     return { id: p.id, status: p.status, createdAt: p.createdAt };
   }
 
-  /** For the host, newest first: every photo waiting for them, and the latest HOST_LIST others. */
+  /**
+   * For the host: every photo waiting for them (newest first), then the HOST_LIST others the
+   * host decided on last (latest first), so a photo they just put on the TV is always listed.
+   */
   hostView() {
-    const recent = new Set(this.list.filter((p) => p.status !== 'pending').slice(-HOST_LIST));
-    return this.list.filter((p) => p.status === 'pending' || recent.has(p)).reverse()
-      .map((p) => ({ id: p.id, name: p.name, status: p.status, createdAt: p.createdAt, size: p.size }));
+    const pending = this.list.filter((p) => p.status === 'pending').reverse();
+    const recent = this.list.filter((p) => p.status !== 'pending').sort(byDecision).slice(-HOST_LIST).reverse();
+    return [...pending, ...recent].map((p) => ({ id: p.id, name: p.name, status: p.status, createdAt: p.createdAt, size: p.size }));
   }
 
   /** How many photos are kept, by status (the host's list may not show them all). */

@@ -293,6 +293,29 @@ test('photos: when every slot is taken, the slowest upload makes way (stalled up
   }
 });
 
+test('photos: a photo the host approves late stays on their list (newest decisions first)', async () => {
+  const r = await party();
+  const { app, room, connect, req, view } = r;
+  try {
+    const host = await connect('host');
+    const photos = room.photos;
+    const [ann] = await guests(r, 1, 'Ann');
+    const { id } = await photos.add(ann.data.deviceId, JPEG);
+    // Then a long party's worth of photos sent after it, which the host decided on first.
+    const t0 = Date.now() - 60_000;
+    for (let i = 0; i < 125; i++) photos.list.push({ id: `p${i}`, ext: 'jpg', deviceId: 'x', name: 'Bo', status: i % 10 ? 'approved' : 'rejected', createdAt: t0 + i, decidedAt: t0 + 1000 + i, size: 1 });
+    assert.equal(view(host).photos[0].id, id, 'waiting photos come first');
+    await req(host, 'photo.approve', { id });
+    const listed = view(host).photos;
+    assert.equal(listed.length, 120);
+    assert.equal(listed[0].id, id, 'just approved: at the top of the list, so the host can still delete it');
+    assert.equal(listed.at(-1).id, 'p6', 'the oldest decisions drop off the list');
+    assert.equal(photos.approved(1)[0].id, id, 'and the newest on the TV photo wall');
+  } finally {
+    await app.close();
+  }
+});
+
 test('photos: a flood of waiting photos never pushes out approved ones; the host sees every waiting photo', async () => {
   const r = await party();
   const { app, room, connect, req, view } = r;

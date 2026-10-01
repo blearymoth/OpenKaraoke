@@ -85,3 +85,63 @@ test('autoplay: an empty queue gets a popular sing-along for everyone after the 
   room.breakMusic.checkAutoplay();
   assert.equal(room.breakMusic.autoplayTimer, null);
 });
+
+test('autoplay: a finished poll stays on the TV until its winner starts, then the lobby and autoplay come back', async () => {
+  const { connect, req, view, s, room } = await setupRoom(
+    { playback: { autoStart: true, countdown: 0, whenQueueEmpty: 'autoplay', autoplayAfter: 60 } },
+    { songs: [...SONGS, ...MORE_SONGS] },
+  );
+  const host = await connect('host');
+  const tv = await connect('tv');
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 10 } });
+  room.game.setPhase('vote', 0.05, () => room.game.close());
+  await sleep(120);
+  assert.equal(view(tv).game.phase, 'result', 'the result is on the TV');
+  assert.equal(room.breakMusic.autoplayTimer, null, 'no autoplay while the poll is on the TV');
+  room.game.setPhase('result', 0.05, () => room.game.end());
+  await sleep(120);
+  const cur = s().current;
+  assert.ok(cur, 'the winning song starts once the poll is over');
+  assert.equal(view(host).game.phase, 'done', 'the host still sees the result while the winner is sung');
+  await req(tv, 'tv.ready', { entryId: cur.id, dur: 200 });
+  await req(tv, 'tv.ended', { entryId: cur.id });
+  assert.equal(s().current, null);
+  assert.equal(room.game, null, 'the party moved on: the finished poll is closed');
+  assert.equal(view(tv).game, null, 'the lobby is back after the winner, not the old poll');
+  assert.ok(room.breakMusic.autoplayTimer, 'autoplay is armed again');
+});
+
+test('games: a game that ends during a song keeps its results up after that song', async () => {
+  const { connect, req, view, s, room, song } = await setupRoom({ playback: { countdown: 0 } }, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  const tv = await connect('tv');
+  await req(host, 'queue.add', { songId: song('hello').id, singerName: 'Ann' });
+  await req(host, 'queue.add', { songId: song('waterloo').id, singerName: 'Bo' });
+  await req(host, 'game.start', { type: 'relay', config: {} });
+  await req(host, 'player.play');
+  const first = s().current;
+  await req(host, 'game.end');
+  await req(tv, 'tv.ended', { entryId: first.id });
+  assert.ok(room.game?.ended, 'ended during the first song: still there after it');
+  const second = s().current;
+  assert.ok(second && second.id !== first.id);
+  await req(tv, 'tv.ended', { entryId: second.id });
+  assert.equal(room.game, null, 'closed once the next song is over');
+  assert.equal(view(tv).game, null);
+});
+
+test('autoplay: the results of a game that ended with nothing queued hold it back until they are closed', async () => {
+  const { connect, req, view, room } = await setupRoom(
+    { playback: { autoStart: true, countdown: 0, whenQueueEmpty: 'autoplay', autoplayAfter: 60 } },
+    { songs: [...SONGS, ...MORE_SONGS] },
+  );
+  const host = await connect('host');
+  const tv = await connect('tv');
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 10 } });
+  await req(host, 'game.end');
+  assert.equal(view(tv).game.ended, true, 'the results stay on the TV');
+  assert.equal(room.breakMusic.autoplayTimer, null);
+  await req(host, 'game.close');
+  view(tv);
+  assert.ok(room.breakMusic.autoplayTimer, 'closed: autoplay is armed');
+});

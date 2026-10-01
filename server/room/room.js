@@ -76,6 +76,7 @@ export class Room {
     this.announceTimer = null;
     this.announcement = null;
     this.game = null; // the running party game (not persisted: a restart ends it)
+    this.gameBehind = null; // a finished game the current song started after (closed when it ends)
     this.pairings = new Map(); // remote displays waiting for the host: id → { id, code, ip, at, status, token }
     this.rating = null; // guests rating the performance that just ended
     this.ratingTimer = null;
@@ -608,6 +609,8 @@ export class Room {
 
   startEntry(entry) {
     const s = this.s;
+    // A finished game whose results are still up: this song moves the party on (see finish()).
+    this.gameBehind = this.game?.ended ? this.game : null;
     const track = this.catalog.track(entry.trackId);
     s.current = entry;
     const countdown = Math.max(0, Number(this.settings.get('playback.countdown')) || 0);
@@ -785,6 +788,14 @@ export class Room {
     }
     s.current = null;
     this.resetPlayer();
+    // The first song after a finished game is over: close the game (its result is already in
+    // tonight's games), so the lobby with its QR code, ratings and autoplay come back instead of
+    // the old results screen.
+    if (this.game && this.game === this.gameBehind) {
+      this.game.dispose();
+      this.game = null;
+    }
+    this.gameBehind = null;
     // A game that plays songs itself (battle) decides what comes next.
     const handled = this.gameHook('onSongEnd', entry, { completed, playedSec, reason }) === true;
     if (completed && !entry.game && entry.singerIds.length && this.settings.get('playback.ratingAfterSong')) this.openRating(entry);

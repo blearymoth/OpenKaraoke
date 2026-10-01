@@ -52,6 +52,11 @@ const MAX_PLAYLISTS = 100;
 const MAX_PLAYLIST_SONGS = 500;
 const MASK = '••••••';
 const MAX_PROFILES = 1000;
+// What a /tv page asks to be (hello `display`): a plain TV ('main', may play the sound), a muted
+// mirror (?display=mirror: main only when the host picks it), the queue board (?layout=board:
+// never plays) or the host's own live preview (muted and not listed). The server then makes it
+// the main display or a mirror.
+const TV_KINDS = new Set(['main', 'mirror', 'board', 'preview']);
 const validId = (id) => typeof id === 'string' && /^[\w-]{4,64}$/.test(id) && id !== '__proto__' && id !== 'constructor' && id !== 'prototype';
 const str = (v, max = 100) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const num = (v, min, max, def) => {
@@ -177,12 +182,20 @@ export class Room {
       return { ok: true, role, welcome: { state: this.hostView() } };
     }
     if (role === TV) {
+      const asked = typeof msg.display === 'string' && TV_KINDS.has(msg.display) ? msg.display : 'main';
       // A remote host (PIN) may watch the preview; other remote screens need pairing.
-      const previewByHost = msg.display === 'preview' && this.auth.isHost(client.ip, msg.hostToken);
+      const previewByHost = asked === 'preview' && !client.isLocal && this.auth.isHost(client.ip, msg.hostToken);
       if (!client.isLocal && !previewByHost && !this.auth.verify(msg.token, 'tv')) return { ok: false, reason: 'pairing_required' };
-      // 'preview' = the host's small live preview: a muted mirror that doesn't count as a TV.
-      client.data.preview = msg.display === 'preview';
-      client.data.display = msg.display === 'mirror' || client.data.preview || this.mainDisplay() ? 'mirror' : 'main';
+      // 'preview' = the host's small live preview: a muted mirror that isn't listed as a display.
+      // Only this computer or a signed-in host gets one; a paired screen asking for it is a mirror.
+      const kind = asked === 'preview' && !client.isLocal && !previewByHost ? 'mirror' : asked;
+      client.data.kind = kind;
+      client.data.preview = kind === 'preview';
+      client.data.hostPreview = previewByHost; // admitted by the host's token, not a pairing
+      // A plain TV becomes the main display unless one is already on; it takes the sound back
+      // from a screen that only stood in while the main TV was away (a reload, a Wi-Fi blip).
+      const main = this.mainDisplay();
+      client.data.display = kind === 'main' && (!main || main.data.standIn) ? 'main' : 'mirror';
       return { ok: true, role, welcome: { display: client.data.display, state: this.tvView() } };
     }
     if (role === GUEST) {
@@ -206,26 +219,26 @@ export class Room {
 
   onJoin(client) {
     if (client.role === TV && client.data.display === 'main') {
-      const p = this.s.player;
-      if (p.displayLost) p.displayLost = false;
       log.info(`TV display connected (${client.isLocal ? 'this computer' : client.ip})`);
-      this.maybeAutoStart();
+      this.setMain(client);
     }
     this.markDirty();
   }
 
   onLeave(client) {
     if (client.role === TV && client.data.display === 'main') {
-      const next = this.hub.list((c) => c.role === TV && c !== client && c.open && !c.data.preview)[0];
+      // Another plain TV stands in until the main TV is back. Mirrors, queue boards and the
+      // host's preview asked to stay muted: they never take the sound by themselves.
+      const next = this.hub.list((c) => c.role === TV && c !== client && c.open && c.data.kind === 'main')[0];
       if (next) {
-        next.data.display = 'main';
-        next.send({ t: 'display', display: 'main' });
+        this.setMain(next, { standIn: true });
       } else {
         const p = this.s.player;
         if (this.s.current) {
           if (p.state === 'playing' || p.state === 'intro' || p.state === 'ready') {
             p.state = 'paused';
-            this.toastHosts('The TV display disconnected — playback is paused.', 'error');
+            const mirror = this.hub.list((c) => c.role === TV && c !== client && c.open && c.data.kind === 'mirror').length;
+            this.toastHosts(`The TV display disconnected — playback is paused.${mirror ? ' Open the TV page again, or pick another display in Settings → Displays.' : ''}`, 'error');
           }
           p.displayLost = true;
           p.tvReady = false;
@@ -239,6 +252,41 @@ export class Room {
 
   mainDisplay() {
     return this.hub.list((c) => c.role === TV && c.data.display === 'main' && c.open)[0] || null;
+  }
+
+  /**
+   * Makes `client` the one display that plays the sound; any other main display becomes a muted
+   * mirror. `standIn`: it only took over because the main TV went away, and gives the sound
+   * back to the next plain TV that connects.
+   */
+  setMain(client, { standIn = false } = {}) {
+    for (const c of this.hub.list((x) => x.role === TV && x !== client && x.data.display === 'main')) {
+      c.data.display = 'mirror';
+      c.data.standIn = false;
+      c.send({ t: 'display', display: 'mirror' });
+    }
+    client.data.standIn = standIn;
+    if (client.data.display !== 'main') {
+      client.data.display = 'main';
+      client.send({ t: 'display', display: 'main' });
+    }
+    const p = this.s.player;
+    if (p.displayLost) p.displayLost = false;
+    this.maybeAutoStart();
+    this.markDirty();
+  }
+
+  /** The host picks the display that plays the sound (Settings → Displays). */
+  displayMain(m) {
+    const id = typeof m.id === 'string' ? m.id.slice(0, 64) : '';
+    const c = this.hub.list((x) => x.role === TV && x.id === id && x.open && !x.data.preview)[0];
+    if (!c) fail('That display is not connected any more.', 'not_found');
+    if (c.data.kind === 'board') fail('A queue board never plays the music — open /tv on that screen to use it as the TV.', 'bad_display');
+    if (c.data.display !== 'main' || c.data.standIn) {
+      log.info(`the host made the display ${c.isLocal ? 'on this computer' : `at ${c.ip}`} the main TV`);
+      this.setMain(c);
+    }
+    return { ok: true };
   }
 
   // ---- requests ------------------------------------------------------------------------
@@ -285,6 +333,7 @@ export class Room {
       'display.approve': [H, (c, m) => this.displayApprove(m)],
       'display.deny': [H, (c, m) => this.displayDeny(m)],
       'display.forget': [H, () => this.displayForget()],
+      'display.main': [H, (c, m) => this.displayMain(m)],
       'duet.answer': [[GUEST], (c, m) => this.duetAnswer(c, m)],
       'settings.update': [H, (c, m) => this.settingsUpdate(m)],
       'library.rescan': [H, () => this.libraryRescan()],
@@ -1143,10 +1192,13 @@ export class Room {
     return { ok: true };
   }
 
-  /** Logs every paired (remote) display out; screens on this computer are not affected. */
+  /**
+   * Logs every paired (remote) display out. Screens on this computer, and a remote host's own
+   * live preview (signed in with the host PIN, not paired), are not affected.
+   */
   async displayForget() {
     await this.auth.forgetDisplays();
-    for (const c of this.hub.list((x) => x.role === TV && !x.isLocal)) {
+    for (const c of this.hub.list((x) => x.role === TV && !x.isLocal && !x.data.hostPreview)) {
       c.send({ t: 'denied', reason: 'pairing_required' });
       c.close(4003, 'unpaired');
     }
@@ -1616,7 +1668,10 @@ export class Room {
         .map(([deviceId, p]) => ({ deviceId, name: p.name, emoji: p.emoji, color: p.color, online: online.has(deviceId), banned: !!p.banned, coHost: !!p.coHost, queued: queuedBy.get(deviceId) || 0, lastSeen: p.lastSeen || 0 }))
         .sort((a, b) => Number(b.online) - Number(a.online) || b.lastSeen - a.lastSeen)
         .slice(0, 300),
-      displays: this.hub.list((c) => c.role === TV && !c.data.preview).map((c) => ({ id: c.id, display: c.data.display, local: c.isLocal, ip: c.isLocal ? '' : String(c.ip || '').replace(/^::ffff:/, '') })),
+      displays: this.hub.list((c) => c.role === TV && !c.data.preview).map((c) => ({
+        id: c.id, display: c.data.display, kind: c.data.kind || 'main', standIn: !!c.data.standIn,
+        local: c.isLocal, ip: c.isLocal ? '' : String(c.ip || '').replace(/^::ffff:/, ''),
+      })),
       pairings: [...this.pairings.values()].filter((p) => p.status === 'waiting' && Date.now() - p.at < 10 * 60_000).map((p) => ({ id: p.id, code: p.code, ip: p.ip.replace(/^::ffff:/, ''), at: p.at })),
       hosts: this.hub.list((c) => c.role === HOST).length,
       announcement: this.announcement,

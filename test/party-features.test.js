@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupRoom } from './room-harness.js';
+import { MAX_LIST_SONGS } from '../shared/protocol.js';
 
 test('playlists: save the queue, add/remove songs, queue a playlist, limits and validation', async () => {
   const { req, connect, song, s, view } = await setupRoom();
@@ -35,6 +36,28 @@ test('playlists: save the queue, add/remove songs, queue a playlist, limits and 
   assert.equal(view(host).playlists.some((p) => p.id === id), false);
   const ana = await connect('guest');
   await assert.rejects(req(ana, 'playlist.save', { name: 'x' }), /not allowed/);
+});
+
+test('a full playlist (and favourites list) loads in one /api/songs call', async () => {
+  const names = Array.from({ length: MAX_LIST_SONGS + 20 }, (_, i) => `Artist ${i} - Song number ${i} [SF Karaoke]`);
+  const { app, req, connect, view } = await setupRoom({}, { songs: names });
+  const host = await connect('host');
+  const all = app.library.catalog.songList.map((x) => x.id);
+  const { id } = await req(host, 'playlist.save', { name: 'Everything', songIds: all });
+  const ids = view(host).playlists.find((p) => p.id === id).songIds;
+  assert.equal(ids.length, MAX_LIST_SONGS, 'a playlist holds MAX_LIST_SONGS songs');
+  for (const songId of all.slice(0, MAX_LIST_SONGS + 5)) await req(host, 'favorite.toggle', { songId });
+  assert.equal(view(host).favorites.length, MAX_LIST_SONGS, 'so does the favourites list');
+  await app.listen(0, '127.0.0.1');
+  try {
+    const r = await fetch(`http://127.0.0.1:${app.port}/api/songs?${new URLSearchParams({ ids: ids.join(',') })}`);
+    assert.equal(r.status, 200);
+    const { items } = await r.json();
+    assert.equal(items.length, ids.length, 'every song of the playlist comes back');
+    assert.deepEqual(items.map((x) => x.id), ids);
+  } finally {
+    await app.close();
+  }
 });
 
 test('co-hosts: the host trusts a guest with the player and requests — nothing more', async () => {

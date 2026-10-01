@@ -42,6 +42,9 @@ export function formatTempo(r) {
   return `${Math.round(r * 100)}%`;
 }
 
+/** Songs a playlist or a favourites list holds — and so what /api/songs returns in one call. */
+export const MAX_LIST_SONGS = 500;
+
 /** Why a guest's hello was refused, in words a guest understands. */
 export const DENIED_MESSAGES = {
   bad_room: 'This party code does not exist. Scan the QR code on the TV again.',

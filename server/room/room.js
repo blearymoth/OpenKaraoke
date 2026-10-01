@@ -10,7 +10,7 @@ import { RateLimiter } from '../util/ratelimit.js';
 import { wifiPayload } from '../util/qr.js';
 import { mediaUrls } from '../http/media.js';
 import { insertIndex, etas, leadOf, shuffled } from './rotation.js';
-import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, RATING_SECONDS, clampKey, clampTempo } from '../../shared/protocol.js';
+import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, RATING_SECONDS, MAX_LIST_SONGS, clampKey, clampTempo } from '../../shared/protocol.js';
 import { createGame } from '../games/index.js';
 import { BreakMusic } from './breakmusic.js';
 import { Photos } from './photos.js';
@@ -49,7 +49,7 @@ const COHOST_ACTIONS = new Set([
   'player.key', 'player.tempo', 'player.volume', 'queue.move', 'queue.approve', 'queue.reject', 'announce',
 ]);
 const MAX_PLAYLISTS = 100;
-const MAX_PLAYLIST_SONGS = 500;
+const MAX_PLAYLIST_SONGS = MAX_LIST_SONGS;
 const MASK = '••••••';
 const MAX_PROFILES = 1000;
 const validId = (id) => typeof id === 'string' && /^[\w-]{4,64}$/.test(id) && id !== '__proto__' && id !== 'constructor' && id !== 'prototype';
@@ -994,7 +994,7 @@ export class Room {
     const i = list.indexOf(songId);
     if (i >= 0) list.splice(i, 1);
     else list.unshift(songId);
-    if (list.length > 500) list.length = 500;
+    if (list.length > MAX_LIST_SONGS) list.length = MAX_LIST_SONGS;
     return { favorite: i < 0 };
   }
 

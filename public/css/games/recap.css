@@ -75,7 +75,7 @@
 .rc-fav.joint { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; gap: 5vh; }
 .rc-fav.joint .head { justify-items: center; gap: 1vh; }
 .rc-favs { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 4vw; width: min(100%, 170vh); }
-.rc-fav-card { display: grid; justify-items: center; gap: 2.4vh; min-width: 0; animation: rc-pop 0.6s var(--ease) both; }
+.rc-fav-card { display: grid; justify-items: center; align-content: start; gap: 2.4vh; min-width: 0; animation: rc-pop 0.6s var(--ease) both; }
 .rc-fav-card .what { justify-items: center; max-width: 100%; }
 .rc-fav.joint .g-art { width: 36vh; }
 .rc-fav.joint .rc-fav-card h1 { font-size: 6vh; max-width: 100%; }

@@ -9,8 +9,8 @@
 //     TV letting go of the microphone when it loses the server, and a blocked microphone
 //     reaching the host.
 //  3. Party recap — after songs with ratings and reactions: slides on the TV (host next/goto,
-//     auto-advance, tied singers sharing first place), the compact recap on the phones, the
-//     applause winner among the games.
+//     auto-advance, tied singers sharing first place — long names kept on their own steps), the
+//     compact recap on the phones, the applause winner among the games.
 //
 //   node test/e2e/game-party.mjs [outDir]
 import fs from 'node:fs/promises';
@@ -389,6 +389,24 @@ try {
   const places = await tv.$$eval('.rc-singers .g-podium .step', (l) => l.map((s) => `${s.querySelector('b').textContent} ${s.querySelector('.block').textContent} ${s.className}`));
   check(places.length === 2 && places.every((p) => / 1 step p1$/.test(p)), `one song each: Ann and Bob share first place (${places.join('; ')})`);
   await shot(tv, 'tv-recap-singers', 900);
+  // Tied singers with long names stand side by side at the same height: each name stays on its step.
+  const renamed = [['Ann', 'Grandma Josephine & Co'], ['Bob', LONG]].map(([from, to]) => {
+    const singer = room().s.singers.find((x) => x.name === from);
+    singer.name = to;
+    return [singer, from];
+  });
+  g.rebuild({ restart: false });
+  await tv.waitForFunction((n) => document.querySelector('.rc-singers .g-podium')?.textContent.includes(n), LONG, { timeout: 5000 });
+  const steps = await tv.$$eval('.rc-singers .g-podium .step', (l) => l.map((s) => {
+    const b = s.querySelector('b').getBoundingClientRect();
+    const r = s.getBoundingClientRect();
+    return { left: b.left, right: b.right, stepLeft: r.left, stepRight: r.right };
+  }).sort((a, b) => a.left - b.left));
+  check(steps.length === 2 && steps.every((s) => s.left >= s.stepLeft - 0.5 && s.right <= s.stepRight + 0.5) && steps[0].right <= steps[1].left,
+    `tied long names (“${LONG}”) stay on their own steps, never over each other`);
+  await shot(tv, 'tv-recap-singers-long-tie', 300);
+  for (const [singer, name] of renamed) singer.name = name;
+  g.rebuild({ restart: false });
   for (const [i, sel, name] of [[2, '.rc-rated', 'rated'], [3, '.rc-artists', 'artists'], [4, '.rc-fav', 'favourite'], [5, '.rc-games', 'games'], [6, '.rc-thanks', 'thanks']]) {
     await host.click(`.rc-slides .chip >> nth=${i}`);
     await tv.waitForSelector(sel, { timeout: 5000 });

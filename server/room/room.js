@@ -1391,8 +1391,11 @@ export class Room {
 
   /** Sends a message to one guest's phones (device id from their signed token). */
   notifyDevice(deviceId, msg) {
-    if (!deviceId) return;
-    this.hub.broadcast(msg, (c) => c.role === GUEST && c.data.deviceId === deviceId);
+    if (!deviceId) return 0;
+    const to = (c) => c.role === GUEST && c.data.deviceId === deviceId;
+    const n = this.hub.list(to).length; // phones connected right now (nothing is kept for later)
+    if (n) this.hub.broadcast(msg, to);
+    return n;
   }
 
   // ---- performance ratings (PLAN §13.7) ----------------------------------------------------------------

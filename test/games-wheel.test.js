@@ -531,3 +531,66 @@ test('wheel: after the game the queue carries on (auto-start resumes)', async ()
   assert.ok(s().current, 'the wheel’s song starts once the game is over');
   assert.equal(s().current.source, 'game:wheel');
 });
+
+test('wheel: a buzz only counts phones that are connected right now', async () => {
+  const { req, host, guest, room, view, leave, connect } = await party();
+  const ana = await guest('Ana');
+  await guest('Ben');
+  leave(ana); // Ana went home (her singer and profile stay)
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers' } });
+  const g = room.game;
+  assert.ok(g.segments.some((x) => x.label === 'Ana'), 'she was here tonight: still on the wheel');
+  await req(host, 'game.action', { action: 'spin' });
+  g.spin.index = g.segments.findIndex((x) => x.label === 'Ana');
+  const before = ana.inbox.length;
+  land(room);
+  assert.equal(ana.inbox.length, before);
+  assert.equal(view(host).game.result.notified, 0, 'the host sees “No phone connected”');
+  await assert.rejects(req(host, 'game.action', { action: 'buzz' }), /No.*phone/);
+  // Back on her phone: "Buzz again" reaches her.
+  const back = await connect('guest', { token: ana.welcome.token });
+  assert.deepEqual(await req(host, 'game.action', { action: 'buzz' }), { notified: 1 });
+  assert.equal(back.inbox.filter((m) => m.t === 'notify' && m.kind === 'game').length, 1);
+  assert.equal(view(host).game.result.notified, 1);
+});
+
+test('wheel: “everyone singing tonight” leaves out singers from earlier parties', async () => {
+  const { req, host, guest, room, leave, connect } = await party();
+  await req(host, 'singer.add', { name: 'LastMonthLucy' });
+  const otto = await guest('OldGuestOtto');
+  await req(otto, 'queue.add', { songId: room.catalog.songList[0].id });
+  await req(host, 'queue.clear');
+  leave(otto);
+  await req(host, 'singer.add', { name: 'Zed' });
+  await new Promise((r) => setTimeout(r, 5));
+  await req(host, 'party.new');
+  await guest('Ana');
+  await guest('Ben');
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', count: 12 } });
+  assert.deepEqual(room.game.segments.map((x) => x.label).sort(), ['Ana', 'Ben']);
+  await req(host, 'game.close');
+  // Tonight's people without a phone: re-added by the host, or with a song in the queue.
+  await req(host, 'singer.add', { name: 'zed' });
+  await req(host, 'queue.add', { songId: room.catalog.songList[0].id, singerName: 'LastMonthLucy' });
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', count: 12 } });
+  assert.deepEqual(room.game.segments.map((x) => x.label).sort(), ['Ana', 'Ben', 'LastMonthLucy', 'Zed']);
+  await req(host, 'game.close');
+  // Otto drops by tonight with his phone (and leaves again): he's part of tonight.
+  leave(await connect('guest', { token: otto.welcome.token }));
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'duets', count: 12 } });
+  const people = new Set(room.game.segments.flatMap((x) => x.people.map((p) => p.name)));
+  assert.deepEqual([...people].sort(), ['Ana', 'Ben', 'LastMonthLucy', 'OldGuestOtto', 'Zed']);
+});
+
+test('wheel: guests whose name is only emoji are on the wheel (and paired) like everyone else', async () => {
+  const { req, host, guest, room } = await party();
+  await guest('Ana');
+  await guest('🦄🦄');
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', who: 'online' } });
+  assert.deepEqual(room.game.segments.map((x) => x.label).sort(), ['Ana', '🦄🦄'].sort());
+  await req(host, 'game.close');
+  await guest('🎸');
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'duets', who: 'online', count: 12 } });
+  const pairs = room.game.segments.map((x) => x.people.map((p) => p.name).sort().join(' & ')).sort();
+  assert.deepEqual(pairs, ['Ana & 🎸', 'Ana & 🦄🦄', '🎸 & 🦄🦄'].map((p) => p.split(' & ').sort().join(' & ')).sort());
+});

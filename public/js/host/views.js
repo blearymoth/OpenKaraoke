@@ -174,17 +174,22 @@ export function Artist({ artistKey }) {
   useStore(artStore);
   const { data, error, loading, reload } = useFetch(`/api/artists/${encodeURIComponent(artistKey)}`);
   // The first visit asks TheAudioDB for fanart and logos: reload the header when they arrive.
-  useEffect(() => artStore.subscribe((ev) => { if (ev.artists.includes(artistKey)) reload(); }), [artistKey]);
+  useEffect(() => artStore.subscribe((ev) => { if (ev.all || ev.artists.includes(artistKey)) reload(); }), [artistKey]);
+  // A known logo can still fail to load (dead link, no internet): then the name as text.
+  const [badLogo, setBadLogo] = useState('');
   if (error) return html`<div class="page"><${Empty} icon="🤷" title="Artist not found">${error.message}</${Empty}></div>`;
   if (!data || (loading && !data)) return html`<div class="page"><${Spinner} /></div>`;
   const art = data.artist.art || {};
+  const logo = art.logo ? artistArtUrl(artistKey, 'logo', { size: 500 }) : '';
   return html`<div class="page">
     <header class=${`artist-head ${art.fanart ? 'with-fanart' : ''}`}>
       ${art.fanart > 0 && html`<div class="artist-fanart" style=${{ backgroundImage: `url(${artistArtUrl(artistKey, 'fanart', { size: 1000 })})` }}></div>`}
       <${ArtistImage} artistKey=${artistKey} size=${132} />
       <div class="artist-head-text">
         <p class="muted">Artist${art.genre ? ` · ${art.genre}` : ''}</p>
-        ${art.logo ? html`<h1 class="artist-logo"><img src=${artistArtUrl(artistKey, 'logo', { size: 500 })} alt=${data.artist.name} /></h1>` : html`<h1>${data.artist.name}</h1>`}
+        ${logo && logo !== badLogo
+          ? html`<h1 class="artist-logo"><img src=${logo} alt=${data.artist.name} onError=${() => setBadLogo(logo)} /></h1>`
+          : html`<h1>${data.artist.name}</h1>`}
         <p class="muted">${plural(data.songs.length, 'song')}</p>
       </div>
     </header>

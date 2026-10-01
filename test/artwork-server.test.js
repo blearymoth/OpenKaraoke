@@ -89,7 +89,7 @@ test('covers: placeholder first (revalidated), then the real image once it is lo
   const real = await fetch(`${base}/api/art/song/${id}?s=500`, { headers: { 'if-none-match': etag } });
   assert.equal(real.status, 200);
   assert.equal(real.headers.get('content-type'), 'image/png');
-  assert.match(real.headers.get('cache-control'), /max-age=3600/);
+  assert.equal(real.headers.get('cache-control'), 'no-cache', 'the host may change the cover behind this URL');
   const again = await fetch(`${base}/api/art/song/${id}?s=500`, { headers: { 'if-none-match': real.headers.get('etag') } });
   assert.equal(again.status, 304);
   // Unknown songs keep the placeholder, which answers 304 while unchanged.
@@ -161,6 +161,42 @@ test('host controls over WebSocket; guests may not use them; status is host-only
   assert.equal((await fetch(`${base}/api/artwork`)).status, 200);
   host.close();
   guest.close();
+});
+
+test('changed covers reach every page: images are revalidated, and a page that was offline gets what it missed', async () => {
+  const id = songId('Call Me');
+  const song = app.library.catalog.song(id);
+  await fetch(`${base}/api/art/song/${id}`);
+  await until(() => app.artwork.songs.get(song.key)?.cover);
+  const room = app.settings.get('party.roomCode');
+  const phone = await ws({ role: 'guest', room });
+  const { art } = await phone.next((m) => m.t === 'welcome');
+  assert.ok(Number.isSafeInteger(art.seq) && !art.songs, 'the first welcome only says where the changes are');
+  const real = await fetch(`${base}/api/art/song/${id}?s=250`);
+  assert.equal(real.headers.get('content-type'), 'image/png');
+  phone.close(); // the phone sleeps…
+  // …while the host says the cover was wrong.
+  app.artwork.setNone(song);
+  await until(() => app.artFeed.seq > art.seq);
+  // A page opened now (or reloaded) asks again and gets the placeholder, not its cached image.
+  const again = await fetch(`${base}/api/art/song/${id}?s=250`, { headers: { 'if-none-match': real.headers.get('etag') } });
+  assert.equal(again.status, 200);
+  assert.equal(again.headers.get('content-type'), 'image/svg+xml');
+  // The phone wakes up: its welcome carries what changed meanwhile.
+  const woke = await ws({ role: 'guest', room, artSeq: art.seq });
+  const welcome = await woke.next((m) => m.t === 'welcome');
+  assert.equal(welcome.art.seq, app.artFeed.seq);
+  assert.ok(welcome.art.songs.includes(id));
+  // A page from before the server started can't be told what changed: everything did.
+  const old = await ws({ role: 'guest', room, artSeq: art.seq - 1e9 });
+  assert.equal((await old.next((m) => m.t === 'welcome')).art.all, true);
+  woke.close();
+  old.close();
+  // Another cover (here: looked up again) is another file with another ETag.
+  await app.artwork.refresh(song);
+  const back = await fetch(`${base}/api/art/song/${id}?s=250`, { headers: { 'if-none-match': again.headers.get('etag') } });
+  assert.equal(back.status, 200);
+  assert.equal(back.headers.get('content-type'), 'image/png');
 });
 
 test('the TV: current song is looked up first, its art flags and a lobby mosaic are in the view', async () => {

@@ -37,6 +37,11 @@ body.host { overflow: hidden; }
 .nav a.on .icon { color: var(--neon); }
 .nav .badge { margin-left: auto; }
 .mobile-only { display: none !important; }
+.more-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; max-width: 520px; }
+.more-list a { display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 0 16px; border-radius: 14px; background: var(--stage); border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-weight: 650; }
+.more-list a:hover { background: var(--stage-2); }
+.more-list .icon { color: var(--ink-2); }
+.more-list .badge { margin-left: auto; }
 
 /* ---- main ------------------------------------------------------------------------------ */
 
@@ -309,7 +314,7 @@ body.host .toasts { bottom: 104px; }
   .nav { flex-direction: row; justify-content: space-around; padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); border-right: 0; border-top: 1px solid var(--line); overflow: visible; background: var(--night); }
   .nav a { flex-direction: column; gap: 2px; padding: 6px 4px; font-size: 11px; flex: 1; justify-content: center; position: relative; }
   .nav a.on { box-shadow: none; background: none; color: var(--neon); }
-  .nav a:nth-child(4), .nav a:nth-child(5), .nav a:nth-child(7) { display: none; }
+  .nav a.desktop-only { display: none; }
   .nav .badge { position: absolute; top: 2px; right: 18%; }
   .mobile-only { display: flex !important; }
   .brand span { display: none; }

@@ -110,7 +110,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   lyrics peek, cover zoom, helium/slow-mo/reverse audio, year/decade, sing-along interlude).
 - ✅ P1 Battle (2–8 contestants, head-to-head or knockout, phone voting + optional applause meter + judges).
 - ✅ P1 Roulette wheel (songs / singers / dares / genres / duet roulette).
-- 🟡 P1 Crowd poll "what's next?" ✅, Pass-the-mic relay, applause meter, party recap screen.
+- ✅ P1 Crowd poll "what's next?", Pass-the-mic relay, applause meter (TV microphone), party recap screen.
 
 ### Between songs
 - ✅ P1 Break music (random instrumentals from the library matching the next song's genre/decade,
@@ -153,6 +153,7 @@ server/
     catalog.js          ✅ grouping, clustering, search, browse, cache
     service.js          ✅ Library: cache load/save, rescan, progress events, online watcher, paths
   http/
+    songbook.js         ✅ printable songbook (HTML) and CSV export
     router.js           ✅ tiny router: routes with :params, json/text helpers, body reader (size limit)
     static.js           ✅ static files (ETag, gzip for text, no path traversal), sendFile with Range
     api.js              ✅ JSON endpoints (§8)
@@ -162,36 +163,41 @@ server/
     room.js             ✅ party state + actions + per-role views + broadcast coalescing
     rotation.js         ✅ fair insert / ETA helpers (pure, unit tested)
     auth.js             ✅ host PIN, localhost trust, tokens (HMAC with data/secret), display pairing
+    breakmusic.js       ✅ break music between songs (library or music folder) + autoplay sing-alongs
+    photos.js           ✅ guest photo uploads, moderation, TV flash/slideshow
   artwork/
     service.js          ✅ per-provider priority queues, rate limiters/back-off, meta.json, image cache, crawler
     providers.js        ✅ deezer, musicbrainz+caa, theaudiodb, itunes, fanarttv (pure parsers, image refs, host allow-list)
     match.js            ✅ search-title/credit cleanup, candidate scoring, genre normalisation
     placeholder.js      ✅ deterministic gradient SVG with initials
   games/
-    quiz.js battle.js wheel.js poll.js relay.js   ⬜ (§13)
+    base.js index.js    ✅ Game base class (phases, timers, per-role views) + registry
+    quiz.js battle.js wheel.js poll.js relay.js applause.js recap.js   ✅ (§13)
   util/                 ✅ log, jsonfile, net, qr
   vendor/               ✅ ws.mjs, qrcode.mjs
 shared/
   text.js               ✅ normalisation, ids, distances
   cdg.js                ✅ isomorphic CDG decoder (browser renderer + server "lyrics frame" picker)
   protocol.js           ✅ shared constants shared by server and clients
+  quiz.js wheel.js applause.js   ✅ game rules shared by the server and the TV/phones
 public/
   index.html            ✅ landing: links to Host / TV / Join + QR
   host.html tv.html guest.html   ✅ app shells (import maps not needed; import /js/... directly)
   css/                  ✅ base.css (tokens, dark theme), host.css, tv.css, guest.css
   js/vendor/            ✅ preact.js (Preact+hooks+htm), signalsmith-stretch.mjs
-  js/lib/               ✅ ws-client.js, store.js, api.js, format.js, art.js, audio-engine.js,
-                           cdg-canvas.js, player.js, visualizers.js, confetti.js, sync-clock.js
+  js/lib/               ✅ ws-client.js, store.js, components.js, icons.js, audio-engine.js, cdg-canvas.js
   js/host/ js/tv/ js/guest/   ✅ views/components per app
+  js/games/             ✅ one module per game: host Setup/Control, TV scene/overlay, phone view
   fonts/ img/           ✅ bundled OFL fonts (Bricolage Grotesque + Figtree), app icon
 bin/
   openkaraoke.sh        ✅ start script (checks Node version, starts server, prints URLs)
   open-tv.sh            ✅ kiosk Chromium on 2nd screen with autoplay allowed
-  install-service.sh    ⬜ systemd --user unit
+  install-service.sh    ✅ systemd --user unit (--status, --uninstall)
 scripts/
   scan-report.js        ✅ validate a library from the CLI
+  artwork-check.js      ✅ live check of the artwork providers (run on the PC; --save refreshes fixtures)
   vendor.js             ✅ rebuild vendored libs
-test/                   ✅ node:test suites (parse, catalog, scanner/zip, utils)
+test/                   ✅ node:test suites + e2e/ (Playwright scripts, `npm run e2e`)
 docs/                   ✅ PLAN (this), HANDOFF, RESEARCH, LIBRARY
 ```
 
@@ -284,8 +290,10 @@ settings subset, game public state) + per-device `me` block.
 ## 7. WebSocket protocol & auth
 
 Endpoint `/ws`. Client first sends
-`{ t:'hello', role:'host'|'tv'|'guest', token?, deviceId, name?, room?, display?:'main'|'mirror' }`.
-Server replies `{ t:'welcome', clientId, role, token?, serverTime, state }` or `{ t:'denied', reason }`.
+`{ t:'hello', role:'host'|'tv'|'guest', token?, deviceId, name?, room?, display?:'main'|'mirror', artSeq? }`.
+Server replies `{ t:'welcome', clientId, role, token?, serverTime, state, art }` or `{ t:'denied', reason }`.
+`art` = `{ seq }` plus the artwork changes after the hello's `artSeq` (`songs`, `artists`), or
+`all: true` when the server can't tell any more (restart, long offline).
 
 Auth rules:
 - **host**: request from this computer (loopback or own IP) when `party.trustLocalhost`, or a
@@ -310,8 +318,10 @@ game.start {type, config}  game.action {...}  game.answer {...}  game.vote {...}
 display.approve {code}   tv.status / tv.ended / tv.error / tv.ready   ping {c}
 ```
 Server → client: `welcome`, `state`, `time`, `tv`, `res`, `toast`, `notify` (to one device:
-"You're up next!"), `reaction`, `announce`, `game`, `lib` (scan progress), `art` (song ids whose
-art became available), `pong {c, s}`.
+"You're up next!"), `reaction`, `announce`, `game`, `lib` (scan progress), `art`
+`{ seq, songs, artists, all? }` (images that became available or changed; guests don't get
+queued mystery songs or their artists until the song is out in the open: it starts, or is queued
+without the mystery; one removed unplayed stays withheld), `pong {c, s}`.
 
 Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min.
 
@@ -388,7 +398,8 @@ mosaic / visualiser, "Up next" if queue has entries, library size.
 - Host "Open TV display": if `'getScreenDetails' in window`, request permission, pick a screen
   that isn't `currentScreen`, `window.open('/tv', 'ok-tv', 'popup,left=…,top=…,width=…,height=…')`.
   The TV page shows one "Click to start" overlay (unlocks audio, requests fullscreen).
-- `bin/open-tv.sh`: `chromium --kiosk --window-position=<x>,0 --autoplay-policy=no-user-gesture-required --user-data-dir=~/.config/openkaraoke-tv http://localhost:8080/tv`.
+- `bin/open-tv.sh`: `chromium --kiosk --window-position=<x>,0 --autoplay-policy=no-user-gesture-required --use-fake-ui-for-media-stream --user-data-dir=~/.config/openkaraoke-tv http://localhost:8080/tv`
+  (the last flag auto-accepts the microphone prompt for the applause meter; the profile is TV-only).
 - Mirrors: `/tv?display=mirror` — muted, fetch CDG only, estimate position from `time` messages
   and a ping/pong clock offset (`serverNow = Date.now() + offset`).
 
@@ -443,7 +454,9 @@ Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safar
 - Priorities: current/next entries > songs visible in UIs (on-demand) > background crawl
   (popular first). Per-provider token-bucket limiters, exponential back-off on 429/quota errors.
 - Placeholder: deterministic gradient from `hash32(artist)` with initials, served as SVG.
-- Clients: `<img src="/api/art/song/ID?s=250">`; server pushes `art` events so UIs refresh.
+- Clients: `<img src="/api/art/song/ID?s=250">`; server pushes `art` events so UIs refresh
+  (the event's `seq` becomes `&v=` in the URL). Images and placeholders are sent `no-cache`
+  with an ETag, so a changed cover also reaches pages opened later (a 304 otherwise).
 
 ## 13. Games
 All games are server state machines (`server/games/*.js`) with a public view for TV/phones.
@@ -511,7 +524,8 @@ No telemetry. Outbound traffic only to the artwork providers (can be disabled).
   → **first real party possible**.
 - ✅ **M5 Artwork & metadata**: providers, cache, placeholders, crawler, genres/decades browse
   (provider parsers tested against documented-shape fixtures; live check pending on the PC).
-- ⬜ **M6 Games**: quiz, battle, wheel, poll, pass-the-mic, applause meter, ratings, recap.
+- ✅ **M6 Games**: quiz, battle, wheel, poll, pass-the-mic, applause meter, ratings, recap
+  (game framework in `server/games/`, UIs in `public/js/games/`; sound/mic/legibility to check on the PC).
 - ⬜ **M7 Polish**: break music/autoplay, photos, mirrors & pairing, printable songbook/QR card,
   systemd service, README screenshots, performance pass.
 

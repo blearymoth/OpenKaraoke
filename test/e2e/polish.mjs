@@ -24,20 +24,85 @@ const watch = (page, name) => {
 };
 const shot = (page, name) => page.screenshot({ path: path.join(out, `${name}.png`) });
 
+/**
+ * Sound outputs the way Chrome shows them: without names (nor usable ids) until the page may
+ * use a microphone. (Headless Chromium can't ask for real.) The first ask finds no microphone,
+ * the test then plugs one in. `window.__media` records what the page did.
+ */
+function fakeMediaDevices() {
+  const md = navigator.mediaDevices;
+  const m = { mic: false, allowed: false, asked: 0, stopped: 0, sinks: [] };
+  window.__media = m;
+  md.enumerateDevices = async () => (m.allowed
+    ? [
+      { kind: 'audioinput', deviceId: 'default', label: 'Default - Microphone' },
+      { kind: 'audiooutput', deviceId: 'default', label: 'Default - HDMI' },
+      { kind: 'audiooutput', deviceId: 'hdmi', label: 'HDMI' },
+      { kind: 'audiooutput', deviceId: 'hp', label: 'USB Headphones' },
+    ]
+    : [{ kind: 'audioinput', deviceId: '', label: '' }, { kind: 'audiooutput', deviceId: '', label: '' }]);
+  md.getUserMedia = async () => {
+    m.asked++;
+    if (!m.mic) throw new DOMException('Requested device not found', 'NotFoundError');
+    m.allowed = true;
+    return { getTracks: () => [{ stop: () => { m.stopped++; } }] };
+  };
+  HTMLMediaElement.prototype.setSinkId = async function setSinkId(id) {
+    m.sinks.push(id);
+    if (id && !m.allowed) throw new DOMException('The page may not use this output', 'NotAllowedError');
+  };
+}
+
 try {
-  const host = watch(await browser.newPage({ viewport: { width: 1440, height: 900 } }), 'host');
-  await host.goto(`${base}/host#/search?q=neon`);
-  await host.fill('.search-box input', 'neon heart');
-  await host.waitForSelector('.song-row');
+  const hostContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await hostContext.addInitScript(fakeMediaDevices);
+  const host = watch(await hostContext.newPage(), 'host');
+  const openDetails = async () => {
+    await host.goto(`${base}/host#/search?q=neon`);
+    await host.fill('.search-box input', 'neon heart');
+    await host.waitForSelector('.song-row');
+    await host.click('.song-row');
+    await host.waitForSelector('.preview-output');
+  };
+  const media = () => host.evaluate(() => window.__media);
+  const pickButton = '.preview-output button:has-text("Choose headphones")';
+  await openDetails();
 
   // Preview a version on the host computer.
-  await host.click('.song-row');
   await host.waitForSelector('.versions .btn:has-text("Preview")');
   await host.click('.versions .btn:has-text("Preview") >> nth=0');
   check(await host.waitForSelector('.versions .btn:has-text("Stop")', { timeout: 8000 }).then(() => true, () => false), 'preview plays on the host computer');
   await shot(host, 'host-preview');
   await host.click('.versions .btn:has-text("Stop")');
   check(await host.waitForSelector('.versions .btn:has-text("Stop")', { state: 'detached', timeout: 5000 }).then(() => true, () => false), 'preview stops');
+  // Headphones: the browser names its sound outputs once asked; the choice is kept.
+  check(!!(await host.$(pickButton)) && !(await host.$('.preview-output select')), 'outputs without names: “Choose headphones…” instead of a list');
+  await host.click(pickButton);
+  const noMic = await host.waitForSelector('.preview-output .hint:has-text("has none")', { timeout: 5000 }).then(() => true, () => false);
+  check(noMic && (await media()).asked === 1 && !(await host.$('.preview-output select')), 'without a microphone the host is told to change the default output instead');
+  await host.evaluate(() => { window.__media.mic = true; });
+  await host.click(pickButton);
+  const listed = await host.waitForSelector('.preview-output select', { timeout: 5000 }).then(() => true, () => false);
+  const options = await host.$$eval('.preview-output option', (l) => l.map((o) => `${o.value}=${o.textContent}`));
+  check(listed && !(await host.$(pickButton)) && (await media()).stopped === 1, 'once allowed, the outputs are listed (and the microphone is let go at once)');
+  check(JSON.stringify(options) === JSON.stringify(['=This computer’s default output', 'hdmi=HDMI', 'hp=USB Headphones']), `the list names every output but the default one (${options.join(', ')})`);
+  await host.selectOption('.preview-output select', 'hp');
+  await sleep(200);
+  check(await host.evaluate(() => localStorage.getItem('ok.previewSink')) === 'hp' && (await media()).sinks.at(-1) === 'hp', 'the chosen output is used and remembered');
+  await host.click('.versions .btn:has-text("Preview") >> nth=0');
+  await host.waitForSelector('.versions .btn:has-text("Stop")', { timeout: 8000 });
+  check((await media()).sinks.at(-1) === 'hp', 'the preview plays on the headphones');
+  await host.click('.versions .btn:has-text("Stop")');
+  // Another browser session without the permission: the default output for now, the choice kept.
+  await host.reload();
+  await openDetails();
+  check(!!(await host.$(pickButton)), 'after a restart without the permission “Choose headphones…” is back');
+  await host.click('.versions .btn:has-text("Preview") >> nth=0');
+  await host.waitForSelector('.versions .btn:has-text("Stop")', { timeout: 8000 });
+  const sinks = (await media()).sinks;
+  check(JSON.stringify(sinks) === JSON.stringify(['hp', '']) && await host.evaluate(() => localStorage.getItem('ok.previewSink')) === 'hp',
+    `the preview falls back to the default output and keeps the choice (${JSON.stringify(sinks)})`);
+  await host.click('.versions .btn:has-text("Stop")');
   await host.keyboard.press('Escape');
 
   // Queue it: search shows "In queue"; after it is sung: "Sung tonight" + "Most sung here".

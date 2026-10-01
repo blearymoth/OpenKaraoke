@@ -398,6 +398,7 @@ test('service: the crawler works through popular songs first and reports progres
 
 test('service: the image cache stays under its size limit (least recently used go first)', async () => {
   const { art } = await makeService({ settings: { artwork: { crawl: false, maxCacheMB: 20 } } });
+  await art.indexing; // the startup index is complete (it would count the files below once more)
   const mb = 1024 * 1024;
   for (let i = 0; i < 5; i++) {
     const key = String(i).repeat(40).slice(0, 40);

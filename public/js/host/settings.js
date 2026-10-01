@@ -202,7 +202,7 @@ function SkinCard({ id, on, accent }) {
     onClick=${() => !on && save('appearance.theme', id)}>
     <span class="skin-sample" data-theme=${id} style=${sample} aria-hidden="true">
       <span class="skin-panel">
-        <b>Karaoke Night</b>
+        <span class="skin-title"><img src="/img/icon.svg" alt="" width="26" height="26" /><b>Karaoke Night</b></span>
         <span class="skin-line">Up next: <em>Sam</em> · room <em>ABCD</em></span>
         <span class="skin-row"><span class="skin-button">Sing</span><i></i><i></i><i></i></span>
       </span>

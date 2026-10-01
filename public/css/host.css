@@ -377,6 +377,8 @@ body.host .toasts { bottom: 104px; }
 .skin-sample { display: grid; padding: 14px 16px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--hero-bg); color: var(--ink); font-family: var(--font-ui); }
 .skin-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .skin-panel b { font-family: var(--font-display); font-size: 21px; font-weight: 800; letter-spacing: -0.01em; }
+.skin-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.skin-title img { width: 26px; height: 26px; flex: none; }
 .skin-line { font-size: 13px; color: var(--ink-2); }
 .skin-line em { font-style: normal; font-weight: 700; color: var(--bulb); }
 .skin-row { display: flex; align-items: center; gap: 6px; margin-top: 4px; }

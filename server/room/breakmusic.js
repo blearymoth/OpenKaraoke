@@ -25,7 +25,10 @@ const REST_MS = 60_000; // …and break music rests this long (no request/broadc
 export class BreakMusic {
   constructor(room) {
     this.room = room;
-    this.track = null; // { id, url, title, artist, source, songId? (library), abs? (folder), at, with }
+    this.track = null; // { id, url, title, artist, source, songId? (library), abs? (folder), at, with, pick }
+    // Every pick gets its own number, so the TV can tell a new pick of the same file (a folder
+    // with one song) from the one it already played, and a late or repeated report is ignored.
+    this.picks = Math.floor(Math.random() * 1e9);
     this.recent = []; // ids played lately (not repeated soon)
     this.folder = { dir: '', at: 0, files: [], scanning: null };
     this.nothing = null; // { key, until }: the last pick found nothing playable (not searched again on every broadcast)
@@ -76,7 +79,8 @@ export class BreakMusic {
     const t = this.track;
     if (!t || t.with !== this.pickSettings() || (t.songId && t.songId === this.room.s.current?.songId)) this.pick();
     if (!this.track) return null;
-    return { id: this.track.id, url: this.track.url, title: this.track.title, artist: this.track.artist, volume: this.volume() };
+    const { id, pick, url, title, artist } = this.track;
+    return { id, pick, url, title, artist, volume: this.volume() };
   }
 
   /** Picks the next track (library or folder); keeps the last few from repeating. */
@@ -85,7 +89,7 @@ export class BreakMusic {
     const key = this.pickKey();
     if (this.nothing?.key === key && Date.now() < this.nothing.until) return (this.track = null);
     const next = cfg.source === 'folder' ? this.pickFolder(cfg.folder) : this.pickLibrary(cfg.matchNext !== false);
-    this.track = next && { ...next, at: Date.now(), with: this.pickSettings() };
+    this.track = next && { ...next, at: Date.now(), with: this.pickSettings(), pick: ++this.picks };
     this.nothing = next ? null : { key, until: Date.now() + RETRY_MS };
     if (next) {
       this.recent.push(next.id);
@@ -169,17 +173,22 @@ export class BreakMusic {
   /**
    * The TV finished `id`, or couldn't play it (`error`: unplugged drive, unknown format…): the
    * next one. Several unplayable tracks in a short while and break music rests for a minute.
+   * `pick` (older TV pages don't send it) says which pick of `id` the report is about: the TV
+   * sends a report again while the server still wants that pick (the first one may have been
+   * lost on a reconnect), and only the first one counts. A report that changes nothing sends
+   * no state broadcast ('tv.break' is QUIET), so a TV that disagrees can't start a loop.
    */
-  ended(id, { error = false } = {}) {
+  ended(id, { error = false, pick } = {}) {
     const t = this.track;
-    if (!t || t.id !== id) return;
+    if (!t || t.id !== id || (pick !== undefined && pick !== t.pick)) return;
     const now = Date.now();
     if (error || now - t.at < QUICK_END_MS) {
       this.fails = this.fails.filter((at) => now - at < FAIL_WINDOW_MS);
       this.fails.push(now);
-      if (this.fails.length >= MAX_FAILS) return this.rest();
     }
-    this.pick();
+    if (this.fails.length >= MAX_FAILS) this.rest();
+    else this.pick();
+    this.room.markDirty();
   }
 
   rest() {

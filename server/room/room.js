@@ -20,7 +20,7 @@ import { logger } from '../util/log.js';
 const log = logger('room');
 const SESSION_IDLE_MS = 8 * 3600 * 1000;
 // No party state change → no broadcast.
-const QUIET = new Set(['tv.status', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
+const QUIET = new Set(['tv.status', 'tv.break', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
 const HOST = 'host';
 const TV = 'tv';
 const GUEST = 'guest';
@@ -307,7 +307,7 @@ export class Room {
       'tv.error': [[TV], (c, m) => this.tvError(c, m)],
       'tv.audio': [[TV], (c, m) => { c.data.audioUnlocked = !!m.unlocked; }],
       'tv.game': [[TV], (c, m) => this.gameTv(c, m)],
-      'tv.break': [[TV], (c, m) => { if (c.data.display === 'main') this.breakMusic.ended(str(m.id, 40), { error: m.error === true }); }],
+      'tv.break': [[TV], (c, m) => { if (c.data.display === 'main') this.breakMusic.ended(str(m.id, 40), { error: m.error === true, pick: Number.isSafeInteger(m.pick) ? m.pick : undefined }); }],
       'break.skip': [PLAYER, () => this.breakMusic.skip()],
       'photo.approve': [H, (c, m) => this.photos.approve(str(m.id, 40))],
       'photo.reject': [H, (c, m) => this.photos.reject(str(m.id, 40))],

@@ -38,7 +38,7 @@ conn.on('welcome', (m) => {
   controller.onWelcome();
   applyBreak(m.state);
 });
-const breakPlayer = new BreakPlayer({ onEnded: (id, { error = false } = {}) => conn.request('tv.break', { id, error }).catch(() => {}) });
+const breakPlayer = new BreakPlayer({ onEnded: (id, { pick, error = false } = {}) => conn.request('tv.break', { id, pick, error }).catch(() => {}) });
 const applyBreak = (st) => breakPlayer.apply(st?.breakMusic || null, { main: store.get().display === 'main' && !preview, unlocked: controller.unlocked, master: st?.player?.volume ?? 1 });
 
 conn.on('state', (m) => {

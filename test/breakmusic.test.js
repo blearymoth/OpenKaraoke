@@ -194,6 +194,31 @@ test('break music: several unplayable tracks in a row → a rest instead of a re
   assert.ok(view(tv).breakMusic);
 });
 
+test('break music: every pick has a number — a repeated or late report counts once, and a one-song folder plays on', async () => {
+  const music = await tmpDir('ok-music-one-');
+  await writeTree(music, { 'Band - Only Song.mp3': 2000 });
+  const { connect, view, room, req } = await setupRoom({ playback: { breakMusic: { source: 'folder', folder: music } } });
+  const tv = await connect('tv');
+  view(tv);
+  await room.breakMusic.folder.scanning;
+  const first = view(tv).breakMusic;
+  assert.equal(first.title, 'Only Song');
+  assert.ok(Number.isSafeInteger(first.pick));
+  await req(tv, 'tv.break', { id: first.id, pick: first.pick }); // it ended
+  const again = view(tv).breakMusic;
+  assert.equal(again.id, first.id, 'the only song again…');
+  assert.notEqual(again.pick, first.pick, '…as a new pick (the TV plays it from the top)');
+  // The same report again (the TV sends it while it still sees that pick: a broadcast crossed
+  // it, or the first one was lost on a reconnect): ignored, without a broadcast.
+  for (let i = 0; i < 5; i++) await req(tv, 'tv.break', { id: first.id, pick: first.pick, error: true });
+  assert.equal(room.flushTimer, null, 'nothing changed: no broadcast');
+  assert.deepEqual(view(tv).breakMusic, again);
+  assert.equal(room.breakMusic.restUntil, 0, 'late reports are not failures');
+  // Older TV pages send no pick: their report is taken.
+  await req(tv, 'tv.break', { id: again.id });
+  assert.notEqual(view(tv).breakMusic.pick, again.pick);
+});
+
 test('break music: from a music folder (only scanned files are served)', async () => {
   const music = await tmpDir('ok-music-');
   await writeTree(music, { 'Band - Tune One.mp3': 2000, 'sub/Other - Tune Two.ogg': 2000, 'notes.txt': 10, '.hidden/x.mp3': 10 });

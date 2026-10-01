@@ -219,6 +219,33 @@ try {
   await shot(host, 'host-tv-preview');
   await host.click('.tv-preview .icon-btn');
 
+  // On a phone the preview stays clear of the player, and taps go through it.
+  const hostPhone = watch(await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }), 'host-phone');
+  await hostPhone.goto(`${base}/host#/`);
+  await hostPhone.waitForSelector('.player');
+  await hostPhone.click('.player button[title="Live preview of the TV"]');
+  await hostPhone.waitForSelector('.tv-preview iframe');
+  const clear = await hostPhone.evaluate(() => {
+    const prev = document.querySelector('.tv-preview').getBoundingClientRect();
+    const player = document.querySelector('.player').getBoundingClientRect();
+    const reachable = (sel) => {
+      const r = document.querySelector(sel).getBoundingClientRect();
+      return !!document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest(sel);
+    };
+    const under = document.elementFromPoint(prev.left + 10, prev.bottom - 10);
+    return {
+      overlaps: prev.bottom > player.top,
+      controls: ['.play-btn', '.player button[aria-label="Next singer"]', '.player button[aria-label="Restart song"]', '.player .seek'].every(reachable),
+      through: !!under && !under.closest('.tv-preview'),
+    };
+  });
+  check(!clear.overlaps && clear.controls, `phone: the TV preview leaves the player's buttons free (${JSON.stringify(clear)})`);
+  check(clear.through, 'phone: taps on the page under the TV preview go through it');
+  await shot(hostPhone, 'host-phone-tv-preview');
+  await hostPhone.tap('.tv-preview .icon-btn');
+  check(await hostPhone.waitForSelector('.tv-preview', { state: 'detached', timeout: 3000 }).then(() => true, () => false), 'phone: the TV preview closes from its ✕');
+  await hostPhone.close();
+
   // Printable songbook from Settings → Library.
   await host.goto(`${base}/host#/settings/library`);
   await host.waitForSelector('a:has-text("Open songbook")');

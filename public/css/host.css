@@ -385,3 +385,11 @@ body.host .toasts { bottom: 104px; }
 .photo-tile figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; min-width: 0; }
 .photo-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .upload-cover { margin-top: 12px; cursor: pointer; }
+
+/* The live TV preview floats over the page: taps go through it (only its close button takes
+   them), and on phones it sits under the top bar, clear of the player and the tab bar. */
+.tv-preview { pointer-events: none; }
+.tv-preview .icon-btn { pointer-events: auto; }
+@media (max-width: 900px) {
+  .tv-preview { top: 66px; bottom: auto; right: 10px; width: min(300px, 55vw); }
+}

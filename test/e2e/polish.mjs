@@ -47,8 +47,31 @@ try {
   if (outputs[1]) {
     await host.selectOption('.preview-output select', outputs[1]);
     check(await host.evaluate(() => localStorage.getItem('ok.previewSink')) === outputs[1], 'the chosen output is remembered');
+    await host.selectOption('.preview-output select', '');
+    check(await host.evaluate(() => localStorage.getItem('ok.previewSink')) === null, 'choosing the default output again forgets the headphones');
   }
   await host.keyboard.press('Escape');
+  await host.waitForSelector('table.versions', { state: 'detached' });
+
+  // A preview stopped while it is still loading (the dialog closed) leaves no error behind.
+  await host.route('**/media/*/audio', async (route) => {
+    await sleep(1500);
+    await route.continue().catch(() => {});
+  });
+  await host.click('.song-row');
+  await host.click('.versions .btn:has-text("Preview") >> nth=0');
+  await sleep(300);
+  await host.keyboard.press('Escape');
+  await host.waitForSelector('table.versions', { state: 'detached' });
+  await sleep(1800);
+  await host.unroute('**/media/*/audio');
+  await host.click('.song-row');
+  await host.waitForSelector('.preview-output');
+  const stale = await host.$eval('.preview-output', (el) => el.querySelector('.warn-text')?.textContent || '');
+  check(!stale, `a preview stopped while loading shows no error afterwards${stale ? ` (${stale})` : ''}`);
+  check(!(await host.$('.versions .btn:has-text("Stop")')), 'and it did not start playing after the dialog closed');
+  await host.keyboard.press('Escape');
+  await host.waitForSelector('table.versions', { state: 'detached' });
 
   // Queue it: search shows "In queue"; after it is sung: "Sung tonight" + "Most sung here".
   const song = app.library.catalog.search('neon heart').items[0];

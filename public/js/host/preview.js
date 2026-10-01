@@ -56,8 +56,14 @@ export async function togglePreview(trackId) {
   previewStore.set({ trackId, playing: false, error: null });
   audio.src = `/media/${encodeURIComponent(trackId)}/audio`;
   await applySink();
+  // Stopped (the dialog closed) or another version chosen while the output was being set.
+  if (previewStore.get().trackId !== trackId) return;
   audio.volume = 0.8;
-  audio.play().catch((e) => previewStore.update({ playing: false, error: e.message }));
+  audio.play().catch((e) => {
+    // Interrupted by Stop, by closing the dialog or by a newer preview: not an error to show.
+    if (e?.name === 'AbortError' || previewStore.get().trackId !== trackId) return;
+    previewStore.update({ playing: false, error: e?.message || 'This file can’t be previewed here.' });
+  });
 }
 
 export function stopPreview() {

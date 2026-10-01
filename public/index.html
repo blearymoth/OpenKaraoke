@@ -70,6 +70,7 @@
   </main>
 
   <script type="module">
+    import { followAppearance } from '/js/lib/theme.js';
     const $ = (id) => document.getElementById(id);
     const fmt = (n) => n.toLocaleString();
     async function load() {
@@ -92,6 +93,7 @@
       }
     }
     load();
+    followAppearance(); // no live connection here: pick up a skin switch every few seconds
   </script>
 </body>
 </html>

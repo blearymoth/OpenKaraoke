@@ -13,6 +13,7 @@ import { Photos } from './photos.js';
 import { Settings } from './settings.js';
 import { Games } from './games.js';
 import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
+import { followAppearance } from '../lib/theme.js';
 
 const NAV = [
   ['/', 'home', 'Home'],
@@ -113,6 +114,7 @@ function PinScreen({ reason }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => followAppearance(), []); // no party state here to carry a skin switch
   if (reason !== 'pin_required') {
     return html`<div class="gate"><div class="gate-card">
       <img src="/img/icon.svg" alt="" width="64" height="64" />

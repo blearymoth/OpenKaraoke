@@ -2,8 +2,6 @@
 // this file names the skins and carries the few values needed outside CSS (validated server-side,
 // the browser's theme-color, the accent picker's starting value). Keep them in sync with base.css
 // (test/themes.test.js checks it).
-import { contrastText } from './text.js';
-
 export const THEMES = {
   studio: {
     name: 'Studio',
@@ -33,9 +31,25 @@ export function normalizeAccent(accent) {
   return typeof accent === 'string' && ACCENT_RE.test(accent) ? accent.toLowerCase() : '';
 }
 
-/** Readable text colour on an accent-coloured button. */
+/** WCAG relative luminance of '#rrggbb'. */
+function luminance(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const lin = (v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+}
+const DARK_INK = luminance('#111111');
+
+/**
+ * Text colour on an accent-coloured button: near-black or white, whichever has the higher WCAG
+ * contrast against the accent (sky blue or green get dark text, deep blue gets white).
+ */
 export function accentInk(accent) {
-  return contrastText(accent);
+  if (!ACCENT_RE.test(accent || '')) return '#fff';
+  const l = luminance(accent);
+  return (l + 0.05) / (DARK_INK + 0.05) > 1.05 / (l + 0.05) ? '#111' : '#fff';
 }
 
 /** { theme, accent } with both fields valid. */

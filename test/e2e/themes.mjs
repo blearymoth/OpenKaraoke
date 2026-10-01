@@ -88,6 +88,7 @@ try {
   await hostPhone.goto(`${base}/host#/`);
   await hostPhone.waitForSelector('.player');
   const live = [host, tv, guest, hostPhone];
+  const scrollChecks = [];
   for (const { name, page } of pages) {
     check(await themeOf(page) === 'studio' && await firstTheme(page) === 'studio', `${name}: Studio from the first paint`);
   }
@@ -118,10 +119,14 @@ try {
   const accented = await Promise.all(live.map((p) => waitToken(p, '--neon', '#00c2ff')));
   check(accented.every(Boolean), 'accent override applies on every open page');
   check(await host.$eval('.accent-form .btn', (b) => !b.disabled), '“Use the skin’s colour” is offered');
-  check(await tokenOf(guest, '--neon-ink') === '#fff', 'white text on a dark accent');
+  const playInk = () => host.evaluate(() => getComputedStyle(document.querySelector('.play-btn')).color);
+  check(await tokenOf(guest, '--neon-ink') === '#111' && await playInk() === 'rgb(17, 17, 17)', 'dark text on a mid-light accent (higher contrast than white)');
+  await hostReq('settings.update', { patch: { appearance: { accent: '#1368ce' } } });
+  await waitToken(host, '--neon', '#1368ce');
+  check(await playInk() === 'rgb(255, 255, 255)' && await tokenOf(guest, '--neon-ink') === '#fff', 'white text on a dark accent');
   await hostReq('settings.update', { patch: { appearance: { accent: '#ffe066' } } });
   await waitToken(host, '--neon', '#ffe066');
-  check(await host.evaluate(() => getComputedStyle(document.querySelector('.play-btn')).color) === 'rgb(17, 17, 17)', 'dark text on a light accent');
+  check(await playInk() === 'rgb(17, 17, 17)', 'dark text on a light accent');
   const res = await fetch(`${base}/tv`);
   check((await res.text()).includes('style="--neon: #ffe066; --neon-ink: #111;"'), 'the served page already has the accent (no flash)');
   await sleep(300); // the skin cards' border transition
@@ -142,6 +147,30 @@ try {
   await tv.waitForSelector('.lobby');
   await guest.waitForSelector('.g-tabs');
 
+  // ---- screens without a live connection follow a switch too (they check every few seconds) -----
+  const idle = await desktop('landing-idle');
+  await idle.goto(`${base}/`);
+  await idle.waitForSelector('#qr[src]');
+  const pinHost = await desktop('host-pin'); // another device, before its PIN: the server refuses it
+  await pinHost.routeWebSocket(/\/ws$/, (ws) => ws.onMessage((m) => {
+    if (JSON.parse(String(m)).t === 'hello') ws.send(JSON.stringify({ t: 'denied', reason: 'pin_required' }));
+  }));
+  await pinHost.goto(`${base}/host`);
+  await pinHost.waitForSelector('.pin-input');
+  const lost = await phone('guest-wrong-code');
+  await lost.goto(`${base}/j/ZZZZ`);
+  await lost.waitForSelector('.code-box');
+  const gates = [idle, pinHost, lost];
+  check((await Promise.all(gates.map(themeOf))).every((t) => t === 'party'), 'landing page, PIN screen and wrong-code screen are served in Party');
+  check(await setSkin('studio', gates), 'landing page, PIN screen and wrong-code screen follow a switch without a reload');
+  await shot(pinHost, 'studio-host-pin');
+  await shot(lost, 'studio-guest-wrong-code');
+  check(await setSkin('party', gates), '… and back to Party');
+  await shot(pinHost, 'party-host-pin');
+  await shot(lost, 'party-guest-wrong-code');
+  scrollChecks.push(['guest wrong-code screen', await noSideways(lost)]);
+  await Promise.all(gates.map((p) => p.close()));
+
   // ---- screenshots of the key screens in both skins ----------------------------------------------
   const songs = app.library.catalog.songList;
   await hostReq('queue.add', { songId: songs[1].id, singerName: 'Dora' });
@@ -149,7 +178,6 @@ try {
   const landing = await desktop('landing');
   const landingPhone = await phone('landing-phone');
   const all = () => live;
-  const scrollChecks = [];
 
   async function screens(skin) {
     check(await setSkin(skin, all()), `${skin}: every page shows the skin`);

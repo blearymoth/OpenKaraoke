@@ -327,7 +327,7 @@ Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 
 
 ```
 GET  /                         landing          GET /host  /tv  /j/:code  (/guest)  app shells
-GET  /api/info                 { name, roomCode, joinUrl, lanUrls, version, library status }
+GET  /api/info                 { name, roomCode, joinUrl, lanUrls, version, library status, appearance }
 GET  /api/search?q&limit&offset&tag&letter      { total, fuzzy, items: SongSummary[] }
 GET  /api/songs/:id            song detail (versions, meta, plays)
 GET  /api/artists?letter&q&limit&offset&sort    GET /api/artists/:key  { artist, songs }
@@ -473,10 +473,12 @@ drops unknown keys and coerces types. Host UI renders forms for every group ther
 
 **Skins** — `appearance: { theme: 'studio' | 'party', accent: '' | '#rrggbb' }`, Settings →
 Appearance. Studio (default) is calm graphite with one blue accent; Party is the original neon
-look. `accent` overrides the skin's accent (`--neon`, with a readable `--neon-ink`) in either
-skin. The server writes `data-theme` (+ the accent) into every HTML page it serves, so the first
-paint is right and a page cached under another skin is never reused (the skin is part of the
-ETag); host, TV and phones follow changes live through their state (`appearance`). All colours
+look. `accent` overrides the skin's accent (`--neon`) in either skin; text on it (`--neon-ink`)
+is near-black or white, whichever has the higher WCAG contrast. The server writes `data-theme`
+(+ the accent) into every HTML page it serves, so the first paint is right and a page cached
+under another skin is never reused (the skin is part of the ETag); host, TV and phones follow
+changes live through their state (`appearance`), screens without party state (landing page, PIN
+and can't-join screens) check `/api/info` every 2 s. All colours
 are CSS tokens per skin in `public/css/base.css` (`:root` = Studio, `[data-theme="party"]`);
 JS that needs a colour (QR codes) reads the token. Settings saved before skins existed: a custom
 `display.accent` became `appearance.accent`, the old default pink was dropped.

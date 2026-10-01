@@ -6,7 +6,7 @@ import { Icon } from '../lib/icons.js';
 import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, Toasts, SongBadges } from '../lib/components.js';
 import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, GAME_LABELS, formatKey } from '/shared/protocol.js';
 import { GAME_UI } from '../games/index.js';
-import { applyAppearance } from '../lib/theme.js';
+import { applyAppearance, followAppearance } from '../lib/theme.js';
 
 const pathCode = (location.pathname.match(/^\/j\/([A-Za-z]{4})\/?$/) || [])[1];
 const toasts = toastStore();
@@ -600,10 +600,16 @@ function Tabs({ state, tab }) {
   </button>`)}</nav>`;
 }
 
+/** Screens without party state: they still follow a skin switch. */
+function Gate({ children }) {
+  useEffect(() => followAppearance(), []);
+  return children;
+}
+
 function App() {
   const s = useStore(store);
-  if (!s.code) return html`<${EnterCode} />`;
-  if (s.denied) return html`<${Denied} reason=${s.denied} />`;
+  if (!s.code) return html`<${Gate}><${EnterCode} /><//>`;
+  if (s.denied) return html`<${Gate}><${Denied} reason=${s.denied} /><//>`;
   const st = s.state;
   if (!st) return html`<div class="g-gate"><${Spinner} /><p class="muted">Joining the party…</p></div>`;
   if (!st.me.profile) return html`<${Join} state=${st} /><${Toasts} store=${toasts.store} />`;

@@ -1,7 +1,9 @@
 // The app-wide skin in the browser (settings.appearance: { theme, accent }). The server writes
 // the skin into <html> of every page (no flash of the other one); the host, TV and guest apps
 // call applyAppearance() with each new state, before rendering it, to follow changes live.
-// Colours live in /css/base.css; code that needs one as a value (QR codes) reads the token.
+// Screens without a live connection (landing page, PIN and can't-join screens) use
+// followAppearance(). Colours live in /css/base.css; code that needs one as a value (QR codes)
+// reads the token.
 import { THEMES, normalizeAppearance, accentInk } from '/shared/themes.js';
 
 const root = document.documentElement;
@@ -26,6 +28,32 @@ export function applyAppearance(appearance) {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.content = THEMES[theme].themeColor;
   tokens.clear();
+}
+
+const FOLLOW_MS = 2000;
+let followers = 0;
+let followTimer = 0;
+
+/**
+ * For screens with no live connection: checks the skin every few seconds (while the page is
+ * visible) so a switch reaches them without a reload. Returns the function that stops it.
+ */
+export function followAppearance() {
+  if (followers++ === 0) followTimer = setInterval(checkAppearance, FOLLOW_MS);
+  let on = true;
+  return () => {
+    if (!on) return;
+    on = false;
+    if (--followers === 0) clearInterval(followTimer);
+  };
+}
+
+async function checkAppearance() {
+  if (document.hidden) return;
+  try {
+    const info = await (await fetch('/api/info', { cache: 'no-store' })).json();
+    if (followers) applyAppearance(info.appearance);
+  } catch { /* the server is away: try again next time */ }
 }
 
 /** The current value of a CSS token on <html>, e.g. token('--qr-dark'). */

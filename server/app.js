@@ -60,6 +60,7 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
       lanUrls,
       version: VERSION,
       library: { tracks: st.tracks, songs: st.songs, artists: st.artists, offline: st.offline, scanning: st.scanning },
+      appearance: settings.get('appearance'),
     };
   };
 

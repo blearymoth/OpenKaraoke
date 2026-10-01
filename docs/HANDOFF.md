@@ -166,7 +166,9 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
 - The owner asked for a more professional look as the default while keeping today's one:
   **Settings → Appearance** picks the skin for every screen (host, TV incl. mirrors/preview/
   board/pairing, phones, landing page, games) and an optional accent colour ("Use the skin's
-  colour" resets it). Changes show live everywhere; guests never see the setting.
+  colour" resets it; text on the accent is dark or white, whichever reads better). Changes show
+  live everywhere (screens without a party connection — landing page, PIN and can't-join
+  screens — within 2 s; the printable songbook on its next load); guests never see the setting.
 - **Studio** (new default): graphite surfaces, one blue accent, Figtree headings, smaller radii,
   soft shadows instead of glows, calmer TV backgrounds and game colours. A first draft — its
   values are the token block at the top of `public/css/base.css`.

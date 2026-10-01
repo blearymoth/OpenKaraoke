@@ -44,6 +44,14 @@ test('themes: theme and accent are normalised', () => {
   assert.deepEqual(normalizeAppearance(null), { theme: 'studio', accent: '' });
   assert.equal(accentInk('#ffe066'), '#111', 'dark text on a light accent');
   assert.equal(accentInk('#1368ce'), '#fff', 'white text on a dark accent');
+  // Mid-light accents get whichever text colour has the higher WCAG contrast (white would be
+  // 2–3:1 on these), so labels on accent buttons stay readable.
+  for (const mid of ['#00c2ff', '#2ecc71', '#3498db', '#ff6262', '#e67e22']) {
+    assert.equal(accentInk(mid), '#111', `dark text on ${mid}`);
+    assert.ok(contrast('#111111', mid) >= 4.5, `${mid}: readable`);
+  }
+  for (const dark of ['#9b59b6', '#000000', '#7a1fa2']) assert.equal(accentInk(dark), '#fff', `white text on ${dark}`);
+  assert.equal(accentInk('red'), '#fff', 'not an accent');
 });
 
 test('settings: appearance updates are validated', async () => {
@@ -216,7 +224,7 @@ test('http: every page is served in the current skin; a switch changes the page 
   assert.match(back.body.toString(), /data-theme="studio">/);
 });
 
-test('views: host, TV and guests get the skin; the TV pairing screen too', async () => {
+test('views: host, TV and guests get the skin; the TV pairing screen and /api/info too', async () => {
   app.settings.update({ appearance: { theme: 'party', accent: '#123abc' } });
   assert.deepEqual(app.room.hostView().settings.appearance, { theme: 'party', accent: '#123abc' });
   const tv = app.room.tvView();
@@ -228,6 +236,8 @@ test('views: host, TV and guests get the skin; the TV pairing screen too', async
   const r = await fetch(`${base}/api/pair/nope`);
   const body = await r.json();
   assert.deepEqual(body.appearance, { theme: 'party', accent: '#123abc' });
+  // screens without party state (landing page, PIN and can't-join screens) follow it from here
+  assert.deepEqual((await (await fetch(`${base}/api/info`)).json()).appearance, { theme: 'party', accent: '#123abc' });
   app.settings.update({ appearance: { theme: 'studio', accent: '' } });
 });
 

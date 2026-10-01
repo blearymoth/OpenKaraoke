@@ -6,7 +6,7 @@ import { Icon } from '../lib/icons.js';
 import { TvController } from './controller.js';
 import { GAME_UI } from '../games/index.js';
 import { BreakPlayer } from './break-player.js';
-import { applyAppearance, qrSrc } from '../lib/theme.js';
+import { applyAppearance, followAppearance, qrSrc } from '../lib/theme.js';
 import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 
 const params = new URLSearchParams(location.search);
@@ -236,9 +236,7 @@ function App() {
   const s = useStore(store);
   const st = s.state;
   if (s.denied === 'pairing_required') return html`<${Pairing} />`;
-  if (s.denied) {
-    return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>This screen can't join</h2><p>${DENIED_MESSAGES[s.denied] || s.denied}</p></div>`;
-  }
+  if (s.denied) return html`<${Refused} reason=${s.denied} />`;
   if (!st) return html`<div class="denied"><div class="spinner"></div><p>Connecting to OpenKaraoke…</p></div>`;
   const p = st.player;
   const game = st.game;
@@ -266,6 +264,11 @@ function App() {
     ${s.help && html`<${Help} />`}
     ${!s.unlocked && s.display === 'main' && !preview && html`<${StartOverlay} />`}
   `;
+}
+
+function Refused({ reason }) {
+  useEffect(() => followAppearance(), []); // no party state here to carry a skin switch
+  return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>This screen can't join</h2><p>${DENIED_MESSAGES[reason] || reason}</p></div>`;
 }
 
 function StartOverlay() {

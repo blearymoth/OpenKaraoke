@@ -1156,8 +1156,9 @@ export class Room {
     const deviceId = client.data.deviceId;
     const profile = this.profileOf(deviceId);
     if (!profile?.name) fail('Choose a name first.', 'no_profile');
+    if (typeof m.allow !== 'boolean') fail('Say whether duet invitations are allowed.', 'bad_request');
     if (!this.limits.profile.take(deviceId)) fail('Too many changes — try again in a minute.', 'rate_limited');
-    if (m.allow === true) {
+    if (m.allow) {
       delete profile.noInvites;
     } else {
       profile.noInvites = true;
@@ -1596,7 +1597,7 @@ export class Room {
   profileView(deviceId) {
     const p = this.profileOf(deviceId);
     if (!p) return null;
-    return { name: p.name, emoji: p.emoji, color: p.color, singerId: p.singerId || null, favorites: p.favorites || [], coHost: !!p.coHost, invites: !p.noInvites };
+    return { name: p.name, emoji: p.emoji, color: p.color, singerId: p.singerId || null, favorites: p.favorites || [], coHost: !!p.coHost, duetInvites: !p.noInvites };
   }
 
   entryView(e, { mask = false } = {}) {

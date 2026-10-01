@@ -48,6 +48,8 @@ try {
   const bob = await phone('bob');
   await joinAs(ann, 'Ann');
   await joinAs(bob, 'Bob');
+  const cat = await phone('cat'); // stays out of the poll
+  await joinAs(cat, 'Cat');
 
   await host.click('.game-card:has-text("poll") .btn');
   await host.waitForSelector('.game-card.open .g-setup');
@@ -77,28 +79,31 @@ try {
   check(await ann.waitForSelector('.g-tabs button:has-text("Home").on', { timeout: 5000 }).then(() => true, () => false), 'phones go back home when the game is closed');
 
   // Ratings: the winning song plays to its end, phones get a rating card — on whatever tab
-  // they are (Ann is browsing songs), but not the singer (Bob).
+  // they are (Ann browses songs, Cat is on her Me tab), but not the singer (Bob).
   const cur = await (async () => { for (let i = 0; i < 60 && !room().s.current; i++) await sleep(100); return room().s.current; })();
   check(!!cur, 'the poll winner starts');
   if (cur) {
     await ann.click('.g-tabs button:has-text("Songs")');
+    await cat.click('.g-tabs button:has(span:text-is("Me"))');
     room().s.current.singerIds = [room().findOrCreateSinger('Bob').id];
     room().s.player.pos = cur.dur;
     room().finish('ended');
     room().flush();
     check(await ann.waitForSelector('.g-dock .rate-card', { timeout: 5000 }).then(() => true, () => false), 'the rating prompt shows on the Songs tab too');
+    await shot(ann, 'ann-rating');
+    const overflow = await ann.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+    check(overflow <= 0, 'the rating prompt fits the phone (no sideways scrolling)');
+    check(await cat.waitForSelector('.g-dock .rate-card', { timeout: 5000 }).then(() => true, () => false), 'the rating prompt shows on the Me tab too');
+    await cat.click('.rate-card button[aria-label="Not now"]');
+    check(await cat.waitForSelector('.rate-card', { state: 'detached', timeout: 3000 }).then(() => true, () => false), '“Not now” puts the rating prompt away');
     await ann.click('.rate-stars button >> nth=4');
     await sleep(300);
     check(room().rating?.votes.size === 1, 'a guest rated the performance');
     check(!(await bob.$('.rate-card')), 'the singer is not asked to rate themselves');
     await tv.waitForSelector('.tv-rating', { timeout: 5000 });
     check(/5\.0/.test(await tv.textContent('.tv-rating')), 'TV shows the live rating');
-    await shot(ann, 'ann-rating');
     await shot(tv, 'tv-rating');
-    const overflow = await ann.evaluate(() => document.documentElement.scrollWidth - innerWidth);
-    check(overflow <= 0, 'the rating prompt fits the phone (no sideways scrolling)');
-    await ann.click('.rate-card button[aria-label="Not now"]');
-    check(await ann.waitForSelector('.rate-card', { state: 'detached', timeout: 3000 }).then(() => true, () => false), '“Not now” puts the rating prompt away');
+    check(await ann.waitForSelector('.rate-card', { state: 'detached', timeout: 8000 }).then(() => true, () => false), 'after voting the rating prompt goes away by itself');
   }
   const overflow = await ann.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(overflow <= 0, 'phone fits without sideways scrolling');

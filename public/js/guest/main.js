@@ -94,6 +94,8 @@ async function ask(t, body) {
   }
 }
 
+const RATE_LINGER_MS = 3500; // the rating prompt stays this long after a vote (to change it)
+
 const setTab = (tab) => {
   store.update({ tab });
   document.querySelector('.g-main')?.scrollTo({ top: 0 });
@@ -255,18 +257,27 @@ function QueueList({ items, state, compact }) {
 
 // ---- tabs -----------------------------------------------------------------------------------------
 
-/** "How was …?" after a song: shown on every tab (in the dock) while the rating is open. */
+/**
+ * "How was …?" after a song: shown on every tab (in the dock) while the rating is open, put
+ * away with ✕ or a few seconds after voting (the dock covers the bottom of the page).
+ */
 function RateCard({ r }) {
   const [busy, setBusy] = useState(false);
+  const away = useRef(null);
+  useEffect(() => () => clearTimeout(away.current), []);
   const rate = async (stars) => {
     setBusy(true);
-    if (await ask('rate', { entryId: r.entryId, stars })) buzz(20);
+    clearTimeout(away.current);
+    if (await ask('rate', { entryId: r.entryId, stars })) {
+      buzz(20);
+      away.current = setTimeout(() => store.update({ rateHidden: r.entryId }), RATE_LINGER_MS);
+    }
     setBusy(false);
   };
   return html`<section class="rate-card" aria-label="Rate the performance">
     <div class="rate-head">
       <div class="grow"><b class="ellipsis">How was ${singersText(r.singers) || 'that'}? ⭐</b>
-        <p class="muted ellipsis">${r.mine ? 'Thanks! You can still change it.' : `${r.title} · ${r.artist}`}</p></div>
+        <p class="muted ellipsis">${r.mine ? 'Thanks for rating!' : `${r.title} · ${r.artist}`}</p></div>
       <button class="icon-btn small" aria-label="Not now" onClick=${() => store.update({ rateHidden: r.entryId })}><${Icon} name="x" size=${18} /></button>
     </div>
     <div class="rate-stars" role="radiogroup" aria-label="Stars">${[1, 2, 3, 4, 5].map((n) => html`<button role="radio" aria-checked=${r.mine === n} aria-label=${`${n} star${n > 1 ? 's' : ''}`} class=${n <= r.mine ? 'on' : ''} disabled=${busy} onClick=${() => rate(n)}>★</button>`)}</div>
@@ -529,7 +540,7 @@ function MeTab({ state }) {
         </section>`}
     ${state.rules.photos && html`<${PhotoCard} state=${state} />`}
     <label class="toggle-row"><span><b>Duet invitations</b><br /><span class="hint">Other guests can ask you to sing a song with them.</span></span>
-      <span class="switch"><input type="checkbox" checked=${me.profile.invites !== false} aria-label="Duet invitations" onChange=${setInvites} /><span></span></span>
+      <span class="switch"><input type="checkbox" checked=${me.profile.duetInvites !== false} aria-label="Duet invitations" onChange=${setInvites} /><span></span></span>
     </label>
     <section>
       <h2 class="g-h2">Your favourites</h2>

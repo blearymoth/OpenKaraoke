@@ -115,7 +115,7 @@ test('duet invitation limits: one open invitation per pair, a few per guest, no 
 });
 
 test('guests can turn duet invitations off; start, ban and singer removal withdraw open ones', async () => {
-  const { connect, req, song, guest, s, view } = await setupRoom({ queue: { allowRepeats: true } });
+  const { connect, req, song, guest, s, view } = await setupRoom({ queue: { allowRepeats: true, maxPerGuest: 0 } });
   const host = await connect('host');
   const ana = await guest('Ana');
   const ben = await guest('Ben');
@@ -125,11 +125,11 @@ test('guests can turn duet invitations off; start, ban and singer removal withdr
   await req(ana, 'queue.add', { songId: song('waterloo').id, partners: [benSinger] });
   await req(carl, 'queue.add', { songId: song('call me').id, partners: [benSinger] });
   assert.ok(view(ana).partners.some((x) => x.id === benSinger));
-  assert.equal(view(ben).me.profile.invites, true);
+  assert.equal(view(ben).me.profile.duetInvites, true);
 
   const r = await req(ben, 'duet.invites', { allow: false });
   assert.deepEqual(r, { allow: false });
-  assert.equal(view(ben).me.profile.invites, false);
+  assert.equal(view(ben).me.profile.duetInvites, false);
   assert.deepEqual(view(ben).me.invites, [], 'open invitations are declined');
   assert.ok(s().queue.every((e) => !e.invites));
   for (const c of [ana, carl]) assert.ok(c.inbox.some((m) => m.t === 'notify' && m.kind === 'duet-no'), 'inviters are told');
@@ -159,6 +159,17 @@ test('guests can turn duet invitations off; start, ban and singer removal withdr
   await req(host, 'singer.remove', { singerId: anaSinger });
   assert.ok(s().queue.every((e) => !e.invites));
 
+  // The host puts the invited guest on the song by hand: nothing left to answer.
+  const dee = await guest('Dee');
+  await req(carl, 'queue.add', { songId: song('waterloo').id, partners: [singerOf(s, dee)] });
+  const waterloo = s().queue.at(-1);
+  assert.equal(view(dee).me.invites.length, 1);
+  await req(host, 'queue.update', { entryId: waterloo.id, patch: { singerIds: [singerOf(s, carl), singerOf(s, dee)] } });
+  assert.equal(waterloo.invites, undefined);
+  assert.deepEqual(view(dee).me.invites, []);
+
+  await assert.rejects(req(carl, 'duet.invites', {}), /Say whether/, 'a malformed message changes nothing');
+  assert.equal(view(carl).me.profile.duetInvites, true);
   const nobody = await connect('guest');
   await assert.rejects(req(nobody, 'duet.invites', { allow: false }), /Choose a name/);
   await assert.rejects(req(host, 'duet.invites', { allow: false }), /not allowed/);

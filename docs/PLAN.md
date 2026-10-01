@@ -323,7 +323,8 @@ Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 
 uploads are checked (photos on, named, not banned, rate limit) before their body is read; one
 upload at a time per phone, 2 per address, 8 in all. An upload is cut off after 5 s without
 data or 20 s in all, and when all 8 slots are taken a newcomer replaces the slowest upload that
-has had 2 s and is still under 64 KB/s (so stalled uploads can't keep guests out). At most 5
+is under 64 KB/s after 2 s or still arriving after 8 s (so uploads that stall or trickle can't
+keep guests out: holding every slot would take a new upload, and photo token, per second). At most 5
 photos per phone and 50 in all wait for the host; 300 approved/rejected are kept (rejected, then
 the oldest approved, go first — waiting photos never push out approved ones).
 

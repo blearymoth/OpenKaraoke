@@ -47,7 +47,9 @@ export class Photos {
     // stops sending or crawls along doesn't get to sit on a slot for long (see admit()/receive()).
     this.uploadTimeoutMs = 20_000; // for the whole picture
     this.uploadIdleMs = 5_000; // without a single byte arriving
-    this.uploadGraceMs = 2_000; // before an upload can be judged too slow
+    // When every slot is taken, a new upload can cut off one that…
+    this.uploadGraceMs = 2_000; // …has had this long and still crawls below MIN_UPLOAD_RATE, or
+    this.uploadTurnMs = 8_000; // …is still arriving after this long, however fast.
   }
 
   get list() {
@@ -85,9 +87,10 @@ export class Photos {
   /**
    * Lets an upload in before its body is read, so a refused (or flooding) phone can't make
    * the server buffer megabytes: the checks above, one upload at a time per phone (a few per
-   * address and in all) and the rate limit. When every slot is taken, the slowest upload that
-   * has had uploadGraceMs and still crawls below MIN_UPLOAD_RATE is cut off to make way, so
-   * uploads that stall can't keep everyone else out. Returns the upload: feed its body to
+   * address and in all) and the rate limit. When every slot is taken, the newcomer replaces the
+   * slowest upload that has overstayed (see slowest()), so uploads that stall or trickle can't
+   * keep everyone else out: to hold every slot, a sender would have to start a new upload (and
+   * spend a photo token) every few seconds per slot. Returns the upload: feed its body to
    * receive() and call `release()` when done.
    */
   admit(deviceId, ip = '') {
@@ -114,15 +117,20 @@ export class Photos {
     return upload;
   }
 
-  /** The upload to cut off for a new one: the slowest still being read, if it's too slow. */
+  /**
+   * The upload to cut off for a new one: of those still being read that crawl below
+   * MIN_UPLOAD_RATE after uploadGraceMs or are still arriving after uploadTurnMs, the slowest.
+   * A phone sends its resized picture in a second or two, so only an upload that stalls or
+   * trickles is ever cut off.
+   */
   slowest(now = Date.now()) {
     let out = null;
-    let rate = MIN_UPLOAD_RATE;
+    let rate = Infinity;
     for (const u of this.uploads) {
       const ms = now - u.at;
       if (!u.abort || ms < this.uploadGraceMs) continue;
       const r = (u.bytes * 1000) / ms;
-      if (r < rate) {
+      if ((r < MIN_UPLOAD_RATE || ms >= this.uploadTurnMs) && r < rate) {
         out = u;
         rate = r;
       }

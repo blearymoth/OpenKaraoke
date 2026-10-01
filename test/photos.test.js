@@ -235,7 +235,8 @@ test('photos: when every slot is taken, the slowest upload makes way (stalled up
   const cut = [];
   try {
     const [ann, bo, cy, dan, ...rest] = await guests(r, MAX_UPLOADS + 3);
-    photos.uploadGraceMs = 300;
+    photos.uploadGraceMs = 60_000; // to begin with (however slow the machine running this test)
+    photos.uploadTurnMs = 60_000; // (see the next test)
     photos.uploadIdleMs = 10_000;
     // MAX_UPLOADS - 1 uploads arriving from other addresses, plus one that sent 4 bytes and stalled.
     const others = rest.map((g, i) => {
@@ -251,12 +252,13 @@ test('photos: when every slot is taken, the slowest upload makes way (stalled up
     let res = await upload(bo.welcome.token);
     assert.equal(res.status, 429);
     assert.equal((await res.json()).code, 'busy');
-    // Uploads arriving at a healthy pace aren't cut off, however long they've been going.
+    // Uploads arriving at a healthy pace aren't cut off (before uploadTurnMs).
     for (const u of others) {
       u.at -= 5000;
-      u.bytes = 6 * MIN_UPLOAD_RATE;
+      u.bytes = 50 * MIN_UPLOAD_RATE;
     }
     // Once the stalled upload has had uploadGraceMs, a guest's photo takes its place.
+    photos.uploadGraceMs = 300;
     await sleep(photos.uploadGraceMs + 50);
     res = await upload(bo.welcome.token);
     assert.equal(res.status, 200, 'the guest’s photo got in');
@@ -288,6 +290,46 @@ test('photos: when every slot is taken, the slowest upload makes way (stalled up
     assert.deepEqual(cut.map(([i, e]) => [i, e.status, e.code]), [[0, 400, 'timeout']]);
     assert.ok(photos.uploads.has(crawlA) && !photos.uploads.has(crawlB));
     for (const u of [...photos.uploads]) u.release();
+  } finally {
+    await app.close();
+  }
+});
+
+test('photos: when every slot is taken, an upload still arriving after uploadTurnMs makes way, however fast it trickles', async () => {
+  const r = await party();
+  const { app, room, base, upload } = r;
+  const photos = room.photos;
+  try {
+    const [ann, bo, ...rest] = await guests(r, MAX_UPLOADS + 1);
+    Object.assign(photos, { uploadGraceMs: 100, uploadTurnMs: 60_000, uploadIdleMs: 10_000, uploadTimeoutMs: 20_000 });
+    // MAX_UPLOADS - 1 slots held by pictures that have all arrived (never cut off)…
+    const held = rest.map((g, i) => photos.admit(g.data.deviceId, `192.168.1.${10 + i}`));
+    assert.equal(held.length, MAX_UPLOADS - 1);
+    // …and one that keeps trickling in at well over MIN_UPLOAD_RATE without ever finishing.
+    const t0 = Date.now();
+    const trickle = slowUpload(base, ann.welcome.token, 1024);
+    const piece = Buffer.alloc(MIN_UPLOAD_RATE / 4, 7);
+    const drip = setInterval(() => trickle.req.write(piece), 50); // ~5 × MIN_UPLOAD_RATE
+    try {
+      while (photos.uploads.size < MAX_UPLOADS) await sleep(10);
+      await sleep(photos.uploadGraceMs * 2);
+      let res = await upload(bo.welcome.token);
+      assert.equal(res.status, 429, 'a healthy upload keeps its slot for its turn');
+      assert.equal((await res.json()).code, 'busy');
+      photos.uploadTurnMs = 700;
+      while (Date.now() - t0 < photos.uploadTurnMs + 50) await sleep(20);
+      res = await upload(bo.welcome.token);
+      assert.equal(res.status, 200, 'after its turn, a guest’s photo takes its place');
+      const lost = await answered(trickle);
+      assert.equal(lost.status, 400, JSON.stringify(lost));
+      assert.equal(lost.body.code, 'timeout');
+      assert.equal(photos.uploads.size, MAX_UPLOADS - 1);
+      assert.ok(held.every((u) => photos.uploads.has(u)), 'pictures already in are never cut off');
+    } finally {
+      clearInterval(drip);
+      trickle.req.destroy();
+      for (const u of held) u.release();
+    }
   } finally {
     await app.close();
   }

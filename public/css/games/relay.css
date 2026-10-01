@@ -33,20 +33,34 @@
 .rl-flash .who { display: flex; align-items: center; gap: 3.5vh; min-width: 0; max-width: 100%; }
 .rl-flash .who .name { max-width: none; min-width: 0; }
 
-/* While lyrics are on screen: one compact line in the margin above them, like the ticker in the
-   margin below. The lyrics are min(86vh, 86vw / 1.5) tall and centred, so that margin is at least
-   7vh: the band fills it and never covers a lyric line. */
+/* While lyrics are on screen: a band in the margin above them, like the ticker in the margin
+   below. The lyrics are min(86vh, 86vw / 1.5) tall and centred, so that margin is
+   max(7vh, 50vh - 28.667vw): the band fills it (up to 16vh) and never covers a lyric line.
+   Every size is capped by the screen width as well, since a narrow screen has a tall margin.
+   The join QR card in the top-right corner (tv.css .corner-qr: 2.5vw from the edge, 15.4vh
+   wide) stays visible: the band stops short of it (.qr). */
 .rl-flash.top {
-  --band: max(7vh, calc(50vh - 28.667vw));
-  top: 0; height: var(--band); transform: none; flex-wrap: nowrap; gap: calc(var(--band) * 0.34);
-  padding: 0 4vw; border-top-width: 0; border-bottom-width: calc(var(--band) * 0.08);
+  --band: min(max(7vh, calc(50vh - 28.667vw)), 16vh);
+  top: 0; height: var(--band); transform: none; flex-wrap: nowrap; gap: min(calc(var(--band) * 0.34), 1.8vw);
+  padding: 0 2.5vw; border-top-width: 0; border-bottom-width: min(calc(var(--band) * 0.08), 0.7vh);
   animation: rl-in-top 0.45s var(--ease) both, rl-out-top 0.4s ease 3.6s forwards;
 }
-.rl-flash.top .kick { font-size: calc(var(--band) * 0.56); line-height: 1; }
-.rl-flash.top .arrow { font-size: calc(var(--band) * 0.62); margin-right: 2vw; } /* (room for its nudge) */
-.rl-flash.top .who { gap: calc(var(--band) * 0.3); }
-.rl-flash.top .avatar { width: calc(var(--band) * 0.7); height: calc(var(--band) * 0.7); font-size: calc(var(--band) * 0.44); }
-.rl-flash.top .name { font-size: calc(var(--band) * 0.74); line-height: 1.1; }
+.rl-flash.top.qr { right: calc(4vw + 15.4vh); }
+.rl-flash.top .kick { font-size: min(calc(var(--band) * 0.56), 3.2vw); line-height: 1; }
+.rl-flash.top .arrow { font-size: min(calc(var(--band) * 0.62), 3.5vw); margin-right: 2vw; } /* (room for its nudge) */
+.rl-flash.top .who { gap: min(calc(var(--band) * 0.3), 1.6vw); }
+.rl-flash.top .avatar { width: min(calc(var(--band) * 0.7), 4vw); height: min(calc(var(--band) * 0.7), 4vw); font-size: min(calc(var(--band) * 0.44), 2.5vw); }
+.rl-flash.top .name { font-size: min(calc(var(--band) * 0.74), 4.2vw); line-height: 1.1; }
+/* 5:4, square and portrait screens: a taller margin, narrower lines — two of them, the name on
+   its own (the band is at least 12.7vh here). */
+@media (max-aspect-ratio: 13/10) {
+  .rl-flash.top { flex-wrap: wrap; align-content: center; row-gap: calc(var(--band) * 0.05); }
+  .rl-flash.top .kick { font-size: min(calc(var(--band) * 0.26), 4vw); }
+  .rl-flash.top .arrow { font-size: min(calc(var(--band) * 0.28), 4.4vw); }
+  .rl-flash.top .who { flex-basis: 100%; justify-content: center; }
+  .rl-flash.top .avatar { width: min(calc(var(--band) * 0.5), 7vw); height: min(calc(var(--band) * 0.5), 7vw); font-size: min(calc(var(--band) * 0.3), 4.2vw); }
+  .rl-flash.top .name { font-size: min(calc(var(--band) * 0.46), 5.6vw); }
+}
 @keyframes rl-in-top { from { opacity: 0; transform: translateY(-100%); } }
 @keyframes rl-out-top { to { opacity: 0; transform: translateY(-100%); } }
 @keyframes rl-nudge { to { transform: translateX(2vw); } }

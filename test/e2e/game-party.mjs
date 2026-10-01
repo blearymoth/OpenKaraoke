@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // End-to-end check of the three small party games, started from the host's Games page:
 //  1. Pass the mic — runs alongside a song on the TV: "PASS THE MIC ➜ NAME" in a band along the
-//     top edge that never covers a lyric line (16:9 and 4:3), long names shown in full, the
-//     holder's phone says "You have the mic!", the host passes it on by hand; a very wide name
-//     never makes a phone (or the host on a phone) scroll sideways.
+//     top edge that never covers a lyric line nor the join QR (16:9, 4:3, 5:4 and portrait),
+//     long names shown in full, the holder's phone says "You have the mic!", the host passes it
+//     on by hand; a very wide name never makes a phone (or the host on a phone) scroll sideways.
 //  2. Applause meter — Chromium's fake microphone (a beep) on the TV: countdown, live gauge, a
 //     score > 0, a second singer to compare (a 40-character label on a phone-sized host), the
 //     TV letting go of the microphone when it loses the server, and a blocked microphone
@@ -108,25 +108,36 @@ function rename(deviceId, name) {
   room().markDirty();
 }
 
+/** Waits for the TV's flash for `name` to be in place: its slide-in and pop animations done. */
+async function flashFor(tv, name, timeout = 8000) {
+  await tv.waitForFunction((n) => {
+    const flash = document.querySelector('.rl-flash');
+    if (flash?.querySelector('.name')?.textContent !== n) return false;
+    return flash.getAnimations({ subtree: true }).filter((a) => /^rl-(in|pop)/.test(a.animationName)).every((a) => a.playState === 'finished');
+  }, name, { timeout });
+}
+
 /**
  * Where the TV's "PASS THE MIC" flash sits: it must stay clear of the lyric lines — in the
  * margin above the lyrics canvas (any CDG pixel can be text), so above its first lit pixel
- * too — while still spanning the screen with a big name.
+ * too — and of the join QR card in the corner, while still spanning the screen with a big name.
  */
 async function flashGeometry(tv, name) {
-  await tv.waitForFunction((n) => document.querySelector('.rl-flash .name')?.textContent === n, name, { timeout: 8000 });
-  await sleep(700); // (after the slide-in)
+  await flashFor(tv, name);
   return tv.evaluate(() => {
     const flash = document.querySelector('.rl-flash');
     const f = flash.getBoundingClientRect();
     const nameEl = flash.querySelector('.name');
+    const parts = [...flash.querySelectorAll('.kick, .arrow, .avatar, .name')].map((e) => e.getBoundingClientRect());
+    const qr = document.querySelector('.corner-qr')?.getBoundingClientRect();
     const canvas = document.getElementById('cdg');
     const c = canvas.getBoundingClientRect();
     const px = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
     let lit = -1;
     for (let y = 0; y < canvas.height && lit < 0; y++) for (let x = 0; x < canvas.width; x++) if (px[(y * canvas.width + x) * 4 + 3] > 0) { lit = y; break; }
     return {
-      top: flash.classList.contains('top'), flashTop: f.top, flashBottom: f.bottom, flashWidth: f.width, overflow: flash.scrollWidth - flash.clientWidth,
+      top: flash.classList.contains('top'), flashTop: f.top, flashBottom: f.bottom, flashLeft: f.left, flashRight: f.right, flashWidth: f.width, overflow: flash.scrollWidth - flash.clientWidth,
+      partsLeft: Math.min(...parts.map((r) => r.left)), partsRight: Math.max(...parts.map((r) => r.right)), qrLeft: qr ? qr.left : null,
       nameCut: nameEl.scrollWidth > nameEl.clientWidth + 1, nameSize: parseFloat(getComputedStyle(nameEl).fontSize), vw: innerWidth, vh: innerHeight,
       lyricsShown: canvas.classList.contains('show'), cdgTop: c.top, firstLit: lit < 0 ? null : c.top + (lit / canvas.height) * c.height,
     };
@@ -137,7 +148,10 @@ function checkFlashClear(geo, what) {
   check(geo.top && geo.lyricsShown, `${what}: lyrics on screen, the flash is a band along the top edge`);
   check(geo.flashTop >= -0.5 && geo.flashBottom <= geo.cdgTop + 0.5, `${what}: the flash (${Math.round(geo.flashTop)}–${Math.round(geo.flashBottom)} px) stays above the lyrics (from ${Math.round(geo.cdgTop)} px)`);
   check(geo.firstLit === null || geo.flashBottom <= geo.firstLit, `${what}: no lyric pixel under the flash (first at ${Math.round(geo.firstLit ?? -1)} px)`);
-  check(geo.flashWidth >= geo.vw * 0.95 && geo.nameSize >= geo.vh * 0.05 && geo.overflow <= 0, `${what}: still big — full width, the name ${Math.round(geo.nameSize)} px tall, nothing sticking out`);
+  // Full width — up to the QR card when it's there (never over it).
+  const reach = geo.qrLeft === null ? geo.vw : geo.qrLeft;
+  check(geo.flashLeft <= 0.5 && geo.flashRight <= reach + 0.5 && geo.flashRight >= reach - geo.vw * 0.05, `${what}: the band spans the screen (${Math.round(geo.flashLeft)}–${Math.round(geo.flashRight)} px)${geo.qrLeft === null ? '' : `, short of the QR card (from ${Math.round(geo.qrLeft)} px)`}`);
+  check(geo.nameSize >= Math.min(geo.vh, geo.vw) * 0.05 && geo.overflow <= 0 && geo.partsLeft >= 0 && geo.partsRight <= geo.flashRight, `${what}: still big — the name ${Math.round(geo.nameSize)} px tall, nothing sticking out`);
 }
 
 async function endAndClose(host) {
@@ -178,8 +192,7 @@ try {
   // Between songs the flash is big, across the middle; a long name gets a line of its own, in full.
   rename(wide, LONG);
   passTo(wide);
-  await tv.waitForFunction((n) => document.querySelector('.rl-flash .name')?.textContent === n, LONG, { timeout: 5000 });
-  await sleep(700);
+  await flashFor(tv, LONG, 5000);
   const lobbyFlash = await tv.evaluate(() => {
     const f = document.querySelector('.rl-flash');
     const n = f.querySelector('.name');
@@ -209,7 +222,8 @@ try {
   check(/You have the mic/.test(await holderPhone.textContent('.rl-mine')), 'the holder’s phone says "You have the mic!"');
   await shot(holderPhone, 'phone-relay-mine', 300);
   const other = Object.entries(phones).find(([n]) => n !== nameOf(first))[1];
-  check(!(await other.$('.rl-mine')) && (await other.textContent('.g-guest.relay')).includes(nameOf(first)), 'other phones see who has the mic');
+  const seen = await other.waitForFunction((n) => document.querySelector('.g-guest.relay')?.textContent.includes(n), nameOf(first), { timeout: 5000 }).then(() => true, () => false);
+  check(seen && !(await other.$('.rl-mine')), 'other phones see who has the mic');
   await host.click('.game-live .btn:has-text("Pass the mic now")');
   await until(() => game().passes >= 2, 'host passes the mic');
   check(game().holder !== first, `the host passed it on to ${nameOf(game().holder)} (never the same twice)`);
@@ -248,11 +262,22 @@ try {
   await hostPhone.waitForSelector('.relay-control .rl-holder', { timeout: 5000 });
   check(await mainSideways(hostPhone) <= 0, 'the host’s game controls on a phone don’t scroll sideways either');
   await shot(hostPhone, 'host-phone-relay', 0);
-  // A 4:3 TV: taller margins, the band fits above the lyrics.
-  await tv.setViewportSize({ width: 1024, height: 768 });
-  passTo(ann);
-  checkFlashClear(await flashGeometry(tv, 'Ann'), 'TV 4:3');
-  await shot(tv, 'tv-relay-flash-4x3', 0);
+  // Other TV shapes: taller margins above the lyrics (from 5:4 two lines, the name on its own)
+  // and narrower lines — the band still fits above the lyrics, a long name still in full.
+  rename(wide, LONG);
+  for (const [width, height, shape] of [[1024, 768, '4:3'], [1280, 1024, '5:4'], [768, 1024, 'portrait']]) {
+    await tv.setViewportSize({ width, height });
+    room().seek({ pos: 5 });
+    room().markDirty();
+    passTo(ann);
+    checkFlashClear(await flashGeometry(tv, 'Ann'), `TV ${shape}`);
+    passTo(wide);
+    geo = await flashGeometry(tv, LONG);
+    checkFlashClear(geo, `TV ${shape}, "${LONG}"`);
+    check(!geo.nameCut, `…"${LONG}" in full`);
+    await shot(tv, `tv-relay-flash-${shape.replace(':', 'x')}`, 0);
+  }
+  rename(wide, WIDE);
   await tv.setViewportSize({ width: 1280, height: 720 });
   const passes = game().passes;
   room().pause();

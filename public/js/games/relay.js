@@ -96,8 +96,8 @@ export function Control({ game, act, state, now }) {
 
 /**
  * "PASS THE MIC ➜ NAME" for a few seconds — big across the middle between songs, a compact
- * band along the top edge while lyrics are on screen (never over the lyric lines) — plus a
- * small holder badge.
+ * band along the top edge while lyrics are on screen (never over the lyric lines, and short of
+ * the join QR in the corner) — plus a small holder badge.
  */
 export function TvOverlay({ game, st, now }) {
   useTick(250);
@@ -105,7 +105,7 @@ export function TvOverlay({ game, st, now }) {
   const flash = game.flash && now() < game.flash.until ? game.flash : null;
   const singing = !!st.current && (st.player.state === 'playing' || st.player.state === 'paused');
   return html`
-    ${flash && html`<div class=${`rl-flash ${singing ? 'top' : ''}`} key=${`${flash.seq}-${singing}`} role="alert">
+    ${flash && html`<div class=${`rl-flash ${singing ? 'top' : ''} ${singing && st.display?.showQr !== false ? 'qr' : ''}`} key=${`${flash.seq}-${singing}`} role="alert">
       <span class="kick display">Pass the mic</span>
       <span class="arrow" aria-hidden="true">➜</span>
       <span class="who">

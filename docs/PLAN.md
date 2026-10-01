@@ -320,7 +320,8 @@ display.approve {code}   tv.status / tv.ended / tv.error / tv.ready   ping {c}
 Server → client: `welcome`, `state`, `time`, `tv`, `res`, `toast`, `notify` (to one device:
 "You're up next!"), `reaction`, `announce`, `game`, `lib` (scan progress), `art`
 `{ seq, songs, artists, all? }` (images that became available or changed; guests don't get
-queued mystery songs or their artists until the song starts), `pong {c, s}`.
+queued mystery songs or their artists until the song is out in the open: it starts, or is queued
+without the mystery; one removed unplayed stays withheld), `pong {c, s}`.
 
 Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min.
 

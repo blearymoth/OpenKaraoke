@@ -5,7 +5,9 @@
 // - Pages send the last `seq` they saw in their hello; the welcome replays what they missed
 //   while they were offline (a sleeping phone), or says "everything" when that is too old.
 // - Guests don't learn the songs behind queued mystery entries (nor their artists): an event
-//   right after the request would give the surprise away. They get them once it's no secret.
+//   right after the request would give the surprise away. What they were not told is withheld
+//   until the song is out in the open (it plays, or is queued without the mystery); a mystery
+//   entry that leaves the queue unplayed keeps its secret, so its song stays withheld.
 const MAX_IDS = 500; // more ids than this in one message: "everything changed"
 const LOG_IDS = 20_000; // ids remembered for replays
 
@@ -13,8 +15,14 @@ export class ArtFeed {
   /**
    * @param {object} opts
    * @param {import('../ws/hub.js').Hub} opts.hub
-   * @param {() => { songs: Set<string>, artists: Set<string> }} opts.secrets what guests must not see yet
+   * @param {() => Visibility} opts.secrets what guests must not see yet, and what is out in the open
    * @param {() => number} [opts.now]
+   *
+   * @typedef {object} Visibility
+   * @property {Set<string>} songs songs guests must not hear about (queued mystery songs)
+   * @property {Set<string>} artists their artists
+   * @property {Set<string>} openSongs songs everyone sees in the party (playing, queued openly)
+   * @property {Set<string>} openArtists their artists
    */
   constructor({ hub, secrets, now = Date.now }) {
     this.hub = hub;
@@ -24,7 +32,7 @@ export class ArtFeed {
     this.floor = this.seq; // replays reach back to here
     this.log = []; // [{ seq, songs, artists }], oldest first
     this.logIds = 0;
-    this.withheld = { songs: new Set(), artists: new Set() };
+    this.withheld = { songs: new Set(), artists: new Set() }; // not told to guests, not out in the open yet
   }
 
   /** An `art` event of the artwork service: { songs: [songId], artists: [artistKey] }. */
@@ -32,21 +40,19 @@ export class ArtFeed {
     if (!songs.length && !artists.length) return;
     const seq = this.remember(songs, artists);
     this.hub.broadcast(message(seq, songs, artists), (c) => c.role !== 'guest');
-    const hide = this.secrets();
-    const gs = songs.filter((id) => !hide.songs.has(id));
-    const ga = artists.filter((k) => !hide.artists.has(k));
-    for (const id of songs) if (hide.songs.has(id)) this.withheld.songs.add(id);
-    for (const k of artists) if (hide.artists.has(k)) this.withheld.artists.add(k);
+    const v = this.secrets();
+    const gs = tellable(songs, v.songs, v.openSongs, this.withheld.songs);
+    const ga = tellable(artists, v.artists, v.openArtists, this.withheld.artists);
     if (gs.length || ga.length) this.hub.broadcast(message(seq, gs, ga), (c) => c.role === 'guest');
   }
 
-  /** After a party change: what guests were not told because it was a secret, now that it isn't. */
+  /** After a party change: tell guests what was withheld from them, now that it's out in the open. */
   release() {
     const w = this.withheld;
     if (!w.songs.size && !w.artists.size) return;
-    const hide = this.secrets();
-    const songs = [...w.songs].filter((id) => !hide.songs.has(id));
-    const artists = [...w.artists].filter((k) => !hide.artists.has(k));
+    const v = this.secrets();
+    const songs = [...w.songs].filter((id) => v.openSongs.has(id) && !v.songs.has(id));
+    const artists = [...w.artists].filter((k) => v.openArtists.has(k) && !v.artists.has(k));
     if (!songs.length && !artists.length) return;
     for (const id of songs) w.songs.delete(id);
     for (const k of artists) w.artists.delete(k);
@@ -70,9 +76,10 @@ export class ArtFeed {
       for (const k of this.log[i].artists) artists.add(k);
     }
     if (role === 'guest') {
-      const hide = this.secrets();
-      for (const id of hide.songs) songs.delete(id);
-      for (const k of hide.artists) artists.delete(k);
+      // Withheld ids that are out in the open now come with the next release().
+      const v = this.secrets();
+      for (const id of [...v.songs, ...this.withheld.songs]) songs.delete(id);
+      for (const k of [...v.artists, ...this.withheld.artists]) artists.delete(k);
     }
     if (songs.size > MAX_IDS || artists.size > MAX_IDS) return { ...out, all: true };
     return { ...out, songs: [...songs], artists: [...artists] };
@@ -89,6 +96,22 @@ export class ArtFeed {
     }
     return this.seq;
   }
+}
+
+/**
+ * The ids of an event that guests may be told about. A secret one is withheld; so is one
+ * withheld earlier that isn't out in the open yet (its mystery entry left the queue unplayed:
+ * telling now would still give it away). Telling a withheld one ends its withholding.
+ */
+function tellable(ids, secret, open, withheld) {
+  return ids.filter((id) => {
+    if (secret.has(id) || (withheld.has(id) && !open.has(id))) {
+      withheld.add(id);
+      return false;
+    }
+    withheld.delete(id);
+    return true;
+  });
 }
 
 function message(seq, songs, artists) {

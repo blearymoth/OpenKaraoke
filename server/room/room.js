@@ -1452,19 +1452,23 @@ export class Room {
 
   /**
    * Songs guests must not learn about through `art` events yet: the queued (or pending)
-   * mystery songs, which guests only see as "Surprise!", and their artists.
+   * mystery songs, which guests only see as "Surprise!", and their artists. Also the songs
+   * that are out in the open (playing, queued without the mystery) and their artists: what
+   * was withheld from guests may be told once it's among these (server/artwork/feed.js).
    */
   artSecrets() {
     const songs = new Set();
     const artists = new Set();
-    const open = new Set(this.s.queue.filter((e) => !e.mystery).map((e) => e.songId));
-    if (this.s.current) open.add(this.s.current.songId);
+    const openSongs = new Set(this.s.queue.filter((e) => !e.mystery).map((e) => e.songId));
+    if (this.s.current) openSongs.add(this.s.current.songId);
+    const artistsOf = (id) => this.catalog.song(id)?.artistKeys || [];
+    const openArtists = new Set([...openSongs].flatMap(artistsOf));
     for (const e of [...this.s.queue, ...this.s.pending]) {
-      if (!e.mystery || open.has(e.songId)) continue;
+      if (!e.mystery || openSongs.has(e.songId)) continue;
       songs.add(e.songId);
-      for (const key of this.catalog.song(e.songId)?.artistKeys || []) artists.add(key);
+      for (const key of artistsOf(e.songId)) artists.add(key);
     }
-    return { songs, artists };
+    return { songs, artists, openSongs, openArtists };
   }
 
   /**
@@ -1777,7 +1781,7 @@ export class Room {
     }
     this.checkUpNext();
     this.focusArtwork();
-    this.app.artFeed?.release(); // a mystery song started (or left the queue): its art is no secret
+    this.app.artFeed?.release(); // a mystery song started (or was unmasked): its art is no secret
     this.breakMusic.checkAutoplay();
     this.save();
   }

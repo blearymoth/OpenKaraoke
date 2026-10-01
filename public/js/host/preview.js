@@ -91,10 +91,13 @@ export function PreviewOutput() {
   const [asking, setAsking] = useState(false);
   const [note, setNote] = useState('');
   const st = useStore(previewStore);
+  const [inUse, setInUse] = useState(audio?.sinkId || '');
   const refresh = () => listOutputs().then(setDevices).catch(() => {});
   useEffect(() => {
     if (!canChoose) return undefined;
     refresh();
+    // The output previews will really use (the headphones chosen before may not be allowed yet).
+    applySink().then(() => setInUse(audio.sinkId || ''));
     navigator.mediaDevices.addEventListener?.('devicechange', refresh);
     return () => navigator.mediaDevices.removeEventListener?.('devicechange', refresh);
   }, []);
@@ -105,7 +108,7 @@ export function PreviewOutput() {
       if (id) localStorage.setItem(SINK_KEY, id);
       else localStorage.removeItem(SINK_KEY);
     } catch { /* private mode: this page only */ }
-    applySink();
+    applySink().then(() => setInUse(audio.sinkId || ''));
   };
   const ask = async () => {
     setAsking(true);
@@ -133,14 +136,15 @@ export function PreviewOutput() {
     }
     setAsking(false);
   };
+  const named = devices.some((d) => d.named);
   return html`<div class="preview-output">
     ${st.error && html`<p class="warn-text">${st.error}</p>`}
-    ${canChoose && devices.some((d) => d.named)
+    ${canChoose && (named || inUse)
       ? html`<label class="field"><span>Preview plays on</span>
           <select class="select" value=${sink} onChange=${(e) => choose(e.currentTarget.value)}>
             <option value="">This computer’s default output</option>
             ${devices.map((d) => html`<option value=${d.id}>${d.label}</option>`)}
-            ${sink && !devices.some((d) => d.id === sink) && html`<option value=${sink}>Your headphones (not connected)</option>`}
+            ${sink && !devices.some((d) => d.id === sink) && html`<option value=${sink}>${inUse === sink ? 'The headphones chosen before' : 'Your headphones (not connected)'}</option>`}
           </select></label>`
       : html`<p class="hint">Previews play on this computer’s default sound output — use headphones if that is also the party speaker.
           ${canChoose && html` <button class="link" disabled=${asking} onClick=${ask}>Choose headphones…</button>`}</p>`}

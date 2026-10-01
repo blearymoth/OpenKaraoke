@@ -8,12 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
 import { PROVIDERS, placeholderRef } from '../server/artwork/providers.js';
 import { songQuery, scoreCandidate, artistSimilarity, pickArtist, pickBest, rankCandidates, artistSearchName, actsOf, MIN_CONFIDENCE } from '../server/artwork/match.js';
-import { ArtworkService } from '../server/artwork/service.js';
+import { ArtworkService, MATCH_VERSION } from '../server/artwork/service.js';
 import { Settings } from '../server/config.js';
 import { Catalog } from '../server/library/catalog.js';
 import { hash32 } from '../shared/text.js';
 import { tmpDir, rawTracks } from './helpers.js';
-import { fakeArtFetch } from './fake-art.js';
+import { fakeArtFetch, offlineFetch } from './fake-art.js';
 
 const FIX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'artwork');
 const fixture = async (name) => JSON.parse(await fs.readFile(path.join(FIX, `${name}.json`), 'utf8'));
@@ -395,6 +395,14 @@ test('service: a band member who also sings alone brings no art of his own to th
     assert.ok(art.artists.get('sam').picture, c.name);
     await art.close();
   }
+  // Offline, Sam & Dave never looked up: the rapper's art isn't shown for them either.
+  const rapper = { picture: tadb('Dave', 'thumb.jpg'), fanart: [tadb('Dave', 'fanart1.jpg')], logo: tadb('Dave', 'logo.png'), n: 'Dave', tried: ['deezer', 'theaudiodb'], at: Date.now(), v: MATCH_VERSION };
+  const { art, song } = await makeService(names, { fetch: offlineFetch, meta: () => ({ artists: { dave: rapper } }) });
+  assert.equal(art.artists.get('dave').logo, rapper.logo);
+  art.focus([song('Soul Man')]);
+  await until(() => !art.jobs.size);
+  assert.deepEqual(art.artFor(song('Soul Man')), { cover: false });
+  await art.close();
 });
 
 test('service: a performer in two acts never shows one act’s art during the other’s songs', async () => {
@@ -439,6 +447,96 @@ test('service: a performer in two acts never shows one act’s art during the ot
   await until(() => fetch.calls.some((u) => u.includes(dir('Peter & Gordon'))) && !art.downloads.size);
   assert.ok(!fetch.calls.some((u) => u.includes(dir('Peter, Paul & Mary'))));
   await art.close();
+});
+
+test('service: a duet’s stand-in art shows once the duo was looked up, also when that was long ago or offline', async () => {
+  const names = ['Elton John & Kiki Dee - True Love [SF Karaoke]', 'Elton John - Rocket Man [SF Karaoke]'];
+  const now = Date.now();
+  const day = 86_400_000;
+  // Rocket Man was sung earlier: Elton John's own art is there.
+  const elton = { picture: tadb('Elton John', 'thumb.jpg'), fanart: [tadb('Elton John', 'fanart1.jpg')], logo: tadb('Elton John', 'logo.png'), n: 'Elton John', tried: ['deezer', 'theaudiodb'], at: now, v: MATCH_VERSION };
+  const duoAsked = (at) => ({ n: 'Elton John & Kiki Dee', tried: ['deezer', 'theaudiodb'], at, v: MATCH_VERSION });
+  const standIn = { fanart: 'eltonjohn', fanartCount: 1, logo: 'eltonjohn' };
+  const shown = (art, song) => {
+    const { cover, ...rest } = art.artFor(song); // the song's cover is no matter here
+    return rest;
+  };
+  // TheAudioDB answers about the duo only when told to.
+  const gated = () => {
+    const base = fakeArtFetch({ unknown: new Set(['elton john & kiki dee']) });
+    const gate = { held: false };
+    gate.done = new Promise((r) => { gate.release = r; });
+    const fetch = Object.assign(async (u) => {
+      const url = new URL(String(u));
+      if (url.hostname === 'www.theaudiodb.com' && /kiki dee/i.test(url.searchParams.get('s'))) {
+        gate.held = true;
+        await gate.done;
+      }
+      return base(u);
+    }, { calls: base.calls });
+    return { fetch, gate };
+  };
+  const watch = (art) => {
+    const events = [];
+    art.on('art', (m) => events.push(['art', m]));
+    art.on('artChoice', (m) => events.push(['artChoice', m]));
+    return events;
+  };
+
+  // Offline, the duo was looked up 31 days ago (nobody knew it): it is due to be asked again,
+  // which can't be done now. Elton John's art stands in all along.
+  {
+    const { art, song } = await makeService(names, { fetch: offlineFetch, meta: () => ({ artists: { eltonjohn: elton, kikidee: duoAsked(now - 31 * day) } }) });
+    const trueLove = song('True Love');
+    assert.deepEqual(trueLove.artistKeys, ['eltonjohn', 'kikidee']);
+    assert.deepEqual(shown(art, trueLove), standIn);
+    art.focus([trueLove]);
+    assert.ok(art.jobs.has('artist:kikidee'), 'asked again');
+    assert.deepEqual(shown(art, trueLove), standIn);
+    await until(() => !art.jobs.size);
+    assert.equal(art.artists.get('kikidee').at, now - 31 * day, 'nothing was asked');
+    assert.deepEqual(shown(art, trueLove), standIn);
+    await art.close();
+  }
+
+  // The duo was never looked up: Elton John's art may be a namesake's ("Sam & Dave"), so none is
+  // shown until both databases said they don't know the duo; then the TV is told.
+  {
+    const { fetch, gate } = gated();
+    const { art, song, library } = await makeService(names, { fetch, meta: () => ({ artists: { eltonjohn: elton } }) });
+    const events = watch(art);
+    const trueLove = song('True Love');
+    assert.deepEqual(shown(art, trueLove), {});
+    const lookup = art.request('artist', library.catalog.artist('kikidee'), 'now', 'all');
+    await until(() => gate.held);
+    assert.deepEqual(art.artists.get('kikidee').tried, ['deezer'], 'Deezer doesn’t know the duo');
+    assert.deepEqual(shown(art, trueLove), {}, 'TheAudioDB is still to answer');
+    gate.release();
+    assert.equal(await lookup, false);
+    assert.deepEqual(shown(art, trueLove), standIn);
+    assert.deepEqual(events, [['artChoice', { songs: [], artists: ['kikidee'] }]]);
+    assert.ok(!art.timers.art, 'no image changed: no art event');
+    await art.close();
+  }
+
+  // Online, the 31-day-old entry is asked again: the stand-in stays while that runs (Deezer's
+  // answer starts the entry afresh), and nothing needs telling when it ends the same.
+  {
+    const { fetch, gate } = gated();
+    const { art, song } = await makeService(names, { fetch, meta: () => ({ artists: { eltonjohn: elton, kikidee: duoAsked(now - 31 * day) } }) });
+    const events = watch(art);
+    const trueLove = song('True Love');
+    art.focus([trueLove]);
+    await until(() => gate.held);
+    assert.deepEqual(art.artists.get('kikidee').tried, ['deezer']);
+    assert.deepEqual(shown(art, trueLove), standIn);
+    gate.release();
+    await until(() => !art.jobs.size);
+    assert.ok(art.artists.get('kikidee').at >= now);
+    assert.deepEqual(shown(art, trueLove), standIn);
+    assert.deepEqual(events.filter(([t]) => t === 'artChoice'), []);
+    await art.close();
+  }
 });
 
 test('service: a lookup running while the library changes keeps nothing found under the old name', async () => {

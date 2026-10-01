@@ -444,7 +444,10 @@ Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safar
   shows fanart/logos found for one of the song's own acts. Art found under a performer's own
   name stands in only when the providers were asked about the act and know nothing ("Elton John"
   for "Elton John & Kiki Dee"), since that name may be a namesake ("Dave" the rapper and the
-  Dave of "Sam & Dave" are one catalog artist); the two are never mixed.
+  Dave of "Sam & Dave" are one catalog artist); the two are never mixed. An act never looked up
+  gets no stand-ins (also offline); one looked up long ago keeps them while it is asked again or
+  can't be asked. When the act's first lookup ends with nothing found, an `artChoice` event
+  (server-internal: no image changed) rebuilds the TV's view.
   Deezer's "no picture" images (`images/artist//…`, MD5 of "" `d41d8cd9…`) are ignored, and
   so are version-1 pictures that came with a matched song (no mark; then any performer in the
   track's credit got it): they are looked up again for the current search name.

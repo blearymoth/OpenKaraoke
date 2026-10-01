@@ -57,6 +57,8 @@ const IMAGE_TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp', g
 const ARTIST_TYPES = ['picture', 'fanart', 'logo', 'cutout', 'banner'];
 // What an artist entry gets only from searching an artist database by name (see artistEntry).
 const SEARCHED = ['fanart', 'logo', 'cutout', 'banner', 'mbid', 'genre'];
+// The artist databases searched by name (fanart.tv is asked by the MusicBrainz id TheAudioDB gives).
+const NAME_SEARCH = ['deezer', 'theaudiodb'];
 const FILE_RE = /^([0-9a-f]{40})\.(jpg|png|webp|gif)$/;
 /** Song metadata the catalog ranks, filters or shows (a change must reach its caches). */
 const CATALOG_FIELDS = ['cover', 'rank', 'explicit', 'genre', 'year'];
@@ -773,6 +775,7 @@ export class ArtworkService extends EventEmitter {
       return Promise.resolve(a ? !!(a.picture || a.fanart?.length || a.logo) : null);
     }
     job = { id, kind, key: obj.key, obj, prio: p, want, chain, queued: null, found: false, skipped: false };
+    if (kind === 'artist') job.lookedUp = this.nameSearched(this.artists.get(obj.key)); // see actLookedUp
     job.promise = new Promise((resolve) => { job.resolve = resolve; });
     this.jobs.set(id, job);
     if (p === PRIO.crawl) this.crawl.inFlight++;
@@ -885,6 +888,11 @@ export class ArtworkService extends EventEmitter {
   settle(job, value, { dropped = false } = {}) {
     if (this.jobs.get(job.id) !== job) return;
     this.jobs.delete(job.id);
+    if (job.kind === 'artist' && !this.closed && job.lookedUp !== this.nameSearched(this.artists.get(job.key))) {
+      // Its first lookup ended (with nothing found: found art is an 'art' event): the act's songs
+      // may show their singers' own art now (songArtists), although no image changed.
+      this.emit('artChoice', { songs: [], artists: [job.key] });
+    }
     if (job.prio === PRIO.crawl) {
       this.crawl.inFlight--;
       // The rate shown to the host counts lookups that asked a provider, not skipped ones.
@@ -1149,20 +1157,41 @@ export class ArtworkService extends EventEmitter {
   }
 
   /**
+   * Whether the artist databases that search by name were all asked about the entry's artist
+   * under its current search name (artistEntry drops what was searched for another name), however
+   * long ago: an old "nothing found" still holds while it is asked again, or while offline.
+   */
+  nameSearched(e) {
+    const tried = e?.tried || [];
+    return tried.length > 0 && NAME_SEARCH.every((n) => tried.includes(n) || !this.providerOn(n));
+  }
+
+  /**
+   * Whether the act behind catalog artist `key` was looked up (nameSearched). While a lookup of
+   * it is queued or running, the answer from before that lookup holds: a refresh of an old
+   * entry doesn't hide the stand-ins (songArtists) for a moment, and a first lookup doesn't show
+   * them after the first database's answer. The end of the lookup is an 'artChoice' event.
+   */
+  actLookedUp(key, e) {
+    const job = this.jobs.get(`artist:${key}`);
+    return job ? job.lookedUp : this.nameSearched(e);
+  }
+
+  /**
    * The song's artists whose fanart and logo fit it. Art found for one of the song's own acts
    * ("Peter & Gordon", "Sam & Dave") comes first. Art found under a performer's own name is only
-   * a stand-in for an act the providers don't know ("Elton John" for "Elton John & Kiki Dee"):
-   * when the act was found, or is still to be looked up, a member's own name may well be a
-   * namesake ("Dave" the rapper next to "Sam & Dave" in one catalog artist), so it is left out.
-   * A band member holding another act's art never fits: "Peter" is looked up as "Peter, Paul &
-   * Mary", which is not who sings "A World Without Love".
+   * a stand-in for an act the providers were asked about and don't know ("Elton John" for
+   * "Elton John & Kiki Dee"): when the act was found, or hasn't been looked up yet, a member's
+   * own name may well be a namesake ("Dave" the rapper next to "Sam & Dave" in one catalog
+   * artist), so it is left out. A band member holding another act's art never fits: "Peter" is
+   * looked up as "Peter, Paul & Mary", which is not who sings "A World Without Love".
    */
   songArtists(song) {
     const acts = actsOf(song.artist);
     const exact = [];
     const own = [];
     let known = false;
-    let pending = false;
+    let unasked = false;
     for (const key of song.artistKeys || []) {
       const artist = this.catalog.artist(key);
       if (!artist) continue;
@@ -1170,13 +1199,13 @@ export class ArtworkService extends EventEmitter {
       const name = this.searchName(artist);
       if (acts.some((act) => sameSearchName(act, name))) {
         if (e && (e.picture || SEARCHED.some((k) => e[k]?.length))) known = true;
-        else if (this.artistChain(key, 'all').length) pending = true;
+        else if (!this.actLookedUp(key, e)) unasked = true;
         if (e) exact.push(key);
       } else if (e && sameSearchName(name, artist.name)) {
         own.push(key);
       }
     }
-    return known || pending ? exact : [...exact, ...own];
+    return known || unasked ? exact : [...exact, ...own];
   }
 
   /** What the TV can show for a song: { cover, fanart: artistKey?, logo: artistKey? }. */

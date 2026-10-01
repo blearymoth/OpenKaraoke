@@ -101,6 +101,8 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
     artFeed.publish(m);
     room.onArt(m);
   });
+  // Which stored art a song shows changed, no image did: the TV's view, nothing to load again.
+  artwork.on('artChoice', (m) => room.onArt(m));
   artwork.on('status', () => hub.broadcast({ t: 'artwork', status: artwork.status() }, (c) => c.role === 'host'));
 
   app.listen = (port, host) => new Promise((resolve, reject) => {

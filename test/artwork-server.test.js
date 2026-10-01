@@ -14,14 +14,15 @@ let fetchFake;
 before(async () => {
   const lib = await tmpDir('ok-art-lib-');
   const files = {};
-  for (const name of ['Queen - Bohemian Rhapsody [SF Karaoke]', 'Queen - Bohemian Rhapsody [SC Karaoke]', 'Adele - Hello [SF Karaoke]', 'Nobody Knows - Unknown Tune [SF Karaoke]', 'Blondie - Call Me [SC Karaoke]']) {
+  for (const name of ['Queen - Bohemian Rhapsody [SF Karaoke]', 'Queen - Bohemian Rhapsody [SC Karaoke]', 'Adele - Hello [SF Karaoke]', 'Nobody Knows - Unknown Tune [SF Karaoke]', 'Blondie - Call Me [SC Karaoke]',
+    'Elton John & Kiki Dee - True Love [SF Karaoke]', 'Elton John - Rocket Man [SF Karaoke]']) {
     const artist = name.split(' - ')[0];
     files[`${artist[0]}/${artist}/${name}.cdg`] = 7200 * 200;
     files[`${artist[0]}/${artist}/${name}.mp3`] = 100;
   }
   await writeTree(lib, files);
   const dataDir = await tmpDir('ok-art-data-');
-  fetchFake = fakeArtFetch({ unknown: new Set(['nobody knows']) });
+  fetchFake = fakeArtFetch({ unknown: new Set(['nobody knows', 'elton john & kiki dee']) });
   app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch: fetchFake, crawl: false });
   await app.library.scan();
   app.settings.update({ playback: { countdown: 30 }, artwork: { crawl: false } });
@@ -142,7 +143,7 @@ test('host controls over WebSocket; guests may not use them; status is host-only
   const guest = await ws({ role: 'guest', room: app.settings.get('party.roomCode') });
   const st = await host.req('artwork.status');
   assert.equal(st.enabled, true);
-  assert.equal(st.songs.total, 4);
+  assert.equal(st.songs.total, 6);
   assert.ok(st.providers.find((p) => p.name === 'deezer').on);
   await assert.rejects(guest.req('artwork.status'), /not allowed/);
   await assert.rejects(guest.req('artwork.retry'), /not allowed/);
@@ -212,6 +213,30 @@ test('the TV: current song is looked up first, its art flags and a lobby mosaic 
   assert.equal(tv.state.current.art.cover, true);
   assert.equal(tv.state.current.art.logo, queenKey);
   assert.deepEqual(tv.state.mosaic, [], 'no mosaic while a song is on');
+  tv.close();
+  host.close();
+});
+
+test('the TV: a duet of an act nobody knows gets the singer’s own art as soon as the act was looked up', async () => {
+  const cat = app.library.catalog;
+  const trueLove = cat.song(songId('True Love'));
+  const elton = cat.artistList.find((a) => a.name === 'Elton John');
+  const duo = trueLove.artistKeys.find((k) => k !== elton.key);
+  // Earlier in the night: Rocket Man was sung (Elton John's art is there), True Love's cover was found.
+  assert.equal(await app.artwork.request('artist', elton, 'now', 'all'), true);
+  assert.equal(await app.artwork.request('song', trueLove, 'now'), true);
+  assert.equal(app.artwork.artists.get(duo), undefined, 'the duo was never looked up');
+  await until(() => !app.artwork.timers.art, 2000); // their 'art' events are out
+  const tv = await ws({ role: 'tv' });
+  const host = await ws({ role: 'host' });
+  await host.req('queue.add', { songId: trueLove.id, singerName: 'Kim', position: 'now' });
+  await until(() => tv.state?.current?.songId === trueLove.id);
+  // Nothing else happens: the duo's lookup ends with nothing found (no image changed), and the
+  // TV gets Elton John's fanart and logo for it.
+  await until(() => tv.state.current.art?.fanart === elton.key);
+  assert.deepEqual(app.artwork.artists.get(duo).tried, ['deezer', 'theaudiodb']);
+  assert.equal(tv.state.current.art.logo, elton.key);
+  assert.equal(tv.state.current.art.cover, true);
   tv.close();
   host.close();
 });

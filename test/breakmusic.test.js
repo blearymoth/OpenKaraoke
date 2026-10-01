@@ -36,6 +36,46 @@ test('break music: plays while nobody sings, stops during a song, skips and foll
   assert.equal(view(tv).breakMusic, null, 'switched off');
 });
 
+test('break music: every break gets a fresh track that matches the song coming up (not the same intro all night)', async () => {
+  const { connect, req, view, song, s, room, app } = await setupRoom({ playback: { countdown: 5, autoStart: true } }, { songs: [...SONGS, ...MORE_SONGS] });
+  const genres = { abba: 'Disco', 'gloria gaynor': 'Disco', toto: 'Rock', journey: 'Rock', 'bon jovi': 'Rock', survivor: 'Rock', oasis: 'Rock' };
+  const catalog = app.library.catalog;
+  const genreOf = (s) => genres[s.artist.toLowerCase()] || 'Pop';
+  catalog.metaFor = (key) => {
+    const s = [...catalog.songs.values()].find((x) => x.key === key);
+    return s ? { genre: genreOf(s) } : null;
+  };
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const lobby = view(tv).breakMusic.id;
+  await req(host, 'queue.add', { songId: song('waterloo').id, singerName: 'Ann' });
+  await req(host, 'queue.add', { songId: song('africa').id, singerName: 'Bo' });
+  await req(host, 'queue.add', { songId: song('dancing queen').id, singerName: 'Cy' });
+  if (catalog.song(lobby.replace(/^lib:/, '')).title !== 'Waterloo') assert.equal(view(tv).breakMusic.id, lobby, 'the lobby music carries on into the first countdown');
+  else assert.notEqual(view(tv).breakMusic.id, lobby, 'unless it is the song now counting down');
+  const breakSong = () => catalog.song(view(tv).breakMusic.id.replace(/^lib:/, ''));
+  const sing = async () => {
+    const cur = s().current;
+    await req(tv, 'tv.ready', { entryId: cur.id, dur: 200 });
+    room.resume();
+    assert.equal(s().player.state, 'playing');
+    assert.equal(view(tv).breakMusic, null, 'silent while someone sings');
+    await req(tv, 'tv.ended', { entryId: cur.id });
+  };
+  const ids = [];
+  for (const [title, genre] of [['Waterloo', null], ['Africa', 'Rock'], ['Dancing Queen', 'Disco']]) {
+    assert.equal(s().current.title, title);
+    assert.equal(s().player.state, 'intro');
+    const bs = breakSong();
+    if (genre) assert.equal(genreOf(bs), genre, `the countdown to ${title} plays ${genre}`);
+    assert.notEqual(bs.title, title, 'never the backing track of the song coming up');
+    ids.push(view(tv).breakMusic.id);
+    await sing();
+  }
+  ids.push(view(tv).breakMusic.id);
+  assert.equal(new Set(ids).size, ids.length, `a new track at every break: ${ids.join(' ')}`);
+});
+
 test('break music: explicit songs never play; a mystery-free pool excludes queued songs', async () => {
   const { connect, view, room } = await setupRoom({}, { songs: ['Queen - Killer Queen (Explicit) [SF Karaoke]', 'Blondie - Rapture (Explicit) [SF Karaoke]'] });
   const tv = await connect('tv');

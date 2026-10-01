@@ -15,7 +15,7 @@ const MAX_FOLDER_FILES = 5000;
 export class BreakMusic {
   constructor(room) {
     this.room = room;
-    this.track = null; // { id, url, title, artist, source }
+    this.track = null; // { id, url, title, artist, source, songId? }
     this.recent = []; // ids played lately (not repeated soon)
     this.folder = { dir: '', at: 0, files: [], scanning: null };
     this.idleSince = Date.now();
@@ -41,8 +41,14 @@ export class BreakMusic {
 
   /** What the TV gets: the track to play (or null = fade out and stop). */
   view() {
-    if (!this.wanted()) return null;
-    if (!this.track) this.pick();
+    if (!this.wanted()) {
+      // The music stops (someone sings, a game takes the TV…): the next break gets a fresh
+      // track that suits the song coming up, instead of the same intro all night.
+      this.track = null;
+      return null;
+    }
+    // (A guest asked for the backing track that was playing: not as music to its own countdown.)
+    if (!this.track || (this.track.songId && this.track.songId === this.room.s.current?.songId)) this.pick();
     if (!this.track) return null;
     const volume = Math.max(0, Math.min(1, Number(this.cfg().volume) || 0.35));
     return { id: this.track.id, url: this.track.url, title: this.track.title, artist: this.track.artist, volume };
@@ -61,12 +67,16 @@ export class BreakMusic {
   }
 
   pickLibrary(matchNext) {
-    const catalog = this.room.catalog;
+    const { catalog, s } = this.room;
+    // The song coming up: the one in its intro (break music plays during the countdown), else
+    // the head of the queue. Neither it nor the songs queued after it are played as break music.
+    const upNext = s.current || s.queue[0];
     const exclude = new Set(this.recent.map((id) => id.replace(/^lib:/, '')));
-    for (const e of this.room.s.queue.slice(0, 10)) exclude.add(e.songId);
+    if (s.current) exclude.add(s.current.songId);
+    for (const e of s.queue.slice(0, 10)) exclude.add(e.songId);
     const filter = { exclude, minDuration: 20, maxDuration: 480, noExplicit: true };
     // Match the mood of the next song when its genre/decade is known.
-    const nextSong = matchNext && this.room.s.queue[0] ? catalog.song(this.room.s.queue[0].songId) : null;
+    const nextSong = matchNext && upNext ? catalog.song(upNext.songId) : null;
     const meta = nextSong && catalog.metaFor(nextSong.key);
     const tries = [];
     if (meta?.genre && meta?.year) tries.push({ ...filter, genre: meta.genre, decade: Math.floor(meta.year / 10) * 10 });
@@ -77,7 +87,7 @@ export class BreakMusic {
       if (!song) continue;
       const track = this.room.pickTrack(song, { noExplicit: true });
       if (!track || track.kind === 'video') continue;
-      return { id: `lib:${song.id}`, url: `/media/${track.id}/audio`, title: song.title, artist: song.artist, source: 'library' };
+      return { id: `lib:${song.id}`, url: `/media/${track.id}/audio`, title: song.title, artist: song.artist, source: 'library', songId: song.id };
     }
     return null;
   }

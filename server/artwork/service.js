@@ -13,6 +13,8 @@
 //   whose next provider is in a long back-off wait for the next pass.
 //
 // Events: 'art' { songs: [songId], artists: [artistKey] } — images became available/changed;
+//         'artChoice' { songs: [], artists: [artistKey] } — no image changed, but the act's songs
+//         may now show other art (songArtists);
 //         'status' — crawler/provider status changed (throttled).
 import { EventEmitter } from 'node:events';
 import fsp from 'node:fs/promises';
@@ -136,9 +138,10 @@ export class ArtworkService extends EventEmitter {
     this.ua = USER_AGENT(version);
     this.crawlDelayMs = crawlDelayMs;
     this.songs = new Map(); // song key → { p, id, cover, album, genre, year, explicit, rank, confidence, at, v } | { miss, tried[], at, v }
-    // artist key → { picture, pictureFor?, fanart[], logo, cutout, banner, mbid, genre, n, tried[], at, v }
+    // artist key → { picture, pictureFor?, fanart[], logo, cutout, banner, mbid, genre, n, tried[], asked[]?, at, v }
     // n: the name searched for (see searchName); pictureFor: the picture came with a matched song
-    // and was accepted for that name.
+    // and was accepted for that name; asked: databases searched for n before a refresh started
+    // `tried` over, not asked again yet (see nameSearched).
     this.artists = new Map();
     this.nameSearches = new Lru({ max: 64 }); // "provider|name" → artist search result (band members share one)
     this.albums = new Map(); // "provider:id" → { genre, year, type }
@@ -1053,7 +1056,7 @@ export class ArtworkService extends EventEmitter {
     let next = searchOk ? { ...e } : e.pictureFor ? { picture: e.picture, pictureFor: e.pictureFor } : {};
     if (!pictureOk) {
       // Deezer may have been asked while that picture was there: ask again.
-      const { picture, pictureFor, tried, ...rest } = next;
+      const { picture, pictureFor, tried, asked, ...rest } = next;
       next = rest;
     }
     this.setArtist(current.key, next, true);
@@ -1117,6 +1120,9 @@ export class ArtworkService extends EventEmitter {
       e.genre ||= info.genre;
     }
     if (!e.tried.includes(name)) e.tried.push(name);
+    // A refresh of an old entry starts `tried` over; the databases that were searched for this name
+    // before still count for nameSearched until they answer again (one may be backing off).
+    e.asked = NAME_SEARCH.filter((n) => !e.tried.includes(n) && (prev?.tried?.includes(n) || prev?.asked?.includes(n)));
     e.at = this.now();
     e.v = MATCH_VERSION;
     const changed = signature(e) !== before;
@@ -1159,11 +1165,12 @@ export class ArtworkService extends EventEmitter {
   /**
    * Whether the artist databases that search by name were all asked about the entry's artist
    * under its current search name (artistEntry drops what was searched for another name), however
-   * long ago: an old "nothing found" still holds while it is asked again, or while offline.
+   * long ago: an old "nothing found" still holds while it is asked again (`asked` keeps what a
+   * refresh hasn't asked yet), or while offline.
    */
   nameSearched(e) {
-    const tried = e?.tried || [];
-    return tried.length > 0 && NAME_SEARCH.every((n) => tried.includes(n) || !this.providerOn(n));
+    const asked = [...(e?.tried || []), ...(e?.asked || [])];
+    return asked.length > 0 && NAME_SEARCH.every((n) => asked.includes(n) || !this.providerOn(n));
   }
 
   /**

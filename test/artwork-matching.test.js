@@ -28,8 +28,8 @@ const tadb = (name, file) => `tadb:https://r2.theaudiodb.com/images/media/artist
 const dzArtist = (name) => `dz:https://e-cdns-images.dzcdn.net/images/artist/${hash32(`artist:${name}`).toString(16).padStart(8, '0').repeat(4)}/1000x1000-000000-80-0-0.jpg`;
 
 /** An artwork service over a catalog of `names`; `meta(catalog)` is written as meta.json first. */
-async function makeService(names, { fetch = fakeArtFetch(), meta } = {}) {
-  const dataDir = await tmpDir('ok-art-match-');
+async function makeService(names, { fetch = fakeArtFetch(), meta, dataDir } = {}) {
+  dataDir ||= await tmpDir('ok-art-match-');
   if (meta) {
     const data = meta(new Catalog().load(rawTracks(names)));
     await fs.writeFile(path.join(dataDir, 'meta.json'), JSON.stringify({ version: 1, songs: {}, artists: {}, albums: {}, ...data }));
@@ -42,7 +42,7 @@ async function makeService(names, { fetch = fakeArtFetch(), meta } = {}) {
   await art.init({ crawl: false });
   const song = (title) => [...library.catalog.songs.values()].find((s) => s.title === title);
   const artist = (name) => library.catalog.artistList.find((a) => a.name === name);
-  return { art, library, song, artist, fetch };
+  return { art, library, song, artist, fetch, dataDir };
 }
 
 const until = async (fn, ms = 3000) => {
@@ -537,6 +537,58 @@ test('service: a duet’s stand-in art shows once the duo was looked up, also wh
     assert.deepEqual(events.filter(([t]) => t === 'artChoice'), []);
     await art.close();
   }
+});
+
+test('service: a refresh one database can’t answer keeps the duet’s stand-in art, also after a restart', async () => {
+  const names = ['Elton John & Kiki Dee - True Love [SF Karaoke]', 'Elton John - Rocket Man [SF Karaoke]'];
+  const now = Date.now();
+  const elton = { picture: tadb('Elton John', 'thumb.jpg'), fanart: [tadb('Elton John', 'fanart1.jpg')], logo: tadb('Elton John', 'logo.png'), n: 'Elton John', tried: ['deezer', 'theaudiodb'], at: now, v: MATCH_VERSION };
+  // Nobody knew the duo 31 days ago: it is asked again.
+  const duo = { n: 'Elton John & Kiki Dee', tried: ['deezer', 'theaudiodb'], at: now - 31 * 86_400_000, v: MATCH_VERSION };
+  const standIn = { fanart: 'eltonjohn', fanartCount: 1, logo: 'eltonjohn' };
+  const shown = (art, song) => {
+    const { cover, ...rest } = art.artFor(song);
+    return rest;
+  };
+  const failing = (host) => fakeArtFetch({ unknown: new Set(['elton john & kiki dee']), override: (u) => (u.hostname === host ? new Response('down', { status: 503 }) : undefined) });
+  const hosts = { deezer: 'api.deezer.com', theaudiodb: 'www.theaudiodb.com' };
+
+  for (const [down, up] of [['theaudiodb', 'deezer'], ['deezer', 'theaudiodb']]) {
+    const { art, song, dataDir } = await makeService(names, { fetch: failing(hosts[down]), meta: () => ({ artists: { eltonjohn: elton, kikidee: duo } }) });
+    const choices = [];
+    art.on('artChoice', (m) => choices.push(m));
+    const trueLove = song('True Love');
+    art.focus([trueLove]);
+    await until(() => !art.jobs.size);
+    const e = art.artists.get('kikidee');
+    assert.deepEqual([e.tried, e.asked], [[up], [down]], `${up} answered, ${down} is still to be asked again`);
+    assert.ok(e.at >= now);
+    assert.deepEqual(shown(art, trueLove), standIn, `${down} down: Elton John’s art stays`);
+    assert.deepEqual(choices, [], 'nothing changed for the TV');
+    assert.ok(art.artistChain('kikidee', 'all').includes(down), `${down} is asked again before 30 days are up`);
+    await art.close();
+
+    // Restarted with both databases answering: the one that was down is asked, the stand-in stays.
+    const again = await makeService(names, { dataDir, fetch: fakeArtFetch({ unknown: new Set(['elton john & kiki dee']) }) });
+    const choices2 = [];
+    again.art.on('artChoice', (m) => choices2.push(m));
+    assert.deepEqual(shown(again.art, again.song('True Love')), standIn, 'after a restart');
+    again.art.focus([again.song('True Love')]);
+    await until(() => !again.art.jobs.size);
+    const e2 = again.art.artists.get('kikidee');
+    assert.deepEqual([[...e2.tried].sort(), e2.asked], [['deezer', 'theaudiodb'], undefined]);
+    assert.deepEqual(shown(again.art, again.song('True Love')), standIn);
+    assert.deepEqual(choices2, []);
+    await again.art.close();
+  }
+
+  // A first lookup that TheAudioDB can't answer: the duo isn't looked up yet (no stand-in).
+  const { art, song } = await makeService(names, { fetch: failing(hosts.theaudiodb), meta: () => ({ artists: { eltonjohn: elton } }) });
+  art.focus([song('True Love')]);
+  await until(() => !art.jobs.size);
+  assert.deepEqual([art.artists.get('kikidee').tried, art.artists.get('kikidee').asked], [['deezer'], undefined]);
+  assert.deepEqual(shown(art, song('True Love')), {});
+  await art.close();
 });
 
 test('service: a lookup running while the library changes keeps nothing found under the old name', async () => {

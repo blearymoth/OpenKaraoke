@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EventEmitter } from 'node:events';
@@ -416,6 +417,69 @@ test('the cache evicts big pictures before the small list thumbnails', async () 
   await art.close();
 });
 
+/** Serves `fn(ctx)` over HTTP (the placeholder when it returns false); returns the base URL and a stop function. */
+async function serveOver(fn) {
+  const server = http.createServer(async (req, res) => {
+    const ctx = { req, res, isHost: true, ip: '127.0.0.1', query: new URL(req.url, 'http://x').searchParams };
+    try {
+      if (!(await fn(ctx))) {
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end('placeholder');
+      }
+    } catch (e) {
+      res.writeHead(500, { 'content-type': 'text/plain' });
+      res.end(String(e.code || e.message));
+    }
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  return { url: `http://127.0.0.1:${server.address().port}`, stop: () => new Promise((r) => server.close(r)) };
+}
+
+test('a big picture downloaded into a full cache is kept and served; pictures used minutes ago go last', async () => {
+  const big = Buffer.concat([pngImage('big'), Buffer.alloc(150 * 1024)]); // a 1000 px cover (over 64 KB)
+  const fetch = fakeArtFetch({ override: (u) => (u.hostname.endsWith('dzcdn.net') && u.pathname.includes('/1000x1000') ? new Response(big, { status: 200 }) : undefined) });
+  const { art, song } = await makeService({ fetch, settings: { artwork: { crawl: false, maxCacheMB: 20 } } });
+  const kb = 1024;
+  const add = (key, size, used) => {
+    art.files.set(key, { ext: 'png', size, used });
+    art.bytes += size;
+  };
+  add(`o${'0'.repeat(39)}`, 200 * kb, 500); // an old big picture
+  add(`r${'0'.repeat(39)}`, 200 * kb, Date.now() - 2 * 60_000); // fetched for the TV two minutes ago
+  for (let i = 0; art.bytes + 25 * kb <= art.cacheMax(); i++) add(`s${String(i).padStart(39, '0')}`, 25 * kb, 1000 + i); // old thumbnails: the cache is full
+
+  // The TV asks for a big cover: the download pushes the cache over its limit.
+  const img = await art.image(coverRef(7), 'l', PRIO.now);
+  assert.ok(img, 'image() gave the file');
+  assert.ok((await fs.stat(img.abs)).size > 150 * kb, 'and it is on the disk');
+  assert.ok(art.cached(imageUrls(coverRef(7)).l), 'and in the index');
+  assert.ok(art.bytes <= art.cacheMax());
+  assert.ok(!art.files.has(`o${'0'.repeat(39)}`), 'the old big picture went first');
+  assert.ok(art.files.has(`r${'0'.repeat(39)}`), 'the recent one is kept (thumbnails go before it)');
+
+  // Over HTTP, with the cache full again: the TV gets the picture, not an error.
+  const s = song('Hello');
+  art.songs.set(s.key, { p: 'deezer', id: '1', cover: coverRef(8), at: Date.now(), v: 1 });
+  for (let i = 0; art.bytes + 25 * kb <= art.cacheMax(); i++) add(`t${String(i).padStart(39, '0')}`, 25 * kb, 2000 + i);
+  const http1 = await serveOver((ctx) => art.serveSong(ctx, s));
+  const res = await globalThis.fetch(`${http1.url}/?s=1000`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'image/png');
+  assert.equal((await res.arrayBuffer()).byteLength, big.length);
+
+  // A cached file that is gone from the disk after all: the placeholder, and the index forgets it.
+  const file = art.cached(imageUrls(coverRef(8)).l);
+  await fs.unlink(file.abs);
+  const before = art.bytes;
+  const gone = await globalThis.fetch(`${http1.url}/?s=1000`);
+  assert.equal(gone.status, 200);
+  assert.equal(await gone.text(), 'placeholder');
+  assert.equal(art.cached(imageUrls(coverRef(8)).l), null);
+  assert.equal(art.bytes, before - big.length);
+  await http1.stop();
+  await art.close();
+});
+
 test('right after a restart, cached pictures are served (even offline) while the cache is still being indexed', async () => {
   const first = await makeService();
   const s = first.song('Hello');
@@ -492,6 +556,77 @@ test('crawler: the artist phase doesn’t pile artists onto TheAudioDB, and it p
   assert.ok(most > 0, 'TheAudioDB was asked');
   assert.ok(most <= 6, `at most a handful queued for TheAudioDB (was ${most})`);
   assert.ok(art.cached(imageUrls(picture).s), 'the known artist picture was downloaded for the lists');
+  await art.close();
+});
+
+test('crawler: songs and artists waiting for a provider in a long back-off are left alone (short ticks, no fake rate)', async () => {
+  const names = Array.from({ length: 3000 }, (_, i) => `Band ${i} - Song ${i} [SF Karaoke]`);
+  const { art, settings, library } = await makeService({ names });
+  // Most songs are known (with their list thumbnails cached); every 10th still waits for
+  // MusicBrainz (Deezer had nothing). Every artist waits for TheAudioDB.
+  let i = 0;
+  const pending = [];
+  for (const s of library.catalog.songs.values()) {
+    if (i++ % 10 === 0) {
+      art.songs.set(s.key, { miss: true, tried: ['deezer'], at: Date.now(), v: 1 });
+      pending.push(s);
+      continue;
+    }
+    art.songs.set(s.key, { p: 'deezer', id: '1', cover: coverRef(i), at: Date.now(), v: 1 });
+    art.files.set(art.fileKey(imageUrls(coverRef(i)).s), { ext: 'jpg', size: 20_000, used: 1 });
+  }
+  for (const a of library.catalog.artistList) art.artists.set(a.key, { tried: ['deezer'], at: Date.now(), v: 1 });
+  assert.deepEqual(art.artistChain(library.catalog.artistList[0].key), ['theaudiodb']);
+  // Both answer HTTP 502: a back-off of a minute.
+  art.failed('musicbrainz', 'error', 'HTTP 502');
+  art.failed('theaudiodb', 'error', 'HTTP 502');
+  const pauseEnd = Date.now() + art.throttles.musicbrainz.pausedFor();
+
+  let requests = 0;
+  const request = art.request.bind(art);
+  art.request = (...args) => {
+    requests++;
+    return request(...args);
+  };
+  // How many songs and artists each crawl tick looks at.
+  let looked = 0;
+  for (const name of ['songChain', 'artistChain']) {
+    const fn = art[name].bind(art);
+    art[name] = (...args) => {
+      looked++;
+      return fn(...args);
+    };
+  }
+  const tick = art.crawlTick.bind(art);
+  let most = 0;
+  art.crawlTick = () => {
+    looked = 0;
+    tick();
+    most = Math.max(most, looked);
+  };
+  settings.update({ artwork: { crawl: true } });
+  art.crawlTick();
+  await until(() => art.crawl.restartAt, 5000); // the pass ended
+  assert.ok(most > 0 && most <= 1000, `a slice of the catalogue per tick (was ${most})`);
+  assert.equal(requests, 0, 'no lookup was started for them');
+  assert.equal(art.jobs.size, 0);
+  assert.equal(art.fetch.calls.filter((u) => /musicbrainz|theaudiodb/.test(u)).length, 0);
+  art._status = null;
+  const st = art.status();
+  assert.equal(st.state, 'waiting');
+  assert.equal(st.perMin, 0, 'nothing was looked up');
+  assert.equal(st.etaSec, null);
+  assert.equal(st.songs.pending, pending.length);
+  assert.ok(Math.abs(art.crawl.restartAt - pauseEnd) < 2000, 'the next pass comes when the back-off ends (not every minute)');
+
+  // The back-off is over: the songs are asked, and the rate counts those lookups.
+  art.throttles.musicbrainz.resume();
+  art.wakeCrawl();
+  await until(() => art.songs.get(pending[0].key).tried.includes('musicbrainz'), 5000);
+  assert.ok(requests > 0);
+  await until(() => art.crawl.recent.length > 0);
+  art._status = null;
+  assert.ok(art.status().perMin > 0);
   await art.close();
 });
 

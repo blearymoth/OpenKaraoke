@@ -546,3 +546,32 @@ test('battle: controls are phase-checked; unknown actions and guests’ attempts
   // The song that was on keeps playing; the party carries on from there.
   assert.ok(ctx.s().current);
 });
+
+test('battle: another song can’t start during a performance — “Play now” and Play are refused, nothing is lost', async () => {
+  const ctx = await party(['Cy'], { playback: { countdown: 0, autoStart: true } });
+  const { act, req, s, room, host, tv } = ctx;
+  await req(host, 'queue.add', { songId: ctx.song('waterloo').id, singerName: 'Queued' });
+  await req(host, 'player.stop');
+  await ctx.start({ contestants: ['Ana', 'Ben'], auto: true });
+  await act('start');
+  const a = s().current;
+  await req(tv, 'tv.ready', { entryId: a.id, dur: 200 });
+  const queued = s().queue[0];
+  await assert.rejects(req(host, 'queue.add', { songId: ctx.song('hello').id, singerName: 'Bo', position: 'now' }), /game is using the TV/);
+  await assert.rejects(req(host, 'player.play', { entryId: queued.id }), /game is using the TV/);
+  room.profileOf(ctx.g.Cy.data.deviceId).coHost = true;
+  await assert.rejects(req(ctx.g.Cy, 'player.play', { entryId: queued.id }), /game is using the TV/, 'a co-host neither');
+  assert.equal(s().current.id, a.id, 'the performance goes on');
+  assert.equal(room.game.perfs[0].status, 'singing');
+  assert.deepEqual(s().queue.map((e) => e.title), ['Waterloo'], 'the queue is untouched');
+  assert.deepEqual(await req(host, 'player.play', { entryId: a.id }), { state: 'playing' }, 'the battle song itself can be resumed');
+  // Safety net: if a non-game song were on when the next performance starts, it goes back to the queue.
+  await req(tv, 'tv.ended', { entryId: a.id });
+  room.game.clearTimers();
+  room.startEntry(s().queue.shift());
+  const host1 = s().current;
+  room.game.autoStart();
+  assert.equal(s().current.source, 'game:battle');
+  assert.equal(s().queue[0].id, host1.id, 'back at the top of the queue, not thrown away');
+  assert.equal(s().tonight.history.filter((h) => h.title === host1.title).length, 0, 'and not in the history as skipped');
+});

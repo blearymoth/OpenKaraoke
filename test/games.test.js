@@ -235,3 +235,20 @@ test('games queue a clean version when the explicit filter is on (poll winner, w
   room.gameQueue(killer, { position: 'end', source: 'game:wheel' });
   assert.equal(s().queue[1].songId, killer.id);
 });
+
+test('"Play now" while a game owns the TV is refused and leaves the queue alone', async () => {
+  const { req, connect, s, song, room } = await setupRoom({ playback: { countdown: 0, autoStart: true } }, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  await connect('tv');
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 60 } });
+  const singers = s().singers.length;
+  await assert.rejects(req(host, 'queue.add', { songId: song('hello').id, singerName: 'Newcomer', position: 'now' }), /game is using the TV/);
+  assert.deepEqual(s().queue, [], 'nothing was queued');
+  assert.equal(s().singers.length, singers, 'no singer was created either');
+  await req(host, 'game.close');
+  assert.equal(s().current, null, 'nothing starts by itself after the game');
+  // Without a game it starts right away.
+  await req(host, 'queue.add', { songId: song('hello').id, singerName: 'Bo', position: 'now' });
+  assert.equal(s().current?.title, 'Hello');
+  assert.equal(room.game, null);
+});

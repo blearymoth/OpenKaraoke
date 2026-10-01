@@ -363,6 +363,8 @@ export class Room {
     const deviceId = isGuest ? client.data.deviceId : null;
     const profile = deviceId ? this.profileOf(deviceId) : null;
     const noExplicit = isGuest && this.settings.get('queue.explicitFilter');
+    // "Play now" can't start while a game owns the TV: refuse before anything changes.
+    if (!isGuest && m.position === 'now' && this.gameBlocks()) fail('A game is using the TV — end it first.', 'busy');
 
     if (isGuest) {
       const rules = this.settings.data.queue;
@@ -437,7 +439,12 @@ export class Room {
     }
     if (!isGuest && m.position === 'now') {
       this.s.queue.unshift(entry);
-      this.play({ entryId: entry.id });
+      try {
+        this.play({ entryId: entry.id });
+      } catch (e) {
+        this.s.queue = this.s.queue.filter((x) => x !== entry); // refused: not queued either
+        throw e;
+      }
       return { pending: false, index: 0, started: true, eta: 0, entry: this.entryView(entry) };
     }
     const wasEmpty = !this.s.queue.length;
@@ -587,7 +594,8 @@ export class Room {
   play(m = {}) {
     const q = this.s.queue;
     let entry = null;
-    if (this.gameBlocks() && !this.s.current) fail('A game is using the TV — end it first.', 'busy');
+    // An exclusive game owns the TV: no other song may start (its own current song may resume).
+    if (this.gameBlocks() && (m.entryId ? this.s.current?.id !== m.entryId : !this.s.current)) fail('A game is using the TV — end it first.', 'busy');
     if (m.entryId) {
       const i = q.findIndex((e) => e.id === m.entryId);
       if (i < 0) {
@@ -1339,7 +1347,16 @@ export class Room {
       dur: Math.round(track.duration || song.duration || 0), source, game: gameId || source,
     };
     if (clipEnd > 0) entry.clipEnd = Math.max(15, Math.round(clipEnd));
-    if (this.s.current) this.finish('skipped', { advance: false });
+    const cur = this.s.current;
+    if (cur && !cur.game) {
+      // Not a game's song (play() refuses those while a game owns the TV — but never lose one):
+      // back to the top of the queue, like Stop.
+      this.s.current = null;
+      this.resetPlayer();
+      this.s.queue.unshift(cur);
+    } else if (cur) {
+      this.finish('skipped', { advance: false });
+    }
     this.s.player.hold = false;
     this.startEntry(entry);
     this.markDirty();

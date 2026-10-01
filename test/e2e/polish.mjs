@@ -114,6 +114,43 @@ try {
   await sleep(400);
   check(app.room.s.queue.length === before + 1, 'playlist queued in one go');
   await shot(host, 'host-playlist');
+  // A double-click (or two quick clicks) queues it once, and pressing Enter twice makes one
+  // playlist: on this computer the answer comes back before the second click.
+  await sleep(1700); // the button rests a moment after queuing
+  let n = app.room.s.queue.length;
+  await host.dblclick('.playlist-queue .btn.primary');
+  await sleep(400);
+  check(app.room.s.queue.length === n + 1, `a double-click on “Queue all” queues the playlist once (+${app.room.s.queue.length - n})`);
+  await sleep(1700);
+  n = app.room.s.queue.length;
+  await host.$eval('.playlist-queue .btn.primary', (b) => { b.click(); b.click(); });
+  await sleep(400);
+  check(app.room.s.queue.length === n + 1, `two quick clicks on “Queue all” queue it once (+${app.room.s.queue.length - n})`);
+  // A song that left the library is named, and can be dropped from the playlist.
+  pl.songIds.push('gone-song-id');
+  app.room.markDirty();
+  await host.waitForSelector('.page p.hint:has-text("no longer in the library")');
+  await shot(host, 'host-playlist-missing');
+  await host.click('.page p.hint button:has-text("Remove it")');
+  await host.waitForSelector('.page p.hint:has-text("no longer in the library")', { state: 'detached' });
+  check(app.room.s.playlists.find((p) => p.id === pl.id).songIds.length === 1, 'a song no longer in the library can be removed from the playlist');
+  // A failed load says so and can be tried again (it used to spin for good).
+  const mark = errors.length;
+  const songsCall = (url) => url.pathname === '/api/songs';
+  await host.route(songsCall, (route) => route.abort('failed'));
+  await host.reload();
+  check(await host.waitForSelector('.empty h3:has-text("Couldn’t load the songs")', { timeout: 5000 }).then(() => true, () => false), 'a playlist that fails to load says so');
+  await shot(host, 'host-playlist-error');
+  await host.unroute(songsCall);
+  await host.click('.empty button:has-text("Try again")');
+  check(await host.waitForSelector('.song-list .song-row', { timeout: 5000 }).then(() => true, () => false), '“Try again” loads it');
+  errors.splice(mark, Infinity, ...errors.slice(mark).filter((x) => !/Failed to load resource/.test(x)));
+  await host.goto(`${base}/host#/playlists`);
+  await host.fill('.page-actions .inline-form input', 'Encore');
+  await host.$eval('.page-actions .inline-form', (f) => { f.requestSubmit(); f.requestSubmit(); });
+  await host.waitForSelector('h1:has-text("Encore")');
+  await sleep(300);
+  check(app.room.s.playlists.filter((p) => p.name === 'Encore').length === 1, 'submitting “Create” twice makes one playlist');
 
   // Duet invitation between two phones, then a co-host.
   const code = app.settings.get('party.roomCode');

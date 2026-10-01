@@ -239,11 +239,13 @@ export function Browse({ genre, decade }) {
 export function Favorites() {
   const { state } = useStore(store);
   const ids = state.favorites;
-  const { data } = useFetch(ids.length ? '/api/songs' : null, { ids: ids.join(',') }, { ttl: 0 });
+  const { data, error, reload } = useFetch(ids.length ? '/api/songs' : null, { ids: ids.join(',') }, { ttl: 0 });
+  const byId = data && new Map(data.items.map((s) => [s.id, s]));
   return html`<div class="page">
     <${PageHead} title="Favourites" sub=${ids.length ? plural(ids.length, 'song') : ''} />
     ${!ids.length && html`<${Empty} icon="⭐" title="No favourites yet">Press the star next to a song to keep it here for quick access.</${Empty}>`}
-    ${ids.length > 0 && (data ? html`<${SongList} items=${ids.map((id) => data.items.find((s) => s.id === id)).filter(Boolean)} />` : html`<${Spinner} />`)}
+    ${ids.length > 0 && error && html`<${Empty} icon="⚠️" title="Couldn’t load the songs">${error.message} <button class="btn small" onClick=${reload}><${Icon} name="refresh" size=${16} /> Try again</button></${Empty}>`}
+    ${ids.length > 0 && !error && (byId ? html`<${SongList} items=${ids.map((id) => byId.get(id)).filter(Boolean)} />` : html`<${Spinner} />`)}
   </div>`;
 }
 

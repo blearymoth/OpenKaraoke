@@ -66,3 +66,22 @@ test('songbook endpoint: host only, HTML or CSV download', async () => {
     await app.close();
   }
 });
+
+test('songbook: the toolbar and headings follow the skin; Party prints as it always did', () => {
+  const songs = songbookSongs(catalog, {});
+  const party = songbookHtml(catalog, songs, { title: 'P', appearance: { theme: 'party', accent: '' } });
+  // the exact rules the songbook had before skins existed
+  assert.ok(party.includes("header h1 { font: 800 22pt/1 'Bricolage', 'Figtree', system-ui, sans-serif; margin: 0; flex: 1; }"));
+  assert.ok(party.includes("section.letter h2 { font: 800 15pt/1 'Bricolage', system-ui, sans-serif; margin: 6px 0 3px;"));
+  assert.ok(party.includes('.toolbar { position: sticky; top: 0; display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: #150f26; color: #fff; font: 14px system-ui, sans-serif; }'));
+  assert.ok(party.includes('.toolbar button { font: inherit; font-weight: 700; padding: 8px 16px; border: 0; border-radius: 99px; background: #ff3d8b; color: #fff; cursor: pointer; }'));
+
+  const studio = songbookHtml(catalog, songs, { title: 'S' });
+  assert.doesNotMatch(studio, /Bricolage/, 'Studio headings are Figtree');
+  assert.match(studio, /\.toolbar \{[^}]*background: #0f1216;/);
+  assert.match(studio, /\.toolbar button \{[^}]*border-radius: 8px; background: #6ea8fe; color: #0b1526;/);
+
+  // an accent the owner picked brings the text colour that reads best on it, in either skin
+  assert.match(songbookHtml(catalog, songs, { appearance: { theme: 'party', accent: '#00c2ff' } }), /background: #00c2ff; color: #111;/);
+  assert.match(songbookHtml(catalog, songs, { appearance: { theme: 'studio', accent: '#1368ce' } }), /background: #1368ce; color: #fff;/);
+});

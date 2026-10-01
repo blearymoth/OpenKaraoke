@@ -8,12 +8,14 @@ export const THEMES = {
     description: 'Calm graphite and one clear accent. Easy to read, easy on the eyes.',
     themeColor: '#0f1216', // --night
     accent: '#6ea8fe', // --neon
+    accentInk: '#0b1526', // --neon-ink: text on the skin's own accent
   },
   party: {
     name: 'Party',
     description: 'Neon pink, night-club purple and marquee lights.',
     themeColor: '#150f26',
     accent: '#ff3d8b',
+    accentInk: '#fff',
   },
 };
 
@@ -44,12 +46,19 @@ const DARK_INK = luminance('#111111');
 
 /**
  * Text colour on an accent-coloured button: near-black or white, whichever has the higher WCAG
- * contrast against the accent (sky blue or green get dark text, deep blue gets white).
+ * contrast against the accent (sky blue or green get dark text, deep blue gets white). Only for an
+ * accent the owner picked; a skin's own accent comes with its own ink (THEMES[id].accentInk).
  */
 export function accentInk(accent) {
   if (!ACCENT_RE.test(accent || '')) return '#fff';
   const l = luminance(accent);
   return (l + 0.05) / (DARK_INK + 0.05) > 1.05 / (l + 0.05) ? '#111' : '#fff';
+}
+
+/** The accent of an appearance and the text colour on it: the override's, or the skin's own. */
+export function accentColors(appearance) {
+  const { theme, accent } = normalizeAppearance(appearance);
+  return accent ? { accent, ink: accentInk(accent) } : { accent: THEMES[theme].accent, ink: THEMES[theme].accentInk };
 }
 
 /** { theme, accent } with both fields valid. */

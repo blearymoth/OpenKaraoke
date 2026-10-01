@@ -60,8 +60,14 @@ test('settings: appearance updates are validated', async () => {
   assert.deepEqual(s.get('appearance'), { theme: 'studio', accent: '' });
   s.update({ appearance: { theme: 'party' } });
   assert.equal(s.get('appearance.theme'), 'party');
-  s.update({ appearance: { theme: 'disco' } });
-  assert.equal(s.get('appearance.theme'), 'studio', 'an unknown skin is the default one');
+  for (const bad of ['disco', 'Party', '', 'constructor', '__proto__', 'toString', 5, null, ['party'], { id: 'party' }]) {
+    s.update({ appearance: { theme: bad } });
+    assert.equal(s.get('appearance.theme'), 'party', `${JSON.stringify(bad)} is ignored, the skin stays`);
+  }
+  s.update({ appearance: { theme: 'bogus', accent: '#123456' } });
+  assert.deepEqual(s.get('appearance'), { theme: 'party', accent: '#123456' }, 'the valid half of an update still applies');
+  s.update({ appearance: { theme: 'studio', accent: '' } });
+  assert.deepEqual(s.get('appearance'), { theme: 'studio', accent: '' });
   s.update({ appearance: { accent: '#00C2FF' } });
   assert.equal(s.get('appearance.accent'), '#00c2ff');
   for (const bad of ['red', '#fff', 'javascript:alert(1)', '#00c2ff;color:red', 42]) {
@@ -274,6 +280,7 @@ test('base.css: both skins define the same tokens, matching shared/themes.js', (
   for (const id of THEME_IDS) {
     assert.equal(skins[id].get('--night'), THEMES[id].themeColor, `${id}: theme-color is --night`);
     assert.equal(skins[id].get('--neon'), THEMES[id].accent, `${id}: the accent picker starts at --neon`);
+    assert.equal(skins[id].get('--neon-ink'), THEMES[id].accentInk, `${id}: text on the skin’s own accent is --neon-ink`);
   }
 });
 

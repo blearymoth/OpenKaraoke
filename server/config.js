@@ -4,7 +4,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { JsonDoc, deepMerge, isPlainObject } from './util/jsonfile.js';
-import { DEFAULT_THEME, ACCENT_RE, normalizeTheme, normalizeAccent, normalizeAppearance } from '../shared/themes.js';
+import { THEMES, DEFAULT_THEME, ACCENT_RE, normalizeAccent, normalizeAppearance } from '../shared/themes.js';
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const PUBLIC_DIR = path.join(APP_ROOT, 'public');
@@ -160,7 +160,8 @@ export class Settings extends JsonDoc {
   update(patch) {
     const clean = sanitize(patch, DEFAULT_SETTINGS);
     const look = clean.appearance;
-    if (look?.theme !== undefined) look.theme = normalizeTheme(look.theme);
+    // An unknown skin or a malformed colour is ignored (the current one stays), never "fixed".
+    if (look?.theme !== undefined && !(typeof look.theme === 'string' && Object.hasOwn(THEMES, look.theme))) delete look.theme;
     if (look?.accent !== undefined) {
       if (look.accent && !ACCENT_RE.test(look.accent)) delete look.accent;
       else look.accent = normalizeAccent(look.accent);

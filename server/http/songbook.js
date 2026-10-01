@@ -8,7 +8,7 @@ import { intParam, sendText } from './router.js';
 import { qrSvg } from '../util/qr.js';
 import { formatDuration } from '../../shared/text.js';
 import { Lru } from '../util/lru.js';
-import { THEMES, normalizeAppearance, accentInk } from '../../shared/themes.js';
+import { THEMES, normalizeAppearance, accentColors } from '../../shared/themes.js';
 
 const cache = new Lru({ max: 6, maxBytes: 64 * 1024 * 1024 });
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -80,7 +80,7 @@ export function songbookHtml(catalog, songs, { title, joinUrl, roomCode, sort = 
   const qr = joinUrl ? qrSvg(joinUrl, { margin: 0 }) : '';
   const cols = Math.min(4, Math.max(1, columns));
   const look = normalizeAppearance(appearance); // the on-screen toolbar and headings follow the skin
-  const accent = look.accent || THEMES[look.theme].accent;
+  const { accent, ink } = accentColors(look);
   const headFont = look.theme === 'party' ? "'Bricolage', " : "'Figtree', ";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} · Songbook</title>
@@ -89,7 +89,7 @@ export function songbookHtml(catalog, songs, { title, joinUrl, roomCode, sort = 
 * { box-sizing: border-box; }
 body { margin: 0; font: 8.6pt/1.3 'Figtree', system-ui, sans-serif; color: #111; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 header { display: flex; align-items: center; gap: 14px; padding: 0 0 8px; border-bottom: 2px solid #111; margin-bottom: 8px; }
-header h1 { font: 800 22pt/1 'Bricolage', 'Figtree', system-ui, sans-serif; margin: 0; flex: 1; }
+header h1 { font: 800 22pt/1 ${look.theme === 'party' ? "'Bricolage', 'Figtree', " : "'Figtree', "}system-ui, sans-serif; margin: 0; flex: 1; }
 header p { margin: 2px 0 0; color: #555; }
 header .qr { width: 26mm; height: 26mm; }
 header .qr svg { width: 100%; height: 100%; }
@@ -104,7 +104,7 @@ section.letter h2 { font: 800 15pt/1 ${headFont}system-ui, sans-serif; margin: 6
 .t span { color: #555; }
 i { font-style: normal; font-size: 7pt; font-weight: 700; color: #b0003a; }
 .toolbar { position: sticky; top: 0; display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: ${THEMES[look.theme].themeColor}; color: #fff; font: 14px system-ui, sans-serif; }
-.toolbar button { font: inherit; font-weight: 700; padding: 8px 16px; border: 0; border-radius: ${look.theme === 'party' ? '99px' : '8px'}; background: ${accent}; color: ${accentInk(accent)}; cursor: pointer; }
+.toolbar button { font: inherit; font-weight: 700; padding: 8px 16px; border: 0; border-radius: ${look.theme === 'party' ? '99px' : '8px'}; background: ${accent}; color: ${ink}; cursor: pointer; }
 .page { padding: 12px 16px; }
 @media print { .toolbar { display: none; } .page { padding: 0; } }
 </style></head><body>

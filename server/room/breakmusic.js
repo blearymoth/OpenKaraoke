@@ -134,6 +134,7 @@ export class BreakMusic {
   pickFolder(dir) {
     if (!dir) return null;
     this.refreshFolder(dir);
+    if (this.folder.dir !== path.resolve(dir)) return null; // (the files of the folder set before: wait for this one's scan)
     const files = this.folder.files.filter((f) => !this.recent.includes(f.id));
     const pool = files.length ? files : this.folder.files;
     if (!pool.length) return null;

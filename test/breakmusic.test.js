@@ -246,6 +246,23 @@ test('break music: from a music folder (only scanned files are served)', async (
   }
 });
 
+test('break music: a new music folder plays only its own songs (none from the folder before while it is scanned)', async () => {
+  const before = await tmpDir('ok-music-a-');
+  const after = await tmpDir('ok-music-b-');
+  await writeTree(before, { 'Old - Song A.mp3': 2000 });
+  await writeTree(after, { 'New - Song B.mp3': 2000 });
+  const { connect, view, room, req } = await setupRoom({ playback: { breakMusic: { source: 'folder', folder: before } } });
+  const host = await connect('host');
+  const tv = await connect('tv');
+  view(tv);
+  await room.breakMusic.folder.scanning;
+  assert.equal(view(tv).breakMusic.title, 'Song A');
+  await req(host, 'settings.update', { patch: { playback: { breakMusic: { folder: after } } } });
+  assert.equal(view(tv).breakMusic, null, 'silence while the new folder is scanned');
+  await room.breakMusic.folder.scanning;
+  assert.equal(view(tv).breakMusic.title, 'Song B');
+});
+
 test('break music folder scan: follows symbolic links (once, no loops) and samples a big folder from end to end', async () => {
   const root = await tmpDir('ok-music-links-');
   await writeTree(root, {

@@ -156,7 +156,8 @@ test('photos: refusals come before the body is read (photos off, banned, rate li
     const second = start(bo.welcome.token);
     await sleep(100);
     const third = await answered(start(cy.welcome.token));
-    assert.equal(third.status, 503, 'two uploads at a time from one address');
+    assert.equal(third.status, 429, 'two uploads at a time from one address');
+    assert.match(third.body.error, /arriving right now/);
     first.finish();
     second.finish();
     assert.equal((await first.response).status, 200);
@@ -201,7 +202,7 @@ test('photos: a stalled upload loses its slot; at most MAX_UPLOADS arrive at onc
     // In all (from different addresses): MAX_UPLOADS at once.
     const releases = rest.map((g, i) => room.photos.admit(g.data.deviceId, `192.168.1.${10 + i}`));
     assert.throws(() => room.photos.admit(rest[0].data.deviceId, '192.168.1.99'), /still on its way/);
-    assert.throws(() => room.photos.admit(ann.data.deviceId, '192.168.1.99'), (e) => e.status === 503);
+    assert.throws(() => room.photos.admit(ann.data.deviceId, '192.168.1.99'), (e) => e.status === 429 && /arriving right now/.test(e.message));
     releases[0]();
     room.photos.admit(ann.data.deviceId, '192.168.1.99')();
     for (const release of releases) release();

@@ -85,7 +85,7 @@ export class Photos {
       if (u.deviceId === deviceId) fail('Your last photo is still on its way.', 'busy', 429);
       if (u.ip === ip) fromIp++;
     }
-    if (fromIp >= MAX_UPLOADS_PER_IP || this.uploads.size >= MAX_UPLOADS) fail('Lots of photos are arriving right now — try again in a moment.', 'busy', 503);
+    if (fromIp >= MAX_UPLOADS_PER_IP || this.uploads.size >= MAX_UPLOADS) fail('Lots of photos are arriving right now — try again in a moment.', 'busy', 429);
     if (!this.limit.take(deviceId)) fail('That’s a lot of photos — wait a few minutes.', 'rate_limited', 429);
     const upload = { deviceId, ip };
     this.uploads.add(upload);

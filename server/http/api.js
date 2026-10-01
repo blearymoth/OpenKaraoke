@@ -264,17 +264,17 @@ export function apiRoutes(router, app) {
     if (!deviceId) throw new HttpError(401, 'Join the party first');
     if (Number(ctx.req.headers['content-length']) > MAX_PHOTO_BYTES) throw new HttpError(413, `That photo is too big (max ${MAX_PHOTO_BYTES >> 20} MB)`);
     // Everything that can refuse the photo (switched off, banned, rate limit, too many at once)
-    // runs before its bytes are read and held in memory; a slow sender can't hold a slot for long.
+    // runs before its bytes are read and held in memory; a stalled or crawling upload is cut off.
     const photos = app.room.photos;
-    const release = photos.admit(deviceId, ctx.ip);
-    const timer = setTimeout(() => ctx.req.destroy(new HttpError(408, 'The photo took too long to arrive')), photos.uploadTimeoutMs);
+    const upload = photos.admit(deviceId, ctx.ip);
     try {
-      const body = await readBody(ctx.req, MAX_PHOTO_BYTES);
-      clearTimeout(timer);
+      const body = await photos.receive(upload, ctx.req).catch((e) => {
+        ctx.res.setHeader('connection', 'close'); // cut off: answer now, not after the rest arrives
+        throw e;
+      });
       return { photo: await photos.store(deviceId, body) };
     } finally {
-      clearTimeout(timer);
-      release();
+      upload.release();
     }
   });
 

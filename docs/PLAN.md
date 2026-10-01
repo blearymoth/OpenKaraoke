@@ -321,9 +321,11 @@ art became available), `pong {c, s}`.
 
 Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min. Photo
 uploads are checked (photos on, named, not banned, rate limit) before their body is read; one
-upload at a time per phone, 2 per address, 4 in all, 30 s each. At most 5 photos per phone and
-50 in all wait for the host; 300 approved/rejected are kept (rejected, then the oldest approved,
-go first — waiting photos never push out approved ones).
+upload at a time per phone, 2 per address, 8 in all. An upload is cut off after 5 s without
+data or 20 s in all, and when all 8 slots are taken a newcomer replaces the slowest upload that
+has had 2 s and is still under 64 KB/s (so stalled uploads can't keep guests out). At most 5
+photos per phone and 50 in all wait for the host; 300 approved/rejected are kept (rejected, then
+the oldest approved, go first — waiting photos never push out approved ones).
 
 ## 8. HTTP API
 

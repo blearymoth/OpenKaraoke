@@ -13,14 +13,17 @@ export const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 export const MAX_KEPT = 300; // approved + rejected photos kept (the oldest go first)
 export const MAX_PENDING = 50; // photos waiting for the host, from everyone…
 export const MAX_PENDING_EACH = 5; // …and from one phone
-export const MAX_UPLOADS = 4; // uploads arriving at the same time (each held in memory until complete)
+export const MAX_UPLOADS = 8; // uploads arriving at the same time (each held in memory until complete)
 const MAX_UPLOADS_PER_IP = 2;
+export const MIN_UPLOAD_RATE = 64 * 1024; // bytes/s: slower than this, an upload makes way for a new one
 const HOST_LIST = 120; // approved/rejected photos listed for the host (plus every waiting one)
 const TYPES = { jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
 
 const fail = (message, code = 'bad_request', status = 400) => {
   throw new UserError(message, { code, status });
 };
+// (Not 408: browsers quietly send a request again when that comes back on a reused connection.)
+const tooSlow = () => new UserError('Your photo took too long to arrive — try again.', { code: 'timeout', status: 400 });
 
 /** Image type from the first bytes (never trust the declared content type). */
 export function imageType(buf) {
@@ -37,8 +40,12 @@ export class Photos {
     this.limit = new RateLimiter({ capacity: 5, perMs: 10 * 60_000 });
     this.flash = null; // { id, name, until } — shown big on the TV for a few seconds
     this.flashTimer = null;
-    this.uploads = new Set(); // { deviceId, ip } of the uploads arriving right now
-    this.uploadTimeoutMs = 30_000; // a phone sends a resized picture in a second or two
+    this.uploads = new Set(); // the uploads arriving right now (see admit())
+    // A phone sends its resized picture (a few hundred KB) in a second or two, so an upload that
+    // stops sending or crawls along doesn't get to sit on a slot for long (see admit()/receive()).
+    this.uploadTimeoutMs = 20_000; // for the whole picture
+    this.uploadIdleMs = 5_000; // without a single byte arriving
+    this.uploadGraceMs = 2_000; // before an upload can be judged too slow
   }
 
   get list() {
@@ -76,7 +83,10 @@ export class Photos {
   /**
    * Lets an upload in before its body is read, so a refused (or flooding) phone can't make
    * the server buffer megabytes: the checks above, one upload at a time per phone (a few per
-   * address and in all) and the rate limit. Returns `release()`, to call when it's done.
+   * address and in all) and the rate limit. When every slot is taken, the slowest upload that
+   * has had uploadGraceMs and still crawls below MIN_UPLOAD_RATE is cut off to make way, so
+   * uploads that stall can't keep everyone else out. Returns the upload: feed its body to
+   * receive() and call `release()` when done.
    */
   admit(deviceId, ip = '') {
     this.check(deviceId);
@@ -85,11 +95,75 @@ export class Photos {
       if (u.deviceId === deviceId) fail('Your last photo is still on its way.', 'busy', 429);
       if (u.ip === ip) fromIp++;
     }
-    if (fromIp >= MAX_UPLOADS_PER_IP || this.uploads.size >= MAX_UPLOADS) fail('Lots of photos are arriving right now — try again in a moment.', 'busy', 429);
+    const busy = () => fail('Lots of photos are arriving right now — try again in a moment.', 'busy', 429);
+    if (fromIp >= MAX_UPLOADS_PER_IP) busy();
+    const full = this.uploads.size >= MAX_UPLOADS;
+    const slow = full ? this.slowest() : null;
+    if (full && !slow) busy();
     if (!this.limit.take(deviceId)) fail('That’s a lot of photos — wait a few minutes.', 'rate_limited', 429);
-    const upload = { deviceId, ip };
+    if (slow) {
+      this.uploads.delete(slow);
+      log.info('cut off a photo upload that was arriving too slowly');
+      slow.abort(tooSlow());
+    }
+    // `bytes` so far and `abort(err)` (while its body is being read) are kept up by receive().
+    const upload = { deviceId, ip, at: Date.now(), bytes: 0, abort: null, release: () => this.uploads.delete(upload) };
     this.uploads.add(upload);
-    return () => this.uploads.delete(upload);
+    return upload;
+  }
+
+  /** The upload to cut off for a new one: the slowest still being read, if it's too slow. */
+  slowest(now = Date.now()) {
+    let out = null;
+    let rate = MIN_UPLOAD_RATE;
+    for (const u of this.uploads) {
+      const ms = now - u.at;
+      if (!u.abort || ms < this.uploadGraceMs) continue;
+      const r = (u.bytes * 1000) / ms;
+      if (r < rate) {
+        out = u;
+        rate = r;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Reads an admitted upload's body (at most MAX_PHOTO_BYTES). Gives up ('timeout') when
+   * nothing arrives for uploadIdleMs, the whole picture takes over uploadTimeoutMs, or admit()
+   * cuts it off for a new upload.
+   */
+  receive(upload, stream) {
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      let idle = null;
+      const total = setTimeout(() => done(tooSlow()), this.uploadTimeoutMs);
+      const kick = () => {
+        clearTimeout(idle);
+        idle = setTimeout(() => done(tooSlow()), this.uploadIdleMs);
+      };
+      const onData = (chunk) => {
+        upload.bytes += chunk.length;
+        if (upload.bytes > MAX_PHOTO_BYTES) return done(new UserError(`That photo is too big (max ${MAX_PHOTO_BYTES >> 20} MB)`, { code: 'too_large', status: 413 }));
+        chunks.push(chunk);
+        kick();
+      };
+      const onEnd = () => done(null);
+      const onClose = () => done(new UserError('The photo didn’t arrive.', { code: 'aborted', status: 400 }));
+      function done(err) {
+        if (!upload.abort) return;
+        upload.abort = null;
+        clearTimeout(total);
+        clearTimeout(idle);
+        stream.off('data', onData).off('end', onEnd).off('error', onClose).off('close', onClose);
+        if (!err) return resolve(Buffer.concat(chunks));
+        stream.resume(); // whatever else comes is thrown away
+        reject(err);
+      }
+      upload.abort = done;
+      stream.on('data', onData).on('end', onEnd).on('error', onClose).on('close', onClose);
+      kick();
+    });
   }
 
   /** Stores an admitted upload from `deviceId`; returns its public view. */
@@ -117,11 +191,11 @@ export class Photos {
 
   /** admit() + store() for bytes already in hand. */
   async add(deviceId, buf, ip = '') {
-    const release = this.admit(deviceId, ip);
+    const upload = this.admit(deviceId, ip);
     try {
       return await this.store(deviceId, buf);
     } finally {
-      release();
+      upload.release();
     }
   }
 
@@ -198,8 +272,16 @@ export class Photos {
     return { ok: true };
   }
 
-  /** Deletes the photos `deviceId` sent that the host hasn't looked at yet (when the host bans them). */
+  /**
+   * When the host bans `deviceId`: deletes the photos they sent that the host hasn't looked at
+   * yet, and cuts off the one on its way.
+   */
   dropPending(deviceId) {
+    for (const u of this.uploads) {
+      if (u.deviceId !== deviceId || !u.abort) continue;
+      this.uploads.delete(u);
+      u.abort(new UserError('The host has removed you from this party.', { code: 'banned', status: 403 }));
+    }
     const gone = [];
     for (let i = this.list.length - 1; i >= 0; i--) {
       if (this.list[i].deviceId === deviceId && this.list[i].status === 'pending') gone.push(...this.list.splice(i, 1));

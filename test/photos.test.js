@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import { setupRoom } from './room-harness.js';
 import { pngImage } from './fake-art.js';
-import { imageType, MAX_PHOTO_BYTES, MAX_KEPT, MAX_PENDING, MAX_PENDING_EACH, MAX_UPLOADS } from '../server/room/photos.js';
+import { imageType, MAX_PHOTO_BYTES, MAX_KEPT, MAX_PENDING, MAX_PENDING_EACH, MAX_UPLOADS, MIN_UPLOAD_RATE } from '../server/room/photos.js';
 import { RateLimiter } from '../server/util/ratelimit.js';
 
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(2000, 7)]);
@@ -189,24 +189,105 @@ test('photos: refusals come before the body is read (photos off, banned, rate li
   }
 });
 
-test('photos: a stalled upload loses its slot; at most MAX_UPLOADS arrive at once', async () => {
+test('photos: an upload that stalls or crawls is cut off (no bytes for a while, too long in all, or its sender banned)', async () => {
   const r = await party();
-  const { app, room, base } = r;
+  const { app, room, base, connect, req } = r;
+  const photos = room.photos;
   try {
-    const [ann, ...rest] = await guests(r, MAX_UPLOADS + 1);
-    room.photos.uploadTimeoutMs = 200;
-    const up = slowUpload(base, ann.welcome.token);
-    const res = await answered(up);
-    assert.ok(res.error || res.status === 408, `the server gives up on a stalled upload (${JSON.stringify(res)})`);
-    assert.equal(room.photos.uploads.size, 0);
-    // In all (from different addresses): MAX_UPLOADS at once.
-    const releases = rest.map((g, i) => room.photos.admit(g.data.deviceId, `192.168.1.${10 + i}`));
-    assert.throws(() => room.photos.admit(rest[0].data.deviceId, '192.168.1.99'), /still on its way/);
-    assert.throws(() => room.photos.admit(ann.data.deviceId, '192.168.1.99'), (e) => e.status === 429 && /arriving right now/.test(e.message));
-    releases[0]();
-    room.photos.admit(ann.data.deviceId, '192.168.1.99')();
-    for (const release of releases) release();
-    assert.equal(room.photos.uploads.size, 0);
+    const host = await connect('host');
+    const [ann, bo, cy] = await guests(r, 3);
+    // Stops sending: cut off once nothing has arrived for uploadIdleMs (not after the full deadline).
+    photos.uploadIdleMs = 150;
+    const t0 = Date.now();
+    const stalled = await answered(slowUpload(base, ann.welcome.token));
+    assert.equal(stalled.status, 400, JSON.stringify(stalled));
+    assert.equal(stalled.body.code, 'timeout');
+    assert.ok(Date.now() - t0 < photos.uploadTimeoutMs / 2);
+    assert.equal(photos.uploads.size, 0, 'its slot is given back');
+    // Keeps trickling (so it's never idle) but takes longer than uploadTimeoutMs in all.
+    photos.uploadIdleMs = 300;
+    photos.uploadTimeoutMs = 500;
+    const up = slowUpload(base, bo.welcome.token, 1024);
+    const drip = setInterval(() => up.req.write(Buffer.alloc(1024, 7)), 40);
+    const t1 = Date.now();
+    const res = await answered(up).finally(() => clearInterval(drip));
+    assert.ok(res.error || res.status === 400, `the server gives up on it (${JSON.stringify(res)})`);
+    assert.ok(Date.now() - t1 >= 450);
+    assert.equal(photos.uploads.size, 0);
+    // Banning the guest cuts off their upload straight away too.
+    photos.uploadIdleMs = photos.uploadTimeoutMs = 10_000;
+    const ban = slowUpload(base, cy.welcome.token);
+    while (!photos.uploads.size) await sleep(10);
+    await req(host, 'guest.ban', { deviceId: cy.data.deviceId });
+    const banned = await answered(ban, 1000);
+    assert.equal(banned.status, 403, JSON.stringify(banned));
+    assert.equal(banned.body.code, 'banned');
+    assert.equal(photos.uploads.size, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test('photos: when every slot is taken, the slowest upload makes way (stalled uploads can’t keep guests out)', async () => {
+  const r = await party();
+  const { app, room, base, upload } = r;
+  const photos = room.photos;
+  const cut = [];
+  try {
+    const [ann, bo, cy, dan, ...rest] = await guests(r, MAX_UPLOADS + 3);
+    photos.uploadGraceMs = 300;
+    photos.uploadIdleMs = 10_000;
+    // MAX_UPLOADS - 1 uploads arriving from other addresses, plus one that sent 4 bytes and stalled.
+    const others = rest.map((g, i) => {
+      const u = photos.admit(g.data.deviceId, `192.168.1.${10 + i}`);
+      u.abort = (e) => cut.push([i, e]);
+      return u;
+    });
+    assert.equal(others.length, MAX_UPLOADS - 1);
+    const stalled = slowUpload(base, ann.welcome.token, 4);
+    while (photos.uploads.size < MAX_UPLOADS) await sleep(10);
+    assert.throws(() => photos.admit(rest[0].data.deviceId, '192.168.1.99'), /still on its way/);
+    // All new: nobody has had the chance to be slow yet, so the newcomer waits.
+    let res = await upload(bo.welcome.token);
+    assert.equal(res.status, 429);
+    assert.equal((await res.json()).code, 'busy');
+    // Uploads arriving at a healthy pace aren't cut off, however long they've been going.
+    for (const u of others) {
+      u.at -= 5000;
+      u.bytes = 6 * MIN_UPLOAD_RATE;
+    }
+    // Once the stalled upload has had uploadGraceMs, a guest's photo takes its place.
+    await sleep(photos.uploadGraceMs + 50);
+    res = await upload(bo.welcome.token);
+    assert.equal(res.status, 200, 'the guest’s photo got in');
+    const lost = await answered(stalled);
+    assert.equal(lost.status, 400, JSON.stringify(lost));
+    assert.equal(lost.body.code, 'timeout');
+    assert.deepEqual(cut, [], 'the healthy uploads carry on');
+    assert.equal(photos.uploads.size, MAX_UPLOADS - 1);
+    // Of two crawling uploads, the slower one goes.
+    const crawlA = photos.admit(cy.data.deviceId, '192.168.1.98');
+    crawlA.abort = (e) => cut.push(['A', e]);
+    crawlA.at -= 1000;
+    crawlA.bytes = 20_000;
+    const crawlB = others[0];
+    crawlB.bytes = 1000;
+    const busyNow = () => assert.throws(() => photos.admit(dan.data.deviceId, '192.168.1.97'), (e) => e.code === 'busy');
+    // A guest out of photo tokens can't cut anyone off.
+    for (let i = 0; i < 5; i++) photos.limit.take(dan.data.deviceId);
+    assert.throws(() => photos.admit(dan.data.deviceId, '192.168.1.97'), (e) => e.code === 'rate_limited');
+    assert.deepEqual(cut, []);
+    photos.limit.buckets.delete(dan.data.deviceId);
+    // An upload whose picture has all arrived (no abort) isn't cut off either.
+    const [abortA, abortB] = [crawlA.abort, crawlB.abort];
+    crawlA.abort = crawlB.abort = null;
+    busyNow();
+    crawlA.abort = abortA;
+    crawlB.abort = abortB;
+    photos.admit(dan.data.deviceId, '192.168.1.97').release();
+    assert.deepEqual(cut.map(([i, e]) => [i, e.status, e.code]), [[0, 400, 'timeout']]);
+    assert.ok(photos.uploads.has(crawlA) && !photos.uploads.has(crawlB));
+    for (const u of [...photos.uploads]) u.release();
   } finally {
     await app.close();
   }

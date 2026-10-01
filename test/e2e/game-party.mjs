@@ -2,6 +2,7 @@
 // End-to-end check of the three small party games, started from the host's Games page:
 //  1. Pass the mic — runs alongside a song on the TV: "PASS THE MIC ➜ NAME" in a band along the
 //     top edge that never covers a lyric line nor the join QR (16:9, 4:3, 5:4 and portrait),
+//     the "Up next" banner and the Paused pill hidden while it is up (never drawn through it),
 //     long names shown in full, the holder's phone says "You have the mic!", the host passes it
 //     on by hand; a very wide name never makes a phone (or the host on a phone) scroll sideways.
 //  2. Applause meter — Chromium's fake microphone (a beep) on the TV: countdown, live gauge, a
@@ -154,6 +155,25 @@ function checkFlashClear(geo, what) {
   check(geo.nameSize >= Math.min(geo.vh, geo.vw) * 0.05 && geo.overflow <= 0 && geo.partsLeft >= 0 && geo.partsRight <= geo.flashRight, `${what}: still big — the name ${Math.round(geo.nameSize)} px tall, nothing sticking out`);
 }
 
+/**
+ * The band and another notice along the top of the TV (`sel`): whether that notice is drawn and
+ * whether the two meet.
+ */
+async function bandAnd(tv, sel) {
+  return tv.evaluate((sel) => {
+    const band = document.querySelector('.rl-flash.top');
+    const el = document.querySelector(sel);
+    if (!band || !el) return { band: !!band, shown: !!el };
+    const a = band.getBoundingClientRect();
+    const b = el.getBoundingClientRect();
+    return {
+      band: true, shown: true, visible: getComputedStyle(el).visibility === 'visible',
+      meet: a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom,
+      bandBottom: Math.round(a.bottom), top: Math.round(b.top),
+    };
+  }, sel);
+}
+
 async function endAndClose(host) {
   await host.click('.game-live .btn:has-text("End game")');
   await host.waitForSelector('.game-live .btn:has-text("Close")', { timeout: 10000 });
@@ -283,6 +303,26 @@ try {
     check(!geo.nameCut, `…"${LONG}" in full`);
     await shot(tv, `tv-relay-flash-${shape.replace(':', 'x')}`, 0);
   }
+  // In the last 20 s of a song with another one queued, "Up next, get ready" sits at the top left,
+  // in the band's path: it waits while the band is up (never drawn under it), then comes back.
+  const nextUp = queue('tempo tantrum', 'Bob');
+  for (const [width, height, shape, to, name] of [[1280, 720, '16:9', cat, 'Cat'], [1024, 768, '4:3', wide, LONG]]) {
+    await tv.setViewportSize({ width, height });
+    room().seek({ pos: Math.max(0, room().s.player.dur - 18) });
+    room().markDirty();
+    await tv.waitForSelector('.upnext-banner', { timeout: 8000 });
+    passTo(to);
+    await flashFor(tv, name);
+    const up = await bandAnd(tv, '.upnext-banner');
+    check(up.band && up.shown && !(up.visible && up.meet), `TV ${shape}, a song up next: the "Up next" banner isn’t drawn under the band`);
+    await shot(tv, `tv-relay-flash-upnext-${shape.replace(':', 'x')}`, 0);
+    await tv.waitForSelector('.rl-flash', { state: 'detached', timeout: 8000 });
+    const back = await tv.evaluate(() => { const b = document.querySelector('.upnext-banner'); return !!b && getComputedStyle(b).visibility === 'visible'; });
+    check(back, '…and it comes back once the band has gone');
+  }
+  room().queueRemove(HOST, { entryId: nextUp.id });
+  room().seek({ pos: 5 });
+  room().markDirty();
   rename(wide, WIDE);
   await tv.setViewportSize({ width: 1280, height: 720 });
   const passes = game().passes;
@@ -291,6 +331,22 @@ try {
   game().remaining = 500;
   await sleep(1500);
   check(game().passes === passes && game().phase === 'waiting', 'paused song: the mic stays put');
+  // The host can still pass it by hand: the Paused pill (top centre) isn't drawn under the band
+  // either (nor moved over the first lyric line), and comes back after it.
+  for (const [width, height, shape, to, name] of [[1280, 720, '16:9', ann, 'Ann'], [1024, 768, '4:3', cat, 'Cat']]) {
+    await tv.setViewportSize({ width, height });
+    await tv.waitForSelector('.paused-pill', { timeout: 5000 });
+    const pillAt = await tv.evaluate(() => document.querySelector('.paused-pill').getBoundingClientRect().top);
+    passTo(to);
+    await flashFor(tv, name);
+    const pill = await bandAnd(tv, '.paused-pill');
+    check(pill.band && pill.shown && !(pill.visible && pill.meet) && Math.abs(pill.top - pillAt) < 1, `TV ${shape}, paused: the Paused pill isn’t drawn under the band, and stays put`);
+    await shot(tv, `tv-relay-flash-paused-${shape.replace(':', 'x')}`, 0);
+    await tv.waitForSelector('.rl-flash', { state: 'detached', timeout: 8000 });
+    const back = await tv.evaluate(() => { const p = document.querySelector('.paused-pill'); return !!p && getComputedStyle(p).visibility === 'visible'; });
+    check(back, '…and it comes back once the band has gone');
+  }
+  await tv.setViewportSize({ width: 1280, height: 720 });
   room().resume();
   room().markDirty();
   await endAndClose(host);

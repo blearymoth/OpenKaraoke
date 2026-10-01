@@ -61,6 +61,11 @@
   .rl-flash.top .avatar { width: min(calc(var(--band) * 0.5), 7vw); height: min(calc(var(--band) * 0.5), 7vw); font-size: min(calc(var(--band) * 0.3), 4.2vw); }
   .rl-flash.top .name { font-size: min(calc(var(--band) * 0.46), 5.6vw); }
 }
+/* The other notices along the top edge (tv.css) wait while the band is up (4 s), and come back
+   when it has gone: the "Up next, get ready" banner (top left, right in the band's path; the
+   ticker at the bottom still says who's next) and the Paused pill (top centre: moved down below
+   the band it would cover the first lyric line, the one the new singer picks up). */
+#app:has(.rl-flash.top) :is(.upnext-banner, .paused-pill) { visibility: hidden; }
 @keyframes rl-in-top { from { opacity: 0; transform: translateY(-100%); } }
 @keyframes rl-out-top { to { opacity: 0; transform: translateY(-100%); } }
 @keyframes rl-nudge { to { transform: translateX(2vw); } }

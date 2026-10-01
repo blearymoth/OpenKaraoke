@@ -57,6 +57,11 @@ const MAX_PROFILES = 1000;
 // never plays) or the host's own live preview (muted and not listed). The server then makes it
 // the main display or a mirror.
 const TV_KINDS = new Set(['main', 'mirror', 'board', 'preview']);
+const PAIR_WAITING_MAX = 20; // codes waiting for the host, all screens together
+const PAIR_PER_ADDRESS = 2; // codes one address may hold (a new one replaces the oldest)
+const PAIR_TTL_MS = 10 * 60_000;
+const PAIR_DENIED_MS = 60_000; // long enough for the refused screen to read "denied"
+const PAIR_TOAST_MS = 10_000; // at most one "a screen wants to pair" toast this often
 const validId = (id) => typeof id === 'string' && /^[\w-]{4,64}$/.test(id) && id !== '__proto__' && id !== 'constructor' && id !== 'prototype';
 const str = (v, max = 100) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const num = (v, min, max, def) => {
@@ -1143,13 +1148,23 @@ export class Room {
   /** A screen on another computer asks to become a TV display: it shows `code`, the host approves. */
   pairRequest(ip) {
     this.prunePairings();
-    if (!this.limits.pair.take(String(ip))) fail('Too many pairing attempts — wait a few minutes.', 'rate_limited');
-    if (this.pairings.size >= 20) fail('Too many screens are waiting to be paired.', 'busy');
+    const addr = String(ip || '');
+    if (!this.limits.pair.take(addr)) fail('Too many pairing attempts — wait a few minutes.', 'rate_limited');
+    // A screen asking again (reloaded, "Show a new code") replaces its oldest code, so a few
+    // addresses can't keep every slot busy.
+    const mine = this.waitingPairings().filter((p) => p.ip === addr);
+    for (const old of mine.slice(0, Math.max(0, mine.length - PAIR_PER_ADDRESS + 1))) this.pairings.delete(old.id);
+    if (this.waitingPairings().length >= PAIR_WAITING_MAX) fail('Too many screens are waiting to be paired.', 'busy');
     let code;
     do code = String(crypto.randomInt(1000, 10000)); while ([...this.pairings.values()].some((p) => p.code === code));
-    const p = { id: newId(12), code, ip: String(ip || ''), at: Date.now(), status: 'waiting', token: null };
+    const now = Date.now();
+    const p = { id: newId(12), code, ip: addr, at: now, until: now + PAIR_TTL_MS, status: 'waiting', token: null };
     this.pairings.set(p.id, p);
-    this.toastHosts(`A screen at ${p.ip.replace(/^::ffff:/, '')} wants to be a TV display (code ${code}). Approve it in Settings → Displays.`);
+    // Settings → Displays lists every waiting screen; the toast is only a heads-up (not a flood).
+    if (now - (this.pairToastAt || 0) >= PAIR_TOAST_MS) {
+      this.pairToastAt = now;
+      this.toastHosts(`A screen at ${addr.replace(/^::ffff:/, '')} wants to be a TV display (code ${code}). Approve it in Settings → Displays.`);
+    }
     this.markDirty();
     return { id: p.id, code };
   }
@@ -1169,10 +1184,17 @@ export class Room {
 
   prunePairings() {
     const now = Date.now();
-    for (const [id, p] of this.pairings) if (now - p.at > 10 * 60_000) this.pairings.delete(id);
+    for (const [id, p] of this.pairings) if (now > p.until) this.pairings.delete(id);
+  }
+
+  /** Codes still waiting for the host (only these count towards the limit). */
+  waitingPairings() {
+    const now = Date.now();
+    return [...this.pairings.values()].filter((p) => p.status === 'waiting' && now <= p.until);
   }
 
   findPairing(m) {
+    this.prunePairings();
     const p = [...this.pairings.values()].find((x) => x.id === m.id || (m.code && x.code === String(m.code)));
     if (!p || p.status !== 'waiting') fail('That screen is no longer waiting — ask it to show a new code.', 'not_found');
     return p;
@@ -1182,14 +1204,17 @@ export class Room {
     const p = this.findPairing(m);
     p.status = 'approved';
     p.token = this.auth.sign('tv', this.auth.newId());
+    p.until = Math.max(p.until, Date.now() + 2 * 60_000); // time for the screen to collect it
     log.info(`paired a display at ${p.ip}`);
     return { ok: true };
   }
 
+  /** Refuses one screen ({ id } or { code }) or every waiting one ({ all: true }); the slots free up. */
   displayDeny(m) {
-    const p = this.findPairing(m);
-    p.status = 'denied';
-    return { ok: true };
+    const list = m.all === true ? this.waitingPairings() : [this.findPairing(m)];
+    const until = Date.now() + PAIR_DENIED_MS;
+    for (const p of list) Object.assign(p, { status: 'denied', until: Math.min(p.until, until) });
+    return { ok: true, denied: list.length };
   }
 
   /**
@@ -1198,6 +1223,8 @@ export class Room {
    */
   async displayForget() {
     await this.auth.forgetDisplays();
+    // Approved codes not collected yet carry the old token version: they would fail anyway.
+    for (const [id, p] of this.pairings) if (p.status === 'approved') this.pairings.delete(id);
     for (const c of this.hub.list((x) => x.role === TV && !x.isLocal && !x.data.hostPreview)) {
       c.send({ t: 'denied', reason: 'pairing_required' });
       c.close(4003, 'unpaired');
@@ -1672,7 +1699,7 @@ export class Room {
         id: c.id, display: c.data.display, kind: c.data.kind || 'main', standIn: !!c.data.standIn,
         local: c.isLocal, ip: c.isLocal ? '' : String(c.ip || '').replace(/^::ffff:/, ''),
       })),
-      pairings: [...this.pairings.values()].filter((p) => p.status === 'waiting' && Date.now() - p.at < 10 * 60_000).map((p) => ({ id: p.id, code: p.code, ip: p.ip.replace(/^::ffff:/, ''), at: p.at })),
+      pairings: this.waitingPairings().map((p) => ({ id: p.id, code: p.code, ip: p.ip.replace(/^::ffff:/, ''), at: p.at })),
       hosts: this.hub.list((c) => c.role === HOST).length,
       announcement: this.announcement,
       favorites: s.hostFavorites,

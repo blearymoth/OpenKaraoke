@@ -567,3 +567,48 @@ test('quiz: an answer still on its way when the countdown hits 0 counts (grace w
   }
   await req(host, 'game.close');
 });
+
+test('quiz: ties share the win, nobody wins with 0 points — TV, phones and recap agree', async () => {
+  const { req, connect, guest, room, view, s } = await quizRoom();
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const ana = await guest('Ana');
+  const ben = await guest('Ben');
+  const cy = await guest('Cy');
+  await req(host, 'game.start', { type: 'quiz', config: { questions: 5 } });
+  const g = room.game;
+  // Everyone answers wrong: no champion.
+  await openQuestion(room, req, tv);
+  for (const c of [ana, ben]) await req(c, 'game.input', { q: 0, choice: wrongChoice(g) });
+  g.close();
+  g.final();
+  assert.deepEqual(view(tv).game.winners, []);
+  assert.equal(view(ana).game.me.rank, 1);
+  assert.equal(view(ana).game.me.tied, true);
+  assert.equal(g.summary(), null);
+  await req(host, 'game.close');
+
+  // Ana and Ben tie at the top, Cy is third.
+  await req(host, 'game.start', { type: 'quiz', config: { questions: 5 } });
+  const q = room.game;
+  await openQuestion(room, req, tv);
+  for (const c of [ana, ben]) {
+    await req(c, 'game.input', { q: 0, choice: songChoice(q) });
+    q.answers.get(c.data.deviceId).ms = 0;
+  }
+  await req(cy, 'game.input', { q: 0, choice: wrongChoice(q) });
+  q.close();
+  q.final();
+  assert.deepEqual(view(tv).game.winners, ['Ana', 'Ben']);
+  assert.deepEqual(view(ben).game.winners, ['Ana', 'Ben']);
+  assert.equal(view(ana).game.me.rank, 1);
+  assert.equal(view(ben).game.me.rank, 1);
+  assert.equal(view(ben).game.me.tied, true);
+  assert.equal(view(cy).game.me.rank, 3);
+  assert.equal(view(cy).game.me.tied, false);
+  assert.deepEqual(view(tv).game.leaderboard.map((r) => r.place), [1, 1, 3], 'the leaderboard shows the shared place');
+  q.end();
+  assert.deepEqual(s().tonight.games.at(-1).winners, ['Ana', 'Ben'], 'both are in the recap');
+  assert.equal(s().tonight.games.at(-1).title, 'Quiz champions');
+  assert.deepEqual(view(tv).game.winners, ['Ana', 'Ben'], 'still shown after the end');
+});

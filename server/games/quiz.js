@@ -476,12 +476,20 @@ export class Quiz extends Game {
         score: p.score, delta: p.last?.q === this.qi ? p.last.points : 0, correct: p.correct, streak: p.streak, best: p.best, order: p.order,
       });
     }
-    return rows.sort((a, b) => b.score - a.score || a.order - b.order);
+    rows.sort((a, b) => b.score - a.score || a.order - b.order);
+    rows.forEach((r, i) => { r.place = i && rows[i - 1].score === r.score ? rows[i - 1].place : i + 1; }); // ties share a place
+    return rows;
+  }
+
+  /** The players who share the top score — nobody when nobody scored. */
+  winners(rows = this.ranking()) {
+    const top = rows[0]?.score || 0;
+    return top > 0 ? rows.filter((r) => r.score === top) : [];
   }
 
   summary() {
-    const top = this.ranking()[0];
-    return top && top.score > 0 ? { title: 'Quiz champion', winners: [top.name] } : null;
+    const names = this.winners().map((r) => r.name);
+    return names.length ? { title: names.length > 1 ? 'Quiz champions' : 'Quiz champion', winners: names } : null;
   }
 
   // ---- views -------------------------------------------------------------------------------------
@@ -524,6 +532,7 @@ export class Quiz extends Game {
     if (phase === 'leaderboard' || phase === 'final' || phase === 'done' || ctx.role === 'host') {
       v.leaderboard = rows.slice(0, 10).map(pub);
     }
+    if (phase === 'final' || phase === 'done') v.winners = this.winners(rows).map((r) => r.name); // ties share the win
     if (ctx.role === 'tv' && q && !this.ended) {
       if (['get-ready', 'question', 'reveal'].includes(phase)) v.clip = { q: this.qi, ...q.clip };
       const next = this.questions[this.qi + 1];
@@ -536,12 +545,14 @@ export class Quiz extends Game {
     if (ctx.role === 'guest') {
       const p = this.players.get(ctx.deviceId);
       const mine = this.answers.get(ctx.deviceId);
-      const rank = p ? 1 + rows.filter((r) => r.score > p.score).length : 0;
+      const row = rows.find((r) => r.deviceId === ctx.deviceId);
+      const rank = row?.place || 0;
       v.me = {
         id: p?.pid || null,
         choice: mine ? mine.choice : -1,
         score: p?.score || 0,
-        rank,
+        rank, // shared by tied players (see `tied`)
+        tied: !!row && rows.filter((r) => r.score === row.score).length > 1,
         streak: p?.streak || 0,
         correct: p?.correct || 0,
         // This question's result, only once it is revealed.

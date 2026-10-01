@@ -25,6 +25,8 @@ const ordinal = (n) => {
   const v = n % 100;
   return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
 };
+/** "Ana", "Ana & Ben", "Ana, Ben & Cy" — or "4 players" when the list gets long. */
+const names = (list) => (list.length > 3 ? `${list.length} players` : list.length > 1 ? `${list.slice(0, -1).join(', ')} & ${list.at(-1)}` : list[0] || '');
 
 // ---- host ------------------------------------------------------------------------------------
 
@@ -443,14 +445,18 @@ function TvBoard({ game, now, st }) {
 function TvFinal({ game }) {
   const rows = game.leaderboard || [];
   const rest = rows.slice(3, 8);
+  const winners = game.winners || []; // everyone tied for the top score; none when nobody scored
+  const title = winners.length > 1 ? `${names(winners)} share the crown!`
+    : winners.length ? `${winners[0]} is the quiz champion!`
+      : rows.length ? 'Nobody scored — thanks for playing!' : 'Thanks for playing!';
   return html`<div class="scene g-tv quiz qz-final">
-    <${Confetti} run=${rows.length ? 1 : 0} />
+    <${Confetti} run=${winners.length ? 1 : 0} />
     <header class="qz-final-head">
       <div class="kicker">${icon} Music quiz · final results</div>
-      <h1 class="display">${rows[0] ? `${rows[0].name} is the quiz champion!` : 'Thanks for playing!'}</h1>
+      <h1 class="display">${title}</h1>
     </header>
     ${rows.length ? html`<${Podium} rows=${rows} />` : html`<p class="qz-empty">Nobody answered this time.</p>`}
-    ${rest.length > 0 && html`<p class="g-tv-foot qz-rest">${rest.map((r, i) => html`<span key=${r.id}>${i + 4}. ${r.name} <b class="num">${fmt(r.score)}</b></span>`)}</p>`}
+    ${rest.length > 0 && html`<p class="g-tv-foot qz-rest">${rest.map((r, i) => html`<span key=${r.id}>${r.place || i + 4}. ${r.name} <b class="num">${fmt(r.score)}</b></span>`)}</p>`}
   </div>`;
 }
 
@@ -527,9 +533,15 @@ export function Guest({ game, send, now }) {
 
   // final / done
   const rows = game.leaderboard || [];
+  const winners = game.winners || [];
+  let title = 'Thanks for playing!';
+  if (me.rank === 1 && winners.length) title = me.tied ? '🏆 You share the win!' : '🏆 You won the quiz!';
+  else if (me.rank && winners.length) title = `You finished ${me.tied ? 'joint ' : ''}${ordinal(me.rank)}!`;
+  else if (winners.length) title = `${names(winners)} ${winners.length > 1 ? 'share the win' : 'wins'}!`;
+  else if (rows.length) title = 'Nobody scored — thanks for playing!';
   return html`<div class="g-guest quiz">
     ${head}
-    <h1 class="g-h1">${me.rank === 1 ? '🏆 You won the quiz!' : me.rank ? `You finished ${ordinal(me.rank)}!` : rows[0] ? `${rows[0].name} wins!` : 'Thanks for playing!'}</h1>
+    <h1 class="g-h1">${title}</h1>
     <${MyScore} me=${me} big />
     <${Leaderboard} rows=${rows} max=${10} highlight=${me.id} />
   </div>`;

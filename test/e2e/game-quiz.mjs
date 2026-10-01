@@ -214,10 +214,22 @@ try {
   await shot(tv, 'tv-final');
   await shot(ann, 'ann-final');
   await shot(host, 'host-quiz-final');
+  // A tie at the top: both share the crown on the TV, the phones and in the recap.
+  const players = room().game.players;
+  const idOf = (name) => Object.keys(room().s.profiles).find((id) => room().s.profiles[id].name === name);
+  players.get(idOf('Bob')).score = players.get(idOf('Ann')).score;
+  room().markDirty();
+  check(await tv.waitForSelector('.qz-final h1:has-text("Ann & Bob share the crown")', { timeout: 5000 }).then(() => true, () => false), 'TV: a tie shares the crown');
+  check(await bob.waitForSelector('text=You share the win', { timeout: 5000 }).then(() => true, () => false), 'Bob: "You share the win!"');
+  check(/You share the win/.test(await ann.textContent('.g-guest.quiz')), 'Ann: "You share the win!"');
+  check((await bob.$$eval('.g-leaderboard .rank', (l) => l.map((x) => x.textContent))).join() === '1,1', 'phones: both are listed 1st');
+  await sleep(500);
+  await shot(tv, 'tv-final-tie');
+  await shot(bob, 'bob-final-tie');
   await host.click('.game-live .btn:has-text("Finish")');
   await host.waitForSelector('.game-live .btn:has-text("Close")', { timeout: 5000 });
   const recap = room().s.tonight.games.at(-1);
-  check(recap?.type === 'quiz' && recap.winners?.[0] === 'Ann', 'the champion goes into the party recap');
+  check(recap?.type === 'quiz' && recap.winners?.join() === 'Ann,Bob', 'the (tied) champions go into the party recap');
   await host.click('.game-live .btn:has-text("Close")');
   check(await tv.waitForSelector('.lobby', { timeout: 10000 }).then(() => true, () => false), 'after the quiz the TV goes back to the lobby');
   await sleep(1200);

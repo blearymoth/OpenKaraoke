@@ -60,10 +60,10 @@ export function PlayerChip({ p, big }) {
   return html`<span class=${`g-player ${big ? 'big' : ''}`}><span class="avatar" style=${{ '--avatar': p.color }}>${p.emoji || '🎤'}</span><span class="ellipsis">${p.name}</span></span>`;
 }
 
-/** Ranked list: rows [{ name, emoji, color, score, delta? }]. */
+/** Ranked list: rows [{ name, emoji, color, score, delta?, place? }] (tied rows share a place). */
 export function Leaderboard({ rows, max = 10, highlight }) {
   return html`<ol class="g-leaderboard">${rows.slice(0, max).map((r, i) => html`<li class=${highlight && r.id === highlight ? 'me' : ''} key=${r.id || r.name}>
-    <span class="rank num">${i + 1}</span>
+    <span class="rank num">${r.place || i + 1}</span>
     <${PlayerChip} p=${r} />
     ${r.delta ? html`<span class="delta num">+${r.delta.toLocaleString()}</span>` : null}
     <b class="score num">${Math.round(r.score).toLocaleString()}</b>
@@ -77,7 +77,7 @@ export function Podium({ rows }) {
     <span class="avatar" style=${{ '--avatar': r.color }}>${r.emoji || '🎤'}</span>
     <b class="ellipsis">${r.name}</b>
     <span class="num">${Math.round(r.score).toLocaleString()}</span>
-    <div class="block">${[2, 1, 3][i]}</div>
+    <div class="block">${r.place || [2, 1, 3][i]}</div>
   </div>`)}</div>`;
 }
 

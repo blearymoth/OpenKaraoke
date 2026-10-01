@@ -6,11 +6,19 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { shortId } from '../../shared/text.js';
 import { AUDIO_EXTS } from '../library/parse.js';
+import { mediaSource } from '../http/media.js';
 import { logger } from '../util/log.js';
 
 const log = logger('break');
 const FOLDER_RESCAN_MS = 10 * 60_000;
 const MAX_FOLDER_FILES = 5000;
+const RECENT = 30; // tracks not repeated soon
+const CANDIDATES = 6; // songs drawn per try: some may have no audio on a connected drive
+const RETRY_MS = 60_000; // nothing playable: look again after this (sooner when the library or settings change)
+const QUICK_END_MS = 3000; // a track "over" this soon after it was picked did not play (older TV pages don't say)
+const FAIL_WINDOW_MS = 2 * 60_000;
+const MAX_FAILS = 3; // this many unplayable tracks within FAIL_WINDOW_MS…
+const REST_MS = 60_000; // …and break music rests this long (no request/broadcast loop through a dead drive)
 
 export class BreakMusic {
   constructor(room) {
@@ -18,7 +26,10 @@ export class BreakMusic {
     this.track = null; // { id, url, title, artist, source, songId? }
     this.recent = []; // ids played lately (not repeated soon)
     this.folder = { dir: '', at: 0, files: [], scanning: null };
-    this.idleSince = Date.now();
+    this.nothing = null; // { key, until }: the last pick found nothing playable (not searched again on every broadcast)
+    this.fails = []; // when the TV reported tracks it couldn't play
+    this.restUntil = 0; // after several unplayable tracks: silence until then
+    this.restTimer = null;
     this.autoplayTimer = null;
   }
 
@@ -41,7 +52,7 @@ export class BreakMusic {
 
   /** What the TV gets: the track to play (or null = fade out and stop). */
   view() {
-    if (!this.wanted()) {
+    if (!this.wanted() || this.restUntil > Date.now()) {
       // The music stops (someone sings, a game takes the TV…): the next break gets a fresh
       // track that suits the song coming up, instead of the same intro all night.
       this.track = null;
@@ -57,17 +68,26 @@ export class BreakMusic {
   /** Picks the next track (library or folder); keeps the last few from repeating. */
   pick() {
     const cfg = this.cfg();
+    const key = this.pickKey();
+    if (this.nothing?.key === key && Date.now() < this.nothing.until) return (this.track = null);
     const next = cfg.source === 'folder' ? this.pickFolder(cfg.folder) : this.pickLibrary(cfg.matchNext !== false);
-    this.track = next;
+    this.track = next && { ...next, at: Date.now() };
+    this.nothing = next ? null : { key, until: Date.now() + RETRY_MS };
     if (next) {
       this.recent.push(next.id);
-      if (this.recent.length > 30) this.recent.shift();
+      if (this.recent.length > RECENT) this.recent.shift();
     }
-    return next;
+    return this.track;
+  }
+
+  /** What a pick that found nothing depends on: the catalog, which library drives are connected, the folder scan. */
+  pickKey() {
+    return `${this.room.catalog.version}|${this.room.library.rootsOnline.join()}|${this.folder.at}`;
   }
 
   pickLibrary(matchNext) {
-    const { catalog, s } = this.room;
+    const { catalog, library, s } = this.room;
+    if (!library.rootsOnline.some(Boolean)) return null; // the karaoke drive isn't connected
     // The song coming up: the one in its intro (break music plays during the countdown), else
     // the head of the queue. Neither it nor the songs queued after it are played as break music.
     const upNext = s.current || s.queue[0];
@@ -83,11 +103,12 @@ export class BreakMusic {
     if (meta?.genre) tries.push({ ...filter, genre: meta.genre });
     tries.push(filter);
     for (const f of tries) {
-      const [song] = catalog.random(1, f, { popularBias: 0.8 });
-      if (!song) continue;
-      const track = this.room.pickTrack(song, { noExplicit: true });
-      if (!track || track.kind === 'video') continue;
-      return { id: `lib:${song.id}`, url: `/media/${track.id}/audio`, title: song.title, artist: song.artist, source: 'library', songId: song.id };
+      for (const song of catalog.random(CANDIDATES, f, { popularBias: 0.8 })) {
+        const track = this.room.pickTrack(song, { noExplicit: true });
+        // An audio file (not a video) on a drive that is connected: the TV can play it.
+        if (!track || !mediaSource(track, 'audio') || !library.isTrackOnline(track)) continue;
+        return { id: `lib:${song.id}`, url: `/media/${track.id}/audio`, title: song.title, artist: song.artist, source: 'library', songId: song.id };
+      }
     }
     return null;
   }
@@ -126,9 +147,34 @@ export class BreakMusic {
     return this.folder.files.find((x) => x.id === id)?.abs || null;
   }
 
-  /** The TV finished (or couldn't play) `id`: next one. */
-  ended(id) {
-    if (this.track && this.track.id === id) this.pick();
+  /**
+   * The TV finished `id`, or couldn't play it (`error`: unplugged drive, unknown format…): the
+   * next one. Several unplayable tracks in a short while and break music rests for a minute.
+   */
+  ended(id, { error = false } = {}) {
+    const t = this.track;
+    if (!t || t.id !== id) return;
+    const now = Date.now();
+    if (error || now - t.at < QUICK_END_MS) {
+      this.fails = this.fails.filter((at) => now - at < FAIL_WINDOW_MS);
+      this.fails.push(now);
+      if (this.fails.length >= MAX_FAILS) return this.rest();
+    }
+    this.pick();
+  }
+
+  rest() {
+    log.warn(`${this.fails.length} break music tracks could not be played: trying again in ${REST_MS / 1000} s`);
+    this.track = null;
+    this.fails = [];
+    this.restUntil = Date.now() + REST_MS;
+    clearTimeout(this.restTimer);
+    this.restTimer = setTimeout(() => {
+      this.restTimer = null;
+      this.restUntil = 0;
+      this.room.markDirty();
+    }, REST_MS);
+    this.restTimer.unref?.();
   }
 
   skip() {
@@ -139,6 +185,11 @@ export class BreakMusic {
   settingsChanged() {
     this.track = null;
     this.folder.at = 0;
+    this.nothing = null; // (the host may just have fixed what was wrong: try again straight away)
+    this.fails = [];
+    this.restUntil = 0;
+    clearTimeout(this.restTimer);
+    this.restTimer = null;
   }
 
   /**
@@ -178,6 +229,7 @@ export class BreakMusic {
 
   close() {
     clearTimeout(this.autoplayTimer);
+    clearTimeout(this.restTimer);
   }
 }
 

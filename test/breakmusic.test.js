@@ -2,11 +2,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { setupRoom, SONGS, MORE_SONGS } from './room-harness.js';
-import { tmpDir, writeTree } from './helpers.js';
+import { tmpDir, writeTree, makeZip } from './helpers.js';
 import { scanAudioFolder } from '../server/room/breakmusic.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Counts the catalog searches break music makes (each one filters and sorts the whole library). */
+function countRandom(catalog) {
+  const counter = { n: 0 };
+  const random = catalog.random.bind(catalog);
+  catalog.random = (...args) => {
+    counter.n++;
+    return random(...args);
+  };
+  return counter;
+}
 
 test('break music: plays while nobody sings, stops during a song, skips and follows the next song', async () => {
   const { connect, req, view, song, s, room } = await setupRoom({ playback: { countdown: 5 } }, { songs: [...SONGS, ...MORE_SONGS] });
@@ -81,6 +93,82 @@ test('break music: explicit songs never play; a mystery-free pool excludes queue
   const tv = await connect('tv');
   assert.equal(view(tv).breakMusic, null, 'only explicit songs: nothing to play');
   assert.equal(room.breakMusic.track, null);
+});
+
+test('break music: only tracks the TV can play (no videos, no zipped videos), and no search on every broadcast when there are none', async () => {
+  const { app, connect, view, room } = await setupRoom({}, { songs: [] });
+  const lib = app.library.paths[0];
+  const files = Object.fromEntries(['A - One', 'B - Two', 'C - Three'].map((n) => [`${n} [SF Karaoke].mp4`, 100]));
+  files['D - Four [SF Karaoke].zip'] = makeZip([{ name: 'D - Four.mp4', data: Buffer.alloc(100) }]);
+  await writeTree(lib, files);
+  await app.library.scan();
+  assert.equal(app.library.catalog.songs.size, 4);
+  const searches = countRandom(app.library.catalog);
+  const tv = await connect('tv');
+  await connect('host');
+  assert.equal(view(tv).breakMusic, null, 'videos only: no break music');
+  const n = searches.n;
+  assert.ok(n > 0);
+  for (let i = 0; i < 10; i++) room.flush();
+  assert.equal(searches.n, n, 'no new search on every broadcast');
+  // A rescan that finds a playable track: picked straight away.
+  await writeTree(lib, { 'E - Five [SF Karaoke].cdg': 7200 * 200, 'E - Five [SF Karaoke].mp3': 100 });
+  await app.library.scan();
+  assert.equal(view(tv).breakMusic?.title, 'Five');
+});
+
+test('break music: nothing from an unplugged drive — no request/broadcast loop — and back when it is connected', async () => {
+  const { app, connect, req, view, room } = await setupRoom({}, { songs: [...SONGS, ...MORE_SONGS] });
+  const lib = app.library.paths[0];
+  const tv = await connect('tv');
+  const bm = view(tv).breakMusic;
+  assert.ok(bm);
+  await fs.rename(lib, `${lib}-unplugged`);
+  try {
+    await app.library.checkOnline(); // (what the media route does when a file is missing)
+    assert.equal(app.library.status().offline, true);
+    const searches = countRandom(app.library.catalog);
+    await req(tv, 'tv.break', { id: bm.id, error: true });
+    assert.equal(view(tv).breakMusic, null, 'the TV could not play it: silence, not the next song from the same drive');
+    for (let i = 0; i < 10; i++) room.flush();
+    assert.equal(searches.n, 0, 'the library is not searched while its drive is away');
+  } finally {
+    await fs.rename(`${lib}-unplugged`, lib);
+  }
+  await app.library.checkOnline();
+  assert.ok(view(tv).breakMusic, 'the drive is back: music again');
+});
+
+test('break music: several unplayable tracks in a row → a rest instead of a request/broadcast loop', async (t) => {
+  const { connect, req, view, room } = await setupRoom({}, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const bm = room.breakMusic;
+  // Tracks that play to their end are fine, however many.
+  for (let i = 0; i < 5; i++) {
+    const id = view(tv).breakMusic.id;
+    bm.track.at -= 60_000;
+    await req(tv, 'tv.break', { id });
+    assert.notEqual(view(tv).breakMusic.id, id);
+  }
+  // The TV says it couldn't play them: two more tries, then a minute of silence.
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+  for (let i = 0; i < 3; i++) {
+    const id = view(tv).breakMusic?.id;
+    assert.ok(id, `try ${i + 1}`);
+    await req(tv, 'tv.break', { id, error: true });
+  }
+  assert.equal(view(tv).breakMusic, null, 'resting');
+  t.mock.timers.tick(30_000);
+  assert.equal(view(tv).breakMusic, null, 'still resting');
+  t.mock.timers.tick(30_000);
+  assert.ok(view(tv).breakMusic, 'a minute later it tries again');
+  // An older TV page reports failures as an end right after the pick: the same.
+  for (let i = 0; i < 3; i++) await req(tv, 'tv.break', { id: view(tv).breakMusic.id });
+  assert.equal(view(tv).breakMusic, null, 'resting again');
+  // The host changes the break music settings (maybe fixing the problem): it tries straight away.
+  await req(host, 'settings.update', { patch: { playback: { breakMusic: { matchNext: false } } } });
+  assert.ok(view(tv).breakMusic);
 });
 
 test('break music: from a music folder (only scanned files are served)', async () => {

@@ -307,7 +307,7 @@ export class Room {
       'tv.error': [[TV], (c, m) => this.tvError(c, m)],
       'tv.audio': [[TV], (c, m) => { c.data.audioUnlocked = !!m.unlocked; }],
       'tv.game': [[TV], (c, m) => this.gameTv(c, m)],
-      'tv.break': [[TV], (c, m) => { if (c.data.display === 'main') this.breakMusic.ended(str(m.id, 40)); }],
+      'tv.break': [[TV], (c, m) => { if (c.data.display === 'main') this.breakMusic.ended(str(m.id, 40), { error: m.error === true }); }],
       'break.skip': [PLAYER, () => this.breakMusic.skip()],
       'photo.approve': [H, (c, m) => this.photos.approve(str(m.id, 40))],
       'photo.reject': [H, (c, m) => this.photos.reject(str(m.id, 40))],

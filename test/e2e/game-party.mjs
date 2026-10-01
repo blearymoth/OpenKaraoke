@@ -99,9 +99,9 @@ function rename(deviceId, name) {
 }
 
 /**
- * Where the TV's "PASS THE MIC" flash sits: it must stay clear of the lyric lines — at most a
- * sliver of the CDG's top tile row (1/16 of its height, kept clear of text on karaoke discs),
- * and above the first lit pixel of the lyrics on screen — while still spanning the screen.
+ * Where the TV's "PASS THE MIC" flash sits: it must stay clear of the lyric lines — in the
+ * margin above the lyrics canvas (any CDG pixel can be text), so above its first lit pixel
+ * too — while still spanning the screen with a big name.
  */
 async function flashGeometry(tv, name) {
   await tv.waitForFunction((n) => document.querySelector('.rl-flash .name')?.textContent === n, name, { timeout: 8000 });
@@ -118,16 +118,16 @@ async function flashGeometry(tv, name) {
     return {
       top: flash.classList.contains('top'), flashTop: f.top, flashBottom: f.bottom, flashWidth: f.width, overflow: flash.scrollWidth - flash.clientWidth,
       nameCut: nameEl.scrollWidth > nameEl.clientWidth + 1, nameSize: parseFloat(getComputedStyle(nameEl).fontSize), vw: innerWidth, vh: innerHeight,
-      lyricsShown: canvas.classList.contains('show'), cdgTop: c.top, tileRow: c.height / 16, firstLit: lit < 0 ? null : c.top + (lit / canvas.height) * c.height,
+      lyricsShown: canvas.classList.contains('show'), cdgTop: c.top, firstLit: lit < 0 ? null : c.top + (lit / canvas.height) * c.height,
     };
   });
 }
 
 function checkFlashClear(geo, what) {
   check(geo.top && geo.lyricsShown, `${what}: lyrics on screen, the flash is a band along the top edge`);
-  check(geo.flashBottom <= geo.cdgTop + geo.tileRow + 0.5, `${what}: the flash ends ${Math.round(geo.flashBottom)} px down, above the lyric rows (from ${Math.round(geo.cdgTop + geo.tileRow)} px)`);
+  check(geo.flashTop >= -0.5 && geo.flashBottom <= geo.cdgTop + 0.5, `${what}: the flash (${Math.round(geo.flashTop)}–${Math.round(geo.flashBottom)} px) stays above the lyrics (from ${Math.round(geo.cdgTop)} px)`);
   check(geo.firstLit === null || geo.flashBottom <= geo.firstLit, `${what}: no lyric pixel under the flash (first at ${Math.round(geo.firstLit ?? -1)} px)`);
-  check(geo.flashWidth >= geo.vw * 0.95 && geo.nameSize >= geo.vh * 0.055 && geo.overflow <= 0, `${what}: still big — full width, the name ${Math.round(geo.nameSize)} px tall, nothing sticking out`);
+  check(geo.flashWidth >= geo.vw * 0.95 && geo.nameSize >= geo.vh * 0.05 && geo.overflow <= 0, `${what}: still big — full width, the name ${Math.round(geo.nameSize)} px tall, nothing sticking out`);
 }
 
 async function endAndClose(host) {
@@ -345,6 +345,8 @@ try {
   await tv.waitForSelector('.conn-lost', { state: 'detached', timeout: 15000 });
   await until(() => app.hub.list((x) => x.role === 'tv' && x.data.display === 'main').length === 1, 'the TV is back', 10000);
   check(true, 'the TV reconnects');
+  // (its tries to reach the dead address meanwhile are expected console errors)
+  for (let i = errors.length - 1; i >= 0; i--) if (errors[i].startsWith('tv: ') && errors[i].includes('ws://127.0.0.1:9/')) errors.splice(i, 1);
   // A blocked microphone reaches the host with a hint.
   await tv.evaluate(() => {
     navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Permission denied', 'NotAllowedError'); };

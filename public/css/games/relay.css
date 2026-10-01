@@ -1,4 +1,4 @@
-/* Pass the mic: host setup/controls, the TV flash over the lyrics, phones. */
+/* Pass the mic: host setup/controls, the TV flash and holder badge, phones. */
 
 /* ---- host ---------------------------------------------------------------------------- */
 .rl-chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -33,17 +33,20 @@
 .rl-flash .who { display: flex; align-items: center; gap: 3.5vh; min-width: 0; max-width: 100%; }
 .rl-flash .who .name { max-width: none; min-width: 0; }
 
-/* While lyrics are on screen: one compact line in the letterbox above them (it reaches at most
-   a sliver into the lyrics' top tile row, which karaoke discs keep clear of text). */
+/* While lyrics are on screen: one compact line in the margin above them, like the ticker in the
+   margin below. The lyrics are min(86vh, 86vw / 1.5) tall and centred, so that margin is at least
+   7vh: the band fills it and never covers a lyric line. */
 .rl-flash.top {
-  top: 0; transform: none; flex-wrap: nowrap; gap: 2.4vh; padding: 1.2vh 4vw 1vh; border-top-width: 0;
+  --band: max(7vh, calc(50vh - 28.667vw));
+  top: 0; height: var(--band); transform: none; flex-wrap: nowrap; gap: calc(var(--band) * 0.34);
+  padding: 0 4vw; border-top-width: 0; border-bottom-width: calc(var(--band) * 0.08);
   animation: rl-in-top 0.45s var(--ease) both, rl-out-top 0.4s ease 3.6s forwards;
 }
-.rl-flash.top .kick { font-size: 5vh; }
-.rl-flash.top .arrow { font-size: 5.6vh; margin-right: 2vw; } /* (room for its nudge) */
-.rl-flash.top .who { gap: 2.2vh; }
-.rl-flash.top .avatar { width: 7.6vh; height: 7.6vh; font-size: 4.6vh; }
-.rl-flash.top .name { font-size: 7vh; line-height: 1.1; }
+.rl-flash.top .kick { font-size: calc(var(--band) * 0.56); line-height: 1; }
+.rl-flash.top .arrow { font-size: calc(var(--band) * 0.62); margin-right: 2vw; } /* (room for its nudge) */
+.rl-flash.top .who { gap: calc(var(--band) * 0.3); }
+.rl-flash.top .avatar { width: calc(var(--band) * 0.7); height: calc(var(--band) * 0.7); font-size: calc(var(--band) * 0.44); }
+.rl-flash.top .name { font-size: calc(var(--band) * 0.74); line-height: 1.1; }
 @keyframes rl-in-top { from { opacity: 0; transform: translateY(-100%); } }
 @keyframes rl-out-top { to { opacity: 0; transform: translateY(-100%); } }
 @keyframes rl-nudge { to { transform: translateX(2vw); } }

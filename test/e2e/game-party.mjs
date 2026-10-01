@@ -208,9 +208,14 @@ try {
   check(!room().gameBlocks(), 'pass the mic runs alongside the karaoke');
   const ann = Object.keys(room().s.profiles).find((id) => nameOf(id) === 'Ann');
   check(game().holder === ann, 'Ann sings: she starts with the mic');
+  const passesAtStart = game().passes; // (the lobby flash above was a pass too)
   game().remaining = 1500; // (don't wait up to 20 s for the first pass)
-  await tv.waitForSelector('.rl-flash', { timeout: 10000 });
+  await until(() => game().passes > passesAtStart, 'the mic passes by itself', 10000);
   const first = game().holder;
+  // (from here on the test passes the mic itself: no surprise pass while it looks at a screen)
+  game().drawInterval = () => 600_000;
+  game().remaining = 600_000;
+  await tv.waitForFunction((n) => document.querySelector('.rl-flash')?.textContent.includes(n), nameOf(first), { timeout: 10000 });
   const flashText = (await tv.textContent('.rl-flash')).replace(/\s+/g, ' ');
   check(first && first !== ann, `the mic passed on by itself to ${nameOf(first)}, not back to Ann`);
   check(/pass the mic/i.test(flashText) && flashText.includes(nameOf(first)), `TV flashes "PASS THE MIC ➜ ${nameOf(first)}"`);
@@ -224,8 +229,9 @@ try {
   const other = Object.entries(phones).find(([n]) => n !== nameOf(first))[1];
   const seen = await other.waitForFunction((n) => document.querySelector('.g-guest.relay')?.textContent.includes(n), nameOf(first), { timeout: 5000 }).then(() => true, () => false);
   check(seen && !(await other.$('.rl-mine')), 'other phones see who has the mic');
+  const passesBefore = game().passes; // (the lobby flash above was a pass too)
   await host.click('.game-live .btn:has-text("Pass the mic now")');
-  await until(() => game().passes >= 2, 'host passes the mic');
+  await until(() => game().passes > passesBefore, 'host passes the mic');
   check(game().holder !== first, `the host passed it on to ${nameOf(game().holder)} (never the same twice)`);
   await tv.waitForFunction((n) => document.querySelector('.rl-flash')?.textContent.includes(n), nameOf(game().holder), { timeout: 5000 });
   check(true, 'TV flashes the new holder');

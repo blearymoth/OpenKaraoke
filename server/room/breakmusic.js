@@ -14,7 +14,7 @@ const FOLDER_RESCAN_MS = 10 * 60_000;
 const MAX_FOLDER_FILES = 5000; // kept per scan (a random sample of a bigger folder: each rescan draws anew)
 const MAX_FOLDER_SEEN = 200_000; // audio files looked at, at most
 const MAX_FOLDER_DIRS = 20_000; // folders read, at most
-const RECENT = 30; // tracks not repeated soon
+const RECENT = 30; // tracks not repeated soon (in a smaller library or folder: the one played longest ago comes next)
 const CANDIDATES = 6; // songs drawn per try: some may have no audio on a connected drive
 const RETRY_MS = 60_000; // nothing playable: look again after this (sooner when the library or settings change)
 const QUICK_END_MS = 3000; // a track "over" this soon after it was picked did not play (older TV pages don't say)
@@ -92,15 +92,22 @@ export class BreakMusic {
     this.track = next && { ...next, at: Date.now(), with: this.pickSettings(), pick: ++this.picks };
     this.nothing = next ? null : { key, until: Date.now() + RETRY_MS };
     if (next) {
+      // (oldest first; a track played again moves to the end)
+      this.recent = this.recent.filter((id) => id !== next.id);
       this.recent.push(next.id);
       if (this.recent.length > RECENT) this.recent.shift();
     }
     return this.track;
   }
 
-  /** What a pick that found nothing depends on: settings, catalog, which library drives are connected, the folder scan. */
+  /**
+   * What a pick that found nothing depends on: settings, catalog, which library drives are
+   * connected, the folder scan, and the songs coming up (left out of a library pick).
+   */
   pickKey() {
-    return `${this.pickSettings()}|${this.room.catalog.version}|${this.room.library.rootsOnline.join()}|${this.folder.at}`;
+    const { s } = this.room;
+    const upcoming = [s.current, ...s.queue.slice(0, 10)].map((e) => e?.songId || '').join();
+    return `${this.pickSettings()}|${this.room.catalog.version}|${this.room.library.rootsOnline.join()}|${this.folder.at}|${upcoming}`;
   }
 
   pickLibrary(matchNext) {
@@ -109,9 +116,9 @@ export class BreakMusic {
     // The song coming up: the one in its intro (break music plays during the countdown), else
     // the head of the queue. Neither it nor the songs queued after it are played as break music.
     const upNext = s.current || s.queue[0];
-    const exclude = new Set(this.recent.map((id) => id.replace(/^lib:/, '')));
-    if (s.current) exclude.add(s.current.songId);
-    for (const e of s.queue.slice(0, 10)) exclude.add(e.songId);
+    const upcoming = [s.current, ...s.queue.slice(0, 10)].filter(Boolean).map((e) => e.songId);
+    const exclude = new Set(upcoming);
+    for (const id of this.recent) if (id.startsWith('lib:')) exclude.add(id.slice(4));
     const filter = { exclude, minDuration: 20, maxDuration: 480, noExplicit: true };
     // Match the mood of the next song when its genre/decade is known.
     const nextSong = matchNext && upNext ? catalog.song(upNext.songId) : null;
@@ -120,13 +127,25 @@ export class BreakMusic {
     if (meta?.genre && meta?.year) tries.push({ ...filter, genre: meta.genre, decade: Math.floor(meta.year / 10) * 10 });
     if (meta?.genre) tries.push({ ...filter, genre: meta.genre });
     tries.push(filter);
+    const playable = (song) => {
+      const track = this.room.pickTrack(song, { noExplicit: true });
+      // An audio file (not a video) on a drive that is connected: the TV can play it.
+      if (!track || !mediaSource(track, 'audio') || !library.isTrackOnline(track)) return null;
+      return { id: `lib:${song.id}`, url: `/media/${track.id}/audio`, title: song.title, artist: song.artist, source: 'library', songId: song.id };
+    };
     for (const f of tries) {
       for (const song of catalog.random(CANDIDATES, f, { popularBias: 0.8 })) {
-        const track = this.room.pickTrack(song, { noExplicit: true });
-        // An audio file (not a video) on a drive that is connected: the TV can play it.
-        if (!track || !mediaSource(track, 'audio') || !library.isTrackOnline(track)) continue;
-        return { id: `lib:${song.id}`, url: `/media/${track.id}/audio`, title: song.title, artist: song.artist, source: 'library', songId: song.id };
+        const found = playable(song);
+        if (found) return found;
       }
+    }
+    // Every other song had its turn lately (a library smaller than RECENT, like the demo): the
+    // one played longest ago, instead of silence for the rest of the night.
+    const again = { ...filter, exclude: new Set(upcoming) };
+    for (const id of this.recent) {
+      const song = id.startsWith('lib:') && catalog.song(id.slice(4));
+      const found = song && catalog._passes(song, again) && playable(song);
+      if (found) return found;
     }
     return null;
   }
@@ -135,11 +154,11 @@ export class BreakMusic {
     if (!dir) return null;
     this.refreshFolder(dir);
     if (this.folder.dir !== path.resolve(dir)) return null; // (the files of the folder set before: wait for this one's scan)
-    const files = this.folder.files.filter((f) => !this.recent.includes(f.id));
-    const pool = files.length ? files : this.folder.files;
-    if (!pool.length) return null;
-    const f = pool[Math.floor(Math.random() * pool.length)];
-    return { id: f.id, url: `/media/break/${f.id}`, title: f.title, artist: f.artist, source: 'folder', abs: f.abs };
+    const { files } = this.folder;
+    const fresh = files.filter((f) => !this.recent.includes(f.id));
+    // Every file had its turn lately (a folder smaller than RECENT): the one played longest ago.
+    const f = fresh.length ? fresh[Math.floor(Math.random() * fresh.length)] : this.recent.map((id) => files.find((x) => x.id === id)).find(Boolean);
+    return f ? { id: f.id, url: `/media/break/${f.id}`, title: f.title, artist: f.artist, source: 'folder', abs: f.abs } : null;
   }
 
   /** Scans the music folder in the background (at most every 10 minutes). */

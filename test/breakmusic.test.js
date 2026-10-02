@@ -88,6 +88,80 @@ test('break music: every break gets a fresh track that matches the song coming u
   assert.equal(new Set(ids).size, ids.length, `a new track at every break: ${ids.join(' ')}`);
 });
 
+/** A small library (like the demo): fewer songs than the tracks kept from repeating. */
+const FIVE_SONGS = ['Adele - Hello [SF Karaoke]', 'Queen - Bohemian Rhapsody [SF Karaoke]', 'Blondie - Call Me [SC Karaoke]', 'ABBA - Waterloo [SF Karaoke]', 'Toto - Africa [SF Karaoke]'];
+
+test('break music: a small library plays on at every break, all night (no repeat back to back)', async () => {
+  const { connect, req, view, s, room, app } = await setupRoom({ playback: { countdown: 10, autoStart: true } }, { songs: FIVE_SONGS });
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const songs = [...app.library.catalog.songs.values()];
+  assert.equal(songs.length, 5);
+  const lobbies = [];
+  for (let i = 0; i < 12; i++) {
+    await req(host, 'queue.add', { songId: songs[i % songs.length].id, singerName: 'Ann' });
+    const cur = s().current;
+    const intro = view(tv).breakMusic;
+    assert.ok(intro, `music in the countdown to song ${i + 1}`);
+    assert.notEqual(intro.id, `lib:${cur.songId}`, 'not the song counting down');
+    await req(tv, 'tv.ready', { entryId: cur.id, dur: 200 });
+    room.resume();
+    assert.equal(view(tv).breakMusic, null, 'silent while someone sings');
+    await req(tv, 'tv.ended', { entryId: cur.id });
+    const lobby = view(tv).breakMusic;
+    assert.ok(lobby, `music in the lobby after song ${i + 1}`);
+    if (lobbies.length) assert.notEqual(lobby.id, lobbies.at(-1), `a fresh track after song ${i + 1}`);
+    lobbies.push(lobby.id);
+  }
+  assert.equal(new Set(lobbies).size, songs.length, `every song had its turn: ${lobbies.join(' ')}`);
+  // Tracks that play to their end in the lobby: the one played longest ago comes next.
+  const played = [];
+  for (let i = 0; i < 10; i++) {
+    const { id } = view(tv).breakMusic;
+    room.breakMusic.track.at -= 60_000;
+    await req(tv, 'tv.break', { id });
+    played.push(view(tv).breakMusic.id);
+  }
+  assert.deepEqual(played.slice(5), played.slice(0, 5), 'the five songs in turn');
+  assert.equal(new Set(played).size, songs.length);
+});
+
+test('break music: a pick that found nothing is tried again when the queue changes (not a minute later)', async () => {
+  const { connect, req, view, s, app, room } = await setupRoom({ playback: { countdown: 10, autoStart: true, breakMusic: { enabled: false } } }, { songs: FIVE_SONGS });
+  const host = await connect('host');
+  const tv = await connect('tv');
+  for (const song of app.library.catalog.songs.values()) await req(host, 'queue.add', { songId: song.id, singerName: 'Ann' });
+  assert.equal(s().player.state, 'intro');
+  const searches = countRandom(app.library.catalog);
+  await req(host, 'settings.update', { patch: { playback: { breakMusic: { enabled: true } } } });
+  assert.equal(view(tv).breakMusic, null, 'every song is coming up: none of them as break music');
+  assert.ok(searches.n > 0);
+  const n = searches.n;
+  for (let i = 0; i < 10; i++) room.flush();
+  assert.equal(searches.n, n, 'no new search on every broadcast');
+  const last = s().queue.at(-1);
+  await req(host, 'queue.remove', { entryId: last.id });
+  assert.equal(view(tv).breakMusic?.id, `lib:${last.songId}`, 'a song left the queue: it plays straight away');
+});
+
+test('break music: a small music folder never plays the same song twice in a row', async () => {
+  const music = await tmpDir('ok-music-three-');
+  await writeTree(music, { 'A - One.mp3': 2000, 'B - Two.mp3': 2000, 'C - Three.mp3': 2000 });
+  const { connect, view, room, req } = await setupRoom({ playback: { breakMusic: { source: 'folder', folder: music } } });
+  const tv = await connect('tv');
+  view(tv);
+  await room.breakMusic.folder.scanning;
+  const played = [view(tv).breakMusic.title];
+  for (let i = 0; i < 20; i++) {
+    const bm = view(tv).breakMusic;
+    room.breakMusic.track.at -= 60_000;
+    await req(tv, 'tv.break', { id: bm.id, pick: bm.pick });
+    played.push(view(tv).breakMusic.title);
+  }
+  for (let i = 1; i < played.length; i++) assert.notEqual(played[i], played[i - 1], played.join(', '));
+  assert.deepEqual(new Set(played), new Set(['One', 'Two', 'Three']));
+});
+
 test('break music: a new volume fades the song that is on (0% is silence); a new source picks anew', async () => {
   const music = await tmpDir('ok-music-');
   await writeTree(music, { 'Band - Tune One.mp3': 2000 });

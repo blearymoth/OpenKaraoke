@@ -143,6 +143,13 @@ test('the host role is refused from a hotspot address, whatever Host and Origin 
       const pinned = await hello(hotspotHeaders(), { t: 'hello', role: 'host' });
       pinned.ws.close();
       assert.equal(pinned.msg.reason, 'pin_required');
+      // With the right PIN it's a host — told it isn't this computer (the page warns before
+      // switching the hotspot from there).
+      const login = await request('POST', '/api/auth/pin', { ...hotspotHeaders(), 'content-type': 'application/json' }, '{"pin":"4321"}');
+      assert.equal(login.status, 200, ip);
+      const remote = await hello(hotspotHeaders(), { t: 'hello', role: 'host', token: JSON.parse(login.text).token });
+      remote.ws.close();
+      assert.deepEqual([remote.msg.t, remote.msg.local], ['welcome', false], ip);
       app.settings.update({ party: { adminPin: '' } });
       const guest = await hello(hotspotHeaders(), { t: 'hello', role: 'guest', room: code });
       guest.ws.send(JSON.stringify({ t: 'hotspot.set', rid: 7, on: false }));
@@ -160,7 +167,7 @@ test('the host role is refused from a hotspot address, whatever Host and Origin 
   try {
     const own = await hello(hotspotHeaders(), { t: 'hello', role: 'host' });
     own.ws.close();
-    assert.equal(own.msg.t, 'welcome');
+    assert.deepEqual([own.msg.t, own.msg.local], ['welcome', true]);
   } finally {
     peer = '';
   }

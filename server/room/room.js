@@ -211,7 +211,7 @@ export class Room {
     const role = msg.role;
     if (role === HOST) {
       if (!this.auth.isHost(client.ip, msg.token)) return { ok: false, reason: this.auth.pin ? 'pin_required' : 'host_only' };
-      return { ok: true, role, welcome: { state: this.hostView() } };
+      return { ok: true, role, welcome: { local: !!client.isLocal, state: this.hostView() } };
     }
     if (role === TV) {
       const asked = typeof msg.display === 'string' && TV_KINDS.has(msg.display) ? msg.display : 'main';

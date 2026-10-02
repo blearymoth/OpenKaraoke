@@ -46,6 +46,16 @@ test('songbook: CSV is spreadsheet-safe; HTML escapes names and carries the join
   assert.match(html, /<i title="Duet">♥<\/i>/);
 });
 
+test('songbook: with the party hotspot on, joining its Wi-Fi is step 1', async () => {
+  const songs = songbookSongs(catalog, {});
+  const html = await songbookHtml(catalog, songs, { title: 'P', joinUrl: 'http://10.42.0.1:6527/j/ABCD', roomCode: 'ABCD', wifi: { ssid: 'OpenKaraoke-ABCD', password: 'pass:word;1' } });
+  assert.match(html, /1 · Join the Wi-Fi <b class="url">OpenKaraoke-ABCD<\/b><br>Password <span class="pw">pass:word;1<\/span>/);
+  assert.match(html, /2 · Scan to request songs/);
+  assert.equal((html.match(/<svg/g) || []).length, 2, 'two QR codes');
+  const plain = await songbookHtml(catalog, songs, { title: 'P', joinUrl: 'http://192.168.1.2:6527/j/ABCD', roomCode: 'ABCD' });
+  assert.doesNotMatch(plain, /Join the Wi-Fi|2 · /);
+});
+
 test('songbook: a big library is built in slices, so the server keeps answering meanwhile', async () => {
   const words = ['Love', 'Night', 'Heart', 'Dance', 'Fire', 'Rain', 'Star', 'River'];
   const names = Array.from({ length: 12000 }, (_, i) => `${i % 7 ? '' : 'The '}${words[i % 8]} Band ${i % 3000} - ${words[(i * 5) % 8]} Song ${i} [SF Karaoke]`);

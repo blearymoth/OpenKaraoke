@@ -13,7 +13,7 @@
     "test": "node --test test/*.test.js",
     "vendor": "node scripts/vendor.js",
     "demo": "node scripts/make-demo-library.js",
-    "e2e": "node test/e2e/party.mjs && node test/e2e/apps.mjs && node test/e2e/artwork.mjs && node test/e2e/games.mjs && node test/e2e/polish.mjs && node test/e2e/game-battle.mjs && node test/e2e/game-quiz.mjs && node test/e2e/game-wheel.mjs && node test/e2e/game-party.mjs && node test/e2e/themes.mjs"
+    "e2e": "node test/e2e/party.mjs && node test/e2e/apps.mjs && node test/e2e/artwork.mjs && node test/e2e/games.mjs && node test/e2e/polish.mjs && node test/e2e/game-battle.mjs && node test/e2e/game-quiz.mjs && node test/e2e/game-wheel.mjs && node test/e2e/game-party.mjs && node test/e2e/themes.mjs && node test/e2e/hotspot.mjs"
   },
   "engines": {
     "node": ">=18.17"

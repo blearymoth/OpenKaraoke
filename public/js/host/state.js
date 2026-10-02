@@ -15,6 +15,7 @@ export const store = createStore({
   lib: null, // scan progress
   artwork: null, // artwork crawler / provider status (Settings → Artwork)
   dialog: null,
+  local: false, // this page runs on the computer running OpenKaraoke
 });
 
 export const conn = new Connection({
@@ -26,7 +27,7 @@ conn.on('welcome', (m) => {
   applyAppearance(m.state.settings?.appearance);
   noteArt(m.art);
   setMarks(m.state);
-  store.update({ state: m.state, denied: null });
+  store.update({ state: m.state, denied: null, local: !!m.local });
 });
 conn.on('state', (m) => {
   const v = m.state.library?.builtAt;
@@ -42,6 +43,11 @@ conn.on('lib', (m) => {
 });
 conn.on('art', (m) => noteArt(m));
 conn.on('artwork', (m) => store.update({ artwork: m.status }));
+// Every step of the party hotspot's checks (the next full state carries it too).
+conn.on('hotspot', (m) => {
+  const st = store.get().state;
+  if (st) store.update({ state: { ...st, hotspot: m.hotspot } });
+});
 conn.on('status', (status) => store.update({ status }));
 conn.on('denied', (m) => store.update({ denied: m.reason }));
 conn.on('toast', (m) => toast(m.text, m.level === 'error' ? 'error' : 'info'));

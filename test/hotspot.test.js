@@ -283,7 +283,7 @@ test('Hotspot: dropping during the party falls back with the reason; quitting br
   assert.equal(hs.state, 'failed');
   assert.equal(hs.view().check, 'dropped');
   assert.match(hs.view().reason, /NetworkManager took it down/);
-  assert.match(hs.view().fix, /home Wi-Fi/);
+  assert.match(hs.view().fix, /Try again/);
   assert.equal(hs.ip, '');
   assert.equal(changes.at(-1), 'failed');
   // Try again: on again.
@@ -389,6 +389,7 @@ test('app: the hotspot moves every join link to its address, and back when it dr
   const info = app.info();
   assert.equal(info.mode, 'hotspot');
   assert.equal(info.joinUrl, `http://${HOTSPOT_IP}:${app.port}/j/${info.roomCode}`);
+  assert.equal(info.wifiName, `OpenKaraoke-${info.roomCode}`, 'the landing page names the Wi-Fi to join first');
   assert.equal(room.publicInfo().joinUrl, info.joinUrl, 'the TV, boards and guests get it too');
   const tv = room.tvView().hotspot;
   assert.equal(tv.ssid, `OpenKaraoke-${info.roomCode}`);
@@ -417,6 +418,7 @@ test('app: the hotspot moves every join link to its address, and back when it dr
   assert.equal(app.hotspot.state, 'failed');
   assert.equal(app.info().mode, 'lan');
   assert.notEqual(app.info().joinUrl, info.joinUrl);
+  assert.equal(app.info().wifiName, '');
   assert.equal(room.tvView().hotspot, null);
   assert.match(room.hostView().hotspot.reason, /stopped/);
 

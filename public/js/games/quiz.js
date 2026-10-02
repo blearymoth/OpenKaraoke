@@ -303,9 +303,11 @@ export function Tv({ game, st, now, tv }) {
 function JoinCorner({ st }) {
   const url = st?.info?.joinUrl;
   if (!url || st.display?.showQr === false) return null;
+  const hs = st.hotspot; // the party hotspot: its Wi-Fi first
   return html`<div class="qz-join">
+    ${hs && html`<img src=${qrSrc(hs.qr)} alt="" /><span>1 · Join the Wi-Fi<b>${hs.ssid}</b></span>`}
     <img src=${qrSrc(url)} alt="" />
-    <span>Play along on your phone<b>${url.replace(/^https?:\/\//, '')}</b></span>
+    <span>${hs ? '2 · ' : ''}Play along on your phone<b>${url.replace(/^https?:\/\//, '')}</b></span>
   </div>`;
 }
 

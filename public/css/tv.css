@@ -89,6 +89,25 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .join .code { font-family: var(--font-display); font-size: 8vh; font-weight: 800; letter-spacing: 0.22em; color: var(--bulb); text-shadow: var(--glow-text-bulb); }
 .join .wifi { margin-top: 3vh; display: flex; align-items: center; gap: 2vh; font-size: 2.8vh; color: var(--ink-2); }
 .join .wifi img { width: 12vh; height: 12vh; background: #fff; border-radius: 1vh; padding: 0.8vh; }
+/* The party hotspot is on: two steps — join its Wi-Fi, then the party (PLAN §20). */
+.lobby-main.steps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5vw; align-items: start; }
+.tv-step { display: grid; justify-items: center; align-content: start; gap: 1.5vh; text-align: center; min-width: 0; }
+.tv-step .marquee { --bulb-size: 1.1vh; --gap: 2.1vh; width: 28vh; padding: 2.4vh; border-radius: 2.6vh; margin-bottom: 2vh; }
+.tv-step h2 { display: flex; align-items: center; gap: 1.6vh; font-size: 6vh; }
+.step-no { display: inline-grid; place-items: center; flex: none; width: 1.25em; height: 1.25em; border-radius: 50%; background: var(--neon); color: var(--neon-ink); font-size: 0.75em; font-weight: 800; line-height: 1; }
+.tv-step .wifi-name { font-size: 4.6vh; font-weight: 800; color: var(--ink); overflow-wrap: anywhere; }
+.tv-step .wifi-pass { display: flex; align-items: baseline; gap: 1.6vh; font-size: 3.2vh; color: var(--ink-2); }
+.pw { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-weight: 700; letter-spacing: 0.08em; color: var(--ink); }
+.tv-step .wifi-pass .pw { font-size: 4.4vh; }
+.tv-step .url { font-size: 3.4vh; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
+.tv-step .code-row { display: flex; align-items: baseline; gap: 2vh; font-size: 3.2vh; color: var(--ink-2); }
+.tv-step .code { font-family: var(--font-display); font-size: 7vh; font-weight: 800; letter-spacing: 0.22em; color: var(--bulb); text-shadow: var(--glow-text-bulb); }
+.tv-step .closed { font-size: 2.8vh; color: var(--ink-2); }
+@media (max-aspect-ratio: 17/10) { .tv-step h2 { font-size: 5vh; } }
+@media (max-aspect-ratio: 1/1) {
+  .lobby-main.steps { grid-template-columns: minmax(0, 1fr); gap: 3vh; }
+  .tv-step .marquee { width: 20vh; margin-bottom: 0.6vh; }
+}
 .lobby-bottom { display: grid; gap: 1.6vh; }
 .lobby-bottom h3 { font-size: 3.4vh; color: var(--ink-2); font-weight: 700; }
 .upnext-row { display: flex; gap: 2vh; overflow: hidden; }
@@ -159,6 +178,10 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .corner-qr { position: absolute; top: 3vh; right: 2.5vw; display: grid; justify-items: center; gap: 0.8vh; padding: 1.2vh; border-radius: 1.6vh; background: var(--corner-qr-bg); color: var(--paper-ink); box-shadow: 0 1.5vh 4vh rgba(0, 0, 0, 0.45); }
 .corner-qr img { width: 13vh; height: 13vh; }
 .corner-qr span { font-family: var(--font-display); font-weight: 800; font-size: 2.6vh; letter-spacing: 0.16em; }
+.corner-qr.two { grid-template-columns: auto auto; gap: 1.4vh; }
+.corner-qr figure { margin: 0; display: grid; justify-items: center; gap: 0.8vh; }
+.corner-qr.two img { width: 11vh; height: 11vh; }
+.corner-qr.two span { font-size: 2.2vh; letter-spacing: 0.08em; }
 
 .ticker { position: absolute; left: 0; right: 0; bottom: 0; height: 7vh; display: flex; align-items: center; gap: 2.4vh; padding: 0 2.5vw; background: linear-gradient(0deg, rgba(var(--deep-rgb), 0.92), rgba(var(--deep-rgb), 0.55)); font-size: 2.8vh; white-space: nowrap; overflow: hidden; }
 /* Studio: an even band, like the title card's: over a bright video frame the fade (0.55 at its top)
@@ -287,4 +310,7 @@ body:has(#video:not([hidden])) .photo-flash.corner figcaption { width: auto; min
 .board-join { display: flex; align-items: center; gap: 2vh; font-size: 2.6vh; color: var(--ink-2); }
 .board-join img { width: 11vh; height: 11vh; background: var(--paper); padding: 0.8vh; border-radius: 1vh; }
 .board-join b { display: block; font-size: 3.4vh; color: var(--ink); }
+.board-join.two { gap: 5vh; }
+.board-join.two > div { display: flex; align-items: center; gap: 2vh; min-width: 0; }
+.board-join.two b { display: flex; align-items: center; gap: 1vh; }
 body.board-layout #stage { display: none; }

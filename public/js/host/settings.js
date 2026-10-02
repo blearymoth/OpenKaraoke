@@ -7,6 +7,7 @@ import { store, act, openDialog, toast, chooseFolder } from './state.js';
 import { CHANNEL_MODES, CHANNEL_LABELS } from '/shared/protocol.js';
 import { THEMES, THEME_IDS, DEFAULT_THEME, accentInk } from '/shared/themes.js';
 import { UpdatesBlock } from './updates.js';
+import { HotspotBlock } from './hotspot.js';
 
 const SECTIONS = [
   {
@@ -16,10 +17,11 @@ const SECTIONS = [
       { path: 'party.guestsEnabled', label: 'Guests can request songs', type: 'bool' },
       { path: 'party.adminPin', label: 'Host PIN', type: 'pin', help: 'Lets you run the party from a phone or tablet: open this page there and enter the PIN. Without a PIN, only this computer can use the host controls.' },
       { path: 'party.trustLocalhost', label: 'This computer never needs the PIN', type: 'bool' },
-      { path: 'party.wifi.ssid', label: 'Wi-Fi name', type: 'text', placeholder: 'Your network name' },
-      { path: 'party.wifi.password', label: 'Wi-Fi password', type: 'password' },
-      { path: 'party.wifi.security', label: 'Wi-Fi security', type: 'select', options: [['WPA', 'WPA / WPA2 / WPA3'], ['WEP', 'WEP'], ['nopass', 'Open network']] },
-      { path: 'party.wifi.show', label: 'Show a Wi-Fi QR code on the TV', type: 'bool', help: 'Guests can join your Wi-Fi by scanning it.' },
+      { path: 'party.hotspot', type: 'hotspot' }, // its own block (hotspot.js)
+      { path: 'party.wifi.ssid', label: 'Home Wi-Fi name', type: 'text', placeholder: 'Your network name' },
+      { path: 'party.wifi.password', label: 'Home Wi-Fi password', type: 'password' },
+      { path: 'party.wifi.security', label: 'Home Wi-Fi security', type: 'select', options: [['WPA', 'WPA / WPA2 / WPA3'], ['WEP', 'WEP'], ['nopass', 'Open network']] },
+      { path: 'party.wifi.show', label: 'Show a QR code for the home Wi-Fi on the TV', type: 'bool', help: 'Guests can join your Wi-Fi by scanning it. While the party hotspot is on, the TV shows the hotspot’s instead.' },
     ],
   },
   { id: 'appearance', title: 'Appearance', icon: 'palette', custom: 'appearance' },
@@ -349,7 +351,7 @@ function DisplaysSection({ state }) {
     </div>
     <div class="setting column">
       <div class="setting-text"><b>Screens waiting to be paired</b>
-        <p class="hint">To use a TV or projector attached to another computer (or a smart TV browser), open <code>${lan}/tv</code> on it. It shows a four-digit code: approve it here if the code matches. For a big list of who sings next (by the bar or the stage) open <code>${lan}/tv?layout=board</code> instead.</p></div>
+        <p class="hint">To use a TV or projector attached to another computer (or a smart TV browser), open <code>${lan}/tv</code> on it. It shows a four-digit code: approve it here if the code matches. For a big list of who sings next (by the bar or the stage) open <code>${lan}/tv?layout=board</code> instead.${state.info.mode === 'hotspot' && state.info.baseUrl !== lan ? html` A screen on the party hotspot’s Wi-Fi uses <code>${state.info.baseUrl}/tv</code>.` : ''}</p></div>
       ${state.pairings.length
         ? html`<div class="folders">${state.pairings.map((p) => html`<div class="folder-row pairing-row">
             <div class="pair-code-small">${p.code}</div>
@@ -395,7 +397,9 @@ export function Settings({ section = 'party' }) {
         ${current.custom === 'about' && html`<${About} state=${state} />`}
         ${current.custom === 'artwork' && html`<${ArtworkSection} state=${state} />`}
         ${current.custom === 'displays' && html`<${DisplaysSection} state=${state} />`}
-        ${current.fields?.map((f) => html`<${Field} key=${f.path} f=${f} settings=${state.settings} hasPin=${state.hasPin} />`)}
+        ${current.fields?.map((f) => (f.type === 'hotspot'
+          ? html`<${HotspotBlock} key=${f.path} state=${state} />`
+          : html`<${Field} key=${f.path} f=${f} settings=${state.settings} hasPin=${state.hasPin} />`))}
       </section>
     </div>
   </div>`;

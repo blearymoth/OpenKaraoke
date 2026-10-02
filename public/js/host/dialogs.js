@@ -280,36 +280,74 @@ export function InviteDialog() {
   const info = state.info;
   const qr = qrSrc(info.joinUrl);
   const wifi = state.settings.party.wifi;
+  const hotspot = state.hotspot?.tv || null; // the party hotspot is on: joining its Wi-Fi is step 1
+  const wifiQr = hotspot ? qrSrc(hotspot.qr) : '';
   const printCard = () => {
     const w = window.open('', 'openkaraoke-card', 'width=800,height=1000');
     if (!w) return toast('Pop-up blocked — allow pop-ups to print the card.', 'error');
+    const join = `<img src="${location.origin}${qr}"><div class="code">${info.roomCode}</div><p class="url">${escapeHtml(info.joinUrl)}</p>`;
     w.document.write(`<!doctype html><title>Table card</title><style>
       body{font-family:system-ui,sans-serif;text-align:center;margin:0;padding:40px;color:#111}
       h1{font-size:46px;margin:10px 0}p{font-size:22px;margin:8px 0}img{width:360px;height:360px;margin:24px auto;display:block}
       .code{font-size:52px;font-weight:800;letter-spacing:.2em}.url{font-size:20px;color:#444}
-      .card{border:3px dashed #999;border-radius:24px;padding:30px;max-width:560px;margin:0 auto}</style>
-      <div class="card"><h1>${escapeHtml(info.name)}</h1><p>Scan to pick your karaoke songs</p>
-      <img src="${location.origin}${qr}"><div class="code">${info.roomCode}</div><p class="url">${escapeHtml(info.joinUrl)}</p>
-      ${wifi?.ssid ? `<p>Wi-Fi: <b>${escapeHtml(wifi.ssid)}</b></p>` : ''}</div>
+      .card{border:3px dashed #999;border-radius:24px;padding:30px;max-width:560px;margin:0 auto}
+      .steps{display:flex;gap:28px;justify-content:center;text-align:center}.steps>div{flex:1}.steps img{width:250px;height:250px;margin:14px auto}
+      .steps h2{font-size:26px;margin:6px 0}.steps .code{font-size:40px}.no{display:inline-block;width:44px;height:44px;line-height:44px;border-radius:50%;background:#111;color:#fff;font-weight:800;font-size:26px}
+      .pw{font-family:ui-monospace,monospace;font-size:24px;font-weight:700;letter-spacing:.06em}
+      .hotspot .card{max-width:720px}</style>
+      ${hotspot
+        ? `<div class="hotspot"><div class="card"><h1>${escapeHtml(info.name)}</h1><p>Pick your karaoke songs on your phone — two scans</p>
+          <div class="steps"><div><span class="no">1</span><h2>Join the Wi-Fi</h2><img src="${location.origin}${wifiQr}">
+            <p>Network <b>${escapeHtml(hotspot.ssid)}</b></p><p>Password <span class="pw">${escapeHtml(hotspot.password)}</span></p></div>
+          <div><span class="no">2</span><h2>Open the party</h2>${join}</div></div></div></div>`
+        : `<div class="card"><h1>${escapeHtml(info.name)}</h1><p>Scan to pick your karaoke songs</p>
+          ${join}${wifi?.ssid ? `<p>Wi-Fi: <b>${escapeHtml(wifi.ssid)}</b></p>` : ''}</div>`}
       <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script>`);
     w.document.close();
     return undefined;
   };
+  const link = html`<div class="invite-url">
+    <input class="input" readonly value=${info.joinUrl} onFocus=${(e) => e.currentTarget.select()} aria-label="Join link" />
+    <button class="btn" onClick=${() => copyText(info.joinUrl).then(() => toast('Link copied', 'ok'))}><${Icon} name="link" size=${16} /> Copy</button>
+  </div>`;
+  const buttons = html`<div class="btn-row">
+    <button class="btn" onClick=${printCard}><${Icon} name="printer" size=${16} /> Print a table card</button>
+    <button class="btn ghost" onClick=${() => { closeDialog(); go('/settings/party'); }}>Change code or Wi-Fi</button>
+  </div>`;
+  if (hotspot) {
+    return html`<${Modal} title="Invite guests" onClose=${closeDialog} class="invite two-steps" wide>
+      <div class="invite-steps">
+        <section class="invite-step" aria-label="Step 1: join the party Wi-Fi">
+          <h3><span class="step-no">1</span> Join the Wi-Fi</h3>
+          <div class="marquee"><img src=${wifiQr} alt="QR code to join the party Wi-Fi" /></div>
+          <dl class="wifi-facts">
+            <dt>Network</dt><dd>${hotspot.ssid}</dd>
+            <dt>Password</dt><dd class="mono">${hotspot.password}</dd>
+          </dl>
+        </section>
+        <section class="invite-step" aria-label="Step 2: open the party">
+          <h3><span class="step-no">2</span> Open the party</h3>
+          <div class="marquee"><img src=${qr} alt="QR code to open the party" /></div>
+          <div class="invite-code">${info.roomCode}</div>
+        </section>
+      </div>
+      <div class="invite-text">
+        <p>Guests scan <b>1</b> with their phone camera to join this computer’s own Wi-Fi, then <b>2</b> to open the party — no app needed. If the phone says the network has no internet, they choose to <b>stay connected</b>.</p>
+        ${link}
+        ${buttons}
+      </div>
+    </${Modal}>`;
+  }
   return html`<${Modal} title="Invite guests" onClose=${closeDialog} class="invite">
     <div class="invite-body">
       <div class="marquee"><img src=${qr} alt="QR code to join" /></div>
       <div class="invite-text">
         <p>Guests scan the code with their phone camera — no app needed. They must be on the same Wi-Fi as this computer.</p>
         <div class="invite-code">${info.roomCode}</div>
-        <div class="invite-url">
-          <input class="input" readonly value=${info.joinUrl} onFocus=${(e) => e.currentTarget.select()} />
-          <button class="btn" onClick=${() => copyText(info.joinUrl).then(() => toast('Link copied', 'ok'))}><${Icon} name="link" size=${16} /> Copy</button>
-        </div>
+        ${link}
         ${info.lanUrls.length > 1 && html`<p class="hint">Phones can't open it? Try another address of this computer: ${info.lanUrls.slice(1).map((u) => html`<code>${u}/j/${info.roomCode}</code> `)}</p>`}
-        <div class="btn-row">
-          <button class="btn" onClick=${printCard}><${Icon} name="printer" size=${16} /> Print a table card</button>
-          <button class="btn ghost" onClick=${() => { closeDialog(); go('/settings/party'); }}>Change code or Wi-Fi</button>
-        </div>
+        ${state.hotspot && !state.hotspot.enabled && html`<p class="hint">No Wi-Fi the guests can use? This computer can make its own: <a href="#/settings/party" onClick=${closeDialog}>Settings → Party → Party hotspot</a>.</p>`}
+        ${buttons}
       </div>
     </div>
   </${Modal}>`;

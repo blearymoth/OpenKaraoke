@@ -322,10 +322,10 @@ export class Hotspot extends EventEmitter {
     this.ownsConnection = false;
     const radio = (await this.nmcli(['-t', '-f', 'WIFI', 'radio'])).stdout.trim();
     const check = radio !== 'enabled'
-      ? CHECK('dropped', 'fail', 'The hotspot stopped: Wi-Fi was switched off.', 'Switch Wi-Fi on again, then Try again. Until then guests use the home Wi-Fi (the QR code on the TV).')
+      ? CHECK('dropped', 'fail', 'The hotspot stopped: Wi-Fi was switched off.', 'Switch Wi-Fi on again (system menu, top right), then Try again.')
       : state === 'activated'
-        ? CHECK('dropped', 'fail', 'The hotspot’s address changed.', 'Try again. Until then guests use the home Wi-Fi (the QR code on the TV).')
-        : CHECK('dropped', 'fail', 'The hotspot stopped (NetworkManager took it down).', 'Try again. Until then guests use the home Wi-Fi (the QR code on the TV).');
+        ? CHECK('dropped', 'fail', 'The hotspot’s address changed.', 'Try again.')
+        : CHECK('dropped', 'fail', 'The hotspot stopped (NetworkManager took it down).', 'Try again. If it keeps stopping, the reason is in: journalctl -u NetworkManager.');
     this.set({ state: 'failed', check: check.id, reason: check.text, fix: check.fix, address: '', checks: [...this.st.checks.filter((c) => c.id !== 'dropped'), check] });
     this.log?.warn(`party hotspot: ${check.text}`);
   }

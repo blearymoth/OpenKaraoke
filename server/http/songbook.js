@@ -10,7 +10,7 @@ import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { HttpError } from '../util/errors.js';
 import { intParam, sendText } from './router.js';
-import { qrSvg } from '../util/qr.js';
+import { qrSvg, wifiPayload } from '../util/qr.js';
 import { formatDuration } from '../../shared/text.js';
 import { Lru } from '../util/lru.js';
 import { THEMES, normalizeAppearance, accentColors } from '../../shared/themes.js';
@@ -102,7 +102,7 @@ export async function songbookCsv(catalog, songs) {
   return out.text();
 }
 
-export async function songbookHtml(catalog, songs, { title, joinUrl, roomCode, sort = 'artist', columns = 3, appearance } = {}) {
+export async function songbookHtml(catalog, songs, { title, joinUrl, roomCode, wifi = null, sort = 'artist', columns = 3, appearance } = {}) {
   const out = sliced();
   let letter = null;
   let artist = null;
@@ -132,6 +132,8 @@ export async function songbookHtml(catalog, songs, { title, joinUrl, roomCode, s
   if (artist !== null) out.add('</ul></div>');
   if (letter !== null) out.add('</section>');
   const qr = joinUrl ? qrSvg(joinUrl, { margin: 0 }) : '';
+  // The party hotspot is on: its Wi-Fi is step 1 (the songbook is printed by the host).
+  const wifiQr = qr && wifi ? qrSvg(wifiPayload({ ssid: wifi.ssid, password: wifi.password, security: 'WPA' }), { margin: 0 }) : '';
   const cols = Math.min(4, Math.max(1, columns));
   const look = normalizeAppearance(appearance); // the on-screen toolbar and headings follow the skin
   const { accent, ink } = accentColors(look);
@@ -151,6 +153,7 @@ header .qr svg { width: 100%; height: 100%; }
 header .join { text-align: right; font-size: 8pt; color: #333; max-width: 60mm; }
 header .join b { font-size: 13pt; letter-spacing: 0.15em; }
 header .join .url { font-size: 11pt; letter-spacing: 0.01em; overflow-wrap: anywhere; } /* a long address wraps instead of running into the QR code */
+header .join .pw { font: 700 10pt ui-monospace, monospace; letter-spacing: 0.06em; }
 main { column-count: ${cols}; column-gap: 7mm; column-rule: 1px solid #ddd; }
 section.letter h2 { font: 800 15pt/1 ${headFont}system-ui, sans-serif; margin: 6px 0 3px; padding: 2px 6px; background: #111; color: #fff; break-after: avoid; }
 .a { break-inside: avoid; margin: 0 0 4px; }
@@ -167,7 +170,8 @@ i { font-style: normal; font-size: 7pt; font-weight: 700; color: #b0003a; }
 <div class="toolbar"><button onclick="print()">Print or save as PDF</button><span>${songs.length.toLocaleString('en')} songs — use your browser’s print dialog (A4, “Save as PDF” works too).</span></div>
 <div class="page">
 <header><div><h1>${esc(title)}</h1><p>${songs.length.toLocaleString('en')} songs · ${sort === 'title' ? 'by title' : 'by artist'} · ${esc(new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }))}</p></div>
-${qr ? `<div class="join">Scan to request songs from your phone<br>or open <b class="url">${esc(String(joinUrl).replace(/^https?:\/\//, ''))}</b><br>Room code <b>${esc(roomCode)}</b></div><div class="qr">${qr}</div>` : ''}</header>
+${wifiQr ? `<div class="join">1 · Join the Wi-Fi <b class="url">${esc(wifi.ssid)}</b><br>Password <span class="pw">${esc(wifi.password)}</span></div><div class="qr">${wifiQr}</div>` : ''}
+${qr ? `<div class="join">${wifiQr ? '2 · ' : ''}Scan to request songs from your phone<br>or open <b class="url">${esc(String(joinUrl).replace(/^https?:\/\//, ''))}</b><br>Room code <b>${esc(roomCode)}</b></div><div class="qr">${qr}</div>` : ''}</header>
 <main>${out.text()}</main>
 </div></body></html>`;
 }
@@ -191,7 +195,8 @@ export function songbookRoutes(router, app, { requireHost }) {
     if (!catalog.songList.length) throw new HttpError(404, 'The library is empty — nothing to print yet.');
     const info = app.info();
     const appearance = app.settings.get('appearance');
-    const key = JSON.stringify([format, opts, catalog.version, catalog.metaVersion, info.name, info.joinUrl, appearance]);
+    const wifi = app.hotspot?.active ? (({ ssid, password }) => ({ ssid, password }))(app.hotspot.config()) : null;
+    const key = JSON.stringify([format, opts, catalog.version, catalog.metaVersion, info.name, info.joinUrl, appearance, wifi]);
     let body = cache.get(key);
     if (!body) {
       let job = building.get(key);
@@ -200,7 +205,7 @@ export function songbookRoutes(router, app, { requireHost }) {
           const songs = songbookSongs(catalog, opts);
           const text = format === 'csv'
             ? await songbookCsv(catalog, songs)
-            : await songbookHtml(catalog, songs, { title: info.name, joinUrl: info.joinUrl, roomCode: info.roomCode, sort: opts.sort, columns: opts.columns, appearance });
+            : await songbookHtml(catalog, songs, { title: info.name, joinUrl: info.joinUrl, roomCode: info.roomCode, wifi, sort: opts.sort, columns: opts.columns, appearance });
           const gz = await gzipAsync(Buffer.from(text), { level: 6 });
           cache.set(key, gz);
           return gz;

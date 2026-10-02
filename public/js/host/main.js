@@ -15,6 +15,7 @@ import { Games } from './games.js';
 import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
 import { followAppearance } from '../lib/theme.js';
 import { UpdatePill } from './updates.js';
+import { HotspotBanner } from './hotspot.js';
 
 // [path, icon, label, class]. Phones show a bottom bar with room for six tabs: the
 // 'desktop-only' pages are listed on the "More" page there instead.
@@ -89,6 +90,8 @@ function TopBar({ route }) {
       ${lib.scanning && html`<span class="pill live"><span class="spinner tiny"></span> Scanning library</span>`}
       ${lib.offline && lib.roots.length > 0 && html`<a class="pill bad" href="#/settings/library"><${Icon} name="alert" size=${14} /> Drive not connected</a>`}
       ${status !== 'open' && html`<span class="pill bad">Reconnecting…</span>`}
+      ${state.hotspot?.state === 'on' && html`<a class="pill live" href="#/settings/party" title=${`Party hotspot “${state.hotspot.ssid}” is on`}><${Icon} name="wifi" size=${14} /> <span class="label">Party Wi-Fi</span></a>`}
+      ${state.hotspot?.state === 'starting' && html`<a class="pill" href="#/settings/party"><span class="spinner tiny"></span> <span class="label">Hotspot</span></a>`}
       ${state.pairings?.length > 0 && html`<a class="pill bulb" href="#/settings/displays"><${Icon} name="tv" size=${14} /> Screen waiting: ${state.pairings[0].code}</a>`}
       <${UpdatePill} />
       <button class="code-chip" onClick=${openInvite} title="Invite guests"><${Icon} name="qr" size=${16} /> <span class="label">Room</span> <b>${state.info.roomCode}</b></button>
@@ -194,7 +197,7 @@ function App() {
   return html`<div class="app">
     <${TopBar} route=${route} />
     <${Nav} route=${route} />
-    <main class="main" id="main"><${Main} route=${route} /></main>
+    <main class="main" id="main"><${HotspotBanner} /><${Main} route=${route} /></main>
     <${QueuePanel} />
     <${PlayerBar} />
     <${Dialogs} />

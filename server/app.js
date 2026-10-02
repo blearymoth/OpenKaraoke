@@ -85,6 +85,7 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
       joinUrl: `${baseUrl}/j/${code}`,
       baseUrl,
       mode: hotspotUrl ? 'hotspot' : 'lan',
+      wifiName: hotspotUrl ? hotspot.config().ssid : '', // the hotspot's name (its password is never here)
       lanUrls,
       version: VERSION,
       library: { tracks: st.tracks, songs: st.songs, artists: st.artists, offline: st.offline, scanning: st.scanning },

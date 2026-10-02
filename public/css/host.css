@@ -432,3 +432,40 @@ body.host .toasts { bottom: 104px; }
 .skin-row i:nth-of-type(2) { background: var(--bulb); }
 .skin-row i:nth-of-type(3) { background: var(--ok); }
 .accent-form { justify-content: flex-end; }
+
+/* party hotspot: Settings → Party block, the banner when it is off, the two-step invite */
+.hotspot-block { display: grid; grid-template-columns: minmax(0, 1fr); border-top: 1px solid var(--line); }
+.hotspot-block > .setting:first-child { border-top: 0; }
+.hs-status { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-weight: 650; color: var(--ink-2); overflow-wrap: anywhere; }
+.hs-status.on { color: var(--ink); }
+.hs-status.failed { color: var(--bad); }
+.hs-checks { list-style: none; margin: 0 0 10px; padding: 12px 14px; display: grid; gap: 9px; border-radius: 12px; background: var(--stage-2); }
+.hs-checks li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 9px; align-items: start; font-size: 14px; overflow-wrap: anywhere; }
+.hs-checks li .hint { margin-top: 2px; }
+.hs-mark { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; }
+.hs-checks .ok .hs-mark { color: var(--ok); background: rgba(var(--ok-rgb), 0.14); }
+.hs-checks .warn .hs-mark { color: var(--bulb); background: var(--bulb-soft); }
+.hs-checks .fail .hs-mark { color: var(--bad); background: rgba(var(--bad-rgb), 0.14); }
+.hs-actions { margin: 0 0 10px; }
+.hs-note { padding: 10px 0 2px; }
+.hs-banner { margin: 18px 30px 0; max-width: 1120px; }
+.hs-banner > svg { flex: none; margin-top: 2px; }
+.hs-banner-fix { margin-top: 4px; font-size: 14px; overflow-wrap: anywhere; }
+.hs-banner .btn-row { margin-top: 10px; }
+.invite-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.invite-step { display: grid; justify-items: center; align-content: start; gap: 14px; padding: 18px 22px 22px; text-align: center; border-radius: var(--r-lg); background: var(--stage-2); border: 1px solid var(--line); }
+.invite-step h3 { display: flex; align-items: center; gap: 10px; font-size: 19px; }
+.step-no { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--neon); color: var(--neon-ink); font-weight: 800; font-size: 16px; }
+.invite-step .marquee { --bulb-size: 7px; --gap: 14px; width: min(210px, 100%); padding: 12px; margin: 8px 0; }
+.invite-step .invite-code { font-size: 36px; }
+.wifi-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; text-align: left; align-items: baseline; }
+.wifi-facts dt { color: var(--ink-3); font-size: 13px; }
+.wifi-facts dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
+.wifi-facts dd.mono { font-size: 17px; letter-spacing: 0.05em; }
+.two-steps .invite-text { margin-top: 4px; }
+@media (max-width: 900px) {
+  .hs-banner { margin: 12px 14px 0; }
+}
+@media (max-width: 600px) {
+  .invite-steps { grid-template-columns: minmax(0, 1fr); }
+}

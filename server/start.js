@@ -7,7 +7,8 @@ import { Settings, applyArgs, listenAddress } from './config.js';
 import { createApp } from './app.js';
 import { acquireDataLock } from './util/datalock.js';
 import { probePort, findFreePort } from './util/net.js';
-import { systemRunner } from './net/nmcli.js';
+import { systemRunner, HOTSPOT_ADDRESS } from './net/nmcli.js';
+import { fetchHealth } from './net/hotspot.js';
 
 /** A port problem a free port can solve (as opposed to e.g. EADDRNOTAVAIL: a wrong --host). */
 const MOVABLE = new Set(['EADDRINUSE', 'EACCES']);
@@ -75,7 +76,7 @@ export async function startServer({ dataDir, args = {}, env = process.env, appOp
     }
     await settings.flush(); // createApp reads the settings again (with the port picked here)
 
-    const app = await createApp({ dataDir, args, ...appOptions, hotspot: { run: await hotspotRunner(log), ...appOptions.hotspot } });
+    const app = await createApp({ dataDir, args, ...appOptions, hotspot: { ...(await hotspotOptions(log)), ...appOptions.hotspot } });
     for (let attempt = 1; ; attempt++) {
       try {
         await app.listen(port, host);
@@ -119,17 +120,21 @@ export async function startServer({ dataDir, args = {}, env = process.env, appOp
 /**
  * How the party hotspot reaches NetworkManager: the real nmcli (through execFile), or the fake
  * of scripts/fake-nmcli.mjs with OPENKARAOKE_FAKE_NMCLI=<scenario> for trying the hotspot without
- * Wi-Fi (the fake is not part of the desktop app's files: it is only loaded when asked for).
- * Always the process's own environment (PATH), whatever `env` the caller gave for the config.
+ * Wi-Fi (the fake is not part of the desktop app's files: it is only loaded when asked for; its
+ * pretend address 10.42.0.1 is checked at this computer instead). Always the process's own
+ * environment (PATH), whatever `env` the caller gave for the config.
  */
-async function hotspotRunner(log) {
+async function hotspotOptions(log) {
   const scenario = process.env.OPENKARAOKE_FAKE_NMCLI;
   if (scenario) {
     try {
-      return (await import('../scripts/fake-nmcli.mjs')).fakeNmcli(scenario).run;
+      const { run } = (await import('../scripts/fake-nmcli.mjs')).fakeNmcli(scenario);
+      const pretend = `http://${HOTSPOT_ADDRESS.split('/')[0]}:`;
+      log?.warn(`party hotspot: a pretend NetworkManager (scenario “${scenario}”) — no real Wi-Fi changes`);
+      return { run, health: (url) => fetchHealth(url.startsWith(pretend) ? url.replace(pretend, 'http://127.0.0.1:') : url) };
     } catch (e) {
       log?.warn(`OPENKARAOKE_FAKE_NMCLI ignored: ${e.message}`);
     }
   }
-  return systemRunner({ env: process.env });
+  return { run: systemRunner({ env: process.env }) };
 }

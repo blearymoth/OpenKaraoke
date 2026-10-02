@@ -398,7 +398,36 @@ function Board({ st }) {
     </li>`)}</ol>
     ${st.queueLength > 8 && html`<p class="board-more">+ ${st.queueLength - 8} more in the queue</p>`}
     ${!st.queue.length && html`<p class="board-more">The queue is empty.</p>`}
-    <footer class="board-join"><img src=${qr} alt="" /><div><b>Scan to sing</b><span>${st.info.joinUrl.replace(/^https?:\/\//, '')} · room ${st.info.roomCode}</span></div></footer>
+    ${st.hotspot
+      ? html`<footer class="board-join two">
+          <div><img src=${qrSrc(st.hotspot.qr)} alt="" /><div><b><span class="step-no">1</span> Join the Wi-Fi</b><span>${st.hotspot.ssid} · password <span class="pw">${st.hotspot.password}</span></span></div></div>
+          <div><img src=${qr} alt="" /><div><b><span class="step-no">2</span> Scan to sing</b><span>${st.info.joinUrl.replace(/^https?:\/\//, '')} · room ${st.info.roomCode}</span></div></div>
+        </footer>`
+      : html`<footer class="board-join"><img src=${qr} alt="" /><div><b>Scan to sing</b><span>${st.info.joinUrl.replace(/^https?:\/\//, '')} · room ${st.info.roomCode}</span></div></footer>`}
+  </div>`;
+}
+
+/**
+ * The party hotspot is on: phones join its Wi-Fi first (step 1: a WIFI: QR code, the name and
+ * password in big letters for laptops), then open the party (step 2).
+ */
+function JoinSteps({ st, qr }) {
+  const hs = st.hotspot;
+  const qrs = st.display.showQr !== false;
+  return html`<div class="lobby-main steps">
+    <section class="tv-step" aria-label="Step 1: join the party Wi-Fi">
+      ${qrs && html`<div class="marquee"><img src=${qrSrc(hs.qr)} alt="QR code to join the party Wi-Fi" /></div>`}
+      <h2 class="display"><span class="step-no">1</span> Join the Wi-Fi</h2>
+      <div class="wifi-name">${hs.ssid}</div>
+      <div class="wifi-pass">Password <b class="pw">${hs.password}</b></div>
+    </section>
+    <section class="tv-step" aria-label="Step 2: open the party">
+      ${qrs && html`<div class="marquee"><img src=${qr} alt="QR code to join" /></div>`}
+      <h2 class="display"><span class="step-no">2</span> ${st.guestsEnabled ? 'Scan to sing' : 'Open the party'}</h2>
+      <div class="url">${st.info.joinUrl.replace(/^https?:\/\//, '')}</div>
+      <div class="code-row">Room code <span class="code">${st.info.roomCode}</span></div>
+      ${!st.guestsEnabled && html`<p class="closed">Song requests from phones are closed right now.</p>`}
+    </section>
   </div>`;
 }
 
@@ -412,7 +441,7 @@ function Lobby({ st }) {
       <h1 class="display">${info.name}</h1>
       <${Clock} />
     </div>
-    <div class="lobby-main">
+    ${st.hotspot ? html`<${JoinSteps} st=${st} qr=${qr} />` : html`<div class="lobby-main">
       ${st.display.showQr !== false && html`<div class="marquee"><img src=${qr} alt="QR code to join" /></div>`}
       <div class="join">
         <h2 class="display">Scan to sing</h2>
@@ -421,7 +450,7 @@ function Lobby({ st }) {
         <div class="code-row">Room code <span class="code">${info.roomCode}</span></div>
         ${st.wifi && html`<div class="wifi"><img src=${`/api/qr.svg?margin=0&text=${encodeURIComponent(st.wifi.qr)}`} alt="Wi-Fi QR code" /><span>Wi-Fi: <b>${st.wifi.ssid}</b><br />Scan to connect</span></div>`}
       </div>
-    </div>
+    </div>`}
     ${st.breakMusic && store.get().display === 'main' && html`<div class="break-now" key=${st.breakMusic.id}>♪ ${st.breakMusic.title} · ${st.breakMusic.artist}</div>`}
     <div class="lobby-bottom">
       ${next.length
@@ -525,7 +554,12 @@ function Singing({ st }) {
       <span class="avatar" style=${{ '--avatar': singerColor(cur.singers[0]?.color) }}>${cur.singers[0]?.emoji || '🎤'}</span>
       <div class="ellipsis"><b class="display ellipsis">${singersText(cur.singers) || 'Sing along!'}</b><span>${cur.title} by ${cur.artist}</span></div>
     </div>`}
-    ${d.showQr !== false && html`<div class="corner-qr"><img src=${qrSrc(st.info.joinUrl)} alt="" /><span>${st.info.roomCode}</span></div>`}
+    ${d.showQr !== false && (st.hotspot
+      ? html`<div class="corner-qr two">
+          <figure><img src=${qrSrc(st.hotspot.qr)} alt="" /><span>1 · Wi-Fi</span></figure>
+          <figure><img src=${qrSrc(st.info.joinUrl)} alt="" /><span>2 · ${st.info.roomCode}</span></figure>
+        </div>`
+      : html`<div class="corner-qr"><img src=${qrSrc(st.info.joinUrl)} alt="" /><span>${st.info.roomCode}</span></div>`)}
     ${showUpNext && html`<div class="upnext-banner">
       <span class="avatar" style=${{ '--avatar': singerColor(next.singers[0]?.color) }}>${next.singers[0]?.emoji || '🎤'}</span>
       <div><small>Up next, get ready</small><b>${singersText(next.singers) || 'Next song'}</b></div>

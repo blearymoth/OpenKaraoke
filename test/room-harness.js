@@ -63,10 +63,10 @@ export async function setupRoom(settings = {}, { songs = SONGS, fetch = offlineF
   app.settings.update({ playback: { countdown: 0 }, ...settings });
   const room = app.room;
 
-  const connect = async (role, hello = {}, { local = true } = {}) => {
+  const connect = async (role, hello = {}, { local = true, ua = '' } = {}) => {
     const c = {
       id: crypto.randomBytes(4).toString('hex'), role: null, data: {}, isLocal: local, ip: local ? '127.0.0.1' : '192.168.1.50',
-      open: true, inbox: [],
+      userAgent: ua, connectedAt: Date.now(), open: true, inbox: [],
       send(m) { this.inbox.push(m); },
       sendRaw(t) { this.inbox.push(JSON.parse(t)); },
       close() { this.open = false; },

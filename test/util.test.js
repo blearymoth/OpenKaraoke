@@ -4,6 +4,7 @@ import { fold, compact, editDistance, similarity, shortId, splitCredits, formatD
 import { qrSvg, wifiPayload } from '../server/util/qr.js';
 import { Settings, parseArgs, makeRoomCode } from '../server/config.js';
 import { isLocalAddress, lanAddresses } from '../server/util/net.js';
+import { deviceLabel } from '../server/util/useragent.js';
 import { tmpDir } from './helpers.js';
 
 test('fold/compact normalise accents, punctuation and ampersands', () => {
@@ -70,4 +71,27 @@ test('parseArgs / room codes / network helpers', () => {
   assert.equal(isLocalAddress('::ffff:127.0.0.1'), true);
   assert.equal(isLocalAddress('203.0.113.9'), false);
   assert.ok(Array.isArray(lanAddresses()));
+});
+
+test('deviceLabel: a short name from a fixed list for any User-Agent', () => {
+  const table = [
+    ['Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36', 'Chrome · Android'],
+    ['Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1', 'Safari · iPhone'],
+    ['Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1', 'Safari · iPad'],
+    ['Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0', 'Firefox · Linux'],
+    ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36 Edg/129.0.0.0', 'Edge · Windows'],
+    ['Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/129.0.0.0 Safari/537.36', 'Chrome · Linux'],
+    ['Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) OpenKaraoke/0.1.0 Chrome/152.0.0.0 Electron/44.5.1 Safari/537.36', 'OpenKaraoke app'],
+    ['Mozilla/5.0 (SMART-TV; LINUX; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) 76.0.3809.146/6.0 TV Safari/537.36', 'Samsung TV'],
+    ['Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.79 Safari/537.36 WebAppManager', 'LG TV'],
+    ['Mozilla/5.0 (Linux; Android 9; AFTMM Build/PS7233) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36', 'Fire TV'],
+    ['Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0 Safari/537.36 CrKey/1.56.500000', 'Chromecast'],
+    ['', 'Browser'], [undefined, 'Browser'], ['%%% garbage <script>', 'Browser'],
+  ];
+  for (const [ua, want] of table) assert.equal(deviceLabel(ua), want, String(ua));
+  const big = `Mozilla/5.0 Version/${'a'.repeat(10_000)}`;
+  const t0 = performance.now();
+  const label = deviceLabel(big);
+  assert.ok(performance.now() - t0 < 5, 'linear on long input');
+  assert.equal(label, 'Browser');
 });

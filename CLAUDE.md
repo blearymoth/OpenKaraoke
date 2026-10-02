@@ -68,6 +68,11 @@ Server (`server/`)
   (fair rotation + ETA, pure), `auth.js` (localhost trust, PIN → host token, device tokens,
   Host/Origin trust).
 - `ws/hub.js` — hello handshake, heartbeat, `rid` request/response, broadcasts.
+- `net/` — the party hotspot (PLAN §20): `nmcli.js` (the only place programs are started:
+  `nmcli`/`firewall-cmd` through `execFile`, parsers, validation, `connection add` arguments),
+  `hotspot.js` (`Hotspot`: checks, start/stop, watcher, fallback). `createApp()` never calls
+  nmcli unless given a runner; `start.js` passes the real one. Tests use
+  `scripts/fake-nmcli.mjs` (`OPENKARAOKE_FAKE_NMCLI=<scenario>` to try the UI by hand).
 - `artwork/placeholder.js` — gradient + initials SVG (real artwork comes in M5).
 - `util/` — log (+ `setLogSink` for the desktop log file), jsonfile (`JsonDoc`), net (LAN
   addresses, trusted Host/Origin, free ports), datalock, qr, lru, ratelimit, errors
@@ -83,7 +88,8 @@ Browser (`public/`, plain ES modules, Preact + htm)
 - `js/lib/audio-engine.js` — Signalsmith buffer mode (key/tempo) + element mode; channel
   matrix, loudness, fades. `js/lib/cdg-canvas.js` — CDG renderer.
 - `host.html` + `js/host/` — `main.js` (shell, routes, PIN screen, shortcuts), `state.js`,
-  `player.js`, `queue.js`, `views.js`, `dialogs.js`, `settings.js`.
+  `player.js`, `queue.js`, `views.js`, `dialogs.js`, `settings.js`, `hotspot.js` (party
+  hotspot block + banner), `graphics.js` (Settings → About → Graphics, desktop app).
 - `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts.
 - `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`,
   `components.js`, `icons.js`, `theme.js` (follows the skin live, `token()` for code that needs
@@ -92,8 +98,10 @@ Browser (`public/`, plain ES modules, Preact + htm)
 Desktop app (`desktop/`, Electron; see docs/HANDOFF.md "Desktop app")
 - `main.mjs` — runs `startServer()` in-process, host window, TV window (full screen on another
   screen, autoplay + microphone allowed for our own pages only), menu, single instance, saving
-  on quit, XWayland relaunch. `displays.mjs` (pure placement), `preload.cjs` (`window.okDesktop`:
-  openTv, pickFolder, updates — the host page checks for it), `updater.mjs` + `update-logic.mjs`
+  on quit, native Wayland (TV moved by the person, full screen on the move) or an XWayland
+  restart when chosen. `displays.mjs` (pure placement), `graphics.mjs` (display system, GPU
+  verdict, lighter effects), `preload.cjs` (`window.okDesktop`: openTv, pickFolder, updates,
+  graphics, onNotice — the host page checks for it), `updater.mjs` + `update-logic.mjs`
   (GitHub releases; the token only ever goes to the API, redirects are followed by hand),
   `electron-builder.config.cjs` (installers), `test/app.mjs` (end to end).
 - `.github/workflows/desktop.yml` releases `v<major.minor>.<run>` for every app change on main.
@@ -117,6 +125,9 @@ Planned modules and their responsibilities are specified in `docs/PLAN.md` §4.
 - Treat guests as untrusted: validate every field, rate-limit, never trust ids from the client
   (use `client.data.deviceId` from the signed token), use `Object.hasOwn` for lookups keyed by
   client strings. New POST endpoints use `readJsonBody` (requires `application/json`).
+- The party hotspot: call `nmcli` only through `child_process.execFile` (never a shell), every
+  value validated and its own argument; **never run the real nmcli in tests** — inject a runner
+  (`fakeNmcli(scenario).run`). The hotspot password goes to the host and TV views only.
 - Single-column CSS grids need `grid-template-columns: minmax(0, 1fr)` or long unwrapped
   text widens the page on phones.
 - UI text is English. Two dark skins (`settings.appearance.theme`): **Studio** (default, midnight

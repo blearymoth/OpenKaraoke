@@ -615,9 +615,10 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
 - ✅ **Desktop app** (owner request): Linux AppImage/.rpm/.deb with the TV display as a window
   on the second screen, default port 6527 with a free-port fallback, and updates from the
   repository's releases (published by `.github/workflows/desktop.yml` for every change on main).
-- ⏳ **M5b Party hotspot** (owner request): the PC opens its own Wi-Fi through NetworkManager;
+- ✅ **M5b Party hotspot** (owner request): the PC opens its own Wi-Fi through NetworkManager;
   two QR codes (join the Wi-Fi, then open the party); checks and an automatic fallback to the
-  home Wi-Fi (§20).
+  home Wi-Fi (§20). Built and tested against a fake NetworkManager; the owner checklist
+  (§20.11) needs the PC.
 
 ## 19. Open questions for the owner
 - Host PIN default: none (localhost-only host) — OK?
@@ -661,11 +662,13 @@ When it is off — or when it can't be used — everything works as before ("sam
   are called **only** through `child_process.execFile` (never a shell), with `LC_ALL=C`, terse
   output (`-t` / `-g`), a timeout and an output limit. A *runner* `(cmd, args) → { code,
   stdout, stderr }` is injected. Changed after the check: `createApp()` has **no** runner of its
-  own (NetworkManager is never asked: tests, `npm run e2e` and the desktop test call it
-  directly and are not all under `node --test`); only `server/start.js` (the CLI and the
-  desktop app) gives the real one — or the fake with `OPENKARAOKE_FAKE_NMCLI=<scenario>`, or
-  another program with `OPENKARAOKE_NMCLI=<path>` — and the real one also refuses under
-  `node --test`. Parsers for terse output (`\:` escapes, `[n]` lists) are pure functions.
+  own (NetworkManager is never asked: tests and `npm run e2e` call it directly and are not all
+  under `node --test`); only `server/start.js` (the CLI and the desktop app) gives the real one
+  — or the fake with `OPENKARAOKE_FAKE_NMCLI=<scenario>` (if the fake can't be loaded, e.g. a
+  packaged app, no NetworkManager at all, never the real one), or another program with
+  `OPENKARAOKE_NMCLI=<path>` — and the real one also refuses under `node --test`. The desktop
+  test goes through `startServer` and sets `OPENKARAOKE_FAKE_NMCLI=ok`; `test/start.test.js`
+  passes a fake runner. Parsers for terse output (`\:` escapes, `[n]` lists) are pure functions.
 - `server/net/hotspot.js` — `Hotspot` (EventEmitter): `start()` runs the checks (§20.4),
   creates or updates the NetworkManager connection `OpenKaraoke hotspot` (802-11-wireless
   mode `ap`, `ipv4.method shared` — NetworkManager gives phones addresses (DHCP/DNS) and
@@ -677,8 +680,13 @@ When it is off — or when it can't be used — everything works as before ("sam
   `ipv4.addresses 10.42.0.1/24` (printed QR cards stay right), `ipv6.method disabled`, WPA2
   (`rsn`, `ccmp`, no PMF — like GNOME's own hotspot) and `802-11-wireless.ap-isolation yes`
   (phones can't reach each other; NetworkManager < 1.28 rejects it: retried without, ⚠). One
-  start or stop at a time; at start-up with the switch off, a party hotspot left up by a
-  crashed run is brought down (it is ours by its name); quitting waits at most 4 s for it.
+  start or stop at a time. Changed after the review: **ownership by UUID** — the UUID that
+  `connection add` printed is kept in `data/hotspot.json` (one server per data folder), and only
+  that profile is ever brought down or deleted (off, quit, a drop, the start-up clean-up after a
+  crash). A party hotspot of another OpenKaraoke on the same PC (another data folder) is never
+  touched; unused same-name profiles are tidied at the next start. Quitting waits at most 4 s;
+  a start still under way (a password prompt, a slow `up`) is cancelled by deleting its profile.
+  A watcher that gives up removes what is left of it ("failed" means off).
 - **App wiring (check).** Code: `createApp()` in `server/app.js` builds settings, auth,
   library, artwork, router, hub and room, and `app.closers` closes them; the hotspot service
   is created there too (`app.hotspot`, with an optional injected runner for tests and the
@@ -851,7 +859,7 @@ hotspot down again.
   sockets get forged peer addresses, `os.networkInterfaces()` is a fixed table).
 - Unit: parsers, every scenario's checks/state/fix, fallback on drop, stop/close, argument
   validation (nothing reaches the runner), the default runner refusing to run under tests.
-- Integration: `createApp({ hotspotRunner })` → `info()` in both modes, room views (host gets
+- Integration: `createApp({ hotspot: { run } })` → `info()` in both modes, room views (host gets
   checks and the QR, TV the QR, guests nothing), settings masking, `/api/health`; security
   (§20.6) over real HTTP/WebSocket with forged Host/Origin headers.
 - e2e: the invite dialog and the TV lobby show both QR codes while on and one after the drop;
@@ -862,8 +870,9 @@ hotspot down again.
 - Host actions: `hotspot.set { on }`, `hotspot.config { ssid?, password?, band?, ifname? }`
   (validated; regenerate = `password: ''` → a new one), `hotspot.retry`.
 - Host view: `hotspot { enabled, state, ssid, password (shown to the host), band, ifname,
-  address, devices[], checks[{ id, level: ok|warn|fail, text, fix }], reason, fix, wifiQr }`;
-  TV view: `hotspot { ssid, password, wifiQr } | null` (only while on); guest view: nothing.
+  address, device (in use), devices[], checks[{ id, level: ok|warn|fail, text, fix }], reason,
+  fix, tv: { ssid, password, qr } | null }`; TV view: `hotspot { ssid, password, qr } | null`
+  (only while on); guest view: nothing.
 - `info.mode`, `info.joinUrl` as above. `GET /api/health`.
 
 ### 20.9 UI

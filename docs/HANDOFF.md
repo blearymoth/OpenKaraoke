@@ -21,6 +21,13 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
   publishes for every change to `main`. The default port is now **6527** (8080 clashed with
   other programs); a busy port moves to the next free one. See "Desktop app" below — the
   repository is private, so the app needs a token to see the releases (explained there).
+- **Party hotspot (M5b)**: Settings → Party → **Party hotspot** makes the PC open its own Wi-Fi
+  through NetworkManager, so guests don't need the home Wi-Fi. The invite dialog, the TV lobby,
+  the corner QR during songs, the queue board, the quiz and the songbook then show **two
+  steps**: 1 · join the Wi-Fi (a Wi-Fi QR code, name and password), 2 · open the party. Checks
+  run when it is switched on; a failure or a drop during the party falls back to the home
+  Wi-Fi by itself and tells the host why and what to do. See "Party hotspot" below — the
+  owner's HOTSPOT_PLAN.md never arrived, so PLAN §20 was rebuilt from the request.
 - **Nothing in session 3 could touch real hardware or the internet**: the artwork providers were
   unreachable from the sandbox (parsers are tested against fixtures built from the documented
   response shapes), and sound, microphone, TV legibility and phones need the PC. Work through
@@ -153,13 +160,19 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
     && npm --prefix desktop run dist`). With the TV connected as a second screen: **Open TV
     display** → full screen on the TV, sound without a click, the applause meter's microphone
     without a prompt. Plug the TV in after opening the window (it should move there), unplug
-    it (it should come back as a window). On GNOME/Wayland the app restarts itself once through
-    XWayland so that it may place the TV window — check that the window lands on the TV; if not,
-    try `OPENKARAOKE_WAYLAND=1 openkaraoke` and note what happens.
+    it (it should come back as a window). **GNOME/Wayland (the slowness report)**: the app now
+    runs natively on Wayland like Chrome. Settings → About → **Graphics** should say "Hardware
+    accelerated"; if it says "Software rendering", press **Copy report** and paste it for the
+    next session. Open TV display → the TV window opens maximized where the mouse is → press
+    Super+Shift+→ (or drag it to the TV) → it goes full screen on the TV by itself (if both
+    screens have the same work area size nothing tells the app: press F11). Compare smoothness
+    with the earlier version; if Wayland misbehaves, Settings → About → Display system →
+    XWayland (places the TV by itself, restart) and note what changes.
 13. **Updates**: in the app, Settings → About → paste a fine-grained token (read-only Contents
     on this repository) → it finds the latest release; after the next push to `main` (and the
     workflow's run, ≈10 min) **Download and install** → the password prompt (rpm) → **Restart
     now**. The data in `~/.config/OpenKaraoke` stays.
+14. **Party hotspot**: the checklist at the end of "Party hotspot (M5b)" below.
 
 ## How it fits together (new in session 3)
 - `server/app.js` wires `ArtworkService` (`server/artwork/service.js`) next to the library;
@@ -291,8 +304,38 @@ dependencies and still runs with `node server/index.js`).
   the app's own pages (never the camera). A TV plugged in later gets the window; unplugged, it
   comes back. Menu: TV window, move it to the next screen (Ctrl+Shift+T), join link, data
   folder, log file, Check for updates. Links to other sites open in the normal browser; one
-  instance at a time; quitting (also logout/SIGTERM) saves the party first. On Wayland it
-  restarts through XWayland (`--ozone-platform=x11`), since Wayland apps may not place windows.
+  instance at a time; quitting (also logout/SIGTERM) saves the party first. Closing the host
+  window quits the app: the TV window closes with it at once (before the party is saved, which
+  can take seconds with a big library), so it never lingers on the TV. The TV page is loaded
+  from `http://tv.localhost:<port>` (its own origin: Electron keeps zoom per origin, so
+  zooming the host window used to zoom the TV too).
+- **Graphics / Wayland** (`desktop/graphics.mjs`, Settings → About → Graphics): the owner's
+  Electron windows were slow on GNOME while Chrome was smooth. Nothing in the app disabled the
+  GPU; the one difference was the restart through XWayland (`--ozone-platform=x11`), which on
+  some PCs (NVIDIA on Xwayland 23, software fallback) draws slowly, and software compositing
+  makes the TV starve the host window too (one GPU process for both). Now:
+  - **Native Wayland by default** (Electron's own default, like Chrome); **XWayland** is a
+    choice in Settings → About (saved in `display.json`, applied by a restart;
+    `OPENKARAOKE_X11=1` / `OPENKARAOKE_WAYLAND=1` override).
+  - On native Wayland the app can't place windows or learn where they are (checked in a
+    headless GNOME Shell 46 with two monitors: window positions, `window.screen` and the
+    Window Management API's `currentScreen` all stay put). The TV window opens maximized where
+    the mouse is, with a hint on it; GNOME resizes a maximized window moved to another screen
+    (Super+Shift+→, a drag), and that resize makes it go full screen there. Ctrl+T with the
+    mouse on the TV opens it right there (then F11). Verified 13/13 in that GNOME session;
+    XWayland still places it by itself (now full screen only after the window is mapped — it
+    sometimes stayed a window before).
+  - Windows are shown when their page has loaded too: on native Wayland a hidden window never
+    paints, so `ready-to-show` never came and the host window never appeared
+    (`OPENKARAOKE_WAYLAND=1` had this problem).
+  - **Diagnostics**: display system, hardware vs software (GPU feature status from
+    `gpu-info-update`, the WebGL renderer — llvmpipe/SwiftShader count as software), graphics
+    card and driver, GPU-process crashes, screens, both windows' frame rate, size and zoom;
+    **Copy report**, chrome://gpu (also Help menu); one line in the log at start.
+  - **Lighter effects** (`.lite-fx` on the pages; Automatic = on when drawing in software):
+    still backgrounds, no backdrop blur, a still shade instead of the lyrics' drop-shadow filter.
+  - For every PC: the TV writes the music level only on the aurora (it restyled the whole page
+    every frame), and the host's seek bar animates only while a song plays.
 - Profile: `~/.config/OpenKaraoke` (`data/` = the server's data folder, `logs/openkaraoke.log`,
   `window-state.json`, `updates.json`).
 - `desktop/preload.cjs` is the only bridge (`window.okDesktop`: openTv, pickFolder, updates);
@@ -333,8 +376,120 @@ dependencies and still runs with `node server/index.js`).
   (`OPENKARAOKE_FAKE_DISPLAYS`) and a stand-in GitHub (`OPENKARAOKE_UPDATE_API`): port
   fallback, TV window placement and sound, microphone, menu, second instance, quit/save, the
   update flow down to the restart. `APP=desktop/dist/linux-unpacked/openkaraoke` tests a build.
-- Not testable in the sandbox: real two-monitor placement, Wayland/XWayland, pkexec, GNOME's
-  dock grouping — checklist items 12–13.
+- Not testable in the sandbox: a real GPU and two real monitors, pkexec, GNOME's dock grouping —
+  checklist items 12–13. (Wayland placement was checked in a headless GNOME Shell, see above.)
+
+## Party hotspot (M5b)
+**What** (PLAN §20): the karaoke PC opens its own Wi-Fi through NetworkManager, so guests
+don't need the home network (or a router that keeps phones apart). Settings → Party → **Party
+hotspot**: a switch, the name (`OpenKaraoke-<ROOM>`, fixed when first switched on), a password
+(12 easy characters, made up once; show / change / **New**), the band and, with several Wi-Fi
+adapters, which one. While it starts, the checks of PLAN §20.4 appear one by one (✓ / ⚠ / ✗,
+each problem with its fix). While it is on, every place that shows the join QR shows two steps
+instead: **1 · Join the Wi-Fi** (a `WIFI:` QR code plus the name and password in text) and
+**2 · Open the party** (the usual QR, now at `http://10.42.0.1:<port>`) — the invite dialog and
+its printed card, the TV lobby, the corner QR during songs, the queue board, the quiz's join
+corner, the songbook; the landing page names the Wi-Fi to join first (never the password).
+If it can't start or drops during the party (watched every 5 s), it falls back to the home
+Wi-Fi by itself: the TV shows the home QR again within seconds, the host gets a toast and a
+banner with the reason, the fix, **Try again** and **Turn the hotspot off**. The switch is
+remembered: switched on, it starts again with OpenKaraoke (same checks); quitting brings it
+down and the home Wi-Fi comes back.
+
+**How it fits together**
+- `server/net/nmcli.js` — the only place programs are started: `nmcli` and `firewall-cmd`,
+  through `child_process.execFile` (never a shell), every value its own argument and validated
+  first, `LC_ALL=C`, timeouts; terse-output parsers; the `connection add` arguments (WPA2/CCMP,
+  PMF off, `ipv4.method shared` at a fixed `10.42.0.1/24`, client isolation, `autoconnect no`).
+- `server/net/hotspot.js` — the `Hotspot` service: checks, create + bring up, address,
+  reachability (`/api/health` answered by this process), watcher, fallback, stop, clean-up of a
+  hotspot left up by a crash. One start/stop at a time.
+- `server/app.js` / `server/start.js` — `createApp()` gets a runner that never calls nmcli
+  unless one is passed; only `startServer()` (CLI and desktop app) passes the real one.
+  `info()` gives the hotspot address as the join link while it is on (`mode: 'hotspot'`,
+  `wifiName`), never the password. `room.js`: `hotspot.set` / `hotspot.config` /
+  `hotspot.retry` (hosts only), live `{ t: 'hotspot' }` progress to hosts, the TV view's
+  `hotspot { ssid, password, qr }`, hotspot phones let go at once when it drops.
+- `public/js/host/hotspot.js` (Settings block, banner), the invite dialog (`dialogs.js`), the TV
+  (`tv/main.js` `JoinSteps`, corner, board), `games/quiz.js`, `index.html`,
+  `server/http/songbook.js`.
+- Ownership: the hotspot's profile is known by the UUID kept in `data/hotspot.json`; only that
+  one is ever taken down or removed (another OpenKaraoke's hotspot on the same PC is left
+  alone, a crashed run's is removed at the next start, quitting cancels a start under way).
+- Tests: `scripts/fake-nmcli.mjs` is a pretend NetworkManager (20 scenarios, in-process or as
+  a program); `test/hotspot.test.js`, `test/hotspot-security.test.js` (real sockets, forged
+  peer addresses), `test/e2e/hotspot.mjs` (44 browser checks). The real nmcli is never run in
+  tests: `createApp()` has no runner of its own (unit tests and e2e scripts), the real runner
+  refuses under `node --test`, `test/start.test.js` passes a fake, and the desktop test sets
+  `OPENKARAOKE_FAKE_NMCLI=ok` (a build without the fake then gets no NetworkManager at all).
+- Try the UI without Wi-Fi: `OPENKARAOKE_FAKE_NMCLI=ok npm start -- --library demo-library`
+  (or any scenario: `wifi-off`, `no-dnsmasq`, `drops`, …).
+
+**Decisions (and why)**
+1. **The owner's HOTSPOT_PLAN.md never reached the build session**, so PLAN §20 was rebuilt from
+   the request, keeping its numbering (§1–§11 = §20.1–§20.11), and every "(check)" item was
+   checked against the code. If the original plan turns up, reconcile it with §20.
+2. **Where the plan and the existing design disagreed, the existing behaviour was kept**:
+   - The Wi-Fi password and QR are *not* in `info`/`/api/info` (anyone may read those; the plan
+     put the QR there) — only in the host view and the TV view; masked in settings views like
+     the home Wi-Fi password; guests never get them.
+   - The plan said guests keep their identity across a fallback. They can't: the device token
+     lives in the page's storage, and `http://10.42.0.1:<port>` and the home address are
+     different origins. They come back as new guests (their queued songs stay); a hand-over
+     isn't built. The same goes for a phone host's PIN login and a paired screen.
+   - The hotspot's settings change only through the `hotspot.*` actions (validated, they start
+     and stop it); the generic `settings.update` drops them.
+   - `hotspot.set` answers at once and the page follows the checks live (WebSocket requests
+     time out after 15 s; a start can take longer).
+   - Check 8 ("listens on every address") reads the address the server is actually bound to,
+     not a setting (`--host` isn't saved).
+   - "One broadcast" on fallback wasn't enough: the home address comes back seconds later, so
+     the server looks for it every 5 s for a minute and broadcasts the new join link.
+3. **Fixed address `10.42.0.1/24`** (NetworkManager's usual one) so printed cards stay right;
+   the name and password are fixed when first switched on (a new room code doesn't rename the
+   Wi-Fi under the guests).
+4. **Client isolation on** (everyone knows the password: phones reach only the PC); an older
+   NetworkManager (< 1.28) runs without it, with a warning.
+5. **Checked against a real nmcli** (1.46, in the sandbox without Wi-Fi, plus the 1.46/1.48
+   sources): sharing a WPA hotspot needs `wifi.share.protected`, which only the desktop session
+   has (checked; the systemd user service outside the session gets ✗ 4 with the fix); a
+   password prompt has to be answered within about 20 s (NetworkManager's own limit); the old
+   profile must really be deleted and `up` uses the new profile's UUID; NetworkManager's
+   "automatic" band is always 2.4 GHz (said so in the page).
+6. **Who may switch it**: hosts only (this computer, or a phone with the PIN — not co-hosts). A
+   phone host is asked first: on a Wi-Fi-only PC it cuts itself off until it joins the hotspot.
+7. Plain HTTP on a network whose password is on the TV: anyone on the hotspot could read the
+   others' traffic, so while it is on, run the host controls on the PC itself (checklist 9).
+8. **Reviewed adversarially** (security, NetworkManager behaviour, UI, tests/docs; every finding
+   checked by a skeptic): 28 confirmed, all fixed — ownership by UUID instead of by name (a
+   second OpenKaraoke, e.g. the desktop app next to `npm start`, used to take down the running
+   party's hotspot at start-up), quitting during a start, a watcher that gave up without taking
+   it down, the desktop test reaching the real nmcli, a name that followed the room code, the
+   saved adapter vs the one in use, restarts only when something changed (a failed hotspot
+   waits for Try again, where a phone host is asked), the corner codes clear of the lyrics,
+   long passwords wrapping, the quiz corner, the landing page following the hotspot, and
+   e2e checks that couldn't fail.
+
+**Owner checklist (PLAN §20.11)**
+1. Settings → Party → Party hotspot → switch on. A password prompt may appear (polkit):
+   allow it within about 20 s. Every check ✓ (or ⚠ with a fix you are fine with).
+2. Phone: scan **1** on the TV — it joins `OpenKaraoke-…`; scan **2** — the party opens. An
+   iPhone and an Android phone. Request a song, react, play a game round.
+3. A PC on Wi-Fi only: it leaves the home Wi-Fi while the hotspot is on (⚠ 9) and reconnects
+   when it is switched off. With Ethernet: the phones get internet through the PC.
+4. Fedora/Ubuntu firewall: if phones can't open step 2, apply the fix shown (⚠ 13).
+5. Pull the plug: `nmcli connection down "OpenKaraoke hotspot"` in a terminal during a song —
+   within ~10 s the TV shows the home-network QR and the host page says why; Try again.
+6. Quit OpenKaraoke with the hotspot on: it goes off and the home Wi-Fi comes back.
+7. 2.4 GHz vs 5 GHz: older phones may only see 2.4 GHz.
+8. On a PC with Wi-Fi only the hotspot has no internet: Android asks "This network has no
+   internet access. Stay connected?" — guests answer **Yes** (else the phone may keep using
+   mobile data and can't open step 2).
+9. While the hotspot is on, run the host controls on the PC itself rather than a phone with the
+   PIN (everyone on the hotspot knows its password). With Ethernet, phones on the hotspot can
+   reach the home network through the PC.
+10. Started as the systemd user service (`bin/install-service.sh`): the hotspot needs the
+    permission without a password prompt (check 4 says so if not).
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

@@ -12,6 +12,8 @@ library (built for a ~90,000-track USB collection) with:
   TheAudioDB, cached locally
 - **Party games**: singing battles with audience voting, a music quiz, roulette wheel, polls,
   pass-the-mic and more
+- **Party hotspot**: no shared Wi-Fi? The PC opens its own (through NetworkManager) and the TV
+  shows two QR codes — join the Wi-Fi, then open the party
 - **Two skins**: a calm, professional **Studio** look (the default) and the original neon
   **Party** look — switch every screen at once in Settings → Appearance
 
@@ -41,7 +43,8 @@ Download the newest version for your Linux from the
 Start **OpenKaraoke** from the applications menu and choose your karaoke folder. **Open TV
 display** opens the TV window full screen on the second screen (the TV), with sound and the
 microphone (applause meter) allowed — connect the TV first, or later: the window moves there
-by itself. Guests scan the QR code on the TV with their phones (same Wi-Fi).
+by itself. Guests scan the QR code on the TV with their phones (same Wi-Fi — or the PC's own
+party hotspot, below).
 
 The app keeps itself up to date: it looks for a new release now and then (Settings → About,
 or Help › Check for updates…) and installs it when you say so — the AppImage replaces itself,
@@ -77,6 +80,16 @@ No karaoke files at hand? `npm run demo` creates a small demo library in `./demo
 (`npm start -- --library demo-library`).
 
 To use the host controls from a phone or tablet, set a host PIN in Settings → Party.
+
+### No Wi-Fi the guests can use? The party hotspot
+
+Settings → Party → **Party hotspot** makes the PC open its own Wi-Fi (Linux with
+NetworkManager and a Wi-Fi adapter that can be an access point). The TV then shows two QR
+codes: **1** joins the party Wi-Fi, **2** opens the party. The page checks the PC first and
+says what to fix (a password prompt, a firewall, Wi-Fi switched off, …); if the hotspot can't
+start or drops, everything falls back to the home Wi-Fi by itself. A PC on Wi-Fi only leaves
+the home network while the hotspot is on (one radio); with an Ethernet cable it keeps both and
+shares the internet with the phones.
 
 ## Check a library without starting the server
 

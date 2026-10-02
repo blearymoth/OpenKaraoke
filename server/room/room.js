@@ -400,6 +400,7 @@ export class Room {
       'break.skip': [PLAYER, () => this.breakMusic.skip()],
       'photo.approve': [H, (c, m) => this.photos.approve(str(m.id, 40))],
       'photo.reject': [H, (c, m) => this.photos.reject(str(m.id, 40))],
+      'photo.rejectWaiting': [H, () => this.photos.rejectWaiting()],
       'photo.remove': [H, (c, m) => this.photos.remove(str(m.id, 40))],
       'photo.clear': [H, () => this.photos.removeAll()],
       'game.start': [H, (c, m) => this.gameStart(m)],
@@ -1114,6 +1115,7 @@ export class Room {
       this.s.queue = this.s.queue.filter((e) => e.addedBy !== m.deviceId);
       this.s.pending = this.s.pending.filter((e) => e.addedBy !== m.deviceId);
       if (profile.singerId) this.dropInvites(profile.singerId);
+      this.photos.dropPending(m.deviceId);
     }
     for (const c of this.hub.list((x) => x.role === GUEST && x.data.deviceId === m.deviceId)) {
       c.send({ t: 'denied', reason: ban ? 'banned' : 'kicked' });
@@ -1870,6 +1872,7 @@ export class Room {
       sungTonight: s.tonight.sung.slice(-500),
       breakMusic: (({ title, artist } = {}) => (title ? { title, artist } : null))(this.breakMusic.view() || {}),
       photos: this.photos.hostView(),
+      photoCounts: this.photos.counts(),
     };
   }
 

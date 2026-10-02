@@ -265,12 +265,44 @@ try {
   await tv2.waitForSelector('.scene, .lobby');
   await host.click('.photo-tile.pending .btn.primary');
   check(await tv2.waitForSelector('.photo-flash img', { timeout: 5000 }).then(() => true, () => false), 'the approved photo pops up on the TV');
+  // While someone sings it must not cover the lyrics: beside them on 16:9, only the name (at
+  // the top) where there's no room beside them.
+  const flashBox = () => tv2.evaluate(() => {
+    const fig = document.querySelector('.photo-flash');
+    if (!fig) return null;
+    const a = fig.getBoundingClientRect();
+    const b = document.getElementById('cdg').getBoundingClientRect();
+    const overlap = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+    return { corner: fig.classList.contains('corner'), overlap, img: Math.round(fig.querySelector('img').getBoundingClientRect().width), right: Math.round(window.innerWidth - a.right) };
+  });
+  await sleep(800); // entrance animation
+  const wide = await flashBox();
+  check(wide?.corner && wide.overlap === 0 && wide.img > 80 && wide.right >= 0, `16:9: the photo sits beside the lyrics, not over them (${JSON.stringify(wide)})`);
   await shot(tv2, 'tv-photo-flash');
+  for (const [w, h] of [[1280, 800], [1024, 768]]) {
+    await tv2.setViewportSize({ width: w, height: h });
+    await sleep(100);
+    const narrow = await flashBox();
+    check(narrow?.overlap === 0 && narrow.img === 0, `${w}×${h}: only the name, clear of the lyrics (${JSON.stringify(narrow)})`);
+    await shot(tv2, `tv-photo-flash-${w}x${h}`);
+  }
+  await tv2.setViewportSize({ width: 1280, height: 720 });
+  check(await host.waitForSelector('.section-title:has-text("On the TV (1)")', { timeout: 5000 }).then(() => true, () => false), 'the host Photos page counts the approved photo');
+  await shot(host, 'host-photos');
   app.settings.update({ display: { background: 'photos' } });
   app.room.markDirty();
   check(await tv2.waitForSelector('#bg .photo-bg', { timeout: 5000 }).then(() => true, () => false), 'photos can be the TV background');
   app.settings.update({ display: { background: 'art' } });
   check(!!photoId, 'photo stored');
+  // A pile of waiting photos: the host turns them all down at once, keeping the photo wall.
+  const annId = app.room.photos.find(photoId)?.deviceId;
+  for (const tag of ['a', 'b']) await app.room.photos.add(annId, pngImage(`waiting-${tag}`, 200), '10.0.0.1');
+  app.room.markDirty();
+  await host.waitForSelector('.photo-tile.pending >> nth=1');
+  await shot(host, 'host-photos-waiting');
+  await host.click('.section-title:has-text("Waiting for you") .btn:has-text("Don’t show any")');
+  check(await host.waitForSelector('.section-title:has-text("Not shown (2)")', { timeout: 5000 }).then(() => true, () => false)
+    && (await host.$$('.photo-tile.pending')).length === 0 && app.room.photos.counts().approved === 1, 'the host turns down every waiting photo at once (the approved one stays)');
 
   // A screen on another computer: pairing code on the TV, approval in Settings → Displays.
   // (Everything runs on this machine here, so TV connections are marked as remote.)

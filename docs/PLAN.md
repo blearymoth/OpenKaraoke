@@ -325,7 +325,7 @@ player.play {entryId?}  player.pause  player.resume  player.next  player.restart
 player.seek {pos}  player.key {semitones}  player.tempo {rate}  player.channel {mode}  player.volume {v}
 singer.add/update/remove/merge     guest.update(me) guest.kick guest.ban guest.cohost
 favorite.toggle {songId}  playlist.save/delete/queue   settings.update {patch}   library.rescan
-announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve/reject
+announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve/reject/rejectWaiting
 duet.answer {entryId, accept}  duet.invites {allow}   (guest: answer / turn off duet invitations)
 game.start {type, config}  game.action {...}  game.answer {...}  game.vote {...}  game.end
 display.approve {code}  display.deny {id|code|all}  display.main {id}  display.forget
@@ -337,7 +337,19 @@ Server → client: `welcome`, `state`, `time`, `tv`, `res`, `toast`, `notify` (t
 queued mystery songs or their artists until the song is out in the open: it starts, or is queued
 without the mystery; one removed unplayed stays withheld), `pong {c, s}`.
 
-Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min.
+Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min. Photo
+uploads are checked (photos on, named, not banned, rate limit) before their body is read; one
+upload at a time per phone, 2 per address, 8 in all. An upload is cut off after 5 s without
+data or 20 s in all, and when all 8 slots are taken a newcomer replaces the slowest upload that
+is under 64 KB/s after 2 s or still arriving after 8 s (so uploads that stall or trickle can't
+keep guests out: holding every slot would take a new upload, and photo token, per second). At most 5
+photos per phone, 10 per address and 50 in all wait for the host. When the list (or the address's
+share) is full, a new photo replaces the oldest one from the busiest address (its busiest phone)
+if that has more waiting than the sender's address, else from the busiest phone at the sender's
+address if that has more than the sender — so a phone with nothing waiting always gets a place
+and a flood (many guest names, several addresses) pushes out its own photos first. The host can
+turn down every waiting photo at once (`photo.rejectWaiting`). 300 approved/rejected are kept
+(rejected, then the oldest approved, go first — waiting photos never push out approved ones).
 Duet invitations (a guest's `queue.add` with `partners: [singerId]`): the partner is asked
 (`notify` kind `duet`) only once the song is in the queue (after host approval when that is
 on), and every open invitation is in the partner's own state (`me.invites`) so a locked or
@@ -362,7 +374,7 @@ GET  /api/art/artist/:key?type=picture|fanart|logo|cutout
 GET  /media/:trackId/audio     audio (Range) — from file or zip entry
 GET  /media/:trackId/cdg       CDG bytes (gzip when accepted; cache a few in memory)
 GET  /media/:trackId/video     video (Range)
-POST /api/photos               guest photo upload (raw image body ≤ 4 MB, x-device-id header)
+POST /api/photos               guest photo upload (raw image body ≤ 4 MB, x-guest-token header)
 GET  /api/photos/:id           approved photo
 GET  /api/fs/list?path=…       (host only) list sub-folders for the library folder picker
 GET  /api/history?limit        (host only)   GET /api/export/songbook?format=html|csv&…

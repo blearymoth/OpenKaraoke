@@ -169,6 +169,15 @@ try {
   check(await tv2.waitForSelector('#bg .photo-bg', { timeout: 5000 }).then(() => true, () => false), 'photos can be the TV background');
   app.settings.update({ display: { background: 'art' } });
   check(!!photoId, 'photo stored');
+  // A pile of waiting photos: the host turns them all down at once, keeping the photo wall.
+  const annId = app.room.photos.find(photoId)?.deviceId;
+  for (const tag of ['a', 'b']) await app.room.photos.add(annId, pngImage(`waiting-${tag}`, 200), '10.0.0.1');
+  app.room.markDirty();
+  await host.waitForSelector('.photo-tile.pending >> nth=1');
+  await shot(host, 'host-photos-waiting');
+  await host.click('.section-title:has-text("Waiting for you") .btn:has-text("Don’t show any")');
+  check(await host.waitForSelector('.section-title:has-text("Not shown (2)")', { timeout: 5000 }).then(() => true, () => false)
+    && (await host.$$('.photo-tile.pending')).length === 0 && app.room.photos.counts().approved === 1, 'the host turns down every waiting photo at once (the approved one stays)');
 
   // A screen on another computer: pairing code on the TV, approval in Settings → Displays.
   // (Everything runs on this machine here, so TV connections are marked as remote.)

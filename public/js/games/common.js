@@ -28,7 +28,7 @@ export function Countdown({ endsAt, total, now, label }) {
   if (!endsAt) return null;
   const circ = 2 * Math.PI * 44;
   const frac = total ? Math.min(1, left / total) : 1;
-  return html`<div class=${`g-countdown ${left <= 5 ? 'hurry' : ''}`} role="timer" aria-label=${label || `${left} seconds left`}>
+  return html`<div class=${`g-countdown ${left <= 5 ? 'hurry' : ''} ${left > 99 ? 'wide' : ''}`} role="timer" aria-label=${label || `${left} seconds left`}>
     <svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44" /><circle class="arc" cx="50" cy="50" r="44" stroke-dasharray=${circ} stroke-dashoffset=${circ * (1 - frac)} /></svg>
     <b>${left}</b>
   </div>`;

@@ -6,7 +6,7 @@
 .qz-switch { display: flex; align-items: center; gap: 10px; min-height: 40px; font-weight: 600; cursor: pointer; }
 .quiz-control .qz-host-status { display: flex; align-items: center; gap: 14px; }
 .qz-host-text { display: grid; gap: 2px; min-width: 0; }
-.qz-host-answer { padding: 10px 12px; border-radius: 12px; background: rgba(var(--ok-rgb), 0.12); }
+.qz-host-answer { padding: 10px 12px; border-radius: var(--r-md); background: rgba(var(--ok-rgb), 0.12); }
 .qz-host-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 
 /* ---- TV ---------------------------------------------------------------------------------- */
@@ -95,7 +95,7 @@
 .qz-g-hint { color: var(--ink-2); }
 .qz-pad .g-answer { min-height: 76px; text-align: left; }
 .qz-pad .g-answer b { overflow-wrap: anywhere; }
-.qz-verdict { display: grid; gap: 4px; padding: 18px; border-radius: 16px; background: var(--stage-2); animation: qz-pop 0.4s var(--ease) both; }
+.qz-verdict { display: grid; gap: 4px; padding: 18px; border-radius: var(--r-card); background: var(--stage-2); animation: qz-pop 0.4s var(--ease) both; }
 .qz-verdict b { font-family: var(--font-display); font-size: 28px; }
 .qz-verdict span { font-size: 17px; color: var(--ink-2); }
 .qz-verdict.right { background: rgba(var(--ok-rgb), 0.16); border: 1px solid rgba(var(--ok-rgb), 0.5); }

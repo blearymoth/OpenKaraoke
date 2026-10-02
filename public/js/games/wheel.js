@@ -58,9 +58,9 @@ function WheelSvg({ segments, kind, win = -1 }) {
       if ([...text].length > maxChars) text = `${[...text].slice(0, maxChars - 1).join('').trim()}…`;
       const width = [...text].length * font * 0.56;
       return html`<g key=${i} class=${`wheel-seg ${win === i ? 'win' : ''}`}>
-        <path d=${d} style=${{ fill: color }} />
+        <path d=${d} style=${{ '--seg': color }} />
         <g transform=${`rotate(${mid.toFixed(2)})`}>
-          <text x=${r - 7} y="0" text-anchor="end" dominant-baseline="central" font-size=${font} style=${{ fill: segmentInk(i, n) }}
+          <text x=${r - 7} y="0" text-anchor="end" dominant-baseline="central" font-size=${font} style=${{ '--seg-ink': segmentInk(i, n) }}
             textLength=${width > avail ? avail : undefined} lengthAdjust=${width > avail ? 'spacingAndGlyphs' : undefined}>${text}</text>
         </g>
       </g>`;

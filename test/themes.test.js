@@ -13,6 +13,8 @@ import { withAppearance, appearanceVariant, notFoundPage } from '../server/http/
 import { THEMES, THEME_IDS, DEFAULT_THEME, normalizeTheme, normalizeAccent, normalizeAppearance, accentInk } from '../shared/themes.js';
 import { contrastText } from '../shared/text.js';
 import { tmpDir } from './helpers.js';
+import { worstDifference } from './color-vision.js';
+import { segmentIndex, WHEEL_MAX_SEGMENTS } from '../shared/wheel.js';
 import { offlineFetch } from './fake-art.js';
 
 // ---- validation -------------------------------------------------------------------------------
@@ -143,7 +145,7 @@ test('shell: the skin is written into <html> and theme-color', async () => {
   const page = await fs.readFile(path.join(PUBLIC_DIR, 'host.html'), 'utf8');
   const studio = withAppearance(page, { theme: 'studio', accent: '' });
   assert.match(studio, /<html lang="en" data-theme="studio">/);
-  assert.match(studio, /<meta name="theme-color" content="#0a1120">/);
+  assert.ok(studio.includes(`<meta name="theme-color" content="${THEMES.studio.themeColor}">`));
   const party = withAppearance(page, { theme: 'party', accent: '' });
   assert.match(party, /<html lang="en" data-theme="party">/);
   assert.match(party, /<meta name="theme-color" content="#150f26">/);
@@ -166,7 +168,10 @@ test('shell: the skin is written into <html> and theme-color', async () => {
     assert.equal(withAppearance(studioText, { theme: 'party' }), withAppearance(text, { theme: 'party' }), `${f}: and back`);
   }
   assert.match(notFoundPage({ theme: 'party' }), /data-theme="party"[\s\S]*background:#0e0b16[\s\S]*color:#ff3d8b/);
-  assert.match(notFoundPage({ theme: 'studio', accent: '#00c2ff' }), /data-theme="studio"[\s\S]*background:#0a1120[\s\S]*color:#00c2ff/);
+  const studio404 = notFoundPage({ theme: 'studio', accent: '#00c2ff' });
+  assert.match(studio404, new RegExp(`data-theme="studio"[\\s\\S]*background:${THEMES.studio.themeColor}[\\s\\S]*background:#00c2ff;color:#111`), 'Studio 404: the accent button, with readable text on it');
+  assert.match(notFoundPage({ theme: 'studio' }), new RegExp(`src="${THEMES.studio.icon}"[\\s\\S]*background:${THEMES.studio.accent};color:${THEMES.studio.accentInk}`));
+  assert.match(studio404, /font-family:'Figtree'[\s\S]*url\(\/fonts\/figtree-latin\.woff2\)/, 'Studio 404 uses the app font');
 });
 
 let app;
@@ -199,7 +204,7 @@ test('http: every page is served in the current skin; a switch changes the page 
     const r = await rawGet(p);
     assert.equal(r.status, 200, p);
     assert.match(r.body.toString(), /<html lang="en" data-theme="studio">/, `${p} in Studio`);
-    assert.match(r.body.toString(), /<meta name="theme-color" content="#0a1120">/);
+    assert.ok(r.body.toString().includes(`<meta name="theme-color" content="${THEMES.studio.themeColor}">`));
     etags[p] = r.headers.etag;
     assert.ok(etags[p]);
     const again = await rawGet(p, { 'if-none-match': etags[p] });
@@ -371,4 +376,28 @@ test('base.css: Party keeps its exact old values; Studio is readable', () => {
     assert.ok(contrast(studio.get(`--wheel-ink-${i}`), c) >= 4.5, `Studio wheel label ${i} on ${c}`);
   }
   for (let i = 1; i <= 4; i++) assert.ok(contrast('#ffffff', studio.get(`--answer-${i}`)) >= 4.5, `Studio white on answer ${i}`);
+});
+
+test('base.css: Studio game colours stay apart for colour-blind players', () => {
+  const studio = skins.studio;
+  // every pair of wheel segments that can sit side by side: a wheel has 2…12 segments (spins can
+  // remove some), so the last segment also meets the first one
+  const wheel = (i) => studio.get(`--wheel-${i + 1}`);
+  let worst = { d: Infinity };
+  for (let n = 2; n <= WHEEL_MAX_SEGMENTS; n++) {
+    for (let i = 0; i < n; i++) {
+      const a = segmentIndex(i, n);
+      const b = segmentIndex((i + 1) % n, n);
+      const d = worstDifference(wheel(a), wheel(b));
+      if (d < worst.d) worst = { d, at: `n=${n}: segments ${a + 1} and ${b + 1}` };
+    }
+  }
+  assert.ok(worst.d >= 5, `wheel neighbours differ by CIEDE2000 ≥ 5 in every kind of colour vision (worst ${worst.d.toFixed(1)}, ${worst.at})`);
+  // the four answer colours (each also has its own shape)
+  for (let i = 1; i <= 4; i++) {
+    for (let j = i + 1; j <= 4; j++) {
+      const d = worstDifference(studio.get(`--answer-${i}`), studio.get(`--answer-${j}`));
+      assert.ok(d >= 10, `answers ${i} and ${j}: ${d.toFixed(1)}`);
+    }
+  }
 });

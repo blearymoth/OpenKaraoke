@@ -30,12 +30,26 @@ const NAV = [
   ['/queue', 'list', 'Queue', 'mobile-only'],
 ];
 
+/** Whether a media query matches, following changes (window resized, phone rotated). */
+function useMedia(query) {
+  const [on, setOn] = useState(() => matchMedia(query).matches);
+  useEffect(() => {
+    const mq = matchMedia(query);
+    const update = () => setOn(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, [query]);
+  return on;
+}
+
 const searchStore = { q: new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '' };
 
 function TopBar({ route }) {
   const { state, status } = useStore(store);
   const [q, setQ] = useState(searchStore.q);
   const input = useRef(null);
+  const narrow = useMedia('(max-width: 900px)'); // phones: a short placeholder, no keyboard shortcut
   useEffect(() => {
     const focus = () => input.current?.focus();
     document.addEventListener('ok:focus-search', focus);
@@ -54,7 +68,7 @@ function TopBar({ route }) {
     <a class="brand" href="#/"><img src="/img/icon.svg" alt="" /><span>OpenKaraoke</span></a>
     <label class="search-box">
       <${Icon} name="search" size=${18} />
-      <input ref=${input} type="search" placeholder="Search songs or artists  ( / )" value=${q} aria-label="Search songs or artists"
+      <input ref=${input} type="search" placeholder=${narrow ? 'Song or artist' : 'Search songs or artists  ( / )'} value=${q} aria-label="Search songs or artists"
         onInput=${(e) => onInput(e.currentTarget.value)} onKeyDown=${(e) => { if (e.key === 'Escape') { onInput(''); e.currentTarget.blur(); } }} />
     </label>
     <div class="top-right">

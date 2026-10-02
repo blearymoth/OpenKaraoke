@@ -429,7 +429,8 @@ function Intro({ st }) {
   const circ = 2 * Math.PI * 44;
   const cover = cur.art?.cover && !cur.mystery;
   const logo = cur.art?.logo && !cur.mystery;
-  return html`<div class="scene intro fade-in" key=${cur.id}>
+  const counting = p.state === 'intro' && left > 0;
+  return html`<div class=${`scene intro fade-in ${counting ? 'counting' : ''}`} key=${cur.id}>
     <div class="kicker">${cur.mystery ? 'Mystery song!' : 'Next singer'}</div>
     ${cover
       ? html`<div class="intro-art"><img class="intro-cover" src=${artUrl(cur.songId, 500)} alt="" /><div class="avatar-big" style=${{ '--c': singer?.color }}>${singer?.emoji || '🎤'}</div></div>`
@@ -441,7 +442,7 @@ function Intro({ st }) {
       ${p.key !== 0 && html`<span class="chip">Key ${formatKey(p.key)}</span>`}
       ${p.tempo !== 1 && html`<span class="chip">Tempo ${formatTempo(p.tempo)}</span>`}
     </div>`}
-    ${p.state === 'intro' && left > 0 && html`<div class="countdown">
+    ${counting && html`<div class=${`countdown ${left > 99 ? 'wide' : ''}`}>
       <svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44" /><circle class="arc" cx="50" cy="50" r="44" stroke-dasharray=${circ} stroke-dashoffset=${circ * (1 - frac)} /></svg>
       <b>${left}</b>
     </div>`}

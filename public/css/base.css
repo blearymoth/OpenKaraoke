@@ -37,7 +37,8 @@
 
 /* ---- skins ----------------------------------------------------------------------
    Every rule in the app's CSS is shared by the two skins; only the tokens below differ
-   (plus a few Studio-only rules at the end of this file, scoped :root:not([data-theme="party"])).
+   (plus a few Studio-only rules, scoped :root:not([data-theme="party"]) and marked "Studio:",
+   next to the rule they adjust — grep for 'not([data-theme="party"])').
    - Studio (default): :root, also without a data-theme attribute, and [data-theme="studio"].
    - Party: [data-theme="party"] — a dim karaoke bar lit by one neon sign and marquee bulbs.
    The server writes data-theme on <html> of every page it serves (no flash of the other skin)
@@ -69,21 +70,21 @@
   --line-strong: rgba(148, 172, 214, 0.2);
   --ink: #e8eef7;
   --ink-2: #a9b6ca;
-  --ink-3: #8a99b0;
-  /* the accent (cool teal) and the second highlight (warm gold) */
+  --ink-3: #94a3b9;
+  /* the accent (cool teal) and the second highlight (champagne gold, kept for people and moments) */
   --neon: #2fd3c6;
   --neon-ink: #03191b;
   --neon-soft: color-mix(in srgb, var(--neon) 15%, transparent);
   --neon-hover: color-mix(in srgb, var(--neon) 86%, #fff);
   --neon-end: color-mix(in srgb, var(--neon) 55%, #74a6ef); /* where accent gradients end: teal into sky blue */
-  --bulb: #f0be67;
-  --bulb-rgb: 240, 190, 103;
-  --bulb-soft: rgba(240, 190, 103, 0.13);
+  --bulb: #e8c07a;
+  --bulb-rgb: 232, 192, 122;
+  --bulb-soft: rgba(148, 172, 214, 0.1); /* behind gold highlights: a lighter navy, not a gold tint (gold over navy turns grey); the gold is in the border or text */
   --bulb-ink: #241800;
   --bulb-ink-2: #4f3a08;
   /* status */
-  --ok: #6ed889;
-  --ok-rgb: 110, 216, 137;
+  --ok: #82d67a;
+  --ok-rgb: 130, 214, 122;
   --ok-bg: #0f3127;
   --ok-bg-ink: #d3f6e4;
   --bad: #f4757e;
@@ -104,8 +105,15 @@
   --r-sm: 6px;
   --r-md: 10px;
   --r-lg: 14px;
+  --r-card: 14px; /* cards on phones and in games */
   --r-pill: 10px; /* buttons, chips, search boxes, segmented controls */
-  --glow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 16px -10px color-mix(in srgb, var(--neon) 50%, transparent); /* raised accent buttons */
+  --tv-display-weight: 800; /* the big TV headings (.tv .display): heavy enough to read across a room */
+  --tv-display-tracking: -0.02em;
+  --kicker-case: uppercase; /* the small gold labels above TV headings ("NEXT SINGER", "UP NEXT"): */
+  --kicker-tracking: 0.08em; /* tracked capitals, like a broadcast lower third */
+  --glow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(0, 0, 0, 0.45), 0 4px 12px -6px rgba(0, 0, 0, 0.6); /* raised accent buttons: a machined top edge, no coloured glow */
+  --raise: inset 0 1px 0 rgba(255, 255, 255, 0.05); /* the same top edge, faint, on ordinary buttons */
+  --switch-knob-on: var(--neon-ink); /* the knob of a switch that is on: dark on the light accent */
   --halo: 0.3; /* 0–1: coloured glow around big avatars and vote cards */
   --avatar-veil: linear-gradient(rgba(var(--night-rgb), 0.18), rgba(var(--night-rgb), 0.18)); /* tones down singers’ colours */
   --avatar-tbd: #2a3852;
@@ -115,9 +123,9 @@
   --qr-dark: #0a1120;
   --qr-light: #ffffff;
   --marquee-bg: #ffffff;
-  --marquee-ring: 0;
-  --marquee-frame: transparent;
-  --marquee-edge: color-mix(in srgb, var(--neon) 45%, transparent);
+  --marquee-ring: 0.22; /* a thin champagne ring around the white card, like the room code beside it */
+  --marquee-frame: var(--bulb);
+  --marquee-edge: rgba(var(--bulb-rgb), 0.2);
   --marquee-glow: 0 18px 50px -16px rgba(0, 0, 0, 0.75);
   --marquee-bulb: transparent;
   --marquee-bulb-halo: transparent;
@@ -140,7 +148,8 @@
   --aurora-3: #2d3f80;
   --aurora-opacity: 0.45;
   --aurora-3-opacity: 0.25;
-  --art-bg-filter: blur(7vh) saturate(1) brightness(0.45);
+  --art-bg-filter: blur(7vh) saturate(1) brightness(0.4); /* covers at full colour, dark enough for text */
+  --art-scrim: 0.38; /* the darkening at the centre of the cover background (edges: 0.72), so text holds 4.5:1 over a white cover */
   --fanart-filter: brightness(0.56) saturate(0.95);
   --mosaic-opacity: 0.26;
   --mosaic-filter: saturate(0.75);
@@ -150,11 +159,13 @@
   --glow-text-bulb: none;
   --glow-upnext: 0 1.5vh 4vh rgba(0, 0, 0, 0.5);
   --glow-announce: 0 3vh 8vh -2vh rgba(0, 0, 0, 0.65);
+  --announce-scrim: 0.74; /* how much the screen behind an announcement is darkened (0–1), */
+  --announce-blur: blur(0.9vh); /* and blurred, so lyric lines do not peek out around the card */
   /* games */
   --answer-1: #8b1c2a;
   --answer-2: #3246a9;
   --answer-3: #845a0f;
-  --answer-4: #117555;
+  --answer-4: #106c4f;
   --confetti-1: var(--neon);
   --confetti-2: var(--bulb);
   --confetti-3: #74a6ef;
@@ -162,8 +173,8 @@
   --confetti-5: #b59be6;
   --confetti-6: #f08f83;
   --podium-gold: linear-gradient(180deg, var(--bulb), #a77a2c);
-  --meter-lo: #6ed889;
-  --meter-mid: #f0be67;
+  --meter-lo: #82d67a;
+  --meter-mid: #e8c07a;
   --meter-hi: #f4757e;
   --meter-gradient: linear-gradient(90deg, var(--meter-lo), var(--meter-mid) 55%, var(--meter-hi));
   --glow-gauge: none;
@@ -183,17 +194,17 @@
   --wheel-bulb-off: #2a3852;
   --wheel-hub-bg: radial-gradient(circle at 35% 30%, #2c3c5c, #0e1729 70%);
   --wheel-hub-border: #2a3852;
-  --wheel-1: #4ad1d1;
-  --wheel-2: #ebbc69;
-  --wheel-3: #b59be6;
-  --wheel-4: #83d186;
-  --wheel-5: #f08f83;
+  --wheel-1: #d296b0;
+  --wheel-2: #4ad1d1;
+  --wheel-3: #ebbc69;
+  --wheel-4: #b59be6;
+  --wheel-5: #83d186;
   --wheel-6: #74a6ef;
-  --wheel-7: #c2cd6f;
-  --wheel-8: #e68aaf;
+  --wheel-7: #f08f83;
+  --wheel-8: #c2cd6f;
   --wheel-9: #6ac5e8;
   --wheel-10: #f2a26a;
-  --wheel-11: #6cd5b3;
+  --wheel-11: #6dd5b3;
   --wheel-12: #9d99ed;
   --wheel-ink-1: #0a1120;
   --wheel-ink-2: #0a1120;
@@ -256,8 +267,15 @@
   --r-sm: 8px;
   --r-md: 12px;
   --r-lg: 18px;
+  --r-card: 16px;
   --r-pill: 999px;
+  --tv-display-weight: 800;
+  --tv-display-tracking: -0.015em;
+  --kicker-case: none;
+  --kicker-tracking: normal;
   --glow: 0 0 0 1px color-mix(in srgb, var(--neon) 60%, transparent), 0 8px 28px -8px color-mix(in srgb, var(--neon) 70%, transparent);
+  --raise: none;
+  --switch-knob-on: #fff;
   --halo: 1;
   --avatar-veil: none;
   --avatar-tbd: #3a2f5c;
@@ -293,6 +311,7 @@
   --aurora-opacity: 0.55;
   --aurora-3-opacity: 0.28;
   --art-bg-filter: blur(7vh) saturate(1.35) brightness(0.5);
+  --art-scrim: 0.25;
   --fanart-filter: brightness(0.62) saturate(1.1);
   --mosaic-opacity: 0.38;
   --mosaic-filter: none;
@@ -302,6 +321,8 @@
   --glow-text-bulb: 0 0 3vh rgba(255, 201, 74, 0.45);
   --glow-upnext: 0 0 4vh rgba(255, 201, 74, 0.3);
   --glow-announce: 0 0 8vh color-mix(in srgb, var(--neon) 55%, transparent);
+  --announce-scrim: 0.55;
+  --announce-blur: none;
   /* games */
   --answer-1: #e21b3c;
   --answer-2: #1368ce;
@@ -380,6 +401,7 @@ p { margin: 0; }
 [hidden] { display: none !important; }
 
 :focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
+:root:not([data-theme="party"]) ::selection { background: color-mix(in srgb, var(--neon) 34%, transparent); color: var(--ink); } /* Studio: selected text in the accent, not the browser's blue */
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -402,6 +424,7 @@ p { margin: 0; }
   background: var(--btn-bg); color: var(--btn-ink);
   font-weight: 650; font-size: 14px; white-space: nowrap;
   cursor: pointer; user-select: none; text-decoration: none;
+  box-shadow: var(--raise);
   transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
 }
 .btn:hover { --btn-bg: var(--stage-3); border-color: var(--line-strong); }
@@ -409,8 +432,10 @@ p { margin: 0; }
 .btn:disabled, .btn[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; transform: none; }
 .btn.primary { --btn-bg: var(--neon); --btn-ink: var(--neon-ink); border-color: transparent; box-shadow: var(--glow); }
 .btn.primary:hover { --btn-bg: var(--neon-hover); }
+/* Studio: a disabled accent button goes neutral (a see-through accent still looks half-enabled) */
+:root:not([data-theme="party"]) .btn:is(.primary, .bulb):is(:disabled, [aria-disabled='true']) { --btn-bg: var(--stage-3); --btn-ink: var(--ink-3); border-color: var(--line); box-shadow: none; opacity: 1; }
 .btn.bulb { --btn-bg: var(--bulb); --btn-ink: var(--bulb-ink); border-color: transparent; }
-.btn.ghost { --btn-bg: transparent; border-color: transparent; }
+.btn.ghost { --btn-bg: transparent; border-color: transparent; box-shadow: none; }
 .btn.ghost:hover { --btn-bg: var(--stage-2); }
 .btn.danger { --btn-ink: var(--bad); }
 .btn.small { min-height: 32px; padding: 0 12px; font-size: 13px; }
@@ -451,7 +476,7 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
 .switch span { position: absolute; inset: 0; border-radius: 99px; background: var(--stage-3); transition: background 0.15s; pointer-events: none; }
 .switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.18s var(--ease); }
 .switch input:checked + span { background: var(--neon); }
-.switch input:checked + span::after { transform: translateX(18px); }
+.switch input:checked + span::after { transform: translateX(18px); background: var(--switch-knob-on); }
 .switch input:focus-visible + span { outline: 2px solid var(--neon); outline-offset: 2px; }
 
 /* ---- small pieces ---------------------------------------------------------- */
@@ -596,7 +621,7 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
 .tag-mark { display: inline-flex; align-items: center; margin-left: 4px; padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 700; vertical-align: middle; background: var(--stage-3); color: var(--ink-2); white-space: nowrap; }
 .tag-mark.queued { background: var(--neon-soft); color: var(--ink); }
 
-/* ---- Studio only ------------------------------------------------------------------
+/* ---- Studio: game colours on the page ------------------------------------------------
    Studio's answer colours are deep, for white labels on the tiles; the shapes and bars that
    vote counts draw straight on the dark page use a lighter tint of them so they stay visible. */
 :root:not([data-theme="party"]) :is(.g-votebar, .bt-split-row) .shape { color: color-mix(in srgb, var(--answer) 55%, #fff); }

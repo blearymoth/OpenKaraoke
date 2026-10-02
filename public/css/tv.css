@@ -41,7 +41,7 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 @keyframes drift3 { to { translate: -20vw -30vh; } }
 
 .art-bg { position: absolute; inset: -8vh; background-size: cover; background-position: center; filter: var(--art-bg-filter); transform: scale(1.1); transition: opacity 1.2s ease; }
-.scrim { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(var(--shade-rgb), 0.25), rgba(var(--shade-rgb), 0.72)); }
+.scrim { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(var(--shade-rgb), var(--art-scrim)), rgba(var(--shade-rgb), 0.72)); }
 .fanart-bg {
   position: absolute; inset: 0; background-size: cover; background-position: center 30%;
   filter: var(--fanart-filter);
@@ -61,7 +61,9 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 
 /* ---- shared ------------------------------------------------------------------------- */
 
-.tv .display { font-family: var(--font-display); font-weight: 800; font-stretch: 82%; letter-spacing: -0.015em; line-height: 0.98; }
+.tv .display { font-family: var(--font-display); font-weight: var(--tv-display-weight); font-stretch: 82%; letter-spacing: var(--tv-display-tracking); line-height: 0.98; }
+/* kickers, the small gold labels above TV headings: the skin sets their case and tracking */
+.tv :is(.intro .kicker, .g-tv .kicker, .ticker .label, .upnext-banner small, .board-now small) { text-transform: var(--kicker-case); letter-spacing: var(--kicker-tracking); }
 .tv .avatar-big {
   display: grid; place-items: center; width: 17vh; height: 17vh; border-radius: 50%;
   font-size: 10vh; line-height: 1; background: var(--avatar-veil) var(--c, var(--neon));
@@ -100,7 +102,7 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 
 .intro { display: grid; place-content: center; justify-items: center; text-align: center; gap: 2.6vh; padding: 6vh; }
 .intro .kicker { font-size: 3.6vh; color: var(--bulb); font-weight: 700; }
-.intro .name { font-size: 15vh; max-width: 88vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-bottom: 1vh; }
+.intro .name { font-size: 15vh; max-width: 88vw; min-height: min-content; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-bottom: 1vh; } /* min-height: never squeezed when the card is full */
 .intro .song { font-size: 4.6vh; color: var(--ink-2); max-width: 80vw; }
 .intro .song b { color: var(--ink); font-weight: 700; }
 .intro .meta { display: flex; gap: 1.5vh; }
@@ -111,6 +113,15 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .countdown .track { stroke: rgba(255, 255, 255, 0.12); }
 .countdown .arc { stroke: var(--neon); stroke-linecap: round; transition: stroke-dashoffset 0.25s linear; }
 .countdown b { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-display); font-size: 7vh; font-weight: 800; }
+.countdown.wide b { font-size: 4.6vh; } /* three digits still fit inside the ring */
+/* counting down: a smaller cover and ring, so the whole card (name included) fits the screen */
+.intro.counting { gap: 2vh; padding-block: 4vh; }
+.intro.counting .intro-art { margin-bottom: 1vh; }
+.intro.counting .intro-cover { width: 22vh; height: 22vh; }
+.intro.counting .artist-logo { max-height: 6vh; }
+.intro.counting .countdown { width: 11vh; height: 11vh; margin-top: 0; }
+.intro.counting .countdown b { font-size: 5.6vh; }
+.intro.counting .countdown.wide b { font-size: 3.7vh; }
 .intro .status { font-size: 3vh; color: var(--ink-2); min-height: 4vh; }
 .intro-art { position: relative; margin-bottom: 2vh; }
 .intro-cover { display: block; width: 28vh; height: 28vh; object-fit: cover; border-radius: 2vh; box-shadow: 0 3vh 8vh -2vh rgba(0, 0, 0, 0.85); animation: cover-in 0.8s var(--ease) both; }
@@ -174,7 +185,7 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
   100% { transform: translate(var(--dx, 0), -95vh) scale(0.9); opacity: 0; }
 }
 
-.announce { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(var(--shade-rgb), 0.55); animation: tv-fade 0.4s ease both; }
+.announce { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(var(--shade-rgb), var(--announce-scrim)); -webkit-backdrop-filter: var(--announce-blur); backdrop-filter: var(--announce-blur); animation: tv-fade 0.4s ease both; }
 .announce div { max-width: 80vw; padding: 5vh 7vh; border-radius: 4vh; background: var(--stage); border: 0.5vh solid var(--neon); box-shadow: var(--glow-announce); text-align: center; font-family: var(--font-display); font-weight: 800; font-size: 8vh; line-height: 1.05; }
 
 /* ---- start / status overlays -------------------------------------------------------------------- */

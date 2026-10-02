@@ -169,15 +169,32 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   colour" resets it; text on the accent is dark or white, whichever reads better). Changes show
   live everywhere (screens without a party connection — landing page, PIN and can't-join
   screens — within 2 s; the printable songbook on its next load); guests never see the setting.
-- **Studio** (new default, "midnight"): deep navy surfaces, one cool teal accent (#2fd3c6) with a
-  warm gold second highlight, Figtree headings, smaller radii, soft shadows instead of glows,
-  calm navy/teal TV backgrounds, deep colour-blind-safe quiz colours (wine, blue, ochre, emerald —
-  always paired with the shapes) and a navy-and-teal app icon (`public/img/icon-studio.svg`; Party
-  keeps the pink one). Its values are the token block at the top of `public/css/base.css`, plus
-  two Studio-only rules at the end of that file (lighter answer tints for vote shapes and bars).
-- **Party**: the original look, pixel for pixel (checked against a890418 rule by rule and on 47
-  screens; `test/themes.test.js` pins the values). Existing parties switch to Studio; a custom
-  `display.accent` became `appearance.accent`.
+- **Studio** (new default, "midnight"): deep navy surfaces (one step lighter per layer), one cool
+  teal accent (#2fd3c6) for everything you can press or that is live (buttons, play, progress,
+  countdowns, VS, focus), champagne gold (#e8c07a) kept for people and moments (room code,
+  "next singer", stars, winners), Figtree throughout (TV headings stay 800 for the far side of the
+  room), tracked-capital kickers on the TV ("NEXT SINGER", "UP NEXT"), smaller radii, a machined
+  1px top edge on buttons instead of glows, a thin champagne ring around the join QR, calm
+  navy/teal TV aurora, covers at full colour behind the intro (with a centre scrim so text holds
+  4.5:1 over a white cover), deep game-show quiz colours (wine, royal blue, ochre, emerald — white
+  labels 6–9:1, always with the ▲◆●■ shapes) and a 12-colour wheel ordered so neighbouring
+  segments stay apart for every kind of colour blindness (CIEDE2000 ≥ 8, checked by
+  `test/themes.test.js` for every wheel size). Disabled buttons go neutral grey, a switch that is
+  on has a dark knob, the current bottom tab has a pill behind its icon, losing quiz answers and
+  wheel segments turn into quiet navy tiles (still readable) instead of fading, and "TV on" is a
+  neutral chip with a green light. App icon: navy tile with a teal mic and sound arcs
+  (`public/img/icon-studio.svg`; Party keeps the pink one). Its values are the token block at the
+  top of `public/css/base.css`; the few Studio-only rules are scoped
+  `:root:not([data-theme="party"])` next to the rule they adjust (grep for it). New tokens
+  (`--tv-display-*`, `--kicker-*`, `--raise`, `--switch-knob-on`, `--announce-*`, `--art-scrim`,
+  `--r-card`) carry Party's old values in the Party block.
+- **Party**: the original look, pixel for pixel (checked against a890418 rule by rule and on 97
+  captured screens; `test/themes.test.js` pins the values), apart from layout bugs fixed in both
+  skins: the next singer's name is never squeezed when the intro counts down, three-digit
+  countdowns fit their ring, the host's phone tab bar fits a 390px screen (labels cut if needed)
+  and its player row fades at the edge where it scrolls, the phone search box has a short
+  placeholder, and the songbook's join address wraps instead of running into the QR code.
+  Existing parties switch to Studio; a custom `display.accent` became `appearance.accent`.
 - How: `settings.appearance` → `server/http/shell.js` writes `data-theme` into each served page
   (ETag per skin, no flash) → `public/js/lib/theme.js` follows changes live. Every skin colour is
   a token; never hard-code one. `test/e2e/themes.mjs` saves screenshots of both skins to

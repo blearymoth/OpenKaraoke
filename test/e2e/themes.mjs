@@ -8,6 +8,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
+import { PUBLIC_DIR } from '../../server/config.js';
+import { THEMES } from '../../shared/themes.js';
 import { loadPlaywright, startParty, check, results, sleep } from './lib.mjs';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
@@ -42,6 +44,13 @@ async function open(name, opts) {
   pages.push({ name, page });
   return page;
 }
+// Studio's own values, from shared/themes.js and base.css (a palette tweak does not touch this test)
+const STUDIO = THEMES.studio;
+const css = await fs.readFile(path.join(PUBLIC_DIR, 'css', 'base.css'), 'utf8');
+const studioBlock = css.slice(css.indexOf(':root, [data-theme="studio"] {'), css.indexOf('[data-theme="party"] {'));
+const studioToken = (name) => new RegExp(`^\\s*${name}:\\s*([^;]+);`, 'm').exec(studioBlock)[1].trim();
+const rgbOf = (hex) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
+
 const desktop = (name) => open(name, { viewport: { width: 1440, height: 900 } });
 const phone = (name) => open(name, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
 const tvSize = (name) => open(name, { viewport: { width: 1280, height: 720 } });
@@ -80,7 +89,7 @@ try {
   for (const p of ['/', '/host', '/tv', `/j/${code}`]) {
     const res = await fetch(`${base}${p}`);
     const text = await res.text();
-    check(/<html lang="en" data-theme="studio">/.test(text) && text.includes('<meta name="theme-color" content="#0a1120">'), `${p} is served in the Studio skin`);
+    check(/<html lang="en" data-theme="studio">/.test(text) && text.includes(`<meta name="theme-color" content="${STUDIO.themeColor}">`), `${p} is served in the Studio skin`);
   }
   const host = await desktop('host');
   await host.goto(`${base}/host`);
@@ -98,7 +107,7 @@ try {
   for (const { name, page } of pages) {
     check(await themeOf(page) === 'studio' && await firstTheme(page) === 'studio', `${name}: Studio from the first paint`);
   }
-  check(await tokenOf(tv, '--neon') === '#2fd3c6' && await tokenOf(guest, '--night') === '#0a1120', 'Studio tokens apply');
+  check(await tokenOf(tv, '--neon') === STUDIO.accent && await tokenOf(guest, '--night') === STUDIO.themeColor, 'Studio tokens apply');
   check(!(await tv.evaluate(() => [...document.fonts].some((f) => f.family.includes('Bricolage') && f.status === 'loaded'))), 'Studio does not load the Party display font');
   check(await iconOf(host, '.brand img') === 'studio' && await iconOf(tv, '.lobby-top img') === 'studio' && await favicon(host) === '/img/icon-studio.svg', 'Studio shows its own app icon (header, TV lobby, favicon)');
 
@@ -262,7 +271,7 @@ try {
   const segFill = () => tv.$eval('.wheel-seg path', (p) => getComputedStyle(p).fill);
   for (const skin of ['studio', 'party']) {
     await setSkin(skin, all());
-    check(await segFill() === (skin === 'party' ? 'rgb(255, 61, 139)' : 'rgb(74, 209, 209)'), `${skin}: wheel segments use the skin’s palette`);
+    check(await segFill() === (skin === 'party' ? 'rgb(255, 61, 139)' : rgbOf(studioToken('--wheel-1'))), `${skin}: wheel segments use the skin’s palette`);
     await shot(tv, `${skin}-tv-wheel`);
     await shot(guest, `${skin}-guest-wheel`);
     scrollChecks.push([`${skin}: guest wheel`, await noSideways(guest)]);
@@ -283,7 +292,7 @@ try {
   const answerBg = () => guest.$eval('button.g-answer', (b) => getComputedStyle(b).backgroundColor);
   for (const skin of ['studio', 'party']) {
     await setSkin(skin, all());
-    check(await answerBg() === (skin === 'party' ? 'rgb(226, 27, 60)' : 'rgb(139, 28, 42)'), `${skin}: answer colours come from the skin`);
+    check(await answerBg() === (skin === 'party' ? 'rgb(226, 27, 60)' : rgbOf(studioToken('--answer-1'))), `${skin}: answer colours come from the skin`);
     await shot(tv, `${skin}-tv-poll`);
     await shot(guest, `${skin}-guest-poll`);
     scrollChecks.push([`${skin}: guest poll`, await noSideways(guest)]);

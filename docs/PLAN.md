@@ -472,8 +472,10 @@ The single source of truth is `DEFAULT_SETTINGS` in `server/config.js`; `Setting
 drops unknown keys and coerces types. Host UI renders forms for every group there.
 
 **Skins** — `appearance: { theme: 'studio' | 'party', accent: '' | '#rrggbb' }`, Settings →
-Appearance. Studio (default) is midnight navy with one cool teal accent; Party is the original neon
-look. `accent` overrides the skin's accent (`--neon`) in either skin; text on it (`--neon-ink`)
+Appearance. Studio (default) is midnight navy with one cool teal accent (#2fd3c6) for anything
+pressable or live and champagne gold (#e8c07a) for people and moments — Figtree, small radii, no
+coloured glows, tracked-capital TV kickers, deep colour-blind-safe game colours; Party is the
+original neon look. `accent` overrides the skin's accent (`--neon`) in either skin; text on it (`--neon-ink`)
 is near-black or white, whichever has the higher WCAG contrast (a skin's own accent keeps its own
 `--neon-ink`). Unknown skin ids in an update are ignored. The server writes `data-theme`
 (+ the accent) into every HTML page it serves, so the first paint is right and a page cached

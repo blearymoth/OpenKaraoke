@@ -100,10 +100,12 @@ Planned modules and their responsibilities are specified in `docs/PLAN.md` §4.
   client strings. New POST endpoints use `readJsonBody` (requires `application/json`).
 - Single-column CSS grids need `grid-template-columns: minmax(0, 1fr)` or long unwrapped
   text widens the page on phones.
-- UI text is English. Two dark skins (`settings.appearance.theme`): **Studio** (default, calm
-  graphite + one accent) and **Party** (neon pink/purple). Every skin-specific colour, gradient,
-  glow, font or radius is a token defined per skin at the top of `css/base.css` (`--neon` is the
-  accent) — never hard-code one in CSS or JS; canvas/SVG code reads tokens. Party must keep
+- UI text is English. Two dark skins (`settings.appearance.theme`): **Studio** (default, midnight
+  navy + one teal accent, champagne gold for people and moments) and **Party** (neon pink/purple).
+  Every skin-specific colour, gradient, glow, font, radius or type treatment is a token defined
+  per skin at the top of `css/base.css` (`--neon` is the accent) — never hard-code one in CSS or
+  JS; canvas/SVG code reads tokens. A new token gets Party's current value so Party renders as
+  before; the few Studio-only rules are scoped `:root:not([data-theme="party"])`. Party must keep
   looking exactly as it did (test/themes.test.js pins its values). TV UI must be legible from
   across a room.
 

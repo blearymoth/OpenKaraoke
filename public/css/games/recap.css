@@ -82,7 +82,7 @@
 .rc-thanks p, .rc-empty p { font-size: 4vh; color: var(--ink-2); }
 
 /* ---- phones -------------------------------------------------------------------------------- */
-.rc-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px; border-radius: 16px; background: linear-gradient(160deg, var(--stage-2), var(--stage)); border: 1px solid var(--line); transition: border-color 0.3s, box-shadow 0.3s; }
+.rc-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px; border-radius: var(--r-card); background: linear-gradient(160deg, var(--stage-2), var(--stage)); border: 1px solid var(--line); transition: border-color 0.3s, box-shadow 0.3s; }
 .rc-card.on { border-color: color-mix(in srgb, var(--bulb) 60%, transparent); box-shadow: 0 0 0 3px var(--bulb-soft); }
 .rc-card h2 { font-size: 18px; }
 .g-guest.recap .rc-card .hint, .g-guest.recap .rc-card p { text-align: left; }
@@ -95,5 +95,5 @@
 .rc-list .rank { font-family: var(--font-display); font-weight: 800; color: var(--ink-3); min-width: 1.4em; text-align: center; }
 .rc-list .what { display: grid; min-width: 0; }
 .rc-list .what small { color: var(--ink-2); }
-.rc-thanks-line { text-align: center; font-weight: 700; color: var(--ink-2); padding: 6px; border-radius: 12px; }
+.rc-thanks-line { text-align: center; font-weight: 700; color: var(--ink-2); padding: 6px; border-radius: var(--r-md); }
 .rc-thanks-line.on { color: var(--bulb); background: var(--bulb-soft); }

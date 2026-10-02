@@ -28,6 +28,10 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
   run when it is switched on; a failure or a drop during the party falls back to the home
   Wi-Fi by itself and tells the host why and what to do. See "Party hotspot" below — the
   owner's HOTSPOT_PLAN.md never arrived, so PLAN §20 was rebuilt from the request.
+- **Lead and backing vocals**: on multiplex tracks the host (and the singer, from their phone)
+  turns the original singer off, quiet or full while the music stays as it is; the TV finds
+  which channel has the singer by itself. Backing vocals change by switching to a version with
+  or without them. See "Lead and backing vocals" below.
 - **Nothing in session 3 could touch real hardware or the internet**: the artwork providers were
   unreachable from the sandbox (parsers are tested against fixtures built from the documented
   response shapes), and sound, microphone, TV legibility and phones need the PC. Work through
@@ -173,6 +177,15 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
     workflow's run, ≈10 min) **Download and install** → the password prompt (rpm) → **Restart
     now**. The data in `~/.config/OpenKaraoke` stays.
 14. **Party hotspot**: the checklist at the end of "Party hotspot (M5b)" below.
+15. **Lead vocals on real multiplex tracks** (see "Lead and backing vocals" below): play 2–3
+    tracks whose names say "Multiplex"/"MPX" from different brands. While the intro runs, the
+    player bar should switch from the channel mode to **Lead off**: you hear the music only.
+    Pick Quiet and Full — only the singer should come up, the music level should not change. If
+    the singer comes up on the wrong side or the music drops, open the Vocals dialog (⋯ next to
+    Lead) → "Wrong side…" and fix it (kept for that track), and note the track for the next
+    session (`data/vocals.json` has what the TV measured: `l`, `s`, `a`, `c`). Also try one
+    ordinary track: it must keep its channel mode (no Lead control unless the dialog suggests a
+    guide singer, which is only offered, never used by itself).
 
 ## How it fits together (new in session 3)
 - `server/app.js` wires `ArtworkService` (`server/artwork/service.js`) next to the library;
@@ -490,6 +503,42 @@ down and the home Wi-Fi comes back.
    reach the home network through the PC.
 10. Started as the systemd user service (`bin/install-service.sh`): the hotspot needs the
     permission without a password prompt (check 4 says so if not).
+
+## Lead and backing vocals (after M5b)
+**What** (PLAN §21): on a **multiplex** track (the original singer on one channel, the music
+alone on the other) the host turns the original singer **off, quiet or full** — exactly, the
+music stays as it is (the old way was the channel mode "Right only", which still exists for
+other tracks). Backing vocals are in the music on both channels, so they change only by
+picking **another version** (named "with/no backing vocals"); the Vocals dialog and the
+guests' song sheet offer those versions.
+- **Host**: the player bar's speaker control becomes **Lead off / quiet / full** on such a track,
+  with a ⋯ button → the **Vocals** dialog (slider, which side, versions to switch to; it lights up
+  when the host is asked which side a track named "Multiplex" uses, or when the TV thinks an
+  unnamed track is one). Add/Edit dialogs have Lead vocal (Automatic / Off / Quiet / Full).
+  Settings → Playback: "Guide singer at the start of a song" (off), "Find multiplex songs by
+  their sound" (on); Settings → Queue & guests: "Guests can ask for a guide singer" (on).
+- **Guests**: the song sheet has a **Guide singer** switch (remembered on the phone) and
+  Backing vocals As recorded / With / Without; during their own song a **Guide singer: on/off**
+  button. Their choice is on (quiet) or off only.
+- **TV**: it finds the singer's side while decoding (nothing extra is read from the drive), tells
+  the server once per track (`data/vocals.json`); the intro shows "Guide singer on/quiet"; keys
+  C / V step off → quiet → full.
+- Code: `shared/vocals.js` (matrix, rules, analysis), `server/room/vocals.js` (store),
+  `room.js` (`player.lead/layout/version`, `tv.analysis`, `pickTrack`), `public/js/host/vocals.js`,
+  the audio engine's `setMix`. Tests: `test/vocals.test.js`, `test/e2e/vocals.mjs` (the demo's
+  "Quiet Storm (Multiplex)": found on the left, the four gains checked at off/quiet/full).
+
+**Decisions**
+1. **No source separation** (no AI vocal removal): it would need a model and native code or
+   seconds of GPU per song — against the zero-dependency rule — and the library already has what
+   karaoke needs: multiplex tracks for the lead, separate versions for backing vocals.
+2. **Never a wrong guess on the lead**: a track named Multiplex whose side the analysis can't tell
+   plays as before and the host is asked; a track the sound alone suggests is only offered. A
+   wrong side would play the guide singer on its own.
+3. Off by default for every song (`playback.leadVocal` 0) — the usual karaoke — and a singer's
+   level is remembered for them only (a guide is a personal need, like the key).
+4. "Quiet" is −12 dB (the volume slider's square law), the guest's only "on" level; host and
+   co-hosts can set any level.
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

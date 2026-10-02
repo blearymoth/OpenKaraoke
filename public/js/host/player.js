@@ -4,7 +4,8 @@ import { Icon } from '../lib/icons.js';
 import { useStore, formatTime, singersText, useTick } from '../lib/store.js';
 import { Cover, Stepper } from '../lib/components.js';
 import { store, act, livePosition, toast, openDialog, conn } from './state.js';
-import { CHANNEL_MODES, CHANNEL_LABELS, KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
+import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
+import { VocalsControl } from './vocals.js';
 
 /** Opens the TV page, on the second screen when the browser lets us place windows. */
 export async function openTvWindow() {
@@ -129,12 +130,7 @@ export function PlayerBar() {
         onChange=${(v) => act('player.key', { semitones: v })} onReset=${() => act('player.key', { semitones: 0 })} />
       <${Stepper} label="Tempo" value=${p.tempo} display=${formatTempo(p.tempo)} min=${TEMPO_MIN} max=${TEMPO_MAX} step=${TEMPO_STEP} disabled=${idle}
         onChange=${(v) => act('player.tempo', { rate: v })} onReset=${() => act('player.tempo', { rate: 1 })} />
-      <label class="channel" title="Channel mode: for multiplex tracks pick the side without the guide vocal">
-        <${Icon} name="headphones" size=${18} />
-        <select class="select" value=${p.channel} onChange=${(e) => act('player.channel', { mode: e.currentTarget.value })} aria-label="Channel mode">
-          ${CHANNEL_MODES.map((m) => html`<option value=${m}>${CHANNEL_LABELS[m]}</option>`)}
-        </select>
-      </label>
+      <${VocalsControl} p=${p} idle=${idle} />
       <label class="volume" title="Volume">
         <${Icon} name=${p.volume > 0 ? 'volume' : 'mute'} size=${18} />
         <input type="range" min="0" max="1" step="0.01" value=${p.volume} style=${{ '--p': `${p.volume * 100}%` }} aria-label="Volume"

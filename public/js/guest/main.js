@@ -214,7 +214,12 @@ function MyTurn({ state }) {
   const pending = state.me.pending;
   const isCurrent = state.current && state.current.singers.some((s) => s.id === state.me.profile?.singerId);
   if (isCurrent) {
-    return html`<section class="g-turn now"><div class="big-emoji">🎤</div><div><b>It's your turn!</b><p>${state.current.title} — the lyrics are on the TV.</p></div></section>`;
+    // On a version with the original singer on a channel of its own: a guide to sing along with.
+    const guide = state.rules.guestVocals && state.player?.leadAdjustable;
+    const on = (state.player?.lead || 0) > 0;
+    return html`<section class="g-turn now"><div class="big-emoji">🎤</div><div class="grow"><b>It's your turn!</b><p>${state.current.title} — the lyrics are on the TV.</p>
+      ${guide && html`<button class=${`btn small guide-btn ${on ? 'on' : ''}`} aria-pressed=${on} onClick=${() => ask('player.lead', { level: on ? 0 : 50 })}>
+        <${Icon} name="headphones" size=${16} /> Guide singer: ${on ? 'on' : 'off'}</button>`}</div></section>`;
   }
   if (mine) {
     const first = mine.position === 1;
@@ -559,9 +564,20 @@ function MeTab({ state }) {
 
 // ---- song sheet ----------------------------------------------------------------------------------
 
+const rememberedGuide = () => {
+  try {
+    const v = localStorage.getItem('ok.guide');
+    return v === '1' ? 50 : v === '0' ? 0 : null;
+  } catch {
+    return null;
+  }
+};
+
 function SongSheet({ songId, state }) {
   const { data: song, error } = useFetch(`/api/songs/${encodeURIComponent(songId)}`);
   const [key, setKey] = useState(null);
+  const [lead, setLead] = useState(rememberedGuide); // the guide singer: 50 on, 0 off, null untouched
+  const [bgv, setBgv] = useState(null); // 'with' | 'without' | null (the usual version)
   const [mystery, setMystery] = useState(false);
   const [partner, setPartner] = useState('');
   const [busy, setBusy] = useState(false);
@@ -580,6 +596,8 @@ function SongSheet({ songId, state }) {
     try {
       const body = { songId };
       if (key !== null) body.key = key;
+      if (state.rules.guestVocals && song?.vocalOptions?.lead && lead !== null) body.lead = lead;
+      if (state.rules.guestVocals && song?.vocalOptions?.bgv && bgv) body.bgv = bgv;
       if (mystery) body.mystery = true;
       if (partner) body.partners = [partner];
       const r = await conn.request('queue.add', body);
@@ -612,6 +630,19 @@ function SongSheet({ songId, state }) {
             ${[-3, -2, -1, 1, 2, 3].map((k) => html`<button role="radio" aria-checked=${key === k} class=${key === k ? 'on' : ''} onClick=${() => setKey(k)}>${formatKey(k)}</button>`)}
           </div>
           <p class="hint">Lower if it's too high for you. “Auto” is the original key (or the one you used last time).</p>
+        </div>`}
+        ${state.rules.guestVocals && song.vocalOptions?.lead && html`<label class="toggle-row"><span><b>Guide singer</b><br /><span class="hint">The original singer, quietly, to sing along with — you can switch it off during your song.</span></span>
+          <span class="switch"><input type="checkbox" checked=${lead > 0} aria-label="Guide singer" onChange=${(e) => {
+            const v = e.currentTarget.checked ? 50 : 0;
+            setLead(v);
+            try { localStorage.setItem('ok.guide', v ? '1' : '0'); } catch { /* private window */ }
+          }} /><span></span></span>
+        </label>`}
+        ${state.rules.guestVocals && song.vocalOptions?.bgv && html`<div class="field"><span>Backing vocals</span>
+          <div class="key-row" role="radiogroup" aria-label="Backing vocals">
+            ${[[null, 'As recorded'], ['with', 'With'], ['without', 'Without']].map(([v, label]) => html`<button role="radio" aria-checked=${bgv === v} class=${bgv === v ? 'on' : ''} onClick=${() => setBgv(v)}>${label}</button>`)}
+          </div>
+          <p class="hint">Picks a version of the song with or without backing singers.</p>
         </div>`}
         ${state.partners?.length > 0 && html`<label class="field"><span>Sing it with… <span class="hint">(they get asked on their phone)</span></span>
           <select class="select" value=${partner} onChange=${(e) => setPartner(e.currentTarget.value)}>

@@ -8,6 +8,7 @@ import { GAME_UI } from '../games/index.js';
 import { BreakPlayer } from './break-player.js';
 import { applyAppearance, followAppearance, qrSrc, appIcon } from '../lib/theme.js';
 import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo, singerColor } from '/shared/protocol.js';
+import { formatLead, LEAD_PRESETS } from '/shared/vocals.js';
 
 const params = new URLSearchParams(location.search);
 const store = createStore({ status: 'connecting', state: null, display: 'main', denied: null, unlocked: false, help: false, reactions: [], toast: null });
@@ -135,7 +136,12 @@ document.addEventListener('keydown', (e) => {
   else if (k === '[') command('player.tempo', { rate: p.tempo - TEMPO_STEP });
   else if (k === 'n') command('player.next');
   else if (k === 'r') command('player.restart');
-  else if (k === 'c') command('player.channel', { mode: CHANNEL_MODES[(CHANNEL_MODES.indexOf(p.channel) + 1) % CHANNEL_MODES.length] });
+  else if (k === 'c' && !p.vocals?.adjustable) command('player.channel', { mode: CHANNEL_MODES[(CHANNEL_MODES.indexOf(p.channel) + 1) % CHANNEL_MODES.length] });
+  else if ((k === 'c' || k === 'v') && p.vocals?.adjustable) {
+    // Guide singer: off → quiet → full → off.
+    const steps = [LEAD_PRESETS.off, LEAD_PRESETS.quiet, LEAD_PRESETS.full];
+    command('player.lead', { level: steps[(steps.findIndex((v) => v >= (p.lead || 0)) + 1) % steps.length] });
+  }
   else if (k === 'ArrowUp') command('player.volume', { v: Math.min(1, p.volume + 0.05) });
   else if (k === 'ArrowDown') command('player.volume', { v: Math.max(0, p.volume - 0.05) });
   else return;
@@ -379,7 +385,7 @@ function RatingOverlay({ r }) {
 function Help() {
   const rows = [
     ['Space', 'Play / pause'], ['← →', 'Back / forward 5 seconds'], ['+ −', 'Key up / down'], ['[ ]', 'Slower / faster'],
-    ['N', 'Next singer'], ['R', 'Restart song'], ['C', 'Channel mode'], ['↑ ↓', 'Volume'], ['F', 'Full screen'], ['?', 'Show or hide this help'],
+    ['N', 'Next singer'], ['R', 'Restart song'], ['C', 'Channel mode — or the guide singer (off, quiet, full) on a song that has one'], ['↑ ↓', 'Volume'], ['F', 'Full screen'], ['?', 'Show or hide this help'],
   ];
   return html`<div class="help" onClick=${() => store.update({ help: false })}><div>
     <h3>Keyboard shortcuts</h3>
@@ -516,9 +522,10 @@ function Intro({ st }) {
           </div>
         </div>`
       : html`${avatar}${name}${song}`}
-    ${(p.key !== 0 || p.tempo !== 1) && html`<div class="meta">
+    ${(p.key !== 0 || p.tempo !== 1 || (p.vocals?.adjustable && p.lead > 0)) && html`<div class="meta">
       ${p.key !== 0 && html`<span class="chip">Key ${formatKey(p.key)}</span>`}
       ${p.tempo !== 1 && html`<span class="chip">Tempo ${formatTempo(p.tempo)}</span>`}
+      ${p.vocals?.adjustable && p.lead > 0 && html`<span class="chip">Guide singer ${p.lead >= 100 ? 'on' : formatLead(p.lead) === '50%' ? 'quiet' : formatLead(p.lead)}</span>`}
     </div>`}
     ${p.state === 'intro' && left > 0 && html`<div class=${`countdown ${left > 99 ? 'wide' : ''}`}>
       <svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44" /><circle class="arc" cx="50" cy="50" r="44" stroke-dasharray=${circ} stroke-dashoffset=${circ * (1 - frac)} /></svg>

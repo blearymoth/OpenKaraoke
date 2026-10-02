@@ -32,6 +32,8 @@ export class TvController extends EventTarget {
       }
     });
     this.engine.addEventListener('error', (e) => this.fail(e.detail?.error || 'Playback failed'));
+    this.analysed = new Set(); // tracks whose analysis the server has had (this page's life)
+    this.engine.addEventListener('analysis', (e) => this.reportAnalysis(e.detail));
     setInterval(() => this.report(), 250);
   }
 
@@ -100,9 +102,9 @@ export class TvController extends EventTarget {
       this.engine.setVolume(this.display === 'main' ? p.volume : 0);
       this.engine.setKey(fx.key);
       this.engine.setTempo(fx.tempo);
-      this.engine.setChannelMode(fx.channel);
+      this.engine.setMix(this.mixFor(fx, cur));
     } else {
-      Object.assign(this.engine, { volume: p.volume, key: p.key, rate: p.tempo, channelMode: p.channel });
+      Object.assign(this.engine, { volume: p.volume, key: p.key, rate: p.tempo, mix: this.mixFor(fx, cur) });
     }
     const id = cur?.id || null;
     const reload = cur && this.reloadSeen !== null && p.reload !== this.reloadSeen;
@@ -110,6 +112,19 @@ export class TvController extends EventTarget {
     if (id !== this.entryId || reload) this.load(cur, p);
     else if (this.loaded) this.sync(p);
     this.preloadNext(state);
+  }
+
+  /** The channel matrix to use: a game's clip, or the song's channel mode / guide vocal level. */
+  mixFor(fx, cur) {
+    if (fx !== this.state.player || !cur) return { channel: fx.channel, vocals: null, lead: 0 };
+    return { channel: fx.channel, vocals: fx.vocals || null, lead: fx.lead || 0 };
+  }
+
+  /** What decoding found out about a track's channels: told to the server once per track. */
+  reportAnalysis({ id, info }) {
+    if (this.display !== 'main' || !id || this.analysed.has(id)) return;
+    this.analysed.add(id);
+    this.conn.sendReliable('tv.analysis', { trackId: id, layout: info.l, side: info.s, lean: info.lean, a: info.a, confidence: info.c });
   }
 
   async load(cur, p) {

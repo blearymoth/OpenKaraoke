@@ -4,7 +4,8 @@ Self-hosted, KaraFun-style karaoke for Linux. It plays your own CDG+MP3 / MP4 ka
 library (built for a ~90,000-track USB collection) with:
 
 - **Host app** in the browser: instant typo-tolerant search, artists A–Z, collections,
-  queue with fair singer rotation, key change, tempo, favourites, playlists, history
+  queue with fair singer rotation, key change, tempo, favourites, playlists, history,
+  the original singer off / quiet / full on multiplex tracks, versions with or without backing vocals
 - **TV display on a second screen**: CDG lyrics over cover art / artist fanart / visualisers,
   next-singer cards, ticker, reactions
 - **QR-code guest lobby**: guests scan the code on the TV and request songs from their phones

@@ -214,6 +214,14 @@ input[type='range']:disabled { opacity: 0.4; cursor: default; }
 :root:not([data-theme="party"]) .stepper-value:disabled { opacity: 1; } /* Studio: the current key and tempo stay readable (only the reset is off) */
 .channel, .volume { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
 .channel .select { min-height: 34px; width: auto; padding: 0 8px; font-size: 13px; border-radius: var(--r-pill); background: var(--stage-2); }
+.channel { gap: 4px; }
+.vocals-control { color: var(--ink); }
+.vocals-more { width: 28px; height: 28px; }
+.vocals-more.attention { color: var(--bulb); background: var(--bulb-soft); }
+.vocals-level { display: flex; align-items: center; gap: 12px; }
+.vocals-level input { flex: 1; }
+.vocals-level b { min-width: 48px; text-align: right; }
+.vocals-layout summary { cursor: pointer; color: var(--ink-2); font-size: 14px; margin-top: 4px; }
 .volume input { width: 92px; }
 .tv-status { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--stage-2); color: var(--ink-2); font-weight: 700; font-size: 13px; cursor: pointer; }
 .tv-status.on { color: var(--ok); border-color: rgba(var(--ok-rgb), 0.35); }

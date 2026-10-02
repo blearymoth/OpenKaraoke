@@ -10,6 +10,7 @@ import { qrSvg } from '../util/qr.js';
 import { placeholderSvg } from '../artwork/placeholder.js';
 import { hash32 } from '../../shared/text.js';
 import { MAX_LIST_SONGS } from '../../shared/protocol.js';
+import { leadKind } from '../../shared/vocals.js';
 import { songbookRoutes } from './songbook.js';
 import { RateLimiter } from '../util/ratelimit.js';
 import { Lru } from '../util/lru.js';
@@ -114,6 +115,17 @@ export function apiRoutes(router, app) {
     const detail = cat().songDetail(ctx.params.id);
     if (!detail) throw new HttpError(404, 'Song not found');
     detail.meta = app.artwork?.publicSongMeta(detail.key) || null;
+    // What each version allows for the vocals (shared/vocals.js): a guide singer that can be
+    // turned up or down, one mixed in, backing vocals with or without.
+    for (const v of detail.versions) {
+      const voc = app.room?.trackVocals(v.id);
+      if (voc) v.vocals = { lead: leadKind(voc), side: voc.side, bgv: voc.bgv };
+    }
+    const many = detail.versions.length > 1;
+    detail.vocalOptions = {
+      lead: detail.versions.some((v) => v.vocals?.lead === 'adjustable' || v.vocals?.lead === 'multiplex'),
+      bgv: many && detail.versions.some((v) => v.vocals?.bgv === 'without'),
+    };
     return detail;
   });
 

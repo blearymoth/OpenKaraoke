@@ -54,6 +54,7 @@ export const DEFAULT_SETTINGS = {
     guestCanRemoveOwn: true,
     guestsSeeQueue: true,
     guestKeyChange: true,
+    guestVocals: true, // guests choose a guide vocal / backing vocals when queueing, and switch the guide on their own song
   },
   playback: {
     countdown: 10,
@@ -63,6 +64,8 @@ export const DEFAULT_SETTINGS = {
     volume: 0.9,
     normalize: true,
     defaultChannelMode: 'stereo',
+    leadVocal: 0, // the guide singer's level on multiplex tracks at the start of a song (0 = off … 100)
+    findGuideVocal: true, // the TV may find multiplex tracks by their sound (not only by the file name)
     fadeSeconds: 1.5,
     lyricOffsetMs: 0,
     ratingAfterSong: true,

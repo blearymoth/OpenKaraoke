@@ -6,20 +6,15 @@
 // "live input" mode (key change only; tempo via playbackRate).
 //
 // Graph: source → stretch → 2×2 channel matrix → track gain (loudness) → fade → master → out
+// The matrix gives the channel modes and, on multiplex tracks, the guide singer's level
+// (shared/vocals.js); decoding also analyses the two channels (is one of them "music + singer"?).
 //
 // Timing (measured): a buffer segment scheduled as { input, output, rate } emits input time x
 // at context time output + (x − input) / rate. The audible position is therefore
 // input + (heardContextTime − output) · rate, where heardContextTime comes from
 // getOutputTimestamp(). The CDG renderer is driven by this position.
 import SignalsmithStretch from '../vendor/signalsmith-stretch.mjs';
-
-const MATRIX = {
-  stereo: [1, 0, 0, 1], // [L→L, R→L, L→R, R→R]
-  left: [1, 0, 1, 0],
-  right: [0, 1, 0, 1],
-  mono: [0.5, 0.5, 0.5, 0.5],
-  vocalcut: [0.7, -0.7, 0.7, -0.7], // (L − R) on both speakers
-};
+import { mixMatrix, analyseChannelsAsync } from '/shared/vocals.js';
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -36,7 +31,7 @@ export class AudioEngine extends EventTarget {
     this.rate = 1;
     this.volume = 0.9;
     this.normalize = true;
-    this.channelMode = 'stereo';
+    this.mix = { channel: 'stereo', vocals: null, lead: 0 }; // what the matrix is made from
     this.element = null; // media element in element mode
     this.sources = new WeakMap(); // element → MediaElementAudioSourceNode
     this.ended = false;
@@ -73,7 +68,7 @@ export class AudioEngine extends EventTarget {
       this.master.connect(this.analyser);
       this.stretch = await SignalsmithStretch(ctx);
       this.stretch.connect(this.input);
-      this.setChannelMode(this.channelMode);
+      this.setMix(this.mix);
       this.setVolume(this.volume);
       this.ticker = setInterval(() => this.checkEnd(), 100);
     })();
@@ -115,7 +110,13 @@ export class AudioEngine extends EventTarget {
         channels.push(data);
       }
       if (channels.length === 2 && sameChannels(channels[0], channels[1])) channels.pop(); // mono in stereo
-      return { id, duration: buf.duration, channels, gainDb: loudnessGainDb(channels) };
+      // Is one channel the other plus a guide singer (a multiplex track)? In chunks, so the
+      // lyrics keep drawing; never the cause of a failed load.
+      const analysis = channels.length === 2
+        ? await analyseChannelsAsync(channels[0], channels[1], buf.sampleRate, { yieldEvery: buf.sampleRate * 2 }).catch(() => null)
+        : { l: 'mono', s: '', lean: '', a: 1, c: 'high' };
+      if (analysis) this.emit('analysis', { id, info: analysis });
+      return { id, duration: buf.duration, channels, gainDb: loudnessGainDb(channels), analysis };
     })();
     this.cache.set(id, p);
     p.catch(() => this.cache.delete(id));
@@ -376,10 +377,19 @@ export class AudioEngine extends EventTarget {
     this.reschedule();
   }
 
+  /** A channel mode (no lead vocal control). */
   setChannelMode(mode) {
-    this.channelMode = MATRIX[mode] ? mode : 'stereo';
+    this.setMix({ channel: mode, vocals: null, lead: 0 });
+  }
+
+  /**
+   * The channel mode, or on a multiplex track (`vocals` adjustable) the guide singer's level:
+   * the four gains glide together, so the music level never dips.
+   */
+  setMix({ channel = 'stereo', vocals = null, lead = 0 } = {}) {
+    this.mix = { channel, vocals, lead };
     if (!this.matrix) return;
-    const m = MATRIX[this.channelMode];
+    const m = mixMatrix(this.mix);
     const t = this.ctx.currentTime;
     this.matrix.forEach((g, i) => g.gain.setTargetAtTime(m[i], t, 0.02));
   }

@@ -149,13 +149,22 @@ export function synthSong(song, seed = 1) {
       }
     }
   }
-  if (G) for (let i = 0; i < n; i++) L[i] += G[i];
-  // soft limiter + normalise
   let peak = 0;
-  for (let i = 0; i < n; i++) {
-    L[i] = Math.tanh(L[i] * 1.2);
-    R[i] = Math.tanh(R[i] * 1.2);
-    peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
+  if (G) {
+    // A real multiplex track: the same music on both channels (soft-limited as one bed), and the
+    // guide singer added to the left channel only — so the lead vocal can be turned up or down.
+    for (let i = 0; i < n; i++) {
+      R[i] = Math.tanh(L[i] * 1.2);
+      L[i] = R[i] + G[i];
+      peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
+    }
+  } else {
+    // soft limiter + normalise
+    for (let i = 0; i < n; i++) {
+      L[i] = Math.tanh(L[i] * 1.2);
+      R[i] = Math.tanh(R[i] * 1.2);
+      peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
+    }
   }
   const g = peak ? 0.89 / peak : 1;
   for (let i = 0; i < n; i++) { L[i] *= g; R[i] *= g; }

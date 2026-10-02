@@ -66,7 +66,7 @@ Server (`server/`)
   current skin into every HTML page: `<html data-theme>`, theme-color; part of the ETag).
 - `room/` — `room.js` (party state machine, all WebSocket actions, role views), `rotation.js`
   (fair rotation + ETA, pure), `auth.js` (localhost trust, PIN → host token, device tokens,
-  Host/Origin trust).
+  Host/Origin trust), `vocals.js` (`data/vocals.json`: what the TV found in each track's channels).
 - `ws/hub.js` — hello handshake, heartbeat, `rid` request/response, broadcasts.
 - `net/` — the party hotspot (PLAN §20): `nmcli.js` (the only place programs are started:
   `nmcli`/`firewall-cmd` through `execFile`, parsers, validation, `connection add` arguments),
@@ -80,7 +80,9 @@ Server (`server/`)
 
 Shared (`shared/`, imported by server and browser): `text.js`, `cdg.js` (CD+G decoder,
 Scale2x, RGBA), `protocol.js` (constants: channel modes, key/tempo ranges, reactions,
-avatars, denial messages), `themes.js` (the skins' ids/names, validation of `settings.appearance`).
+avatars, denial messages), `themes.js` (the skins' ids/names, validation of `settings.appearance`),
+`vocals.js` (lead vocal on multiplex tracks: the channel matrix, what a track allows, the channel
+analysis — PLAN §21).
 
 Browser (`public/`, plain ES modules, Preact + htm)
 - `tv.html` + `js/tv/` — `controller.js` (follows server state, owns the media clock, reports
@@ -89,7 +91,7 @@ Browser (`public/`, plain ES modules, Preact + htm)
   matrix, loudness, fades. `js/lib/cdg-canvas.js` — CDG renderer.
 - `host.html` + `js/host/` — `main.js` (shell, routes, PIN screen, shortcuts), `state.js`,
   `player.js`, `queue.js`, `views.js`, `dialogs.js`, `settings.js`, `hotspot.js` (party
-  hotspot block + banner), `graphics.js` (Settings → About → Graphics, desktop app).
+  hotspot block + banner), `vocals.js` (Lead control + Vocals dialog), `graphics.js` (Settings → About → Graphics, desktop app).
 - `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts.
 - `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`,
   `components.js`, `icons.js`, `theme.js` (follows the skin live, `token()` for code that needs

@@ -6,12 +6,26 @@ import { Modal, Cover, Spinner, Stepper, useFetch, apiGet, copyText, SongBadges,
 import { store, act, closeDialog, openDialog, toast } from './state.js';
 import { PreviewButton, PreviewOutput } from './preview.js';
 import { qrSrc } from '../lib/theme.js';
+import { VocalsDialog, vocalsNote } from './vocals.js';
 import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 
 function versionLabel(v) {
   const parts = [v.brandName || v.brand || 'Unknown label'];
   if (v.variant) parts.push(v.variant);
+  const note = vocalsNote(v);
+  if (note) parts.push(note);
   return `${parts.join(' · ')} (${formatTime(v.dur)})`;
+}
+
+/** Guide singer when queueing (only for songs with a version where it can be turned up or down). */
+function LeadField({ value, onChange }) {
+  return html`<label class="field"><span>Lead vocal</span>
+    <select class="select" value=${value === null ? '' : String(value)} onChange=${(e) => onChange(e.currentTarget.value === '' ? null : Number(e.currentTarget.value))} aria-label="Lead vocal">
+      <option value="">Automatic (this singer’s last)</option>
+      <option value="0">Off — no guide singer</option>
+      <option value="50">Quiet guide singer</option>
+      <option value="100">Full guide singer</option>
+    </select></label>`;
 }
 
 /** Choose (or type) who sings: recent singers as chips plus a name box. */
@@ -32,6 +46,7 @@ export function AddDialog({ songId, trackId: initialTrack, singerName = '' }) {
   const { data: song, error } = useFetch(`/api/songs/${encodeURIComponent(songId)}`);
   const [name, setName] = useState(singerName);
   const [key, setKey] = useState(null);
+  const [lead, setLead] = useState(null);
   const [trackId, setTrackId] = useState(initialTrack || '');
   const [partner, setPartner] = useState('');
   const [duet, setDuet] = useState(false);
@@ -42,6 +57,7 @@ export function AddDialog({ songId, trackId: initialTrack, singerName = '' }) {
     const body = { songId, singerName: name.trim() || undefined, position };
     if (duet && partner.trim()) body.partnerName = partner.trim();
     if (key !== null) body.key = key;
+    if (lead !== null) body.lead = lead;
     if (trackId) body.trackId = trackId;
     const res = await act('queue.add', body);
     setBusy(false);
@@ -76,7 +92,8 @@ export function AddDialog({ songId, trackId: initialTrack, singerName = '' }) {
             ${song.versions.map((v) => html`<option value=${v.id}>${versionLabel(v)}</option>`)}
           </select></label>`}
       </div>
-      <p class="hint">“Auto” uses the key this singer used last time for this song.</p>
+      ${song.vocalOptions?.lead && html`<${LeadField} value=${lead} onChange=${setLead} />`}
+      <p class="hint">“Auto” uses the key this singer used last time for this song.${song.vocalOptions?.lead ? ' A guide singer picks a version where it can be turned up or down.' : ''}</p>
     `}
   </${Modal}>`;
 }
@@ -113,7 +130,7 @@ export function SongDialog({ songId }) {
         <thead><tr><th>Label</th><th>Version</th><th class="num">Length</th><th>File</th><th></th></tr></thead>
         <tbody>${song.versions.map((v) => html`<tr>
           <td><b>${v.brand || '—'}</b>${v.brandName && v.brandName !== v.brand ? html` <span class="faint">${v.brandName}</span>` : ''}</td>
-          <td>${v.variant || html`<span class="faint">Standard</span>`}${v.flags?.mpx ? html` <span class="pill">Multiplex</span>` : ''}${v.flags?.vocals ? html` <span class="pill">Guide vocal</span>` : ''}</td>
+          <td>${v.variant || html`<span class="faint">Standard</span>`}${v.vocals?.lead === 'adjustable' ? html` <span class="pill" title="The original singer is on a channel of its own: off, quiet or full">Lead vocal adjustable</span>` : v.flags?.mpx ? html` <span class="pill">Multiplex</span>` : ''}${v.vocals?.lead === 'mixed' ? html` <span class="pill">Original singer mixed in</span>` : ''}${v.vocals?.bgv === 'without' ? html` <span class="pill">No backing vocals</span>` : v.vocals?.bgv === 'with' ? html` <span class="pill">Backing vocals</span>` : ''}</td>
           <td class="num">${formatTime(v.dur)}</td>
           <td class="file ellipsis" title=${v.file}>${v.file}</td>
           <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
@@ -242,13 +259,14 @@ export function EditDialog({ entryId }) {
   const [name, setName] = useState(entry ? entry.singers.map((s) => s.name).join(' & ') : '');
   const [key, setKey] = useState(entry?.key || 0);
   const [tempo, setTempo] = useState(entry?.tempo || 1);
+  const [lead, setLead] = useState(Number.isInteger(entry?.lead) ? entry.lead : null);
   const [trackId, setTrackId] = useState(entry?.trackId || '');
   const [mystery, setMystery] = useState(!!entry?.mystery);
   if (!entry) {
     return html`<${Modal} title="Edit song" onClose=${closeDialog}><p>This song is no longer in the queue.</p></${Modal}>`;
   }
   const save = async () => {
-    const patch = { key, tempo, trackId, mystery };
+    const patch = { key, tempo, trackId, mystery, lead };
     const current = entry.singers.map((s) => s.name).join(' & ');
     if (name.trim() !== current) patch.singerName = name.trim();
     if (await act('queue.update', { entryId, patch })) closeDialog();
@@ -269,6 +287,7 @@ export function EditDialog({ entryId }) {
       <select class="select" value=${trackId} onChange=${(e) => setTrackId(e.currentTarget.value)}>
         ${song.versions.map((v) => html`<option value=${v.id}>${versionLabel(v)}</option>`)}
       </select></label>`}
+    ${song?.vocalOptions?.lead && html`<${LeadField} value=${lead} onChange=${setLead} />`}
     <label class="toggle-row"><span><b>Mystery song</b><br /><span class="hint">Guests and the TV see “Surprise!” until it starts.</span></span>
       <span class="switch"><input type="checkbox" checked=${mystery} onChange=${(e) => setMystery(e.currentTarget.checked)} /><span></span></span>
     </label>
@@ -432,6 +451,7 @@ export function Dialogs() {
     case 'artwork': return html`<${ArtworkDialog} songId=${dialog.songId} key=${dialog.songId} />`;
     case 'edit': return html`<${EditDialog} entryId=${dialog.entryId} />`;
     case 'invite': return html`<${InviteDialog} />`;
+    case 'vocals': return html`<${VocalsDialog} />`;
     case 'folder': return html`<${FolderDialog} onPick=${dialog.onPick} />`;
     case 'announce': return html`<${AnnounceDialog} />`;
     default: return null;

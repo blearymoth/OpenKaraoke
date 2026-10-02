@@ -15,6 +15,8 @@ import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, RATING_SECONDS, MAX_LIST_SON
 import { createGame } from '../games/index.js';
 import { BreakMusic } from './breakmusic.js';
 import { Photos } from './photos.js';
+import { VocalsStore, cleanAnalysis } from './vocals.js';
+import { clampLead, resolveVocals, leadKind, LAYOUTS } from '../../shared/vocals.js';
 import { fold } from '../../shared/text.js';
 import { logger } from '../util/log.js';
 
@@ -23,7 +25,7 @@ const SESSION_IDLE_MS = 8 * 3600 * 1000;
 const MAX_HISTORY = 200; // tonight's history for the host's list (skipped songs too)
 const MAX_PERFS = 2000; // tonight's sung songs for the counts and the recap (a long night has a few hundred)
 // No party state change → no broadcast.
-const QUIET = new Set(['tv.status', 'tv.break', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
+const QUIET = new Set(['tv.status', 'tv.break', 'tv.analysis', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
 const HOST = 'host';
 const TV = 'tv';
 const GUEST = 'guest';
@@ -34,7 +36,7 @@ const DEFAULT_STATE = {
   queue: [],
   pending: [],
   current: null,
-  player: { state: 'idle', key: 0, tempo: 1, channel: 'stereo', volume: 0.9, pos: 0, dur: 0 },
+  player: { state: 'idle', key: 0, tempo: 1, channel: 'stereo', volume: 0.9, pos: 0, dur: 0, lead: 0, vocals: null },
   profiles: {},
   hostFavorites: [],
   playlists: [],
@@ -59,7 +61,7 @@ const perfRecord = (h) => {
 /** What a co-host's phone may do (never settings, bans, games or the library). */
 const COHOST_ACTIONS = new Set([
   'player.play', 'player.pause', 'player.resume', 'player.toggle', 'player.next', 'player.restart', 'player.seek',
-  'player.key', 'player.tempo', 'player.volume', 'queue.move', 'queue.approve', 'queue.reject', 'announce',
+  'player.key', 'player.tempo', 'player.volume', 'player.lead', 'queue.move', 'queue.approve', 'queue.reject', 'announce',
 ]);
 const MAX_PLAYLISTS = 100;
 const MAX_PLAYLIST_SONGS = MAX_LIST_SONGS;
@@ -120,7 +122,9 @@ export class Room {
       pair: new RateLimiter({ capacity: 5, perMs: 10 * 60_000 }), // pairing codes per address
       invite: new RateLimiter({ capacity: 3, perMs: 10 * 60_000 }), // duet invitations per inviter → invitee
       invited: new RateLimiter({ capacity: 6, perMs: 10 * 60_000 }), // duet invitations one guest receives
+      lead: new RateLimiter({ capacity: 6, perMs: 10_000 }), // a singer's guide-vocal switch
     };
+    this.vocals = new VocalsStore(app.dataDir);
     this.declined = new Set(); // "inviter>invitee>song" duet invitations turned down this session
     this.handlers = this.buildHandlers();
     this.breakMusic = new BreakMusic(this);
@@ -137,11 +141,13 @@ export class Room {
 
   async load() {
     await this.doc.load();
+    await this.vocals.load();
     const s = this.s;
     // After a restart nothing is playing: keep the current song paused where it was.
     const p = s.player;
-    if (s.current) Object.assign(p, { state: 'paused', tvReady: false, displayLost: true });
-    else Object.assign(p, { state: 'idle', pos: 0, dur: 0 });
+    if (s.current) Object.assign(p, { state: 'paused', tvReady: false, displayLost: true, vocals: this.trackVocals(s.current.trackId) });
+    else Object.assign(p, { state: 'idle', pos: 0, dur: 0, vocals: null });
+    p.lead = clampLead(p.lead) ?? 0;
     p.seek = { seq: 0, pos: p.pos || 0 };
     if (!Number.isFinite(p.volume)) p.volume = this.settings.get('playback.volume');
     // State saved before tonight.perfs existed: rebuild it from what's left of tonight's history.
@@ -166,8 +172,11 @@ export class Room {
     this.closeRating();
     this.breakMusic.close();
     this.photos.close();
-    if (save) await this.doc.flush();
-    else this.doc.discard();
+    if (save) await Promise.all([this.doc.flush(), this.vocals.flush()]);
+    else {
+      this.doc.discard();
+      this.vocals.discard();
+    }
   }
 
   // ---- sessions ("tonight") ---------------------------------------------------------
@@ -362,6 +371,9 @@ export class Room {
       'player.key': [PLAYER, (c, m) => this.setKey(m)],
       'player.tempo': [PLAYER, (c, m) => this.setTempo(m)],
       'player.channel': [PLAYER, (c, m) => this.setChannel(m)],
+      'player.lead': [[HOST, 'tv-local', GUEST], (c, m) => this.setLead(c, m)],
+      'player.layout': [H, (c, m) => this.setLayout(m)],
+      'player.version': [H, (c, m) => this.setVersion(m)],
       'player.volume': [PLAYER, (c, m) => this.setVolume(m)],
       'singer.add': [H, (c, m) => this.singerAdd(m)],
       'singer.update': [H, (c, m) => this.singerUpdate(m)],
@@ -402,6 +414,7 @@ export class Room {
       reaction: [HG, (c, m) => this.reaction(c, m)],
       'tv.status': [[TV], (c, m) => this.tvStatus(c, m)],
       'tv.ready': [[TV], (c, m) => this.tvReady(c, m)],
+      'tv.analysis': [[TV], (c, m) => this.tvAnalysis(c, m)],
       'tv.ended': [[TV], (c, m) => this.tvEnded(c, m)],
       'tv.error': [[TV], (c, m) => this.tvError(c, m)],
       'tv.audio': [[TV], (c, m) => { c.data.audioUnlocked = !!m.unlocked; }],
@@ -485,7 +498,12 @@ export class Room {
     }
 
     if (track && noExplicit && track.p?.flags?.explicit) track = null; // guests get a clean version
-    track ||= this.pickTrack(song, { noExplicit });
+    // The guide vocal and backing vocals wanted (guests only when the host allows it).
+    const vocalChoice = !isGuest || this.settings.get('queue.guestVocals') !== false;
+    let lead = vocalChoice && m.lead !== undefined && m.lead !== null ? clampLead(m.lead) : null;
+    if (isGuest && lead !== null) lead = lead >= 75 ? 100 : lead >= 25 ? 50 : 0;
+    const bgv = vocalChoice && (m.bgv === 'with' || m.bgv === 'without') ? m.bgv : null;
+    track ||= this.pickTrack(song, { noExplicit, lead, bgv });
     if (!track) fail(noExplicit ? 'Explicit songs are turned off for this party.' : 'No playable version of that song was found.', 'not_found');
     const maxDuration = this.settings.get('queue.maxDuration');
     if (isGuest && maxDuration > 0 && track.duration > maxDuration) fail('That song is longer than the host allows.', 'too_long');
@@ -529,6 +547,7 @@ export class Room {
       source: isGuest ? 'guest' : typeof m.source === 'string' && /^game:[a-z]{2,12}$/.test(m.source) ? m.source : 'host',
     };
     if (m.mystery) entry.mystery = true;
+    if (lead !== null) entry.lead = lead;
     const note = str(m.note, 80);
     if (note) entry.note = note;
     if (invites.length) entry.invites = invites;
@@ -637,21 +656,37 @@ export class Room {
     return this.s.current?.songId === songId || this.s.queue.some((e) => e.songId === songId) || this.s.pending.some((e) => e.songId === songId);
   }
 
-  pickTrack(song, { noExplicit = false } = {}) {
+  /**
+   * The version to sing: the one used last time, else the best ranked. `lead` > 0 (a guide
+   * vocal wanted) prefers versions where it can be turned up; `lead` 0 avoids versions with the
+   * singer mixed in; `bgv` 'with'/'without' prefers versions with or without backing vocals —
+   * each only when such a version exists (the lead first).
+   */
+  pickTrack(song, { noExplicit = false, lead = null, bgv = null } = {}) {
     const ok = (t) => !!t && t.songId === song.id && !(noExplicit && t.p?.flags?.explicit);
+    const ranked = this.catalog.rankTracks(song, this.settings.get('library.brandPriority')).filter(ok);
     const prefTrack = this.s.songPrefs[song.key]?.trackId;
     const pref = prefTrack && this.catalog.track(prefTrack);
-    if (ok(pref)) return pref;
-    const brands = this.settings.get('library.brandPriority');
-    if (!noExplicit) return this.catalog.bestTrack(song, brands);
-    const clean = { ...song, trackIds: song.trackIds.filter((id) => ok(this.catalog.track(id))) };
-    return clean.trackIds.length ? this.catalog.bestTrack(clean, brands) : null;
+    const wants = [];
+    // A guide singer: a version where it can be turned up or down — known, else named multiplex.
+    if (lead > 0) wants.push((t) => ['adjustable', 'multiplex'].includes(leadKind(this.trackVocals(t.id))), (t) => !!this.trackVocals(t.id)?.adjustable);
+    if (lead === 0) wants.push((t) => !this.trackVocals(t.id)?.mixed);
+    if (bgv === 'without') wants.push((t) => !!t.p?.flags?.nobgv);
+    if (bgv === 'with') wants.push((t) => !t.p?.flags?.nobgv);
+    let pool = ranked;
+    for (const w of wants) {
+      const fits = pool.filter(w);
+      if (fits.length) pool = fits;
+    }
+    if (ok(pref) && pool.includes(pref)) return pref;
+    return pool[0] || null;
   }
 
   prefsFor(song, singerId) {
     const p = this.s.songPrefs[song.key];
     const bySinger = singerId && p?.bySinger?.[singerId];
-    return { key: clampKey(bySinger?.key ?? p?.key ?? 0), tempo: clampTempo(bySinger?.tempo ?? p?.tempo ?? 1) };
+    // The guide vocal is a singer's own need: never taken over from another singer of the song.
+    return { key: clampKey(bySinger?.key ?? p?.key ?? 0), tempo: clampTempo(bySinger?.tempo ?? p?.tempo ?? 1), lead: clampLead(bySinger?.lead) };
   }
 
   findEntry(id, lists = ['queue', 'pending']) {
@@ -690,6 +725,11 @@ export class Room {
     const patch = m.patch || {};
     if (patch.key !== undefined) e.key = clampKey(patch.key);
     if (patch.tempo !== undefined) e.tempo = clampTempo(patch.tempo);
+    if (patch.lead !== undefined) {
+      const lead = patch.lead === null ? null : clampLead(patch.lead);
+      if (lead === null) delete e.lead; // automatic: the singer's last level, else the setting
+      else e.lead = lead;
+    }
     if (patch.trackId !== undefined) {
       const t = this.catalog.track(str(patch.trackId, 40));
       if (!t || t.songId !== e.songId) fail('That version belongs to another song.', 'bad_request');
@@ -793,6 +833,8 @@ export class Room {
       hold: false,
     });
     if (!CHANNEL_MODES.includes(p.channel)) p.channel = 'stereo';
+    p.vocals = this.trackVocals(entry.trackId);
+    p.lead = this.leadFor(entry);
     if (entry.clipEnd > 0) p.dur = Math.min(p.dur || entry.clipEnd, entry.clipEnd);
     clearTimeout(this.introTimer);
     this.introTimer = setTimeout(() => this.maybeBegin(), countdown * 1000 + 20);
@@ -896,6 +938,7 @@ export class Room {
 
   setChannel(m) {
     if (!CHANNEL_MODES.includes(m.mode)) fail('Unknown channel mode', 'bad_request');
+    if (this.s.player.vocals?.adjustable && this.s.current) fail('This version has the lead singer on a channel of its own — use “Lead vocal”, or mark the track as stereo.', 'use_lead');
     this.s.player.channel = m.mode;
     if (this.s.current) this.s.trackPrefs[this.s.current.trackId] = { ...(this.s.trackPrefs[this.s.current.trackId] || {}), channel: m.mode };
     return { channel: m.mode };
@@ -906,11 +949,122 @@ export class Room {
     return { volume: this.s.player.volume };
   }
 
-  rememberPrefs(entry, patch) {
+  // ---- lead and backing vocals (shared/vocals.js) ---------------------------------------------
+
+  /** What a track allows: its file name, the TV's analysis and the host's correction. */
+  trackVocals(trackId) {
+    const track = trackId && this.catalog.track(trackId);
+    if (!track) return null;
+    const override = Object.hasOwn(this.s.trackPrefs, trackId) ? this.s.trackPrefs[trackId].layout || 'auto' : 'auto';
+    return resolveVocals({ flags: track.p?.flags || {}, info: this.vocals.get(trackId), override, findGuide: this.settings.get('playback.findGuideVocal') !== false });
+  }
+
+  /** The guide level a song starts with: chosen when queued → this singer's last → the setting. */
+  leadFor(entry) {
+    const chosen = clampLead(entry.lead);
+    if (chosen !== null) return chosen;
+    const song = this.catalog.song(entry.songId);
+    const mine = song ? this.prefsFor(song, entry.singerIds[0]).lead : null;
+    return mine ?? clampLead(this.settings.get('playback.leadVocal')) ?? 0;
+  }
+
+  /** The guide singer's level on a multiplex track (0 = off … 100 = as recorded). */
+  setLead(client, m) {
+    const p = this.s.player;
+    const cur = this.s.current;
+    if (!cur) fail('Nothing is playing.', 'idle');
+    if (!p.vocals?.adjustable) fail('This version has no lead vocal of its own to turn up or down.', 'not_adjustable');
+    let lead = clampLead(m.level ?? m.lead);
+    if (lead === null) fail('Unknown level', 'bad_request');
+    if (client.role === GUEST) {
+      const profile = this.profileOf(client.data.deviceId);
+      if (!profile?.coHost) {
+        // The singer's own phone, on their own song: guide on (quiet) or off.
+        if (!this.settings.get('queue.guestVocals')) fail('The host has turned this off.', 'forbidden');
+        if (!profile?.singerId || !cur.singerIds.includes(profile.singerId)) fail('Only the singer can change the guide vocal.', 'forbidden');
+        if (!this.limits.lead.take(client.data.deviceId)) fail('Slow down a little.', 'rate_limited');
+        lead = lead >= 25 ? 50 : 0;
+      }
+    }
+    p.lead = lead;
+    cur.lead = lead;
+    this.rememberPrefs(cur, { lead }, { songLevel: false });
+    return { lead };
+  }
+
+  /** The host's correction of a track's layout: 'auto', 'stereo', 'mpxL', 'mpxR'. */
+  setLayout(m) {
+    if (!LAYOUTS.includes(m.layout)) fail('Unknown layout', 'bad_request');
+    const trackId = m.trackId === undefined ? this.s.current?.trackId : str(m.trackId, 80);
+    if (!trackId || !this.catalog.track(trackId)) fail('Unknown track', 'not_found'); // (never a client string as a key unchecked)
+    const prefs = { ...(Object.hasOwn(this.s.trackPrefs, trackId) ? this.s.trackPrefs[trackId] : {}) };
+    if (m.layout === 'auto') delete prefs.layout;
+    else prefs.layout = m.layout;
+    this.s.trackPrefs[trackId] = prefs;
+    const p = this.s.player;
+    if (this.s.current?.trackId === trackId) p.vocals = this.trackVocals(trackId);
+    return { vocals: this.trackVocals(trackId) };
+  }
+
+  /**
+   * Another version of the song that is on (e.g. without backing vocals): it starts again with it,
+   * same singers, key and tempo. Not during a game's song or clip.
+   */
+  setVersion(m) {
+    const cur = this.s.current;
+    if (!cur) fail('Nothing is playing.', 'idle');
+    if (cur.clipEnd || String(cur.source || '').startsWith('game:battle')) fail('Not during a game round.', 'busy');
+    const track = this.catalog.track(str(m.trackId, 80));
+    if (!track || track.songId !== cur.songId) fail('That isn’t a version of this song.', 'bad_request');
+    if (track.id === cur.trackId) return { trackId: track.id };
+    const p = this.s.player;
+    cur.trackId = track.id;
+    cur.dur = Math.round(track.duration || cur.dur || 0);
+    this.rememberPrefs(cur, {});
+    Object.assign(p, {
+      state: 'intro',
+      introEndsAt: Date.now(),
+      pos: 0,
+      dur: cur.dur,
+      seek: { seq: (p.seek?.seq || 0) + 1, pos: 0 },
+      tvReady: false,
+      error: null,
+      reload: (p.reload || 0) + 1, // the TV loads the new media
+      channel: this.s.trackPrefs[track.id]?.channel || this.settings.get('playback.defaultChannelMode') || 'stereo',
+      vocals: this.trackVocals(track.id),
+    });
+    if (!CHANNEL_MODES.includes(p.channel)) p.channel = 'stereo';
+    clearTimeout(this.introTimer);
+    this.introTimer = setTimeout(() => this.maybeBegin(), 20);
+    log.info(`version: ${cur.artist} – ${cur.title} now ${track.p?.brand || track.id}`);
+    return { trackId: track.id };
+  }
+
+  /** The TV's analysis of a track it decoded (main display only; kept in data/vocals.json). */
+  tvAnalysis(client, m) {
+    if (client.data.display !== 'main') return { ok: false };
+    const trackId = str(m.trackId, 80);
+    const track = trackId && this.catalog.track(trackId);
+    if (!track) return { ok: false };
+    const info = cleanAnalysis(m);
+    if (!info) fail('Bad analysis', 'bad_request');
+    if (!this.vocals.set(trackId, info)) return { ok: true };
+    log.info(`vocals: ${track.dir ? `${track.dir}/` : ''}${track.name || track.id} ${info.l}${info.s ? ` ${info.s}` : ''}${info.lean && info.l !== 'mpx' ? ` (leans ${info.lean})` : ''}${info.l === 'mpx' ? ` (${info.c}, a ${info.a})` : ''}`);
+    const p = this.s.player;
+    if (this.s.current?.trackId === trackId) {
+      const before = JSON.stringify(p.vocals);
+      p.vocals = this.trackVocals(trackId);
+      if (JSON.stringify(p.vocals) !== before) this.markDirty();
+    }
+    return { ok: true };
+  }
+
+  /** `songLevel: false` keeps it to the singer (the guide vocal: a personal need). */
+  rememberPrefs(entry, patch, { songLevel = true } = {}) {
     const song = this.catalog.song(entry.songId);
     if (!song) return;
     const p = (this.s.songPrefs[song.key] ||= {});
-    Object.assign(p, patch, { trackId: entry.trackId });
+    Object.assign(p, songLevel ? patch : {}, { trackId: entry.trackId });
     const lead = entry.singerIds[0];
     if (lead) {
       p.bySinger ||= {};
@@ -1940,6 +2094,7 @@ export class Room {
     if (e.invites?.length) out.invites = e.invites.map((id) => this.singerView(id)).filter(Boolean);
     if (e.clipEnd) out.clipEnd = e.clipEnd;
     if (e.game) out.game = e.game;
+    if (Number.isInteger(e.lead)) out.lead = e.lead;
     if (e.mystery) {
       out.mystery = true;
       if (mask) Object.assign(out, { artist: 'Mystery song', title: 'Surprise!', songId: null, trackId: null });
@@ -1956,6 +2111,8 @@ export class Room {
       key: p.key,
       tempo: p.tempo,
       channel: p.channel,
+      lead: p.lead ?? 0,
+      vocals: p.vocals || null,
       volume: p.volume,
       pos: p.pos || 0,
       dur: p.dur || 0,
@@ -2107,13 +2264,14 @@ export class Room {
         guestCanRemoveOwn: q.guestCanRemoveOwn,
         guestsSeeQueue: q.guestsSeeQueue,
         guestKeyChange: q.guestKeyChange,
+        guestVocals: q.guestVocals !== false,
         reactions: this.settings.get('guests.reactions'),
         games: this.settings.get('guests.games'),
         photos: this.settings.get('guests.photos'),
         photoApproval: this.settings.get('guests.photoApproval'),
       },
       current: this.currentView(),
-      player: (({ state, pos, dur, entryId, introEndsAt }) => ({ state, pos, dur, entryId, introEndsAt }))(this.playerView()),
+      player: (({ state, pos, dur, entryId, introEndsAt, lead, vocals }) => ({ state, pos, dur, entryId, introEndsAt, lead, leadAdjustable: !!vocals?.adjustable }))(this.playerView()),
       queue: s.queue.map((e, i) => ({ ...this.entryView(e, { mask: true }), eta: eta[i], _by: e.addedBy })),
       library: { songs: this.catalog.songs.size, offline: this.library.status().offline },
       sungTonight: s.tonight.sung.slice(-500),

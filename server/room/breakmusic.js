@@ -129,8 +129,10 @@ export class BreakMusic {
     tries.push(filter);
     const playable = (song) => {
       const track = this.room.pickTrack(song, { noExplicit: true });
-      // An audio file (not a video) on a drive that is connected: the TV can play it.
+      // An audio file (not a video) on a drive that is connected: the TV can play it. Not a
+      // multiplex track: break music plays through <audio>, which would play its guide singer.
       if (!track || !mediaSource(track, 'audio') || !library.isTrackOnline(track)) return null;
+      if (this.room.trackVocals(track.id)?.adjustable || track.p?.flags?.mpx) return null;
       return { id: `lib:${song.id}`, url: `/media/${track.id}/audio`, title: song.title, artist: song.artist, source: 'library', songId: song.id };
     };
     for (const f of tries) {

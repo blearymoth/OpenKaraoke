@@ -46,6 +46,9 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P0 Audio engine on Web Audio + Signalsmith Stretch: **key change ±6 semitones**,
   **tempo 70–130 %**, seek, pause, fade in/out, volume, loudness normalisation (§9.3).
 - ✅ P0 Channel modes for multiplex/guide-vocal tracks: stereo, left, right, mono, vocal-cut (L−R).
+- ✅ P1 **Lead vocal level** on multiplex tracks (the original singer off / quiet / full, the music
+  unchanged) and **backing vocals** by version (with / without), for the host and, on their own
+  song, the singer — §21.
 - ✅ P0 "Next singer" intro card with countdown, then auto-start (or start-paused mode).
 - ✅ P0 Preload next track during the intro; break music fades out when the next song starts.
 - 🟡 P0 Video karaoke (MP4/WEBM) with the same controls (tempo via playbackRate, key via stretch live input) — implemented, untested with real video files.
@@ -334,18 +337,19 @@ Auth rules:
 
 Client → server (all may carry `rid`):
 ```
-queue.add {songId, trackId?, singerId?|singerName?, key?, tempo?, partners?[], mystery?, position?:'next'|'end'}
+queue.add {songId, trackId?, singerId?|singerName?, key?, tempo?, lead?, bgv?, partners?[], mystery?, position?:'next'|'end'}
 queue.remove {entryId}   queue.move {entryId, index}   queue.update {entryId, patch}
 queue.approve {entryId}  queue.reject {entryId}  queue.clear  queue.shuffle
 player.play {entryId?}  player.pause  player.resume  player.next  player.restart  player.stop
 player.seek {pos}  player.key {semitones}  player.tempo {rate}  player.channel {mode}  player.volume {v}
+player.lead {level}  player.layout {layout}  player.version {trackId}   (vocals, §21)
 singer.add/update/remove/merge     guest.update(me) guest.kick guest.ban guest.cohost
 favorite.toggle {songId}  playlist.save/delete/queue   settings.update {patch}   library.rescan
 announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve/reject/rejectWaiting
 duet.answer {entryId, accept}  duet.invites {allow}   (guest: answer / turn off duet invitations)
 game.start {type, config}  game.action {...}  game.answer {...}  game.vote {...}  game.end
 display.approve {code}  display.deny {id|code|all}  display.main {id}  display.forget
-tv.status / tv.ended / tv.error / tv.ready   ping {c}
+tv.status / tv.ended / tv.error / tv.ready / tv.analysis   ping {c}
 ```
 `game.action` may carry the game's `step` (in the host view; it counts phase changes): a control
 drawn for an older step is ignored (`{ stale: true }`), and so is one that arrives within
@@ -440,7 +444,7 @@ mosaic / visualiser, "Up next" if queue has entries, library size.
   `input0 + (ctx.currentTime - outputLatency - output0) * rate`; drive the CDG renderer with it
   (don't rely on the node's `inputTime` message, which is ahead by its internal latency).
 - Graph: stretch → 2×2 channel matrix (GainNodes via ChannelSplitter/Merger: stereo, L, R, mono,
-  vocal-cut L−R) → track gain (loudness normalisation) → fade gain → master gain → destination.
+  vocal-cut L−R, or on a multiplex track the lead vocal level — §21) → track gain (loudness normalisation) → fade gain → master gain → destination.
 - Loudness: after decode compute RMS/approx. LUFS; target −16 LUFS; clamp ±9 dB; cache per track
   on the server (`tv.analysis`).
 - Preload: decode next entry during the intro; drop decoded buffers after use (≈100 MB/track).
@@ -571,7 +575,8 @@ original), and the favicon links and `/favicon.ico` point at the skin's icon. Se
 
 ## 15. Persistence (`data/`, git-ignored)
 `settings.json`, `secret.json`, `library.json` (catalog cache), `state.json` (party state),
-`history.jsonl`, `meta.json` (artwork/metadata), `art/` (images), `photos/` (guest uploads),
+`history.jsonl`, `meta.json` (artwork/metadata), `vocals.json` (what the TV found in each
+track's channels, §21), `art/` (images), `photos/` (guest uploads),
 `server.json` (while running: pid, port — one server per data folder). The desktop app's data
 folder is `~/.config/OpenKaraoke/data`.
 
@@ -911,4 +916,62 @@ hotspot down again.
    reach the home network through the PC.
 10. Started as the systemd user service (`bin/install-service.sh`): the hotspot needs the
     permission without a password prompt (check 4 says so if not).
+
+## 21. Lead and backing vocals
+
+What CD+G karaoke recordings really allow — no source separation, nothing invented:
+
+- **Lead vocal** (the original singer, a "guide"): on a **multiplex** (MPX) track one channel is
+  the music alone and the other the music plus the singer. With the singer's channel X = a·M + V
+  and the music channel Y = M, both speakers get c·Y + g·X with g = (lead/100)² and c = 1 − g·a,
+  i.e. **M + g·V**: every level from off to full is exact and the music never changes (also for a
+  channel recorded at another level or inverted, a ∈ [−2, 2]). Singer on L → matrix
+  [g, c, g, c]; on R → [c, g, c, g] (`[L→L, R→L, L→R, R→R]`). `shared/vocals.js mixMatrix()`.
+  Off = the music channel on both speakers (what the old "Left/Right only" channel mode did).
+- **Backing vocals** are mixed into the music on both channels: only **another version** of the
+  song changes them (file-name flags `bgv` "with backing vocals", `nobgv` "no backing vocals").
+- "Con Voz" / "with vocals" versions (flag `vocals`, not MPX) have the singer in the stereo mix:
+  shown as such, no level.
+
+**Finding the singer's side.** The TV analyses each decoded track (it decodes it anyway;
+`analyseChannelsAsync`, in 2 s chunks so the lyrics keep drawing): least-squares fit X ≈ a·Y for
+both sides, then the residual X − a·Y relative to the music channel in 0.1 s frames. On a
+multiplex track it is silent between the lines and loud while the guide sings; the other side's
+never goes quiet. Result `{ l: 'mono'|'stereo'|'mpx', s: 'L'|'R'|'', lean, a, c: 'high'|'low' }`,
+sent once per track as `tv.analysis` (main display only; checked field by field), kept in
+`data/vocals.json` (≤ 20 000 tracks, the oldest 10 % dropped). `c: 'high'` needs a clear gap and
+quiet moments spread over ≥ 3 of 5 parts of the song (not one instrument resting).
+
+**What a track allows** (`resolveVocals`, server; `player.vocals` in every view):
+1. The host's correction (`player.layout` `auto|stereo|mpxL|mpxR`, kept per track in
+   `trackPrefs`) wins.
+2. Analysis says multiplex with a side, and the file name says multiplex/vocals or the analysis
+   is sure (`c: 'high'`, setting `playback.findGuideVocal`) → **adjustable**.
+3. Named multiplex, the analysis only leans one way → adjustable on that side; no lean → the
+   host is **asked** which side (until then it plays as before — a wrong guess would play the
+   guide singer alone).
+4. Not named, analysis unsure → **suggested** to the host, not used.
+Versions report `vocals.lead`: `adjustable`, `multiplex` (named, side not known yet — the TV finds
+it on first play), `mixed` or none (`leadKind`).
+
+**Level** `player.lead` 0–100 (presets off 0 / quiet 50 = −12 dB / full 100). Starts at: chosen
+when queued → this singer's last level for the song (`songPrefs.bySinger`, never another
+singer's) → `playback.leadVocal` (0). Host and co-hosts: any level. The singer's own phone, on
+their own song: guide on (50) or off, rate-limited, setting `queue.guestVocals`. TV shortcut
+C / V: off → quiet → full. `player.channel` is refused on an adjustable track ("use Lead vocal").
+
+**Queueing** `queue.add {lead, bgv}`: `pickTrack` prefers a version that fits — a guide singer →
+adjustable, else named multiplex; no guide → not one with the singer mixed in; `bgv` → with /
+without backing vocals — falling back to the usual version. Guests' `lead` is snapped to 0/50.
+`player.version {trackId}` (host) switches the song on to another version of the same song: it
+starts again (intro), remembered as the song's version.
+
+**UI.** Host player bar: "Lead off/quiet/full" instead of the channel mode on an adjustable track,
+plus a Vocals button (highlighted when the host is asked or a guide was suggested) → the Vocals
+dialog: level slider + presets, which side (correction), backing-vocal and multiplex versions to
+switch to. Add/Edit dialogs: Lead vocal (Automatic / Off / Quiet / Full) on songs that have one;
+version lists say what each version allows. Guest song sheet: a Guide singer switch (remembered
+on the phone) and Backing vocals As recorded / With / Without (when such versions exist); during
+their song a "Guide singer: on/off" button. TV intro: "Guide singer on/quiet" chip. Break music
+skips multiplex tracks.
 

@@ -598,6 +598,11 @@ export class Catalog {
 
   /** Default version to play: preferred labels first, then "plain" versions. */
   bestTrack(song, brandPrefs = []) {
+    return this.rankTracks(song, brandPrefs)[0];
+  }
+
+  /** A song's versions, best first (the brand order, no variant, karaoke rather than vocal mixes). */
+  rankTracks(song, brandPrefs = []) {
     const ts = song.trackIds.map((id) => this.tracks.get(id)).filter(Boolean);
     const score = (t) => {
       let sc = 0;
@@ -611,7 +616,7 @@ export class Catalog {
       if (br !== undefined) sc += Math.max(0, 12 - br);
       return sc;
     };
-    return ts.sort((a, b) => score(b) - score(a))[0];
+    return ts.sort((a, b) => score(b) - score(a));
   }
 
   // ---- serialisation -------------------------------------------------------

@@ -644,7 +644,8 @@ When it is off — or when it can't be used — everything works as before ("sam
 ### 20.2 What the host sees
 - Settings → Party → **Party hotspot**: a switch, the network name (default
   `OpenKaraoke-<ROOM>`), a password (generated, 12 characters, can be changed or regenerated;
-  8–63 characters, WPA2), the band (Automatic / 2.4 GHz / 5 GHz) and, on a PC with several
+  8–63 characters, WPA2), the band (Automatic / 2.4 GHz / 5 GHz — NetworkManager's
+  "Automatic" access point is always on a 2.4 GHz channel, so the page says so) and, on a PC with several
   Wi-Fi adapters, which one. A status line ("On: OpenKaraoke-ABCD at 10.42.0.1") and the
   list of checks (§20.4) with ✓ / ⚠ / ✗ and the fix for each problem; **Try again**.
 - Invite dialog and TV lobby: two steps with two QR codes while the hotspot is on, the
@@ -720,18 +721,26 @@ Blocking (✗: the hotspot is not used, §20.5) unless marked ⚠ (a warning sho
 3. **NetworkManager is running** (`nmcli -t -f RUNNING general`) — fix: `sudo systemctl start
    NetworkManager`.
 4. **Allowed to change the network** (`nmcli -t -f PERMISSION,VALUE general permissions`:
-   `org.freedesktop.NetworkManager.network-control` and `settings.modify.system` are `yes`,
-   or `auth` = a password prompt: ⚠, and `connection up` then waits 90 s instead of 30 s for
-   the typing) — `no`: "This user may not change the network: run OpenKaraoke as the desktop
-   user (not over SSH or as a service of another user)." (The systemd user service of
+   `org.freedesktop.NetworkManager.network-control`, `settings.modify.system` and
+   `wifi.share.protected` are `yes`, or `auth` = a password prompt: ⚠) — `no`: "This user may
+   not change the network or share a Wi-Fi hotspot: run OpenKaraoke as the desktop user (not
+   over SSH or as a service of another user)." (The systemd user service of
    `bin/install-service.sh` runs outside the desktop session: no password prompt can appear
-   there, so it needs `yes`.)
+   there, so it needs `yes`.) Changed after checking real nmcli (1.46/1.48): sharing a WPA
+   hotspot also needs `wifi.share.protected`, which stock polkit gives only to the active
+   desktop session (`yes`/`no`, never `auth`) — without it `up` fails with "Not authorized to
+   share connections via wifi." The prompt comes on `connection delete`/`add` (not `up`), and
+   NetworkManager's D-Bus calls give up after 25 s whatever `--wait` says, so the fix says
+   "give it within about 20 seconds" (no longer wait 90 s).
 5. **Wi-Fi is switched on** (`nmcli -t -f WIFI radio`) — fix: "Switch Wi-Fi on (top-right
    menu) — flight mode off."
-6. **A Wi-Fi adapter** (`nmcli -t -f DEVICE,TYPE,STATE device`; the chosen one, else the
-   first `wifi` device not `unavailable`) — fix: "Plug in a USB Wi-Fi adapter."
-7. **The adapter can be a hotspot** (`nmcli -t -f WIFI-PROPERTIES.AP device show <dev>` =
-   `yes`) — fix: "This Wi-Fi adapter can't be a hotspot; a USB adapter that supports AP mode can."
+6. **A Wi-Fi adapter** (`nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device`; the chosen one,
+   else the first `wifi` device neither `unavailable` nor `unmanaged`) — fix: "Plug in a USB
+   Wi-Fi adapter." An `unmanaged` adapter (NetworkManager's `unmanaged-devices`) fails with
+   its own fix (`up` would say "device is strictly unmanaged").
+7. **The adapter can be a hotspot** (`nmcli -g WIFI-PROPERTIES.AP device show <dev>` = `yes`;
+   `-g` prints the bare value) — fix: "This Wi-Fi adapter can't be a hotspot; a USB adapter
+   that supports AP mode can."
 8. **This server listens on every address** (`server.host` is `0.0.0.0` / `::`) — fix: start
    without `--host`, or with `--host 0.0.0.0`.
 9. ⚠ **Another hotspot** (GNOME's own "Hotspot") runs on the adapter — the party hotspot takes
@@ -743,6 +752,11 @@ Blocking (✗: the hotspot is not used, §20.5) unless marked ⚠ (a warning sho
     NetworkManager gave, e.g. "Not authorized" (fix: answer the password prompt / allow it),
     "no secrets" (fix: password), "802.1X supplicant failed", "IP configuration could not be
     reserved" (fix: `sudo apt install dnsmasq-base` — NetworkManager's shared mode needs it).
+    The old profile is deleted first (`delete id` removes every profile of that name); if that
+    fails (exit other than 0 or 10, e.g. 7 "Insufficient privileges") the start stops there —
+    `add` would succeed with a twin name and `up id` could pick the old profile. `up` uses the
+    UUID that `add` printed. On 5 GHz a timeout ("supplicant took too long") gets the fix
+    "choose 2.4 GHz" (regulatory limits).
 11. **It has an address** (`IP4.ADDRESS` of the device) — fix: "NetworkManager gave the
     hotspot no address: install dnsmasq-base."
 12. **This server answers on the hotspot address** — `GET http://<address>:<port>/api/health`
@@ -822,10 +836,13 @@ hotspot down again.
 ### 20.7 Tests
 - `scripts/fake-nmcli.mjs` — a fake `nmcli` (the commands the app uses, terse output, exit
   codes, NetworkManager's error texts) driven by a scenario: `ok`, `home-wifi` (⚠ 9),
-  `gnome-hotspot` (⚠ 9), `auth` (⚠ 4), `no-nmcli`, `nm-stopped`, `no-permission`, `wifi-off`,
-  `no-device`, `no-ap`, `up-fails`, `no-dnsmasq`, `no-address`, `drops` (goes down after a few
-  watcher polls), `firewalld` (⚠ 13), `old-nm` (no client isolation), `leftover` (a party
-  hotspot still up). Usable in-process (`fakeNmcli(scenario)` → runner;
+  `gnome-hotspot` (⚠ 9), `auth` (⚠ 4), `no-session` (✗ 4: over SSH, may not share Wi-Fi),
+  `no-nmcli`, `nm-stopped`, `no-permission`, `wifi-off`, `no-device`, `unmanaged`, `no-ap`,
+  `up-fails`, `no-dnsmasq`, `no-address`, `drops` (goes down after a few watcher polls),
+  `firewalld` (⚠ 13), `old-nm` (no client isolation), `leftover` (a party hotspot still up),
+  `delete-fails` (an old profile that can't be removed). Outputs, exit codes and texts were
+  checked against a real nmcli 1.46 (no Wi-Fi: the access-point paths from the 1.46/1.48
+  sources). Usable in-process (`fakeNmcli(scenario)` → runner;
   `OPENKARAOKE_FAKE_NMCLI=<scenario>` for trying the UI by hand) and as a program
   (`OPENKARAOKE_NMCLI=scripts/fake-nmcli.mjs`, scenario in `FAKE_NMCLI_SCENARIO`, state kept
   between runs in `FAKE_NMCLI_STATE`).

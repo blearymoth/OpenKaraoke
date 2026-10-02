@@ -6,11 +6,13 @@
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import http from 'node:http';
-import { addConnectionArgs, getValues, makePassword, nmError, terseRows, validIfname, validPassword, validSsid, BANDS, CONNECTION_NAME } from './nmcli.js';
+import { addConnectionArgs, addedUuid, getValues, makePassword, nmError, terseRows, validIfname, validPassword, validSsid, BANDS, CONNECTION_NAME } from './nmcli.js';
 
 const POLL_MS = 5000;
+// NetworkManager's own D-Bus calls give up after 25 s whatever `--wait` says, so a password
+// prompt (polkit) has to be answered within about 20 s.
 const UP_WAIT_S = 30;
-const UP_WAIT_PROMPT_S = 90; // someone types a password at the system's prompt
+const DELETE_WAIT_S = 20;
 const CLOSE_MS = 4000; // quitting waits this long at most for the hotspot to go down
 const ALL_ADDRESSES = new Set(['0.0.0.0', '::']);
 
@@ -34,14 +36,17 @@ export function fetchHealth(url, timeoutMs = 3000) {
   });
 }
 
-/** The fix for what NetworkManager said when the hotspot wouldn't come up. */
-export function fixForUpError(message) {
+/** The fix for what NetworkManager said when the hotspot wouldn't come up (on band `band`). */
+export function fixForUpError(message, band = 'auto') {
   const m = String(message || '');
   if (/IP configuration could not be reserved|dnsmasq/i.test(m)) return 'NetworkManager needs dnsmasq to share a connection: sudo apt install dnsmasq-base (Fedora: sudo dnf install dnsmasq), then Try again.';
-  if (/not authori[sz]ed|insufficient privileges|permission/i.test(m)) return 'Allow it when your password is asked, or run OpenKaraoke as the person logged in at this computer.';
-  if (/AP mode|No suitable device|not available/i.test(m)) return 'This Wi-Fi adapter can’t be a hotspot right now: unplug and plug it in again, or choose another adapter.';
+  if (/share connections via wi-?fi/i.test(m)) return 'Run OpenKaraoke as the person logged in at this computer’s desktop (not over SSH or as another user’s service).';
+  if (/not authori[sz]ed|insufficient privileges|permission/i.test(m)) return 'Allow it when your password is asked (within about 20 seconds), or run OpenKaraoke as the person logged in at this computer.';
+  if (/strictly unmanaged/i.test(m)) return 'NetworkManager is set not to manage this Wi-Fi adapter (unmanaged-devices in /etc/NetworkManager/): remove it there and restart NetworkManager.';
+  if (/AP mode|Access Point|No suitable device|not available/i.test(m)) return 'This Wi-Fi adapter can’t be a hotspot right now: unplug and plug it in again, or choose another adapter.';
+  if (band === 'a' && /supplicant|took too long|timed? ?out|timeout/i.test(m)) return '5 GHz may not be allowed here, or this adapter can’t send on it: choose 2.4 GHz in Settings → Party, then Try again.';
   if (/secrets|psk|password/i.test(m)) return 'Check the hotspot password (8–63 characters) in Settings → Party, then Try again.';
-  if (/timed? ?out|took too long/i.test(m)) return 'Try again. If it keeps failing, restart NetworkManager: sudo systemctl restart NetworkManager.';
+  if (/timed? ?out|timeout|took too long/i.test(m)) return 'Try again (answer the system’s password prompt within about 20 seconds if one appears). If it keeps failing, restart NetworkManager: sudo systemctl restart NetworkManager.';
   return 'Try again. If it keeps failing, the reason is in: journalctl -u NetworkManager.';
 }
 
@@ -181,10 +186,12 @@ export class Hotspot extends EventEmitter {
     if (running.code !== 0 || running.stdout.trim() !== 'running') return fail(CHECK('running', 'fail', 'NetworkManager isn’t running.', 'Start it: sudo systemctl start NetworkManager'));
     done(CHECK('running', 'ok', 'NetworkManager is running'));
 
+    // Bringing up a WPA hotspot also needs wifi.share.protected, which the system gives only
+    // to the person at the desktop (never after a password prompt).
     const perms = Object.fromEntries(terseRows((await this.nmcli(['-t', '-f', 'PERMISSION,VALUE', 'general', 'permissions'])).stdout));
-    const may = ['org.freedesktop.NetworkManager.network-control', 'org.freedesktop.NetworkManager.settings.modify.system'].map((p) => perms[p] || 'no');
-    if (may.includes('no')) return fail(CHECK('permission', 'fail', 'This user may not change the network.', 'Run OpenKaraoke as the person logged in at this computer (not over SSH or as another user’s service).'));
-    done(may.includes('auth') ? CHECK('permission', 'warn', 'Allowed to change the network after a password prompt.', 'When the system asks for your password, give it.') : CHECK('permission', 'ok', 'Allowed to change the network'));
+    const may = ['network-control', 'settings.modify.system', 'wifi.share.protected'].map((p) => perms[`org.freedesktop.NetworkManager.${p}`] || 'no');
+    if (may.includes('no')) return fail(CHECK('permission', 'fail', 'This user may not change the network or share a Wi-Fi hotspot.', 'Run OpenKaraoke as the person logged in at this computer’s desktop (not over SSH or as another user’s service).'));
+    done(may.includes('auth') ? CHECK('permission', 'warn', 'Allowed to change the network after a password prompt.', 'When the system asks for your password, give it within about 20 seconds.') : CHECK('permission', 'ok', 'Allowed to change the network'));
 
     const radio = (await this.nmcli(['-t', '-f', 'WIFI', 'radio'])).stdout.trim();
     if (radio !== 'enabled') return fail(CHECK('radio', 'fail', 'Wi-Fi is switched off.', 'Switch Wi-Fi on in the system menu (top right) and turn flight mode off, then Try again.'));
@@ -194,12 +201,14 @@ export class Hotspot extends EventEmitter {
       .map(([name, type, state, connection]) => ({ name, type, state, connection: connection || '' }));
     const wifi = devices.filter((d) => d.type === 'wifi');
     this.set({ devices: wifi.map((d) => d.name) });
-    const dev = cfg.ifname ? wifi.find((d) => d.name === cfg.ifname) : wifi.find((d) => d.state !== 'unavailable') || wifi[0];
+    const usable = (d) => d.state !== 'unavailable' && d.state !== 'unmanaged';
+    const dev = cfg.ifname ? wifi.find((d) => d.name === cfg.ifname) : wifi.find(usable) || wifi[0];
     if (!dev) {
       return fail(cfg.ifname && wifi.length
         ? CHECK('device', 'fail', `The chosen Wi-Fi adapter (${cfg.ifname}) isn’t there.`, 'Choose another adapter in Settings → Party.')
         : CHECK('device', 'fail', 'No Wi-Fi adapter found.', 'Plug in a USB Wi-Fi adapter, or use the home Wi-Fi.'));
     }
+    if (dev.state === 'unmanaged') return fail(CHECK('device', 'fail', `NetworkManager doesn’t manage this Wi-Fi adapter (${dev.name}).`, fixForUpError('strictly unmanaged')));
     done(CHECK('device', 'ok', `Wi-Fi adapter: ${dev.name}`));
     const ap = getValues((await this.nmcli(['-g', 'WIFI-PROPERTIES.AP', 'device', 'show', dev.name])).stdout)[0];
     if (ap !== 'yes') return fail(CHECK('ap', 'fail', `This Wi-Fi adapter (${dev.name}) can’t be a hotspot.`, 'A USB Wi-Fi adapter that supports hotspot (AP) mode can.'));
@@ -234,7 +243,13 @@ export class Hotspot extends EventEmitter {
       password = makePassword();
       this.settings.update({ party: { hotspot: { password } } });
     }
-    await this.nmcli(['connection', 'delete', 'id', CONNECTION_NAME]);
+    // Deleting removes every profile of that name; if it can't, a new one with the same name
+    // would not be the one `up` picks — stop instead.
+    const del = await this.nmcli(['--wait', String(DELETE_WAIT_S), 'connection', 'delete', 'id', CONNECTION_NAME]);
+    if (del.code !== 0 && del.code !== 10) {
+      const why = nmError(del);
+      return fail(CHECK('up', 'fail', `NetworkManager couldn’t replace the earlier party hotspot: ${why}`, fixForUpError(why, cfg.band)));
+    }
     const conn = { ifname: dev.name, ssid: cfg.ssid, password, band: cfg.band };
     let added = await this.nmcli(addConnectionArgs(conn));
     if (added.code !== 0 && /ap-isolation/i.test(nmError(added))) {
@@ -244,14 +259,15 @@ export class Hotspot extends EventEmitter {
     }
     if (added.code !== 0) {
       const why = nmError(added);
-      return fail(CHECK('up', 'fail', `NetworkManager couldn’t create the hotspot: ${why}`, fixForUpError(why)));
+      return fail(CHECK('up', 'fail', `NetworkManager couldn’t create the hotspot: ${why}`, fixForUpError(why, cfg.band)));
     }
-    const wait = may.includes('auth') ? UP_WAIT_PROMPT_S : UP_WAIT_S;
-    const up = await this.nmcli(['--wait', String(wait), 'connection', 'up', 'id', CONNECTION_NAME], { timeout: (wait + 10) * 1000 });
+    const uuid = addedUuid(added.stdout);
+    const which = uuid ? ['uuid', uuid] : ['id', CONNECTION_NAME];
+    const up = await this.nmcli(['--wait', String(UP_WAIT_S), 'connection', 'up', ...which], { timeout: (UP_WAIT_S + 10) * 1000 });
     if (up.code !== 0) {
       const why = nmError(up);
-      await this.nmcli(['connection', 'delete', 'id', CONNECTION_NAME]);
-      return fail(CHECK('up', 'fail', `NetworkManager couldn’t start the hotspot: ${why}`, fixForUpError(why)));
+      await this.nmcli(['--wait', String(DELETE_WAIT_S), 'connection', 'delete', ...which]);
+      return fail(CHECK('up', 'fail', `NetworkManager couldn’t start the hotspot: ${why}`, fixForUpError(why, cfg.band)));
     }
     this.ownsConnection = true;
     done(CHECK('up', 'ok', `Hotspot “${cfg.ssid}” is on`));
@@ -319,7 +335,10 @@ export class Hotspot extends EventEmitter {
   async down() {
     if (!this.ownsConnection) return;
     this.ownsConnection = false;
-    await this.nmcli(['connection', 'down', 'id', CONNECTION_NAME]).catch(() => {});
+    // A refused deactivation prints "… deactivation failed: …" on stdout and still exits 0.
+    const res = await this.nmcli(['connection', 'down', 'id', CONNECTION_NAME]).catch(() => null);
+    if (res && res.code !== 0 && res.code !== 10) this.log?.warn(`party hotspot: couldn’t switch it off: ${nmError(res)}`);
+    else if (/deactivation failed/i.test(res?.stdout || '')) this.log?.warn(`party hotspot: couldn’t switch it off: ${res.stdout.trim().slice(0, 200)}`);
   }
 
   async doStop() {

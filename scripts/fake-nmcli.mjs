@@ -7,25 +7,26 @@
 //     const nm = fakeNmcli('home-wifi'); createApp({ hotspotRunner: nm.run }); nm.calls; nm.drop();
 //   As a program:  FAKE_NMCLI_SCENARIO=ok FAKE_NMCLI_STATE=/tmp/nm.json node scripts/fake-nmcli.mjs -t -f WIFI radio
 //
-// Scenarios: ok, home-wifi, gnome-hotspot, auth, no-nmcli, nm-stopped, no-permission, wifi-off,
-// no-device, no-ap, up-fails, no-dnsmasq, no-address, drops, firewalld, old-nm (no client
-// isolation), leftover (a party hotspot still up from an earlier run).
+// Scenarios: ok, home-wifi, gnome-hotspot, auth (a password prompt), no-session (over SSH or as
+// a service: may not share Wi-Fi), no-nmcli, nm-stopped, no-permission, wifi-off, no-device,
+// unmanaged, no-ap, up-fails, no-dnsmasq, no-address, drops, firewalld, old-nm (no client
+// isolation), leftover (a party hotspot still up from an earlier run), delete-fails (an old
+// party hotspot profile that can't be removed).
+//
+// Outputs, exit codes and messages follow NetworkManager 1.46 (checked against a real nmcli and
+// the 1.46/1.48 sources; the 1.22 property list for old-nm).
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const NM_CONTROL = 'org.freedesktop.NetworkManager.network-control';
-const NM_MODIFY = 'org.freedesktop.NetworkManager.settings.modify.system';
+// `nmcli general permissions` lists these 17, in this order.
 const PERMISSIONS = [
-  'org.freedesktop.NetworkManager.checkpoint-rollback',
-  'org.freedesktop.NetworkManager.enable-disable-connectivity-check',
-  'org.freedesktop.NetworkManager.enable-disable-network',
-  'org.freedesktop.NetworkManager.enable-disable-wifi',
-  NM_CONTROL,
-  'org.freedesktop.NetworkManager.settings.modify.own',
-  NM_MODIFY,
-  'org.freedesktop.NetworkManager.wifi.share.open',
-  'org.freedesktop.NetworkManager.wifi.share.protected',
+  'checkpoint-rollback', 'enable-disable-connectivity-check', 'enable-disable-network', 'enable-disable-statistics',
+  'enable-disable-wifi', 'enable-disable-wimax', 'enable-disable-wwan', 'network-control', 'reload',
+  'settings.modify.global-dns', 'settings.modify.hostname', 'settings.modify.own', 'settings.modify.system',
+  'sleep-wake', 'wifi.scan', 'wifi.share.open', 'wifi.share.protected',
 ];
+const perm = (st, p) => st.perms[p] || 'yes';
+const OLD_WIFI_PROPERTIES = 'ssid, mode, band, channel, bssid, rate, tx-power, mac-address, cloned-mac-address, generate-mac-address-mask, mac-address-blacklist, mac-address-randomization, mtu, seen-bssids, hidden, powersave, wake-on-wlan';
 
 const uuid = (n) => `6f1c2a3e-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
@@ -36,7 +37,7 @@ export function scenarioState(name = 'ok') {
     installed: true,
     running: true,
     version: '1.46.0',
-    permission: 'yes',
+    perms: {}, // permission → yes | no | auth (missing: yes)
     radio: 'enabled',
     devices: [
       { name: 'wlp2s0', type: 'wifi', state: 'disconnected', connection: '', ap: 'yes', address: '' },
@@ -69,12 +70,16 @@ export function scenarioState(name = 'ok') {
       st.connections.push({ name: 'Hotspot', uuid: uuid(4), type: '802-11-wireless', device: 'wlp2s0', active: true, mode: 'ap' });
       Object.assign(wifi, { state: 'connected', connection: 'Hotspot', address: '10.42.0.1/24' });
       break;
-    case 'auth': st.permission = 'auth'; break;
+    // At the desktop, not an administrator: changing system connections asks for a password.
+    case 'auth': st.perms = { 'settings.modify.system': 'auth' }; break;
+    // Over SSH or as a service of another user: prompts, and sharing Wi-Fi is never allowed.
+    case 'no-session': st.perms = { 'network-control': 'auth', 'settings.modify.system': 'auth', 'wifi.share.protected': 'no', 'wifi.share.open': 'no' }; break;
     case 'no-nmcli': st.installed = false; break;
     case 'nm-stopped': st.running = false; break;
-    case 'no-permission': st.permission = 'no'; break;
+    case 'no-permission': st.perms = { 'network-control': 'no', 'settings.modify.system': 'no', 'wifi.share.protected': 'no', 'wifi.share.open': 'no' }; break;
     case 'wifi-off': st.radio = 'disabled'; wifi.state = 'unavailable'; break;
     case 'no-device': st.devices.splice(0, 1); break;
+    case 'unmanaged': wifi.state = 'unmanaged'; break;
     case 'no-ap': wifi.ap = 'no'; break;
     case 'up-fails': st.upError = 'Connection activation failed: 802.1X supplicant took too long to authenticate'; break;
     case 'no-dnsmasq': st.upError = 'Connection activation failed: IP configuration could not be reserved (no available address, timeout, etc.)'; break;
@@ -85,6 +90,9 @@ export function scenarioState(name = 'ok') {
     case 'leftover':
       st.connections.push({ name: 'OpenKaraoke hotspot', uuid: uuid(5), type: '802-11-wireless', device: 'wlp2s0', active: true, hotspot: true, mode: 'ap' });
       Object.assign(wifi, { state: 'connected', connection: 'OpenKaraoke hotspot', address: '10.42.0.1/24' });
+      break;
+    case 'delete-fails':
+      st.connections.push({ name: 'OpenKaraoke hotspot', uuid: uuid(6), type: '802-11-wireless', device: 'wlp2s0', active: false, hotspot: true, mode: 'ap', locked: true });
       break;
     default: throw new Error(`unknown fake-nmcli scenario: ${name}`);
   }
@@ -119,11 +127,14 @@ export function runFake(st, cmd, args) {
   if (!st.running) return err(8, 'NetworkManager is not running.');
   const [object, verb, ...rest] = a;
   const wifiDev = (name) => st.devices.find((d) => d.name === name);
-  const hotspot = () => st.connections.find((c) => c.name === rest[rest.length - 1] || (rest[0] === 'id' && c.name === rest[1]));
+  // The profile named by `[id|uuid] <x>`: the first one, like nmcli (names can repeat).
+  const [selector, ref] = rest[0] === 'id' || rest[0] === 'uuid' ? rest : ['id', rest[0]];
+  const matches = () => st.connections.filter((c) => (selector === 'uuid' ? c.uuid === ref : c.name === ref));
+  const hotspot = () => matches()[0];
 
   if (object === 'general' && !verb && fields === 'RUNNING') return out('running');
   if (object === 'general' && verb === 'permissions' && fields === 'PERMISSION,VALUE') {
-    return out(PERMISSIONS.map((p) => `${esc(p)}:${p === NM_CONTROL || p === NM_MODIFY || /wifi\.share/.test(p) ? st.permission : 'yes'}`).join('\n'));
+    return out(PERMISSIONS.map((p) => `${esc(`org.freedesktop.NetworkManager.${p}`)}:${perm(st, p)}`).join('\n'));
   }
   if (object === 'radio' && fields === 'WIFI') return out(st.radio);
   if (object === 'device' && !verb && fields === 'DEVICE,TYPE,STATE,CONNECTION') {
@@ -142,40 +153,44 @@ export function runFake(st, cmd, args) {
   }
   if (object === 'connection' && verb === 'show' && fields === '802-11-wireless.mode' && getValues) {
     const c = hotspot();
-    if (!c) return err(10, 'no such connection profile.');
+    if (!c) return err(10, `${ref} - no such connection profile.`);
     return out(c.type === '802-11-wireless' ? c.mode || (c.hotspot ? 'ap' : 'infrastructure') : '');
   }
   if (object === 'connection' && verb === 'show' && fields === 'GENERAL.STATE' && getValues) {
     const c = hotspot();
-    if (!c) return err(10, 'no such connection profile.');
+    if (!c) return err(10, `${ref} - no such connection profile.`);
     if (c.active && c.hotspot && st.dropAfterPolls && ++st.polls >= st.dropAfterPolls) drop(st);
     return out(c.active ? 'activated' : '');
   }
   if (object === 'connection' && verb === 'delete') {
-    const c = hotspot();
-    if (!c) return err(10, `unknown connection '${rest[rest.length - 1]}'.\nError: cannot delete unknown connection(s): '${rest[rest.length - 1]}'.`);
-    if (c.active) deactivate(st, c);
-    st.connections = st.connections.filter((x) => x !== c);
-    return out(`Connection '${c.name}' (${c.uuid}) successfully deleted.`);
+    const all = matches(); // every profile of that name
+    if (!all.length) return err(10, `unknown connection '${ref}'.\nError: cannot delete unknown connection(s): ${selector} '${ref}'.`);
+    if (perm(st, 'settings.modify.system') === 'no' || all.some((c) => c.locked)) return err(7, 'Connection deletion failed: Insufficient privileges\nError: not all connections deleted.');
+    for (const c of all) if (c.active) deactivate(st, c);
+    st.connections = st.connections.filter((x) => !all.includes(x));
+    return out(all.map((c) => `Connection '${c.name}' (${c.uuid}) successfully deleted.`).join('\n'));
   }
   if (object === 'connection' && verb === 'add') {
     const kv = {};
     for (let i = 0; i < rest.length; i += 2) kv[rest[i]] = rest[i + 1];
     if (kv.type !== 'wifi' || !kv['con-name'] || !kv.ssid) return err(2, 'invalid connection settings.');
-    if (st.noIsolation && '802-11-wireless.ap-isolation' in kv) return err(2, "invalid property 'ap-isolation': 'ap-isolation' not among [ssid, mode, band, channel, bssid, mac-address, mtu, hidden, powersave]."); // NetworkManager < 1.28
-    if (!wifiDev(kv.ifname)) return err(10, `Device '${kv.ifname}' not found.`);
-    if (st.permission === 'no') return err(1, 'Failed to add \'' + kv['con-name'] + '\' connection: Insufficient privileges');
+    if (st.noIsolation && '802-11-wireless.ap-isolation' in kv) return err(2, `invalid property 'ap-isolation': 'ap-isolation' not among [${OLD_WIFI_PROPERTIES}].`); // NetworkManager < 1.28
+    if (perm(st, 'settings.modify.system') === 'no') return err(4, `Failed to add '${kv['con-name']}' connection: Insufficient privileges`);
+    // An unknown ifname is accepted here (the profile fails at `up`); a repeated name too.
+    const twin = st.connections.find((x) => x.name === kv['con-name']);
     const c = { name: kv['con-name'], uuid: uuid(st.nextId++), type: '802-11-wireless', device: kv.ifname, active: false, hotspot: kv['802-11-wireless.mode'] === 'ap', settings: kv };
     st.connections.push(c);
-    return out(`Connection '${c.name}' (${c.uuid}) successfully added.`);
+    return out(`Connection '${c.name}' (${c.uuid}) successfully added.`, 0, twin ? `Warning: There is another connection with the name '${c.name}'. Reference the connection by its uuid '${c.uuid}'` : '');
   }
   if (object === 'connection' && verb === 'up') {
     const c = hotspot();
-    if (!c) return err(10, `unknown connection '${rest[rest.length - 1]}'.`);
+    if (!c) return err(10, `unknown connection '${ref}'.`);
     const dev = wifiDev(c.device);
-    if (st.permission === 'no') return err(4, 'Connection activation failed: Not authorized to control networking.');
+    if (perm(st, 'network-control') === 'no') return err(4, 'Connection activation failed: Not authorized to control networking.');
+    if (c.hotspot && perm(st, 'wifi.share.protected') === 'no') return err(4, 'Connection activation failed: Not authorized to share connections via wifi.');
     if (!dev || dev.state === 'unavailable') return err(4, `Connection activation failed: No suitable device found for this connection (device ${c.device} not available because device is not available).`);
-    if (dev.ap !== 'yes' && c.hotspot) return err(4, 'Connection activation failed: Device does not support AP mode');
+    if (dev.state === 'unmanaged') return err(4, `Connection activation failed: No suitable device found for this connection (device ${c.device} not available because device is strictly unmanaged).`);
+    if (dev.ap !== 'yes' && c.hotspot) return err(4, `Connection activation failed: No suitable device found for this connection (device ${c.device} not available because profile is not compatible with device (the device does not support Access Point mode)).`);
     if (st.upError) return out('', 4, `Error: ${st.upError}\nHint: use 'journalctl -xe NM_CONNECTION=${c.uuid} + NM_DEVICE=${dev.name}' to get more details.`);
     const before = st.connections.find((x) => x.active && x.device === dev.name);
     if (before) before.active = false;

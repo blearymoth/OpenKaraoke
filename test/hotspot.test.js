@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { addConnectionArgs, getValues, makePassword, nmError, splitTerse, systemRunner, terseFields, terseRows, validIfname, validPassword, validSsid, CONNECTION_NAME } from '../server/net/nmcli.js';
+import { addConnectionArgs, addedUuid, getValues, makePassword, nmError, splitTerse, systemRunner, terseFields, terseRows, validIfname, validPassword, validSsid, CONNECTION_NAME } from '../server/net/nmcli.js';
 import { fakeNmcli, runFake, scenarioState } from '../scripts/fake-nmcli.mjs';
 import { createApp } from '../server/app.js';
 import { tmpDir } from './helpers.js';
@@ -27,6 +27,15 @@ test('nmcli terse output: escaped colons, rows, fields, lists, -g values, errors
   assert.deepEqual(getValues('\n'), []);
   assert.equal(nmError({ code: 4, stderr: "Error: Connection activation failed: No suitable device.\nHint: use 'journalctl -xe'\n" }), 'Connection activation failed: No suitable device.');
   assert.equal(nmError({ code: 3, stderr: '' }), 'nmcli failed (exit 3)');
+  // Two "Error:" lines; warnings (a version mismatch) left out.
+  assert.equal(nmError({ code: 7, stderr: "Warning: nmcli (1.46.0) and NetworkManager (1.48.0) versions don't match. Restarting NetworkManager is advised.\nError: Connection deletion failed: Insufficient privileges\nError: not all connections deleted.\n" }),
+    'Connection deletion failed: Insufficient privileges not all connections deleted.');
+  assert.equal(addedUuid("Connection 'OpenKaraoke hotspot' (5b0c2f6e-8a51-4c47-9d3e-2b1f0a9c7d11) successfully added.\n"), '5b0c2f6e-8a51-4c47-9d3e-2b1f0a9c7d11');
+  assert.equal(addedUuid('something else'), '');
+  // A 5 GHz hotspot that times out: 2.4 GHz is the fix; on 2.4 GHz it's a plain retry.
+  assert.match(fixForUpError('Connection activation failed: 802.1X supplicant took too long to authenticate', 'a'), /choose 2\.4 GHz/);
+  assert.doesNotMatch(fixForUpError('Connection activation failed: 802.1X supplicant took too long to authenticate', 'auto'), /2\.4 GHz/);
+  assert.match(fixForUpError('Connection activation failed: Not authorized to share connections via wifi.'), /desktop/);
 });
 
 test('hotspot values: name, password, adapter; the connection nmcli gets', () => {
@@ -200,7 +209,9 @@ test('Hotspot: warnings — the home Wi-Fi drops, a password prompt, firewalls',
   v = await hs.start();
   assert.equal(v.state, 'on');
   assert.equal(byId(v).permission.level, 'warn');
-  assert.ok(auth.calls.some((c) => c.join(' ') === `nmcli --wait 90 connection up id ${CONNECTION_NAME}`), 'time to type the password');
+  assert.match(byId(v).permission.fix, /within about 20 seconds/);
+  const up = auth.calls.find((c) => c[3] === 'connection' && c[4] === 'up');
+  assert.deepEqual(up, ['nmcli', '--wait', '30', 'connection', 'up', 'uuid', auth.state.connections.at(-1).uuid], 'the profile just made, by its UUID');
 
   ({ hs, nm } = await makeHotspot('gnome-hotspot'));
   v = await hs.start();
@@ -224,6 +235,9 @@ test('Hotspot: every blocking check fails with its reason and fix, and leaves no
     ['no-nmcli', 'nmcli', /isn’t installed/, /apt install network-manager/],
     ['nm-stopped', 'running', /isn’t running/, /systemctl start NetworkManager/],
     ['no-permission', 'permission', /may not change the network/, /logged in at this computer/],
+    ['no-session', 'permission', /share a Wi-Fi hotspot/, /not over SSH/],
+    ['unmanaged', 'device', /doesn’t manage this Wi-Fi adapter \(wlp2s0\)/, /unmanaged-devices/],
+    ['delete-fails', 'up', /couldn’t replace the earlier party hotspot: Connection deletion failed: Insufficient privileges not all connections deleted\./, /password/],
     ['wifi-off', 'radio', /Wi-Fi is switched off/, /flight mode/],
     ['no-device', 'device', /No Wi-Fi adapter/, /USB Wi-Fi adapter/],
     ['no-ap', 'ap', /can’t be a hotspot/, /AP\) mode/],
@@ -314,7 +328,7 @@ test('Hotspot: one start at a time; bad saved settings fall back to safe values'
 // ---- the app with a hotspot: join address, views, security (PLAN §20.3, §20.6) ----------------
 
 import { WebSocket } from '../server/vendor/ws.mjs';
-import { fetchHealth } from '../server/net/hotspot.js';
+import { fetchHealth, fixForUpError } from '../server/net/hotspot.js';
 
 const HOTSPOT_IP = '10.42.0.1';
 

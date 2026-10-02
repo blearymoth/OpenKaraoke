@@ -95,10 +95,19 @@ export function getValues(stdout) {
     .flatMap((l) => l.split(' | ')).map((v) => splitTerse(v).join(':'));
 }
 
-/** NetworkManager's own words from a failed nmcli run ("Error: …" without the "Hint: …" lines). */
+/**
+ * NetworkManager's own words from a failed nmcli run: its "Error: …" lines (some failures print
+ * two), without "Hint: …" and "Warning: …" lines (a version mismatch, a duplicate name).
+ */
 export function nmError(res) {
-  const lines = String(res?.stderr || res?.stdout || '').split('\n').map((l) => l.trim()).filter((l) => l && !/^Hint:/i.test(l));
-  return (lines.join(' ').replace(/^Error:\s*/i, '').trim() || `nmcli failed (exit ${res?.code})`).slice(0, 300);
+  const lines = String(res?.stderr || res?.stdout || '').split('\n').map((l) => l.trim())
+    .filter((l) => l && !/^(Hint|Warning):/i.test(l)).map((l) => l.replace(/^Error:\s*/i, ''));
+  return (lines.join(' ').trim() || `nmcli failed (exit ${res?.code})`).slice(0, 300);
+}
+
+/** The new profile's UUID from `nmcli connection add` ("Connection 'X' (<uuid>) successfully added."). */
+export function addedUuid(stdout) {
+  return /\(([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\) successfully added/i.exec(String(stdout || ''))?.[1] || '';
 }
 
 // ---- values ---------------------------------------------------------------------------------
@@ -137,6 +146,8 @@ export function makePassword(randomInt = crypto.randomInt) {
  * drivers), `ipv4.method shared` (NetworkManager hands out addresses and shares this PC's
  * internet when it has some) and client isolation (every guest knows the password: phones can't
  * reach each other, only this PC — NetworkManager ≥ 1.28; `isolation: false` for older ones).
+ * Band 'auto' leaves the choice to NetworkManager, which always picks a 2.4 GHz channel for an
+ * access point.
  */
 export function addConnectionArgs({ ifname, ssid, password, band = 'auto', isolation = true }) {
   if (!validIfname(ifname) || !validSsid(ssid) || !validPassword(password) || !BANDS.includes(band)) throw new Error('bad hotspot settings');

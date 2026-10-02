@@ -8,7 +8,11 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   metadata (M5), seven party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → all green (see the table below); `npm run e2e` → 9 Playwright scripts, all green.
+- `npm test` → all green (see the table below); `npm run e2e` → 10 Playwright scripts, all green
+  (the tenth, `themes.mjs`, checks the skins).
+- **Skins** (after session 3): Settings → Appearance switches every screen between **Studio**
+  (the new default, midnight navy and teal) and **Party** (the original neon look) — see
+  "Skins" below.
 - **Nothing in session 3 could touch real hardware or the internet**: the artwork providers were
   unreachable from the sandbox (parsers are tested against fixtures built from the documented
   response shapes), and sound, microphone, TV legibility and phones need the PC. Work through
@@ -201,22 +205,23 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   `:root:not([data-theme="party"])` next to the rule they adjust (grep for it). New tokens
   (`--tv-display-*`, `--kicker-*`, `--raise`, `--switch-knob-on`, `--announce-*`, `--art-scrim`,
   `--r-card`, `--singer-*`) carry Party's old values in the Party block.
-- **Party**: the original look, pixel for pixel (checked against a890418 rule by rule and on 97
-  captured screens; `test/themes.test.js` pins the values), apart from layout bugs fixed in both
-  skins: the TV intro card is a column where only the cover gives way, so the next singer's name
-  keeps its full height and the status stays on screen even with a three-line title, the logo and
-  Key/Tempo chips (the title stops at three lines; `test/e2e/artwork.mjs` checks 16:9 and 4:3,
-  counting down and waiting), three-digit countdowns fit their ring, the host's phone tab bar
-  fits without sideways scrolling and with whole labels down to 320px (below 386px the History tab
-  leaves it: tonight's history is under Queue → History, which links to the full page with New
-  party, and that page marks Queue as current) and its player row fades at the edge where it
-  scrolls, the phone search box has a short placeholder, and the songbook's join address wraps
-  instead of running into the QR code.
+- **Party**: the original look, pixel for pixel (checked against `main` at f986733 rule by rule
+  and on 112 captured screens, the More page, phone cards, photos, pass-the-mic band, duet
+  invitation and rating dock included; `test/themes.test.js` pins the values), apart from a few
+  fixes in both skins: the TV intro card's title stops at three lines, so a full card (a duet,
+  the logo, Key/Tempo chips, the countdown) keeps the singers' names whole and at full height
+  with the status on screen (`test/e2e/artwork.mjs` checks 16:9 and 4:3, counting down and
+  waiting, in both skins; the name is fitted again after a skin switch, the two display fonts
+  differ in width), three-digit countdowns fit their ring, the phone search box has a short
+  placeholder, the host's phone player row fades at the edge where it scrolls (not while the TV
+  preview, which sits in that row, is open), and the songbook's join address wraps instead of
+  running into the QR code.
   Existing parties switch to Studio; a custom `display.accent` became `appearance.accent`.
 - How: `settings.appearance` → `server/http/shell.js` writes `data-theme` into each served page
   (ETag per skin, no flash) → `public/js/lib/theme.js` follows changes live. Every skin colour is
-  a token; never hard-code one. `test/e2e/themes.mjs` saves screenshots of both skins to
-  `test-results/e2e-themes/`.
+  a token; never hard-code one (`test/themes.test.js` fails on any colour with a hue outside the
+  two skin blocks, in the CSS, the browser code and the page shells). `test/e2e/themes.mjs`
+  saves screenshots of both skins to `test-results/e2e-themes/`.
 - Owner: look at both skins on the TV from across the room and on a phone.
 
 ## Next steps

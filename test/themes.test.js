@@ -350,6 +350,47 @@ test('every token the app uses is defined (by the skins, a rule, or the code tha
   assert.deepEqual(generated.sort(), ['confetti', 'singer', 'wheel', 'wheel-ink'], 'the numbered tokens the code builds');
 });
 
+test('no colour is hard-coded outside the skin blocks (CSS and browser code)', async () => {
+  // Black, white and greys are shared on purpose (shadows, photo prints, slider thumbs, video
+  // backdrops, print pages); every colour with a hue comes from a token, so a new screen can't
+  // stay pink in Studio.
+  const hue = (r, g, b) => Math.max(r, g, b) - Math.min(r, g, b) > 12;
+  const fromHex = (h) => {
+    const x = h.length <= 5 ? [...h.slice(1, 4)].map((c) => c + c).join('') : h.slice(1, 7);
+    return [0, 2, 4].map((i) => parseInt(x.slice(i, i + 2), 16));
+  };
+  const found = [];
+  const scan = (file, text) => {
+    const code = text.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '));
+    code.split('\n').forEach((line, i) => {
+      for (const m of line.matchAll(/#[0-9a-f]{3,8}\b|rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/gi)) {
+        if (m[0].startsWith('#') && !/^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(m[0])) continue;
+        const rgb = m[0].startsWith('#') ? fromHex(m[0]) : [+m[1], +m[2], +m[3]];
+        if (hue(...rgb)) found.push(`${file}:${i + 1}: ${m[0]}`);
+      }
+    });
+  };
+  const cssDir = path.join(PUBLIC_DIR, 'css');
+  for (const f of (await fs.readdir(cssDir, { recursive: true })).filter((n) => n.endsWith('.css'))) {
+    let text = await fs.readFile(path.join(cssDir, f), 'utf8');
+    if (f === 'base.css') { // the two skin blocks are where the colours live
+      const from = text.indexOf(':root, [data-theme="studio"] {');
+      const to = text.indexOf('\n}\n', text.indexOf('[data-theme="party"] {'));
+      text = text.slice(0, from) + text.slice(from, to).replace(/[^\n]/g, ' ') + text.slice(to);
+    }
+    scan(`css/${f}`, text);
+  }
+  const jsDir = path.join(PUBLIC_DIR, 'js');
+  for (const f of (await fs.readdir(jsDir, { recursive: true })).filter((n) => n.endsWith('.js') && !n.startsWith('vendor'))) {
+    scan(`js/${f}`, await fs.readFile(path.join(jsDir, f), 'utf8'));
+  }
+  for (const f of (await fs.readdir(PUBLIC_DIR)).filter((n) => n.endsWith('.html'))) {
+    // (theme-color: the server writes the current skin's into every page, server/http/shell.js)
+    scan(f, (await fs.readFile(path.join(PUBLIC_DIR, f), 'utf8')).replace(/<meta name="theme-color"[^>]*>/, ''));
+  }
+  assert.deepEqual(found, [], 'colours to move into the skin tokens (public/css/base.css)');
+});
+
 test('base.css: Party keeps its exact old values; Studio is readable', () => {
   const party = skins.party;
   const studio = skins.studio;

@@ -340,7 +340,10 @@ body.host .toasts { bottom: 104px; }
   .player .transport { display: contents; }
   .player .buttons { grid-area: buttons; gap: 4px; }
   .player .seek { grid-area: seek; }
-  .player .controls { grid-area: controls; justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; gap: 8px; padding-bottom: 2px; scrollbar-width: none; padding-right: 28px; -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); } /* the row scrolls sideways: its right edge fades out */
+  .player .controls { grid-area: controls; justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; gap: 8px; padding-bottom: 2px; scrollbar-width: none; padding-right: 28px; }
+  /* the row scrolls sideways: its right edge fades out — not while the TV preview is open, which
+     sits inside the row (a mask would hide it too) */
+  .player .controls:not(:has(> .tv-preview)) { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
   .player .controls::-webkit-scrollbar { display: none; }
   .player .controls > * { flex: none; }
   .play-btn { width: 42px; height: 42px; }

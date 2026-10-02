@@ -657,6 +657,77 @@ test('TV CSS: Studio TV text is never in the faintest ink', () => {
   }
 });
 
+test('TV CSS: Studio game screens add no glow that drops their text below 7:1', () => {
+  const studio = skins.studio;
+  // A game screen (.g-tv) lies over the TV's background (a picture or the aurora) unless its own
+  // background ends in a solid colour; a glow it adds (the quiz's at the top; the recap's below the
+  // screen, which Studio leaves out) lifts what is under its text. Checked at the glow's strongest
+  // stop, over every backdrop.
+  const tok = (name) => { assert.ok(studio.has(name), name); return studio.get(name); };
+  const rgbOf = (name) => `#${tok(`${name}-rgb`).split(',').map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+  const colour = (s) => { // a colour stop as [#rrggbb, alpha]
+    let m = /^color-mix\(in srgb, var\((--[\w-]+)\) (\d+)%, transparent\)/.exec(s);
+    if (m) return [tok(m[1]), Number(m[2]) / 100];
+    m = /^rgba\(var\((--[\w-]+)-rgb\), ([\d.]+)\)/.exec(s);
+    if (m) return [rgbOf(m[1]), Number(m[2])];
+    m = /^(#[0-9a-f]{6})\b/.exec(s);
+    if (m) return [m[1], 1];
+    if (/^transparent\b/.test(s)) return ['#000000', 0];
+    assert.fail(`a Studio game-screen background stop to check by hand: ${s}`);
+  };
+  const screens = tvRules.flatMap((r) => (Object.hasOwn(r.decls, 'background') ? r.selectors.filter((s) => /\.g-tv\b/.test(s) && !s.startsWith(STUDIO_ONLY)) : []));
+  assert.ok(screens.includes('.g-tv.quiz') && screens.includes('.g-tv.recap'), `found the game screens with a background (${screens.join(', ')})`);
+  for (const sel of screens) {
+    const rule = studioOverride(sel, 'background') ?? tvRules.find((r) => r.selectors.includes(sel) && Object.hasOwn(r.decls, 'background'));
+    let value = rule.decls.background;
+    for (let m; (m = /^var\((--[\w-]+)\)$/.exec(value));) value = tok(m[1]);
+    if (value === 'none') continue;
+    const layers = splitTop(value).reverse(); // bottom layer first
+    const solid = /^(?:var\((--[\w-]+)\)|(#[0-9a-f]{6}))$/.exec(layers[0]);
+    const backs = solid ? { [layers.shift()]: solid[1] ? tok(solid[1]) : solid[2] } : studioTvBackdrops();
+    for (const [what, back] of Object.entries(backs)) {
+      const bg = layers.reduce((under, layer) => {
+        const g = /^(?:radial|linear)-gradient\((.*)\)$/.exec(layer);
+        assert.ok(g, `${sel}: a Studio background layer to check by hand: ${layer}`);
+        const stops = splitTop(g[1]).filter((s) => !/^(?:\d|ellipse|circle|at |to )/.test(s)).map(colour);
+        const [c, a] = stops.reduce((p, q) => (q[1] > p[1] ? q : p));
+        return blend(c, under, a);
+      }, back);
+      for (const ink of ['--ink', '--ink-2', '--bulb']) {
+        const r = contrast(studio.get(ink), bg);
+        assert.ok(r >= 7, `Studio ${sel} (${rule.file}): ${ink} on ${value} over ${what}: ${r.toFixed(2)}`);
+      }
+    }
+  }
+});
+
+test('TV CSS: Studio’s title card and ticker are opaque under their text (they sit over the lyrics or a video)', () => {
+  const studio = skins.studio;
+  const rgbOf = (name) => `#${studio.get(`${name}-rgb`).split(',').map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+  // While a song starts, the singer's name and the song's title and artist slide in over the bottom
+  // lyric line (or a video): the band fades out only in its right padding, never under the text.
+  const card = tvRules.find((r) => r.selectors.includes('.titlecard') && Object.hasOwn(r.decls, 'padding'));
+  const pad = card.decls.padding.split(/\s+/);
+  const right = pad[1] ?? pad[0];
+  const band = studioOverride('.titlecard', 'background')?.decls.background ?? '';
+  const m = /^linear-gradient\(90deg, rgba\(var\((--[\w-]+)-rgb\), ([\d.]+)\) calc\(100% - ([\d.]+v[wh])\), rgba\(var\(\1-rgb\), 0\)\)$/.exec(band);
+  assert.ok(m, `Studio .titlecard: a band that fades out only at its right end (${band || 'no Studio rule'})`);
+  assert.equal(m[3], right, `the fade is the card's right padding (${right})`);
+  const over = blend(rgbOf(m[1]), '#ffffff', Number(m[2])); // over white lyrics or a white video frame
+  for (const ink of ['--ink', '--ink-2']) {
+    const r = contrast(studio.get(ink), over);
+    assert.ok(r >= 7, `Studio title card: ${ink} on its band over white: ${r.toFixed(2)}`);
+  }
+  // the ticker along the bottom (who's next) lies over a video's frame: an even band, no fade
+  const ticker = studioOverride('.ticker', 'background')?.decls.background ?? '';
+  const t = /^rgba\(var\((--[\w-]+)-rgb\), ([\d.]+)\)$/.exec(ticker);
+  assert.ok(t, `Studio .ticker: an even band (${ticker || 'no Studio rule'})`);
+  for (const ink of ['--ink', '--ink-2', '--bulb']) {
+    const r = contrast(studio.get(ink), blend(rgbOf(t[1]), '#ffffff', Number(t[2])));
+    assert.ok(r >= 7, `Studio ticker: ${ink} on its band over white: ${r.toFixed(2)}`);
+  }
+});
+
 test('singers’ colours: stored as one of COLORS, drawn by the skin', () => {
   COLORS.forEach((c, i) => {
     assert.equal(singerColor(c), `var(--singer-${i + 1})`);

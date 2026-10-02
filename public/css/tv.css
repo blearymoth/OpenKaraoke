@@ -144,6 +144,10 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
   background: linear-gradient(90deg, rgba(var(--night-rgb), 0.94) 60%, rgba(var(--night-rgb), 0));
   animation: card-in 0.7s var(--ease) both, card-out 0.6s ease 6.5s forwards;
 }
+/* Studio: the band stays opaque under all of its text and fades out only in its right padding (8vw).
+   It sits over the bottom lyric line: with the fade from 60%, a long artist line ran onto the
+   see-through part, over the lyrics, and fell below 7:1. */
+:root:not([data-theme="party"]) .titlecard { background: linear-gradient(90deg, rgba(var(--night-rgb), 0.94) calc(100% - 8vw), rgba(var(--night-rgb), 0)); }
 .titlecard .avatar { width: 9vh; height: 9vh; font-size: 5.4vh; }
 .titlecard .tc-cover { width: 11vh; height: 11vh; border-radius: 1.2vh; object-fit: cover; flex: none; box-shadow: 0 1vh 3vh rgba(0, 0, 0, 0.6); }
 .titlecard .tc-cover + .avatar { margin-left: -5vh; align-self: flex-end; width: 6.5vh; height: 6.5vh; font-size: 4vh; }
@@ -157,6 +161,9 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .corner-qr span { font-family: var(--font-display); font-weight: 800; font-size: 2.6vh; letter-spacing: 0.16em; }
 
 .ticker { position: absolute; left: 0; right: 0; bottom: 0; height: 7vh; display: flex; align-items: center; gap: 2.4vh; padding: 0 2.5vw; background: linear-gradient(0deg, rgba(var(--deep-rgb), 0.92), rgba(var(--deep-rgb), 0.55)); font-size: 2.8vh; white-space: nowrap; overflow: hidden; }
+/* Studio: an even band, like the title card's: over a bright video frame the fade (0.55 at its top)
+   let the light through and the names fell below 7:1 */
+:root:not([data-theme="party"]) .ticker { background: rgba(var(--deep-rgb), 0.94); }
 .ticker .label { color: var(--bulb); font-weight: 800; flex: none; }
 .ticker .names { display: flex; gap: 3vh; min-width: 0; overflow: hidden; }
 .ticker .names span { display: inline-flex; gap: 1vh; align-items: center; }

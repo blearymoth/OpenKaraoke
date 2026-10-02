@@ -453,6 +453,33 @@ try {
     await shot(tv, `${skin}-tv-singing`);
     await shot(host, `${skin}-host-playing`);
     await shot(guest, `${skin}-guest-playing`);
+    // the title card (its first 6.5 s) lies over the bottom lines of the lyrics: in Studio its band is
+    // opaque under the singer's name, the title and the artist
+    if (skin === 'studio') {
+      check(await tv.$('.titlecard') !== null, 'studio: the title card is up while the song starts');
+      const hold = (on) => tv.evaluate((p) => { for (const a of document.getAnimations()) if (a.animationName === 'card-out') p ? a.pause() : a.play(); }, on);
+      await hold(true); // (it stays up while the lyrics draw)
+      // the lyrics have a line under the end of the "title by artist" line (where Party's band fades out)
+      const underCard = await tv.waitForFunction(() => {
+        const cv = document.getElementById('cdg');
+        const line = document.querySelector('.titlecard .ellipsis > span');
+        if (!cv || !line) return false;
+        const a = line.getBoundingClientRect();
+        const c = cv.getBoundingClientRect();
+        const [sx, sy] = [cv.width / c.width, cv.height / c.height];
+        const x0 = Math.max(0, Math.floor((a.left + a.width * 0.6 - c.left) * sx));
+        const y0 = Math.max(0, Math.floor((a.top - c.top) * sy));
+        const w = Math.min(cv.width, Math.ceil((a.right - c.left) * sx)) - x0;
+        const h = Math.min(cv.height, Math.ceil((a.bottom - c.top) * sy)) - y0;
+        if (w <= 0 || h <= 0) return false;
+        const d = cv.getContext('2d').getImageData(x0, y0, w, h).data;
+        for (let o = 0; o < d.length; o += 4) if (d[o + 3] > 200 && d[o] + d[o + 1] + d[o + 2] > 300) return true;
+        return false;
+      }, null, { timeout: 8000, polling: 100 }).then(() => true, () => false);
+      check(underCard, 'studio: the lyrics have a line under the title card’s artist line');
+      await tvTextOver(tv, 'TV singing: the title card over the lyrics');
+      await hold(false);
+    }
   }
   await hostReq('player.next'); // skipped: into tonight's history
   await tv.waitForSelector('.lobby');

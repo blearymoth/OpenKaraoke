@@ -192,7 +192,10 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   a white cover or photo (a guest's new photo still shows bright first, in its frame); panels and
   rows on the TV (up-next chips, the queue board, game results, leaderboards, the recap's rows)
   are a navy surface, never a white wash, which would lift a bright picture under their text
-  (highlighted rows a lighter navy), and the recap has no accent glow under its slides, deep
+  (highlighted rows a lighter navy), the recap has no accent glow under its slides, the title
+  card that slides in while a song starts (over the bottom lyric line) is opaque under all of its
+  text and fades out only in its right padding, and the ticker is an even band (it lies over a
+  video's frame), deep
   game-show quiz colours (wine, royal blue, ochre, emerald — white labels and artist lines 7–11:1
   on the TV, 5.7:1 on ochre; on phones the artist line is at 85%, 4.6:1 or more; four lightness
   steps L* 24/31/37/43 so they differ in grey too, always with the ▲◆●■ shapes) and a 12-colour
@@ -204,9 +207,11 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   segments). Singers' colours: guests pick one of ten; Studio draws them as calm pastels and
   cobalt (`--singer-1…10`; Party shows its neon ones, the stored value is the same). TV text is
   never the faintest ink (`test/themes.test.js` checks the 7:1 cases: white pictures, a white-cover
-  mosaic, the aurora, every TV panel's fill over each of them, and that no TV rule in ink-3 or a
-  white wash lacks its Studio counterpart; `test/e2e/themes.mjs` checks the TV screens, and measures
-  the lobby, intro and queue board pixel by pixel over a white guest photo and the swept aurora).
+  mosaic, the aurora, every TV panel's fill and every game screen's own glow over each of them, the
+  title card's and the ticker's bands over white lyrics or video, and that no TV rule in ink-3 or a
+  white wash lacks its Studio counterpart; `test/e2e/themes.mjs` checks the TV screens, and
+  measures the lobby, intro and queue board pixel by pixel over a white guest photo and the swept
+  aurora, and the title card over the lyrics).
   Disabled buttons go neutral grey, a switch that is
   on has a dark knob, the current bottom tab has a pill behind its icon, losing quiz answers and
   wheel segments turn into quiet navy tiles (7:1 on the TV; the winning segment keeps its colour,

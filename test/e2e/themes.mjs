@@ -493,6 +493,16 @@ try {
       });
       check(!badge.meet && badge.fill !== 'rgba(0, 0, 0, 0)', `studio: a mirror screen’s badge is on a chip of its own (${badge.fill}), clear of the ticker’s message (${badge.gap} px)`);
       await shot(mirror, 'studio-tv-mirror-singing');
+      // a portrait (9:16) mirror: the message gives way instead of running under the badge
+      await mirror.setViewportSize({ width: 720, height: 1280 });
+      await sleep(300);
+      const tall = await mirror.evaluate(() => {
+        const a = document.querySelector('.mirror-badge').getBoundingClientRect();
+        const b = document.querySelector('.ticker .message').getBoundingClientRect();
+        return { meet: a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom, gap: Math.round(a.left - b.right) };
+      });
+      check(!tall.meet, `studio: on a portrait mirror the ticker's message stays clear of the badge (${tall.gap} px)`);
+      await shot(mirror, 'studio-tv-mirror-portrait');
       await mirror.close();
       await hostReq('settings.update', { patch: { display: { tickerMessage: '' } } });
     }

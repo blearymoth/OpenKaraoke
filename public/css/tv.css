@@ -213,6 +213,7 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .start .big-btn .icon { width: 10vh; height: 10vh; margin-left: 1.5vh; }
 .start h2 { font-size: 6vh; }
 .start p { font-size: 2.8vh; color: var(--ink-2); max-width: 60ch; }
+:root:not([data-theme="party"]) .start { background: rgba(var(--shade-rgb), 0.9); } /* Studio: its ink-2 line holds 7:1 even over a white video frame */
 @keyframes pulse { 50% { box-shadow: var(--glow), 0 0 0 4vh transparent; } }
 
 .conn-lost { position: absolute; top: 2vh; left: 50%; transform: translateX(-50%); z-index: 9; padding: 1.2vh 2.6vh; border-radius: 99vh; background: var(--bad-bg); color: var(--bad-bg-ink); font-weight: 700; font-size: 2.4vh; }
@@ -222,6 +223,7 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
    would otherwise run under it. */
 :root:not([data-theme="party"]) .mirror-badge { padding: 0.3vh 1vh; border-radius: 99vh; background: rgba(var(--night-rgb), 0.94); }
 :root:not([data-theme="party"]) #app:has(.mirror-badge) .ticker { padding-right: calc(1vw + 23vh); }
+:root:not([data-theme="party"]) #app:has(.mirror-badge) .ticker .message { flex: 0 1 auto; min-width: 0; } /* a narrow (portrait) TV: the message gives way, ending in … */
 
 .help { position: absolute; inset: 0; z-index: 11; display: grid; place-items: center; background: rgba(var(--shade-rgb), 0.8); }
 .help div { display: grid; grid-template-columns: auto auto; gap: 1.4vh 4vh; padding: 5vh 6vh; border-radius: 3vh; background: var(--stage); font-size: 2.8vh; }

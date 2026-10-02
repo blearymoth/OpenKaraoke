@@ -752,6 +752,8 @@ test('TV CSS: Studio’s reaction names, mirror badge and pass-the-mic bands hol
   // "Mirror display (muted)" in a corner of a mirror screen: in ink-2, on a video's frame when there is no ticker
   assert.equal(studioOverride('.mirror-badge', 'color')?.decls.color, 'var(--ink-2)');
   overWhite('mirror badge', studioOverride('.mirror-badge', 'background')?.decls.background ?? '', ['--ink-2']);
+  // "Click to start" when the TV may not play sound yet: its ink-2 line over whatever the TV showed.
+  overWhite('start overlay', studioOverride('.start', 'background')?.decls.background ?? '', ['--ink', '--ink-2']);
   // "PASS THE MIC ➜ name": along the top edge while a song plays (over a video's frame), across the
   // middle between songs; the band fades out only within its side padding, never under its text
   // (test/e2e/game-party.mjs: its text stays inside that padding).

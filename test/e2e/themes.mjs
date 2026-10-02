@@ -220,8 +220,15 @@ try {
     await hostPhone.waitForSelector('.skin-card');
     await shot(hostPhone, `${skin}-host-phone-appearance`);
     scrollChecks.push([`${skin}: host phone`, await noSideways(hostPhone)]);
-    // narrower phones: every visible bottom tab keeps its whole label, and the current tab's pill fits
-    for (const width of [375, 360, 320]) {
+    // narrower phones: every visible bottom tab keeps its whole label, and the current tab's pill fits;
+    // below 386px History (not Home) leaves the bar and stays reachable under Queue → History
+    const tabsAt = async (hash) => {
+      await hostPhone.evaluate((h) => { location.hash = h; }, hash);
+      await sleep(250);
+      return hostPhone.evaluate(() => [...document.querySelectorAll('.nav a')].filter((a) => getComputedStyle(a).display !== 'none')
+        .map((a) => `${a.querySelector('span:not(.badge)').textContent}${a.classList.contains('on') && a.getAttribute('aria-current') === 'page' ? '*' : ''}`).join(' '));
+    };
+    for (const width of [390, 375, 360, 320]) {
       await hostPhone.setViewportSize({ width, height: 760 });
       await sleep(200);
       const cut = await hostPhone.evaluate(() => [...document.querySelectorAll('.nav a')].filter((a) => getComputedStyle(a).display !== 'none').flatMap((a) => {
@@ -231,6 +238,23 @@ try {
       }));
       check(cut.length === 0, `${skin}: host phone at ${width}px: whole tab labels${cut.length ? ` (cut: ${cut.join(', ')})` : ''}`);
       scrollChecks.push([`${skin}: host phone at ${width}px`, await noSideways(hostPhone)]);
+      const narrow = width < 386;
+      const home = await tabsAt('#/');
+      const expected = `Home* Search Artists Playlists Games Photos${narrow ? '' : ' History'} Settings Queue`;
+      check(home === expected, `${skin}: host phone at ${width}px: Home is in the tab bar and marked current on Home${home === expected ? '' : ` (${home})`}`);
+      const historyPage = await tabsAt('#/history');
+      check(historyPage.includes(narrow ? 'Queue*' : 'History*') && historyPage.split('*').length === 2, `${skin}: host phone at ${width}px: the history page marks ${narrow ? 'Queue' : 'History'} as current (${historyPage})`);
+      await tabsAt('#/queue');
+      await hostPhone.click('.queue-page .tabs button:has-text("History")');
+      await sleep(150);
+      const link = await hostPhone.$eval('.queue-page .history-page-link', (a) => getComputedStyle(a).display !== 'none' && a.getBoundingClientRect().width > 0);
+      check(link === narrow, `${skin}: host phone at ${width}px: Queue → History ${narrow ? 'links' : 'does not link'} to the full history page`);
+      if (narrow && width === 375) {
+        await hostPhone.click('.queue-page .history-page-link');
+        await hostPhone.waitForSelector('.page-head h1:has-text("history")');
+        check((await hostPhone.$$('.page-head button:has-text("New party")')).length === 1, `${skin}: host phone at ${width}px: the link opens the history page with New party`);
+      }
+      await tabsAt('#/settings/appearance');
     }
     await hostPhone.setViewportSize({ width: 390, height: 844 });
     await guest.click('.g-tabs button:has-text("Home")');

@@ -200,8 +200,9 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   keeps its full height and the status stays on screen even with a three-line title, the logo and
   Key/Tempo chips (the title stops at three lines; `test/e2e/artwork.mjs` checks 16:9 and 4:3,
   counting down and waiting), three-digit countdowns fit their ring, the host's phone tab bar
-  fits without sideways scrolling and with whole labels down to 320px (below 386px the Home tab
-  leaves it: the logo at the top goes home) and its player row fades at the edge where it
+  fits without sideways scrolling and with whole labels down to 320px (below 386px the History tab
+  leaves it: tonight's history is under Queue → History, which links to the full page with New
+  party, and that page marks Queue as current) and its player row fades at the edge where it
   scrolls, the phone search box has a short placeholder, and the songbook's join address wraps
   instead of running into the QR code.
   Existing parties switch to Studio; a custom `display.accent` became `appearance.accent`.

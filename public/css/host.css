@@ -156,6 +156,7 @@ body.host { overflow: hidden; }
 .now-card-label { font-size: 12px; font-weight: 800; color: var(--neon); }
 .now-card-singer { font-family: var(--font-display); font-weight: 750; font-size: 19px; }
 .q-summary { font-size: 13px; padding: 0 4px; }
+.history-page-link { display: none; justify-self: start; } /* shown on narrow phones, which have no History tab */
 .q-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .q-item { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 6px 8px 4px; border-radius: var(--r-md); background: var(--stage); border: 1px solid transparent; }
 .q-item:hover { border-color: var(--line); }
@@ -360,9 +361,10 @@ body.host .toasts { bottom: 104px; }
   .nav a > span:not(.badge) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 @media (max-width: 385px) {
-  /* narrower phones (375, 360, 320px): Home leaves the tab bar (the logo at the top goes home), so the
-     other eight labels fit whole */
-  .nav a.tab-home { display: none; }
+  /* narrower phones (375, 360, 320px): History leaves the tab bar so the other eight labels fit whole;
+     tonight's history stays one tap away under Queue → History, which links to the full page */
+  .nav a.tab-history { display: none; }
+  .history-page-link { display: inline-flex; }
 }
 @media (max-width: 340px) {
   .nav a { font-size: 9.5px; }

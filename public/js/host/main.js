@@ -16,7 +16,7 @@ import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
 import { followAppearance } from '../lib/theme.js';
 
 const NAV = [
-  ['/', 'home', 'Home', 'tab-home'],
+  ['/', 'home', 'Home'],
   ['/search', 'search', 'Search'],
   ['/artists', 'mic', 'Artists'],
   ['/tags', 'tag', 'Collections'],
@@ -25,7 +25,7 @@ const NAV = [
   ['/singers', 'users', 'Singers'],
   ['/games', 'game', 'Games'],
   ['/photos', 'eye', 'Photos'],
-  ['/history', 'history', 'History'],
+  ['/history', 'history', 'History', 'tab-history'],
   ['/settings', 'settings', 'Settings'],
   ['/queue', 'list', 'Queue', 'mobile-only'],
 ];
@@ -83,7 +83,10 @@ function TopBar({ route }) {
 
 function Nav({ route }) {
   const { state } = useStore(store);
-  const section = { artist: 'artists', tag: 'tags', genre: 'tags', decade: 'tags' }[route.parts[0]] || route.parts[0] || '';
+  // narrow phones (≤ 385px, see host.css) have no History tab: its page belongs to Queue there, whose
+  // History sub-tab links to it
+  const narrow = useMedia('(max-width: 385px)');
+  const section = { artist: 'artists', tag: 'tags', genre: 'tags', decade: 'tags', ...(narrow && { history: 'queue' }) }[route.parts[0]] || route.parts[0] || '';
   const active = `/${section}`;
   return html`<nav class="nav" aria-label="Main">
     ${NAV.map(([path, icon, label, cls]) => html`<a class=${`${active === path ? 'on' : ''} ${cls || ''}`} href=${`#${path}`} aria-current=${active === path ? 'page' : undefined}>

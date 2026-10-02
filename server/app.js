@@ -191,6 +191,7 @@ function pageRoutes(router, app) {
   router.get('/j', shell('guest.html'));
   router.get('/j/:code', shell('guest.html'));
   router.get('/guest', shell('guest.html'));
+  router.get('/mictest', shell('mictest.html')); // mic latency test (docs/HANDOFF.md, owner checklist)
   const folder = (dir) => async ({ req, res, params }) => {
     if (!(await serveStatic(req, res, dir, params.rest))) throw new HttpError(404, 'Not found');
   };

@@ -160,6 +160,15 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
     on this repository) → it finds the latest release; after the next push to `main` (and the
     workflow's run, ≈10 min) **Download and install** → the password prompt (rpm) → **Restart
     now**. The data in `~/.config/OpenKaraoke` stays.
+14. **Mic latency test** (decides whether software mic effects are worth building): open
+    `http://localhost:6527/mictest` (or the link at the bottom of the start page) in Chrome or
+    the desktop app, pick the real mic and the speakers the party uses, then **Measure** (six
+    clicks; mic ≈30 cm from a speaker, quiet room). Try each "Audio buffer" setting and, if you
+    can, the TV/HDMI output and Bluetooth too. Then **Start listening** and sing with Dry and
+    Reverb; raise "Extra delay" to find where it gets distracting. Paste **Copy results** for
+    the next session. Rule of thumb: < 22 ms round trip → build effects into the TV's audio
+    engine; 22–35 ms → only with reverb/echo; above → leave live mic sound to a mixer or
+    PipeWire (EasyEffects/filter-chain) and use the browser mic only for scoring.
 
 ## How it fits together (new in session 3)
 - `server/app.js` wires `ArtworkService` (`server/artwork/service.js`) next to the library;
@@ -339,7 +348,9 @@ dependencies and still runs with `node server/index.js`).
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, optional
-  ffmpeg transcoding for AVI/WMV/MPG, mic monitoring with reverb on the PC.
+  ffmpeg transcoding for AVI/WMV/MPG, mic monitoring with reverb on the PC (decide with the
+  `/mictest` results, checklist item 14; the page's graph — mic → volume → dry + reverb/echo
+  sends — is the starting point for an effects chain in `audio-engine.js`).
 - README screenshots (the e2e scripts already save screenshots to `test-results/`).
 - Performance pass on the real library: catalog rebuild in a worker thread (below), memory
   during the first artwork crawl.

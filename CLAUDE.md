@@ -75,7 +75,8 @@ Server (`server/`)
 
 Shared (`shared/`, imported by server and browser): `text.js`, `cdg.js` (CD+G decoder,
 Scale2x, RGBA), `protocol.js` (constants: channel modes, key/tempo ranges, reactions,
-avatars, denial messages), `themes.js` (the skins' ids/names, validation of `settings.appearance`).
+avatars, denial messages), `themes.js` (the skins' ids/names, validation of `settings.appearance`),
+`latency.js` (click + onset detection for the mic latency test).
 
 Browser (`public/`, plain ES modules, Preact + htm)
 - `tv.html` + `js/tv/` — `controller.js` (follows server state, owns the media clock, reports
@@ -85,6 +86,8 @@ Browser (`public/`, plain ES modules, Preact + htm)
 - `host.html` + `js/host/` — `main.js` (shell, routes, PIN screen, shortcuts), `state.js`,
   `player.js`, `queue.js`, `views.js`, `dialogs.js`, `settings.js`.
 - `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts.
+- `mictest.html` + `js/mictest/` — `/mictest`: measured mic→speaker round trip (recorder
+  worklet), listen-through with reverb/echo and extra delay, the browser's latency figures.
 - `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`,
   `components.js`, `icons.js`, `theme.js` (follows the skin live, `token()` for code that needs
   a colour). CSS: `css/base.css` (the two skins' tokens + components), `host.css`, `tv.css`, `guest.css`.

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a1120">
+  <title>Mic test · OpenKaraoke</title>
+  <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/mictest.css">
+</head>
+<body class="mictest">
+  <main>
+    <header>
+      <a class="back" href="/">← OpenKaraoke</a>
+      <h1>Mic latency test</h1>
+      <p class="lead">Can this PC run the microphones through software effects (reverb, echo) without singers
+        hearing themselves late? This page measures the real delay from the mic, through the browser, out of
+        your speakers and back. Open it on the PC that will play the party, with the speakers you will use.</p>
+    </header>
+
+    <section class="panel" id="setup">
+      <h2>Setup</h2>
+      <div class="fields">
+        <label class="field"><span>Microphone</span><select class="select" id="mic"><option value="">Default microphone</option></select></label>
+        <label class="field" id="speaker-field"><span>Speakers</span><select class="select" id="speaker"><option value="">Default output</option></select></label>
+        <label class="field"><span>Audio buffer</span>
+          <select class="select" id="buffer">
+            <option value="0">Smallest the system allows</option>
+            <option value="interactive" selected>Interactive (browser default)</option>
+            <option value="balanced">Balanced</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint" id="setup-hint">The browser asks for the microphone the first time. Pick the mic and speakers you'll use at the party; Bluetooth and TV speakers add a lot of delay.</p>
+      <p class="error" id="setup-error" hidden></p>
+    </section>
+
+    <section class="panel" id="measure">
+      <h2><span class="step">1</span> Measure the delay</h2>
+      <p>Turn the speakers to a normal party volume, hold the mic about 30&nbsp;cm from a speaker and keep the room quiet.
+        The test plays six short clicks and listens for each one.</p>
+      <div class="row">
+        <button class="btn primary large" id="measure-btn" type="button">Measure</button>
+        <span class="progress" id="measure-progress" aria-live="polite"></span>
+      </div>
+      <div class="result" id="result" hidden>
+        <div class="big"><span id="result-ms">–</span><small> ms round trip</small></div>
+        <div class="verdict" id="verdict"></div>
+        <p class="hint" id="result-detail"></p>
+      </div>
+    </section>
+
+    <section class="panel" id="listen">
+      <h2><span class="step">2</span> Hear yourself</h2>
+      <p>Sends the mic straight to the speakers, the way live effects would. Sing a few lines and judge the delay by ear.
+        <strong class="caution">Keep the mic away from the speakers, or use headphones: a mic pointed at a speaker howls.</strong></p>
+      <div class="row">
+        <button class="btn primary large" id="listen-btn" type="button">Start listening</button>
+        <div class="meter" aria-hidden="true"><div class="meter-fill" id="meter"></div></div>
+      </div>
+      <div class="controls">
+        <label class="field"><span>Mic volume <output id="volume-out">70 %</output></span>
+          <input type="range" id="volume" min="0" max="150" step="1" value="70"></label>
+        <label class="field"><span>Extra delay <output id="delay-out">0 ms</output></span>
+          <input type="range" id="delay" min="0" max="120" step="1" value="0"></label>
+        <div class="field"><span>Effect</span>
+          <div class="chips" role="radiogroup" aria-label="Effect">
+            <button class="chip on" type="button" data-fx="dry" role="radio" aria-checked="true">Dry</button>
+            <button class="chip" type="button" data-fx="reverb" role="radio" aria-checked="false">Reverb</button>
+            <button class="chip" type="button" data-fx="echo" role="radio" aria-checked="false">Echo</button>
+          </div>
+        </div>
+      </div>
+      <p class="hint">“Extra delay” adds delay on purpose, so you can feel how much a singer tolerates before it gets distracting.</p>
+    </section>
+
+    <section class="panel" id="report">
+      <h2>What the browser reports</h2>
+      <dl class="facts" id="facts"></dl>
+      <p class="hint">The browser's own estimate only covers its buffers. The measured round trip also includes drivers,
+        HDMI/TV sound processing, Bluetooth and the distance between mic and speaker (about 3&nbsp;ms per metre).</p>
+      <div class="row">
+        <button class="btn" id="copy-btn" type="button">Copy results</button>
+        <span class="hint" id="copy-done" aria-live="polite"></span>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="/js/mictest/main.js"></script>
+</body>
+</html>

@@ -158,8 +158,8 @@
   --aurora-1: #10606a;
   --aurora-2: #1b3768;
   --aurora-3: #2d3f80;
-  --aurora-opacity: 0.45;
-  --aurora-3-opacity: 0.25;
+  --aurora-opacity: 0.2; /* the drifting blobs behind TV text (visualizer, games, a lobby without covers): faint */
+  --aurora-3-opacity: 0.16; /* enough that ink-2 keeps 7:1 where all three overlap (test/themes.test.js) */
   --art-bg-filter: blur(7vh) saturate(1) brightness(0.4); /* covers at full colour. Every picture behind TV text (covers, */
   --art-scrim: 0.65; /* artist photos, guests' photos) is dimmed to brightness 0.4, then darkened by this scrim at its */
   --fanart-filter: brightness(0.4) saturate(0.95); /* centre (edges: 0.72), so ink-2 text keeps 7:1 (the TV's target) */
@@ -185,7 +185,7 @@
   --confetti-4: #e8eef7;
   --confetti-5: #b59be6;
   --confetti-6: #f08f83;
-  --podium-gold: linear-gradient(180deg, var(--bulb), #a77a2c);
+  --podium-gold: linear-gradient(180deg, var(--bulb), #cc9e52); /* the winner's block: its number (--bulb-ink) 7:1 top to bottom */
   --meter-lo: #82d67a;
   --meter-mid: #e8c07a;
   --meter-hi: #f4757e;

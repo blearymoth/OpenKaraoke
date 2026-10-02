@@ -455,6 +455,14 @@ test('base.css: Studio TV text holds 7:1 (read across a room), even over a white
     assert.ok(r >= (i === 3 ? 5.7 : 7), `Studio white on answer ${i} on the TV: ${r.toFixed(2)}`);
   }
   assert.ok(contrast(studio.get('--ink-2'), studio.get('--stage-2')) >= 7, 'Studio losing answers on the TV');
+  // the podium's winning block (quiz, recap): its number in --bulb-ink, from the top of the gradient to the bottom
+  const podium = /^linear-gradient\(180deg, (.+)\)$/.exec(studio.get('--podium-gold'));
+  assert.ok(podium, 'Studio --podium-gold is a top-to-bottom gradient');
+  for (const s of splitTop(podium[1])) {
+    const c = /^var\((--[\w-]+)\)$/.test(s) ? studio.get(/^var\((--[\w-]+)\)$/.exec(s)[1]) : s;
+    const r = contrast(studio.get('--bulb-ink'), c);
+    assert.ok(r >= 7, `Studio podium number on ${c}: ${r.toFixed(2)}`);
+  }
   // The roulette wheel's labels (song titles, names, dares) on every segment, and after the spin:
   // the winner keeps its colour (not lightened), the others turn into navy tiles (games/wheel.css).
   for (let i = 1; i <= 12; i++) {
@@ -469,6 +477,184 @@ test('base.css: Studio TV text holds 7:1 (read across a room), even over a white
   assert.ok(loserTile && loserInk, 'Studio draws the losing segments with skin tokens');
   assert.ok(contrast(studio.get(loserInk), studio.get(loserTile)) >= 7, `Studio losing wheel labels (${loserInk} on ${loserTile}): ${contrast(studio.get(loserInk), studio.get(loserTile)).toFixed(2)}`);
   assert.match(studioRule('.wheel.has-result .wheel-seg.win path'), /filter: none/, 'Studio does not lighten the winning segment');
+});
+
+// ---- Studio TV: what sits behind the text -----------------------------------------------------------
+
+const tvCssFiles = ['tv.css', 'games.css', ...(await fs.readdir(path.join(PUBLIC_DIR, 'css', 'games'))).filter((f) => f.endsWith('.css')).map((f) => `games/${f}`)];
+const tvCss = Object.fromEntries(await Promise.all(tvCssFiles.map(async (f) => [f, (await fs.readFile(path.join(PUBLIC_DIR, 'css', f), 'utf8')).replace(/\/\*[\s\S]*?\*\//g, '')])));
+const STUDIO_ONLY = ':root:not([data-theme="party"])';
+
+/** Splits at the commas outside parentheses. */
+function splitTop(text) {
+  const parts = [];
+  let depth = 0;
+  let from = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')') depth--;
+    else if (text[i] === ',' && depth === 0) { parts.push(text.slice(from, i).trim()); from = i + 1; }
+  }
+  parts.push(text.slice(from).trim());
+  return parts.filter(Boolean);
+}
+/** Every rule of a stylesheet: { file, selectors: [...], decls: { prop: value } } (innermost rules of @media too). */
+function rulesOf(file) {
+  const out = [];
+  for (const m of tvCss[file].matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const decls = {};
+    for (const d of m[2].split(';')) {
+      const i = d.indexOf(':');
+      if (i > 0) decls[d.slice(0, i).trim()] = d.slice(i + 1).trim();
+    }
+    out.push({ file, selectors: splitTop(m[1].trim()), decls });
+  }
+  return out;
+}
+const tvRules = tvCssFiles.flatMap(rulesOf);
+/** A Studio-only rule's selectors, without the :root:not(...) prefix and with an :is(a, b) list spelled out. */
+function studioSelectors(sel) {
+  if (!sel.startsWith(STUDIO_ONLY)) return [];
+  const rest = sel.slice(STUDIO_ONLY.length).trim();
+  const at = rest.indexOf(':is(');
+  if (at < 0) return [rest];
+  let depth = 0;
+  let end = at + 3;
+  for (; end < rest.length; end++) {
+    if (rest[end] === '(') depth++;
+    else if (rest[end] === ')' && --depth === 0) break;
+  }
+  return splitTop(rest.slice(at + 4, end)).map((s) => `${rest.slice(0, at)}${s}${rest.slice(end + 1)}`.trim());
+}
+const studioRules = tvRules.flatMap((r) => r.selectors.flatMap(studioSelectors).map((sel) => ({ ...r, sel })));
+/** The Studio-only rule that adjusts `sel` (the same selector, maybe only on the TV, with ":not(...)" filters) and sets `prop`. */
+function studioOverride(sel, prop) {
+  const words = (s) => s.replace(/:not\((?:[^()]|\([^()]*\))*\)/g, '').trim().split(/\s+/);
+  const want = words(sel);
+  return studioRules.find((r) => Object.hasOwn(r.decls, prop) && (() => {
+    const have = words(r.sel);
+    let i = 0;
+    for (const w of have) if (w === want[i]) i++;
+    return i === want.length && have.every((w) => want.includes(w) || w === '.tv' || /^li(?:[:.]|$)/.test(w));
+  })());
+}
+
+/** The backgrounds Studio's TV text can sit on, at their brightest (#rrggbb). */
+function studioTvBackdrops() {
+  const studio = skins.studio;
+  const backs = { '--night (plain)': studio.get('--night') };
+  // a white cover, artist photo or guest photo: dimmed by the skin's filter, then the scrim (its centre)
+  const shade = studio.get('--shade-rgb').split(',').map(Number);
+  const scrim = Number(studio.get('--art-scrim'));
+  for (const filter of ['--art-bg-filter', '--fanart-filter', '--photo-filter']) {
+    const brightness = Number(/brightness\(([\d.]+)\)/.exec(studio.get(filter))?.[1] ?? 1);
+    backs[`a white picture (${filter})`] = `#${shade.map((v) => Math.round(255 * brightness * (1 - scrim) + v * scrim).toString(16).padStart(2, '0')).join('')}`;
+  }
+  // the lobby's wall of covers with white covers: --mosaic-opacity over --tv-bg, then the mosaic scrim at its lightest
+  const mosaicScrim = Number(/rgba\(var\(--tv-rgb\), ([\d.]+)\)/.exec(tvRules.find((r) => r.selectors.includes('.mosaic-scrim')).decls.background)[1]);
+  backs['white covers in the lobby mosaic'] = blend(studio.get('--tv-bg'), blend('#ffffff', studio.get('--tv-bg'), Number(studio.get('--mosaic-opacity'))), mosaicScrim);
+  // the aurora: three blurred blobs drifting over --night (1 and 2 at --aurora-opacity, 3 at --aurora-3-opacity);
+  // their drifts take them across one another, so all three can overlap
+  const op = Number(studio.get('--aurora-opacity'));
+  const blobs = [['--aurora-1', op], ['--aurora-2', op], ['--aurora-3', Number(studio.get('--aurora-3-opacity'))]];
+  blobs.forEach(([c, a]) => { backs[`aurora blob ${c}`] = blend(studio.get(c), studio.get('--night'), a); });
+  backs['the three aurora blobs on top of each other'] = blobs.reduce((bg, [c, a]) => blend(studio.get(c), bg, a), studio.get('--night'));
+  // --aurora-bg's glow is centred below the screen (.aurora is inset -10%: 120% of the screen's height, from -10%);
+  // only blob 3 drifts that low
+  const g = /radial-gradient\(\d+vh (\d+)vh at 50% (\d+)%, (#[0-9a-f]{6}), transparent (\d+)%\)/.exec(studio.get('--aurora-bg'));
+  assert.ok(g, 'Studio --aurora-bg is a radial glow below the screen');
+  const centre = -0.1 + 1.2 * Number(g[2]) / 100; // in screen heights
+  const strength = Math.max(0, 1 - (centre - 1) / (Number(g[1]) / 100) / (Number(g[4]) / 100));
+  backs['aurora blob 3 on the glow at the bottom edge'] = blend(studio.get('--aurora-3'), blend(g[3], studio.get('--night'), strength), blobs[2][1]);
+  return backs;
+}
+
+test('base.css: Studio TV text holds 7:1 over the white-cover mosaic and the skin’s own aurora', () => {
+  const studio = skins.studio;
+  for (const [what, bg] of Object.entries(studioTvBackdrops())) {
+    for (const ink of ['--ink', '--ink-2', '--bulb']) {
+      const r = contrast(studio.get(ink), bg);
+      assert.ok(r >= 7, `Studio ${ink} over ${what} (${bg}): ${r.toFixed(2)}`);
+    }
+  }
+});
+
+test('TV CSS: Studio panels and rows on the TV are navy, never a white wash, and their text holds 7:1 over any background', () => {
+  const studio = skins.studio;
+  // A translucent white fill lifts a bright picture behind it (dimmed to just above 7:1 for ink-2):
+  // every such fill in the TV's stylesheets either carries no text, is not on the TV, or has a Studio
+  // fill of its own, checked below over every background.
+  const notTvText = {
+    '.mosaic img': 'the lobby mosaic’s covers (no text)',
+    '.progress': 'the song’s progress bar',
+    '.rc-dots i': 'the recap’s slide dots', '.rc-dots i.done': 'the recap’s slide dots',
+    '.rc-progress': 'the recap’s timer bar', '.rc-bars .bar': 'the recap’s artist bars (the names sit beside them)',
+    '.bt-search li': 'host only (battle song search)', '.rl-list li': 'host and phones only',
+  };
+  const inkOnly = ['.intro .chip']; // the intro's Key/Tempo chips: full ink
+  const fills = [];
+  for (const r of tvRules) {
+    const bg = r.decls.background ?? r.decls['background-color'];
+    if (!bg || !/rgba\(255, 255, 255, 0?\.\d+\)/.test(bg)) continue;
+    for (const sel of r.selectors) {
+      if (sel.startsWith(STUDIO_ONLY) || Object.hasOwn(notTvText, sel)) continue;
+      if (inkOnly.includes(sel)) {
+        const alpha = Number(/rgba\(255, 255, 255, ([\d.]+)\)/.exec(bg)[1]);
+        for (const [what, back] of Object.entries(studioTvBackdrops())) {
+          const c = contrast(studio.get('--ink'), blend('#ffffff', back, alpha));
+          assert.ok(c >= 7, `Studio ${sel} (${r.file}): ink over ${what}: ${c.toFixed(2)}`);
+        }
+        continue;
+      }
+      const o = studioOverride(sel, 'background');
+      assert.ok(o, `${r.file}: ${sel} has a translucent white fill on the TV and no Studio fill`);
+      fills.push(o);
+    }
+  }
+  // highlighted rows (the winner, the first, the fastest) get their own Studio fill too
+  for (const sel of ['.rc-rows li:first-child', '.rc-rows li.top', '.bt-result-row.win', '.tv .ap-list li.best', '.qz-right li.fastest', '.tv .bt-standings li.me']) {
+    const o = studioRules.find((r) => r.sel === sel && Object.hasOwn(r.decls, 'background'));
+    assert.ok(o, `${sel}: a Studio fill for the highlighted row on the TV`);
+    fills.push(o);
+  }
+  assert.ok(fills.length >= 14, `found the TV's panels (${fills.length})`);
+  /** A fill's colour stops as [#rrggbb, alpha]. */
+  const tok = (name) => { assert.match(studio.get(name), /^#[0-9a-f]{6}$/, name); return studio.get(name); };
+  const stop = (s) => {
+    let m = /^color-mix\(in srgb, var\((--[\w-]+)\) (\d+)%, transparent\)$/.exec(s);
+    if (m) return [tok(m[1]), Number(m[2]) / 100];
+    m = /^color-mix\(in srgb, var\((--[\w-]+)\) (\d+)%, var\((--[\w-]+)\)\)$/.exec(s);
+    if (m) return [blend(tok(m[1]), tok(m[3]), Number(m[2]) / 100), 1];
+    m = /^var\((--[\w-]+)\)$/.exec(s);
+    if (m) return [tok(m[1]), 1];
+    assert.fail(`a Studio TV fill to check by hand: ${s}`);
+  };
+  for (const f of fills) {
+    const value = f.decls.background;
+    const g = /^linear-gradient\((.*)\)$/.exec(value);
+    const stops = g ? splitTop(g[1]).filter((s) => !/^-?[\d.]+deg$/.test(s)).map(stop) : [stop(value)];
+    for (const [color, alpha] of stops) {
+      for (const [what, back] of Object.entries(studioTvBackdrops())) {
+        const panel = blend(color, back, alpha);
+        for (const ink of ['--ink-2', '--bulb', '--ok']) {
+          const c = contrast(studio.get(ink), panel);
+          assert.ok(c >= 7, `Studio ${f.sel} (${f.file}): ${ink} on ${value} over ${what}: ${c.toFixed(2)}`);
+        }
+      }
+    }
+  }
+});
+
+test('TV CSS: Studio TV text is never in the faintest ink', () => {
+  // ink-3 is for the host and phones; on the TV Studio lifts every such rule to ink-2 (shared rules: on the TV only)
+  const notOnTv = { '.rate-stars button': 'phones', '.bt-picked li .num': 'host', '.rc-list .rank': 'phones' };
+  const faint = tvRules.flatMap((r) => (/var\(--ink-3[,)]/.test(r.decls.color || '') ? r.selectors.filter((s) => !s.startsWith(STUDIO_ONLY)).map((sel) => ({ sel, file: r.file })) : []));
+  assert.ok(faint.length >= 10, `found the rules in ink-3 (${faint.length})`);
+  for (const { sel, file } of faint) {
+    if (Object.hasOwn(notOnTv, sel)) continue;
+    const o = studioOverride(sel, 'color');
+    assert.ok(o && o.decls.color === 'var(--ink-2)', `${file}: ${sel} is ink-3 on the TV in Studio`);
+  }
 });
 
 test('singers’ colours: stored as one of COLORS, drawn by the skin', () => {

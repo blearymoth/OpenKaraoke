@@ -168,6 +168,7 @@ body.host { overflow: hidden; }
 .q-item.drop { border-color: var(--neon); }
 .q-item .grip { color: var(--ink-3); cursor: grab; display: grid; place-items: center; }
 .q-pos { width: 18px; text-align: center; color: var(--ink-3); font-weight: 700; font-size: 13px; flex: none; }
+.q-time { flex: none; padding-left: 6px; color: var(--ink-3); font-weight: 700; font-size: 12px; white-space: nowrap; } /* History: the time a song was sung ("05:30 AM") in a column as wide as it needs */
 .q-text { flex: 1; min-width: 0; }
 .q-singer { font-weight: 700; }
 .q-song { font-size: 14px; }

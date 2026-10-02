@@ -93,6 +93,11 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .lobby-bottom h3 { font-size: 3.4vh; color: var(--ink-2); font-weight: 700; }
 .upnext-row { display: flex; gap: 2vh; overflow: hidden; }
 .upnext-item { display: flex; align-items: center; gap: 1.6vh; min-width: 0; padding: 1.4vh 2.4vh 1.4vh 1.4vh; border-radius: 99vh; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); flex: none; max-width: 42vw; }
+/* Studio: panels and rows on the TV are a navy surface, never a white wash. Over a bright picture
+   (a white cover or guest photo, dimmed by the skin) a white wash lifts the background and ink-2
+   text drops below 7:1; the navy keeps it above, and still reads as a panel on the plain background.
+   Highlighted rows use --stage-2 the same way (games/*.css). */
+:root:not([data-theme="party"]) :is(.upnext-item, .board-list li) { background: color-mix(in srgb, var(--stage) 90%, transparent); }
 .upnext-item .avatar { width: 6vh; height: 6vh; font-size: 3.4vh; }
 .upnext-item b { font-size: 3vh; display: block; }
 .upnext-item span { font-size: 2.4vh; color: var(--ink-2); }
@@ -248,6 +253,7 @@ body:has(#video:not([hidden])) .photo-flash.corner figcaption { width: auto; min
 .board-head h1 { flex: 1; font-size: 6vh; }
 .board-head .clock { font-family: var(--font-display); font-size: 4vh; color: var(--ink-2); }
 .board-now { display: flex; align-items: center; gap: 3vh; padding: 2.4vh 3vh; border-radius: 2.4vh; background: linear-gradient(120deg, var(--neon-soft), rgba(255, 255, 255, 0.04)); border: 1px solid color-mix(in srgb, var(--neon) 40%, transparent); min-width: 0; }
+:root:not([data-theme="party"]) .board-now { background: linear-gradient(120deg, color-mix(in srgb, var(--neon) 9%, var(--stage)), var(--stage)); } /* Studio: a navy panel with a touch of the accent (see .upnext-item) */
 .board-now small { display: block; font-size: 2.6vh; color: var(--bulb); font-weight: 700; }
 .board-now b { display: block; font-size: 6vh; }
 .board-now span { font-size: 3vh; color: var(--ink-2); }

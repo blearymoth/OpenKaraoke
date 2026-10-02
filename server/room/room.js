@@ -22,7 +22,7 @@ const SESSION_IDLE_MS = 8 * 3600 * 1000;
 const MAX_HISTORY = 200; // tonight's history for the host's list (skipped songs too)
 const MAX_PERFS = 2000; // tonight's sung songs for the counts and the recap (a long night has a few hundred)
 // No party state change → no broadcast.
-const QUIET = new Set(['tv.status', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
+const QUIET = new Set(['tv.status', 'tv.break', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
 const HOST = 'host';
 const TV = 'tv';
 const GUEST = 'guest';
@@ -99,6 +99,7 @@ export class Room {
     this.announceTimer = null;
     this.announcement = null;
     this.game = null; // the running party game (not persisted: a restart ends it)
+    this.gameBehind = null; // a finished game the current song started after (closed when it ends)
     this.pairings = new Map(); // remote displays waiting for the host: id → { id, code, ip, at, status, token }
     this.rating = null; // guests rating the performance that just ended
     this.ratingTimer = null;
@@ -396,7 +397,7 @@ export class Room {
       'tv.error': [[TV], (c, m) => this.tvError(c, m)],
       'tv.audio': [[TV], (c, m) => { c.data.audioUnlocked = !!m.unlocked; }],
       'tv.game': [[TV], (c, m) => this.gameTv(c, m)],
-      'tv.break': [[TV], (c, m) => { if (c.data.display === 'main') this.breakMusic.ended(str(m.id, 40)); }],
+      'tv.break': [[TV], (c, m) => { if (c.data.display === 'main') this.breakMusic.ended(str(m.id, 40), { error: m.error === true, pick: Number.isSafeInteger(m.pick) ? m.pick : undefined }); }],
       'break.skip': [PLAYER, () => this.breakMusic.skip()],
       'photo.approve': [H, (c, m) => this.photos.approve(str(m.id, 40))],
       'photo.reject': [H, (c, m) => this.photos.reject(str(m.id, 40))],
@@ -752,6 +753,8 @@ export class Room {
 
   startEntry(entry) {
     const s = this.s;
+    // A finished game whose results are still up: this song moves the party on (see finish()).
+    this.gameBehind = this.game?.ended ? this.game : null;
     const track = this.catalog.track(entry.trackId);
     s.current = entry;
     delete entry.invites; // too late to join now: the song is on
@@ -932,6 +935,14 @@ export class Room {
     }
     s.current = null;
     this.resetPlayer();
+    // The first song after a finished game is over: close the game (its result is already in
+    // tonight's games), so the lobby with its QR code, ratings and autoplay come back instead of
+    // the old results screen.
+    if (this.game && this.game === this.gameBehind) {
+      this.game.dispose();
+      this.game = null;
+    }
+    this.gameBehind = null;
     // A game that plays songs itself (battle) decides what comes next.
     const handled = this.gameHook('onSongEnd', entry, { completed, playedSec, reason }) === true;
     if (completed && !entry.game && entry.singerIds.length && this.settings.get('playback.ratingAfterSong')) this.openRating(entry);
@@ -1392,7 +1403,7 @@ export class Room {
     const clean = this.settings.update(patch);
     if (paths) await this.libraryPaths({ paths });
     if (clean.artwork) this.app.artwork?.settingsChanged();
-    if (clean.playback?.breakMusic) this.breakMusic.settingsChanged();
+    if (clean.playback?.breakMusic) this.breakMusic.settingsChanged(clean.playback.breakMusic);
     return { settings: clean };
   }
 

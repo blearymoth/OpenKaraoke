@@ -49,10 +49,10 @@ conn.on('welcome', (m) => {
   controller.onWelcome();
   applyBreak(m.state);
 });
-const breakPlayer = new BreakPlayer({ onEnded: (id) => conn.request('tv.break', { id }).catch(() => {}) });
+const breakPlayer = new BreakPlayer({ onEnded: (id, { pick, error = false } = {}) => conn.request('tv.break', { id, pick, error }).catch(() => {}) });
 const applyBreak = (st) => {
   const s = store.get();
-  breakPlayer.apply(st?.breakMusic || null, { main: s.display === 'main' && !s.denied, unlocked: controller.unlocked, master: st?.player?.volume ?? 1 });
+  breakPlayer.apply(st?.breakMusic || null, { main: s.display === 'main' && !s.denied && !preview, unlocked: controller.unlocked, master: st?.player?.volume ?? 1 });
 };
 
 conn.on('state', (m) => {

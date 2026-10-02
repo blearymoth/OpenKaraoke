@@ -5,6 +5,7 @@
 // The app is the repository itself (server/, public/, shared/ and desktop/), unpacked (no asar):
 // the server reads its pages and media from ordinary files, exactly as with `node server/index.js`.
 // OPENKARAOKE_VERSION overrides package.json's version (the release workflow numbers every build).
+const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
@@ -12,13 +13,16 @@ const pkg = require(path.join(root, 'package.json'));
 const version = process.env.OPENKARAOKE_VERSION || pkg.version;
 if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`OPENKARAOKE_VERSION must look like 1.2.3, not "${version}"`);
 const electronVersion = require('./node_modules/electron/package.json').version;
+// Electron as `npm install` unpacked it (the postinstall: Electron 44 no longer downloads on its
+// own); without it electron-builder downloads the same version.
+const electronDist = path.join(__dirname, 'node_modules', 'electron', 'dist');
 
 module.exports = {
   appId: 'io.github.blearymoth.openkaraoke',
   productName: 'OpenKaraoke',
   electronVersion,
-  // Electron is unpacked from the npm package (no second download while packaging).
-  electronDist: path.join(__dirname, 'node_modules', 'electron', 'dist'),
+  // Electron from the npm package (no second download while packaging).
+  ...(fs.existsSync(path.join(electronDist, 'electron')) ? { electronDist } : {}),
   directories: { app: root, output: path.join(__dirname, 'dist'), buildResources: path.join(__dirname, 'build') },
   extraMetadata: {
     main: 'desktop/main.mjs',

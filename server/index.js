@@ -1,13 +1,9 @@
 #!/usr/bin/env node
-// OpenKaraoke server entry point: `node server/index.js [--library <folder>] [--port 8080] …`
-import { parseArgs, HELP, resolveDataDir, VERSION, Settings, applyArgs, listenAddress } from './config.js';
-import { createApp } from './app.js';
+// OpenKaraoke server entry point: `node server/index.js [--library <folder>] [--port 6527] …`
+import { parseArgs, HELP, resolveDataDir, VERSION } from './config.js';
+import { startServer, StartError } from './start.js';
 import { logger, setLogLevel } from './util/log.js';
-import { probePort, localAddressFor } from './util/net.js';
-
-// "Won't work until someone changes something" (sysexits EX_CONFIG): the systemd unit
-// written by bin/install-service.sh doesn't restart the server after this exit code.
-const EX_CONFIG = 78;
+import { localAddressFor } from './util/net.js';
 
 const [major, minor] = process.versions.node.split('.').map(Number);
 if (major < 18 || (major === 18 && minor < 17)) {
@@ -27,48 +23,28 @@ const log = logger('server');
 process.on('unhandledRejection', (e) => log.error('unhandled promise rejection', e));
 process.on('uncaughtException', (e) => log.error('uncaught exception', e));
 
-const portProblem = (code, port) => {
-  if (code === 'EADDRINUSE') return `Port ${port} is already in use — is OpenKaraoke already running? Try --port ${port + 1}`;
-  if (code === 'EACCES') return `No permission to use port ${port} — pick a port above 1024.`;
-  return null;
-};
-const exitCodeFor = (code) => (code === 'EADDRINUSE' || code === 'EACCES' ? EX_CONFIG : 1);
-
 const dataDir = resolveDataDir(args);
-// The port is checked before the library is loaded (seconds for a big one) and before any
-// file is written: a second copy on a taken port (a service started next to
-// bin/openkaraoke.sh) stops at once instead of reloading everything and saving old settings.
-const settings = new Settings(dataDir);
-await settings.load();
-const { port, host } = listenAddress(args, settings);
-const busy = await probePort(port, host);
-if (busy) {
-  log.error(portProblem(busy, port) || `Cannot listen on ${host}:${port} (${busy})`);
-  process.exit(exitCodeFor(busy));
+let started;
+try {
+  started = await startServer({ dataDir, args, log, appOptions: { scan: args.noScan ? false : undefined } });
+} catch (e) {
+  if (!(e instanceof StartError)) throw e;
+  log.error(e.message);
+  // 78 (EX_CONFIG): the systemd unit written by bin/install-service.sh doesn't restart the
+  // server after it — it won't work until someone changes something.
+  process.exit(e.exitCode);
 }
-if (args.setup) {
-  if (args.library.length || args.pin !== undefined) {
-    applyArgs(settings, args);
-    await settings.flush();
-  }
-  console.log(`${port} ${localAddressFor(host)}`);
+if (started.setup) {
+  console.log(`${started.port} ${localAddressFor(started.host)}`);
   process.exit(0);
 }
-
-const app = await createApp({ dataDir, args, scan: args.noScan ? false : undefined });
-try {
-  await app.listen(port, host);
-} catch (e) {
-  log.error(portProblem(e.code, port) || e);
-  // Taken meanwhile: maybe by another OpenKaraoke on this data folder, whose files stay as they are.
-  await app.close({ save: false }).catch(() => {});
-  process.exit(exitCodeFor(e.code));
-}
+const { app } = started;
 
 const info = app.info();
 const lib = app.library.status();
 const line = '─'.repeat(58);
 console.log(`\n  🎤  OpenKaraoke ${VERSION} — ${info.name}\n  ${line}`);
+if (started.moved) console.log(`  (port ${started.wanted} is used by another program — this time and from now on: ${app.port})`);
 console.log(`  Host (this computer) : http://localhost:${app.port}/host`);
 console.log(`  TV display           : http://localhost:${app.port}/tv`);
 console.log(`  Guests join at       : ${info.joinUrl}   (room ${info.roomCode})`);
@@ -93,7 +69,7 @@ const shutdown = async (signal) => {
   const force = setTimeout(() => process.exit(1), 8000);
   force.unref();
   try {
-    await app.close();
+    await started.close();
   } catch (e) {
     log.error('error during shutdown', e);
   }

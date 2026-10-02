@@ -11,12 +11,21 @@ export const PUBLIC_DIR = path.join(APP_ROOT, 'public');
 export const SHARED_DIR = path.join(APP_ROOT, 'shared');
 export const VERSION = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'package.json'), 'utf8')).version;
 
+/**
+ * The usual port (6527 spells OKAR on a phone keypad). Many programs use 8080, which was the
+ * default before: when the port is taken, the server picks the next free one and keeps it in
+ * the settings (server/start.js), so the join address and printed QR codes stay the same.
+ */
+export const DEFAULT_PORT = 6527;
+/** The default port before 0.2: a stored 8080 is moved to DEFAULT_PORT. */
+export const LEGACY_PORT = 8080;
+
 /** Every user-editable setting with its default. */
 export const DEFAULT_SETTINGS = {
   server: {
-    port: 8080,
+    port: DEFAULT_PORT,
     host: '0.0.0.0',
-    publicUrl: '', // e.g. http://192.168.1.20:8080 - overrides the auto-detected join URL
+    publicUrl: '', // e.g. http://192.168.1.20:6527 - overrides the auto-detected join URL
   },
   library: {
     paths: [],
@@ -128,14 +137,15 @@ Usage: node server/index.js [options] [library folder ...]
 Options:
   -l, --library <dir>   karaoke folder (can be repeated); replaces the folders kept in
                         Settings, and is kept there for the next start
-  -p, --port <n>        HTTP port (default 8080)
+  -p, --port <n>        HTTP port; only this one (without it: the one in Settings, 6527 at
+                        first, or the next free one when another program has it)
       --host <addr>     bind address (default 0.0.0.0 = whole network)
       --data <dir>      where settings, the library index and art cache live
       --pin <pin>       set the host PIN (kept in Settings for the next start)
       --no-scan         don't rescan the library on start
       --log <level>     debug | info | warn | error
-      --setup           only keep --library/--pin in the settings, check that the port
-                        is free, print "<port> <address>" and exit (bin/install-service.sh)
+      --setup           only keep --library/--pin in the settings, pick the port, print
+                        "<port> <address>" and exit (bin/install-service.sh)
 
 Environment: OPENKARAOKE_DATA, PORT, LOG_LEVEL`;
 
@@ -149,11 +159,17 @@ export function applyArgs(settings, args) {
   if (args.pin !== undefined) settings.update({ party: { adminPin: String(args.pin) } });
 }
 
-/** Where the server listens: --port / --host, then $PORT, then the settings. */
+/**
+ * Where the server listens: --port / --host, then $PORT, then the settings. `fixed` when the
+ * port was asked for (--port or $PORT): only that one will do. A port from the settings may
+ * move to a free one when another program has it (server/start.js).
+ */
 export function listenAddress(args, settings, env = process.env) {
-  const port = Number.isInteger(args.port) && args.port > 0 ? args.port : Number(env.PORT) || settings.get('server.port');
+  const asked = Number.isInteger(args.port) && args.port > 0 ? args.port : Number.parseInt(env.PORT, 10) > 0 ? Number.parseInt(env.PORT, 10) : 0;
+  const saved = Number(settings.get('server.port'));
+  const port = asked || (Number.isInteger(saved) && saved > 0 && saved <= 65535 ? saved : DEFAULT_PORT);
   const host = args.host || settings.get('server.host');
-  return { port, host };
+  return { port, host, fixed: asked > 0 };
 }
 
 export function resolveDataDir(args) {
@@ -211,6 +227,11 @@ export function migrateSettings(data) {
     const legacy = normalizeAccent(data.display.accent);
     if (legacy && legacy !== LEGACY_ACCENT && !data.appearance.accent) data.appearance.accent = legacy;
     delete data.display.accent;
+    changed = true;
+  }
+  // 8080 was the default before, and many programs use it: parties move to the new default.
+  if (isPlainObject(data.server) && data.server.port === LEGACY_PORT) {
+    data.server.port = DEFAULT_PORT;
     changed = true;
   }
   const look = normalizeAppearance(data.appearance);

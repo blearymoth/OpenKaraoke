@@ -74,6 +74,19 @@ export function closeDialog() {
   store.update({ dialog: null });
 }
 
+/**
+ * Asks for a karaoke folder: in the desktop app with the system's own folder dialog, in a
+ * browser with the server's folder browser.
+ */
+export async function chooseFolder(onPick) {
+  if (window.okDesktop?.pickFolder) {
+    const folder = await window.okDesktop.pickFolder().catch(() => null);
+    if (folder) onPick(folder);
+    return;
+  }
+  openDialog({ type: 'folder', onPick });
+}
+
 /** Position of the current song, interpolated between the TV's 4 Hz reports. */
 export function livePosition() {
   const { state, time } = store.get();

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts the OpenKaraoke server. Usage: bin/openkaraoke.sh [--library "<folder>"] [--port 8080] …
+# Starts the OpenKaraoke server. Usage: bin/openkaraoke.sh [--library "<folder>"] [--port 6527] …
 set -euo pipefail
 
 # Resolve the repository folder even when this script is called through a symlink.

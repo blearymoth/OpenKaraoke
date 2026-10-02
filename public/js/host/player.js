@@ -8,6 +8,17 @@ import { CHANNEL_MODES, CHANNEL_LABELS, KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, 
 
 /** Opens the TV page, on the second screen when the browser lets us place windows. */
 export async function openTvWindow() {
+  if (window.okDesktop?.openTv) { // the desktop app opens and places its own TV window
+    try {
+      const tv = await window.okDesktop.openTv();
+      if (tv.already) toast('The TV window is already open.', 'info');
+      else if (tv.second) toast('The TV window is open full screen on your second screen.', 'ok', 5000);
+      else toast('TV window opened. Drag it onto the TV and press F11 for full screen — or connect the TV now: the window moves there by itself.', 'info', 8000);
+    } catch (e) {
+      toast(`The TV window could not be opened: ${e.message}`, 'error', 7000);
+    }
+    return;
+  }
   const features = (x, y, w, h) => `popup,left=${x},top=${y},width=${w},height=${h}`;
   if ('getScreenDetails' in window) {
     try {

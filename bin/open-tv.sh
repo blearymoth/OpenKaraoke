@@ -4,8 +4,8 @@
 #
 #   bin/open-tv.sh                      # TV on the first non-primary screen
 #   bin/open-tv.sh --screen 2           # pick a screen (1 = first in `xrandr` order)
-#   bin/open-tv.sh --port 9000          # server on another port
-#   bin/open-tv.sh --url http://192.168.1.20:8080/tv
+#   bin/open-tv.sh --port 9000          # server on another port (default: the running server's)
+#   bin/open-tv.sh --url http://192.168.1.20:6527/tv
 #   bin/open-tv.sh --browser chromium   # force a browser
 #
 # Close the TV window with Alt+F4.
@@ -15,7 +15,21 @@
 # TV): the applause meter game listens with the PC's microphone.
 set -euo pipefail
 
-URL="http://localhost:${PORT:-8080}/tv"
+# The running server's port: it is in <data folder>/server.json (it may have moved off 6527
+# when another program had that one).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+APP_DIR="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+RUNNING_PORT="${PORT:-}"
+LOCK="${OPENKARAOKE_DATA:-$APP_DIR/data}/server.json"
+if [ -z "$RUNNING_PORT" ] && [ -f "$LOCK" ]; then
+  RUNNING_PORT="$(sed -n 's/.*"port":\([0-9][0-9]*\).*/\1/p' "$LOCK")"
+fi
+URL="http://localhost:${RUNNING_PORT:-6527}/tv"
 SCREEN=""
 BROWSER=""
 

@@ -4,7 +4,7 @@ import { html, useEffect, useMemo, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore, plural, singersText, useDebounced, artistArtUrl, artStore } from '../lib/store.js';
 import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, go, ArtistImage } from '../lib/components.js';
-import { store, act, openDialog, toast } from './state.js';
+import { store, act, openDialog, toast, chooseFolder } from './state.js';
 import { openTvWindow, openInvite } from './player.js';
 import { AVATARS } from '/shared/protocol.js';
 
@@ -37,7 +37,7 @@ function PageHead({ title, sub, children }) {
 // ---- home ---------------------------------------------------------------------------
 
 function Onboarding() {
-  const pick = () => openDialog({ type: 'folder', onPick: (p) => act('library.paths', { paths: [p] }).then((r) => r && toast('Scanning your library…', 'ok')) });
+  const pick = () => chooseFolder((p) => act('library.paths', { paths: [p] }).then((r) => r && toast('Scanning your library…', 'ok')));
   return html`<section class="hero-card">
     <div class="hero-emoji">💾</div>
     <div>

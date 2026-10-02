@@ -1,0 +1,19 @@
+{
+  "name": "openkaraoke-desktop",
+  "productName": "OpenKaraoke",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenKaraoke as a desktop app: the server runs inside the app, the TV display is a window of its own.",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/app.mjs",
+    "dist": "electron-builder --linux --config electron-builder.config.cjs --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  },
+  "license": "MIT"
+}

@@ -96,6 +96,30 @@ export function probePort(port, host) {
   });
 }
 
+/** A port the OS picks as free right now (listening on port 0). */
+export function anyFreePort(host) {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.once('error', reject);
+    srv.listen({ port: 0, host, exclusive: true }, () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
+
+/**
+ * The first port from `from` on (`tries` of them) that can be listened on at `host`, else one
+ * the OS picks: when the usual port is taken by another program, the next one up is easy to
+ * recognise and usually free.
+ */
+export async function findFreePort(host, from, tries = 20) {
+  for (let port = Math.max(1025, from); port < from + tries && port <= 65535; port++) {
+    if (!(await probePort(port, host))) return port;
+  }
+  return anyFreePort(host);
+}
+
 /** The address to reach a server listening on `host` from this computer. */
 export function localAddressFor(host) {
   return !host || host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;

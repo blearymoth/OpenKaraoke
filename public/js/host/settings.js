@@ -3,7 +3,7 @@ import { html, useEffect, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore, plural } from '../lib/store.js';
 import { Switch } from '../lib/components.js';
-import { store, act, openDialog, toast } from './state.js';
+import { store, act, openDialog, toast, chooseFolder } from './state.js';
 import { CHANNEL_MODES, CHANNEL_LABELS } from '/shared/protocol.js';
 import { THEMES, THEME_IDS, DEFAULT_THEME, accentInk } from '/shared/themes.js';
 
@@ -216,7 +216,7 @@ function LibrarySection({ state, lib }) {
   const library = state.library;
   const paths = library.roots.map((r) => r.path);
   const [brands, setBrands] = useState(state.settings.library.brandPriority.join(', '));
-  const add = () => openDialog({ type: 'folder', onPick: (p) => act('library.paths', { paths: [...paths.filter((x) => x !== p), p] }) });
+  const add = () => chooseFolder((p) => act('library.paths', { paths: [...paths.filter((x) => x !== p), p] }));
   const last = library.lastScan;
   return html`
     <div class="setting column">
@@ -373,7 +373,9 @@ function About({ state }) {
     <h3 class="section-title">Keyboard shortcuts</h3>
     <div class="kbd-grid">${shortcuts.map(([k, v]) => html`<kbd>${k}</kbd><span>${v}</span>`)}</div>
     <h3 class="section-title">TV on a second screen</h3>
-    <p class="muted">Use <b>Open TV display</b> in the player bar, or run <code>bin/open-tv.sh</code> to start Chrome/Chromium in full screen on the second screen with sound allowed straight away.</p>
+    ${window.okDesktop
+      ? html`<p class="muted">Use <b>Open TV display</b> on the home page or the TV button in the player bar: the TV window opens full screen on your second screen (connect the TV first — or later, the window moves there by itself). <kbd>F11</kbd> switches full screen on and off; the OpenKaraoke menu (<kbd>Alt</kbd>) can move it to another screen.</p>`
+      : html`<p class="muted">Use <b>Open TV display</b> in the player bar, or run <code>bin/open-tv.sh</code> to start Chrome/Chromium in full screen on the second screen with sound allowed straight away.</p>`}
   </div>`;
 }
 

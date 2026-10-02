@@ -10,6 +10,7 @@ import { useStore, formatTime } from '../lib/store.js';
 import { store, act, openDialog, closeDialog, toast, livePosition } from './state.js';
 import { CHANNEL_MODES, CHANNEL_LABELS } from '/shared/protocol.js';
 import { LEAD_PRESETS, LEAD_STEP, formatLead } from '/shared/vocals.js';
+export { vocalsNote } from '../lib/versions.js';
 
 const PRESETS = [[LEAD_PRESETS.off, 'Off'], [LEAD_PRESETS.quiet, 'Quiet'], [LEAD_PRESETS.full, 'Full']];
 const SIDE = { L: 'left', R: 'right' };
@@ -19,24 +20,13 @@ export function leadText(lead) {
   return lead <= 0 ? 'off' : lead === LEAD_PRESETS.quiet ? 'quiet' : lead >= 100 ? 'full' : formatLead(lead);
 }
 
-/** What a version says about its vocals, for version lists ("· singer on its own channel"). */
-export function vocalsNote(v) {
-  const notes = [];
-  if (v.vocals?.lead === 'adjustable') notes.push('lead vocal adjustable');
-  else if (v.vocals?.lead === 'multiplex') notes.push('multiplex: lead vocal adjustable once played');
-  else if (v.vocals?.lead === 'mixed') notes.push('original singer mixed in');
-  if (v.vocals?.bgv === 'without') notes.push('no backing vocals');
-  else if (v.vocals?.bgv === 'with') notes.push('with backing vocals');
-  return notes.join(', ');
-}
-
 /** The player bar's control: "Lead" on a multiplex version, else the channel mode. */
 export function VocalsControl({ p, idle }) {
   const v = p.vocals;
   const open = () => openDialog({ type: 'vocals' });
   const more = html`<button class=${`icon-btn small vocals-more ${v?.ask || v?.suggest ? 'attention' : ''}`} onClick=${open} disabled=${idle}
     aria-label="Vocals" title=${v?.ask ? 'Which side is the singer on? — Vocals' : v?.suggest ? 'A guide singer was found — Vocals' : 'Vocals: lead and backing vocals, versions'}><${Icon} name="more" size=${16} /></button>`;
-  if (v?.adjustable) {
+  if (v?.adjustable && !idle) {
     const custom = !PRESETS.some(([x]) => x === p.lead);
     return html`<div class="channel vocals-control" title="The original singer on this version (a channel of its own): off, quiet or full — the music stays as it is">
       <${Icon} name="mic" size=${18} />
@@ -81,7 +71,7 @@ export function VocalsDialog() {
   const layout = (value) => act('player.layout', { layout: value });
   let lead;
   if (v.adjustable) {
-    lead = html`<p class="hint">On this version the original singer is on the <b>${SIDE[v.side]}</b> channel${v.source === 'host' ? ' (as you set)' : v.source === 'sound' ? ' (found by its sound)' : ''}: the level turns only the singer up or down — the music stays as it is.</p>
+    lead = html`<p class="hint">On this version the original singer is on the <b>${SIDE[v.side]}</b> channel${v.source === 'host' ? ' (as you set)' : ''}: the level turns only the singer up or down — the music stays as it is.</p>
       <div class="vocals-level">
         <input type="range" min="0" max="100" step=${LEAD_STEP} value=${p.lead} aria-label="Lead vocal level" style=${{ '--p': `${p.lead}%` }}
           onInput=${(e) => e.currentTarget.style.setProperty('--p', `${e.currentTarget.value}%`)}
@@ -93,7 +83,7 @@ export function VocalsDialog() {
     lead = html`<p class="hint">This version is named “Multiplex”, but which channel has the singer isn’t clear. Listen for a moment: which side is the original singer on?</p>
       <div class="btn-row"><button class="btn small" onClick=${() => layout('mpxL')}>Singer on the left</button><button class="btn small" onClick=${() => layout('mpxR')}>Singer on the right</button><button class="btn small ghost" onClick=${() => layout('stereo')}>It’s ordinary stereo</button></div>`;
   } else if (v.suggest) {
-    lead = html`<p class="hint">The original singer seems to be on the <b>${SIDE[v.suggest]}</b> channel of this version (found by its sound, not sure enough to use by itself).</p>
+    lead = html`<p class="hint">The original singer seems to be on the <b>${SIDE[v.suggest]}</b> channel of this version (found by its sound). Listen: if one side has the original singer and the other doesn’t, use it — then the Lead control turns only the singer up or down.</p>
       <div class="btn-row"><button class="btn small primary" onClick=${() => layout(v.suggest === 'L' ? 'mpxL' : 'mpxR')}>Yes — use it</button><button class="btn small ghost" onClick=${() => layout('stereo')}>No, it’s ordinary stereo</button></div>`;
   } else if (v.mixed) {
     lead = html`<p class="hint">The original singer is mixed into the music on this version: it can’t be turned down — only another version takes them out.</p>`;

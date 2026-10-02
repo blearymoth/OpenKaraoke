@@ -17,14 +17,17 @@ export function cleanAnalysis(m) {
   const lean = m.lean ?? '';
   if (!LAYOUTS.has(l) || !SIDES.has(s) || !SIDES.has(lean)) return null;
   if (l === 'mpx' && !s) return null;
-  const a = Number(m.a);
-  return {
-    l,
-    s: l === 'mpx' ? s : '',
-    lean,
-    a: Number.isFinite(a) ? Math.round(Math.max(-2, Math.min(2, a)) * 1000) / 1000 : 1,
-    c: m.confidence === 'high' ? 'high' : 'low',
+  const level = (v) => {
+    const n = typeof v === 'number' ? v : NaN;
+    return Number.isFinite(n) ? Math.round(Math.max(-2, Math.min(2, n)) * 1000) / 1000 : null;
   };
+  const out = { l, s: l === 'mpx' ? s : '', lean, a: level(m.a) ?? 1, c: m.confidence === 'high' ? 'high' : 'low' };
+  // The music level fitted for each side (a side the host sets by hand uses its own).
+  for (const k of ['aL', 'aR']) {
+    const v = level(m[k]);
+    if (v !== null) out[k] = v;
+  }
+  return out;
 }
 
 export class VocalsStore {
@@ -47,7 +50,8 @@ export class VocalsStore {
   set(trackId, info) {
     const t = this.doc.data.tracks;
     const old = Object.hasOwn(t, trackId) ? t[trackId] : null;
-    const changed = !old || old.l !== info.l || old.s !== info.s || old.lean !== info.lean || old.c !== info.c || Math.abs((old.a ?? 1) - info.a) > 0.02;
+    const near = (x, y) => (x ?? 1) === (y ?? 1) || Math.abs((x ?? 1) - (y ?? 1)) <= 0.02;
+    const changed = !old || old.l !== info.l || old.s !== info.s || old.lean !== info.lean || old.c !== info.c || !near(old.a, info.a) || !near(old.aL, info.aL) || !near(old.aR, info.aR);
     t[trackId] = { ...info, at: Date.now() };
     const ids = Object.keys(t);
     if (ids.length > MAX) {

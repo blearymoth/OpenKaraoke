@@ -32,7 +32,7 @@ export class TvController extends EventTarget {
       }
     });
     this.engine.addEventListener('error', (e) => this.fail(e.detail?.error || 'Playback failed'));
-    this.analysed = new Set(); // tracks whose analysis the server has had (this page's life)
+    this.analysed = new Map(); // track id → what decoding found (the recent ones; sent again after a reconnect)
     this.engine.addEventListener('analysis', (e) => this.reportAnalysis(e.detail));
     setInterval(() => this.report(), 250);
   }
@@ -44,6 +44,8 @@ export class TvController extends EventTarget {
     this.audioSent = null;
     this.reportAudio();
     this.sendReady();
+    // A server restarted before it saved them would never hear about these tracks again.
+    for (const [id, info] of this.analysed) this.sendAnalysis(id, info);
   }
 
   /** Lets the host know when this screen still needs a click before it can play sound. */
@@ -123,8 +125,14 @@ export class TvController extends EventTarget {
   /** What decoding found out about a track's channels: told to the server once per track. */
   reportAnalysis({ id, info }) {
     if (this.display !== 'main' || !id || this.analysed.has(id)) return;
-    this.analysed.add(id);
-    this.conn.sendReliable('tv.analysis', { trackId: id, layout: info.l, side: info.s, lean: info.lean, a: info.a, confidence: info.c });
+    this.analysed.set(id, info);
+    if (this.analysed.size > 20) this.analysed.delete(this.analysed.keys().next().value);
+    this.sendAnalysis(id, info);
+  }
+
+  sendAnalysis(id, info) {
+    if (this.display !== 'main') return;
+    this.conn.sendReliable('tv.analysis', { trackId: id, layout: info.l, side: info.s, lean: info.lean, a: info.a, aL: info.aL, aR: info.aR, confidence: info.c });
   }
 
   async load(cur, p) {

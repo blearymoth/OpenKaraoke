@@ -514,9 +514,9 @@ guests' song sheet offer those versions.
 - **Host**: the player bar's speaker control becomes **Lead off / quiet / full** on such a track,
   with a ⋯ button → the **Vocals** dialog (slider, which side, versions to switch to; it lights up
   when the host is asked which side a track named "Multiplex" uses, or when the TV thinks an
-  unnamed track is one). Add/Edit dialogs have Lead vocal (Automatic / Off / Quiet / Full).
-  Settings → Playback: "Guide singer at the start of a song" (off), "Find multiplex songs by
-  their sound" (on); Settings → Queue & guests: "Guests can ask for a guide singer" (on).
+  unnamed track is one — only the host can turn that into a Lead control). Add/Edit dialogs have Lead vocal (Automatic / Off / Quiet / Full).
+  Settings → Playback: "Guide singer at the start of a song" (off), "Suggest multiplex songs
+  found by their sound" (on); Settings → Queue & guests: "Guests can ask for a guide singer" (on).
 - **Guests**: the song sheet has a **Guide singer** switch (remembered on the phone) and
   Backing vocals As recorded / With / Without; during their own song a **Guide singer: on/off**
   button. Their choice is on (quiet) or off only.
@@ -533,12 +533,13 @@ guests' song sheet offer those versions.
    seconds of GPU per song — against the zero-dependency rule — and the library already has what
    karaoke needs: multiplex tracks for the lead, separate versions for backing vocals.
 2. **Never a wrong guess on the lead**: a track named Multiplex whose side the analysis can't tell
-   plays as before and the host is asked; a track the sound alone suggests is only offered. A
-   wrong side would play the guide singer on its own.
+   plays as before and the host is asked; a track the sound alone suggests is only offered (the
+   review found a hard-panned guitar that rests between phrases looks exactly like a guide
+   singer: "lead off" would have muted it). A wrong side would play the guide singer on its own.
 3. Off by default for every song (`playback.leadVocal` 0) — the usual karaoke — and a singer's
    level is remembered for them only (a guide is a personal need, like the key).
 4. "Quiet" is −12 dB (the volume slider's square law), the guest's only "on" level; host and
-   co-hosts can set any level.
+   co-hosts can set any level. Battle rounds are judged: no guide singer there.
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

@@ -113,7 +113,7 @@ export class AudioEngine extends EventTarget {
       // Is one channel the other plus a guide singer (a multiplex track)? In chunks, so the
       // lyrics keep drawing; never the cause of a failed load.
       const analysis = channels.length === 2
-        ? await analyseChannelsAsync(channels[0], channels[1], buf.sampleRate, { yieldEvery: buf.sampleRate * 2 }).catch(() => null)
+        ? await analyseChannelsAsync(channels[0], channels[1], buf.sampleRate, { yieldEvery: buf.sampleRate * 10 }).catch(() => null)
         : { l: 'mono', s: '', lean: '', a: 1, c: 'high' };
       if (analysis) this.emit('analysis', { id, info: analysis });
       return { id, duration: buf.duration, channels, gainDb: loudnessGainDb(channels), analysis };

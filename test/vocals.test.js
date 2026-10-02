@@ -89,14 +89,21 @@ test('what a track allows: file name, the TV’s analysis, the host’s correcti
   assert.deepEqual([unsure.adjustable, unsure.ask], [false, true]);
   assert.equal(resolveVocals({ flags: { mpx: true } }).ask, false, 'not analysed yet: nothing to ask');
   assert.equal(resolveVocals({ flags: { mpx: true }, info: { l: 'mono' } }).adjustable, false);
-  // Found by the sound alone: used only when sure; otherwise offered to the host.
-  assert.equal(resolveVocals({ info: mpxR }).source, 'sound');
-  const weak = resolveVocals({ info: { ...mpxR, c: 'low' } });
-  assert.deepEqual([weak.adjustable, weak.suggest], [false, 'R']);
-  assert.equal(resolveVocals({ info: mpxR, findGuide: false }).adjustable, false, 'the kill switch');
-  // "Con Voz": mixed in, no control — unless the analysis finds it is really a multiplex.
+  // Found by the sound alone: never used by itself (a hard-panned instrument looks the same and
+  // "lead off" would silence it) — only offered to the host.
+  const byEar = resolveVocals({ info: mpxR });
+  assert.deepEqual([byEar.adjustable, byEar.suggest, byEar.source], [false, 'R', null]);
+  assert.equal(resolveVocals({ info: mpxR, findGuide: false }).suggest, null, 'the kill switch');
+  // "Con Voz": mixed in, no control — an analysis that finds a side only suggests it.
   assert.equal(resolveVocals({ flags: { vocals: true } }).mixed, true);
-  assert.equal(resolveVocals({ flags: { vocals: true }, info: { ...mpxR, c: 'low' } }).adjustable, true);
+  const conVoz = resolveVocals({ flags: { vocals: true }, info: { ...mpxR, c: 'high' } });
+  assert.deepEqual([conVoz.adjustable, conVoz.mixed, conVoz.suggest], [false, true, 'R']);
+  // The music level measured for a side is used whichever way the side was decided (a split
+  // track has a ≈ 0: assuming 1 would play the guide singer alone at "full").
+  const split = { l: 'stereo', s: '', lean: 'L', a: 0.02, aL: 0.02, aR: 0.4, c: 'low' };
+  assert.equal(resolveVocals({ flags: { mpx: true }, info: split }).a, 0.02, 'the side it leans to');
+  assert.equal(resolveVocals({ info: split, override: 'mpxR' }).a, 0.4, 'the side the host set');
+  assert.equal(resolveVocals({ info: { l: 'stereo', lean: 'L', a: 0.3 }, override: 'mpxL' }).a, 0.3, 'older analyses: the lean side’s a');
   // The host decides.
   assert.deepEqual(resolveVocals({ flags: { mpx: true }, info: mpxR, override: 'stereo' }).adjustable, false);
   assert.deepEqual(resolveVocals({ override: 'mpxL' }), { adjustable: true, side: 'L', a: 1, source: 'host', mixed: false, ask: false, suggest: null, bgv: null });
@@ -106,7 +113,7 @@ test('what a track allows: file name, the TV’s analysis, the host’s correcti
   // For version lists and requests: a named multiplex offers the guide before its side is known.
   assert.equal(leadKind(resolveVocals({ flags: { mpx: true }, info: mpxR })), 'adjustable');
   assert.equal(leadKind(resolveVocals({ flags: { mpx: true } })), 'multiplex');
-  assert.equal(leadKind(resolveVocals({ flags: { mpx: true }, info: { l: 'stereo', lean: '' } })), 'multiplex');
+  assert.equal(leadKind(resolveVocals({ flags: { mpx: true }, info: { l: 'stereo', lean: '' } })), null, 'analysed, side unknown: the host is asked first');
   assert.equal(leadKind(resolveVocals({ flags: { mpx: true }, override: 'stereo' })), null);
   assert.equal(leadKind(resolveVocals({ flags: { vocals: true } })), 'mixed');
   assert.equal(leadKind(resolveVocals({ info: { ...mpxR, c: 'low' } })), null, 'a suggestion only');
@@ -123,6 +130,13 @@ test('analysis: multiplex tracks are found with the singer’s side; stereo mixe
   r = await run(M, V);
   assert.deepEqual([r.l, r.s], ['mpx', 'R'], 'a channel with the singer alone');
   assert.ok(Math.abs(r.a) < 0.05);
+  assert.equal(r.aR, r.a, 'the fit for each side is kept (for a side the host sets by hand)');
+  assert.ok(Number.isFinite(r.aL));
+  // A hard-panned riff that rests between phrases looks just like a guide singer: found by ear,
+  // but an unnamed track is only ever suggested (lead off would mute the riff all song long).
+  const riff = vocal(0.2, (t) => t % 12 < 7);
+  r = await run(add(M, riff), M);
+  assert.equal(resolveVocals({ info: r }).adjustable, false, JSON.stringify(r));
   r = await run(M, add(M.map((x) => -x), V));
   assert.deepEqual([r.l, r.s], ['mpx', 'R'], 'inverted polarity');
   assert.ok(r.a < -0.9, `a ${r.a}`);
@@ -235,6 +249,25 @@ test('room: the TV’s analysis, the lead level, and who may change it', async (
   assert.deepEqual([s().player.vocals.adjustable, s().player.vocals.side, s().player.vocals.source], [true, 'R', 'host']);
   await req(host, 'player.layout', { layout: 'auto' });
   assert.equal(s().player.vocals.side, 'L', 'back to what the TV found');
+
+  // A battle round is judged: no guide singer, and none remembered for it.
+  s().current.source = 'game:battle';
+  await assert.rejects(req(host, 'player.lead', { level: 50 }), /battle round/);
+  assert.equal(room.leadFor({ ...s().current, lead: 100 }), 0);
+  delete s().current.source;
+  // Nothing playing: no lead control left over from the last song.
+  await req(host, 'player.stop');
+  assert.deepEqual([s().current, s().player.vocals, view(host).player.vocals], [null, null, null]);
+  await assert.rejects(req(host, 'player.lead', { level: 50 }), /Nothing is playing/);
+
+  // A track only the sound says is a multiplex is never adjustable by itself: suggested.
+  const plainHello = room.catalog.song(room.catalog.search('hello').items[0].id).trackIds.map((id) => room.catalog.track(id)).find((x) => !x.p.flags.vocals);
+  await req(host, 'queue.add', { songId: plainHello.songId, trackId: plainHello.id, singerName: 'Cy', position: 'now' });
+  if (s().current?.trackId !== plainHello.id) await req(host, 'player.play', { entryId: s().queue.find((e) => e.trackId === plainHello.id).id });
+  await req(tv, 'tv.analysis', { trackId: plainHello.id, layout: 'mpx', side: 'R', lean: 'R', a: 1, confidence: 'high' });
+  assert.deepEqual([s().player.vocals.adjustable, s().player.vocals.suggest], [false, 'R']);
+  await req(host, 'settings.update', { patch: { playback: { findGuideVocal: false } } });
+  assert.equal(s().player.vocals.suggest, null, 'the setting applies to the song that is on');
   await room.close();
   const saved = JSON.parse(await (await import('node:fs/promises')).readFile(`${app.dataDir}/vocals.json`, 'utf8'));
   assert.equal(saved.tracks[mpx.id].s, 'L', 'kept in vocals.json');
@@ -260,6 +293,8 @@ test('room: queueing picks the version the singer needs; switching versions mid-
   const g = await guest('Gia');
   assert.equal((await add(g, { lead: 37, bgv: 'without' })).trackId, mpx.id);
   assert.equal(s().queue.at(-1).lead, 50);
+  await add(g, { lead: 100 });
+  assert.equal(s().queue.at(-1).lead, 50, 'a guest’s guide is quiet or off');
   app.settings.update({ queue: { guestVocals: false } });
   const plainPick = (await add(g, { lead: 100, bgv: 'without' })).trackId;
   assert.notEqual(plainPick, mpx.id);

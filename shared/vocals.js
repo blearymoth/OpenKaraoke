@@ -56,49 +56,72 @@ export function mixMatrix({ channel = 'stereo', vocals = null, lead = 0 } = {}) 
 
 /**
  * What a track allows. `flags` from its file name (mpx, vocals, bgv, nobgv), `info` the TV's
- * analysis ({ l: 'mono'|'stereo'|'mpx', s, lean, a, c: 'high'|'low' }), `override` the host's
- * correction (LAYOUTS), `findGuide` false = sound analysis alone never counts (a kill switch).
+ * analysis ({ l: 'mono'|'stereo'|'mpx', s, lean, a, aL, aR, c: 'high'|'low' }), `override` the
+ * host's correction (LAYOUTS), `findGuide` false = the sound alone never even suggests one.
  * → { adjustable, side, a, source: 'host'|'file'|'sound'|null, mixed, ask, suggest, bgv }
- * - adjustable: the lead level works (side known).
+ * - adjustable: the lead level works (side known) — only when the file name says multiplex or
+ *   the host said so: a hard-panned instrument looks just like a guide singer to the analysis,
+ *   and "lead off" would silence it for the whole song.
  * - ask: the name says multiplex but nothing tells the side yet — the host is asked; until then
  *   the track plays as before (a wrong guess would play the guide singer alone).
- * - suggest: the sound alone looks like a multiplex, not surely: offered to the host, not used.
+ * - suggest: the sound alone looks like a multiplex: offered to the host, never used by itself.
  * - mixed: the original singer is in the stereo mix ("Con Voz", "with vocals") — no lead control.
  */
 export function resolveVocals({ flags = {}, info = null, override = 'auto', findGuide = true } = {}) {
   const out = { adjustable: false, side: null, a: 1, source: null, mixed: false, ask: false, suggest: null, bgv: flags.nobgv ? 'without' : flags.bgv ? 'with' : null };
-  const fileSays = !!(flags.mpx || flags.vocals);
-  const measuredA = (side) => (info?.l === 'mpx' && info.s === side && Number.isFinite(info.a) ? info.a : 1);
-  if (override === 'stereo') return { ...out, mixed: !!flags.vocals && !flags.mpx, source: 'host' };
+  const named = !!flags.mpx;
+  // The music channel's level in the singer's channel, as measured for that side (1 when unknown).
+  const measuredA = (side) => {
+    const own = side === 'L' ? info?.aL : info?.aR;
+    if (Number.isFinite(own)) return own;
+    return info && (info.s === side || info.lean === side) && Number.isFinite(info.a) ? info.a : 1;
+  };
+  if (override === 'stereo') return { ...out, mixed: !!flags.vocals && !named, source: 'host' };
   if (override === 'mpxL' || override === 'mpxR') {
     const side = override === 'mpxL' ? 'L' : 'R';
     return { ...out, adjustable: true, side, a: measuredA(side), source: 'host' };
   }
-  if (info?.l === 'mpx' && (info.s === 'L' || info.s === 'R') && (fileSays || (findGuide && info.c === 'high'))) {
-    return { ...out, adjustable: true, side: info.s, a: measuredA(info.s), source: fileSays ? 'file' : 'sound' };
-  }
-  if (flags.mpx && info?.l !== 'mono') {
+  const found = info?.l === 'mpx' && (info.s === 'L' || info.s === 'R') ? info.s : null;
+  if (named && found) return { ...out, adjustable: true, side: found, a: measuredA(found), source: 'file' };
+  if (named && info?.l !== 'mono') {
     const side = info?.lean === 'L' || info?.lean === 'R' ? info.lean : null;
-    return side ? { ...out, adjustable: true, side, source: 'file' } : { ...out, ask: !!info, source: 'file' };
+    return side ? { ...out, adjustable: true, side, a: measuredA(side), source: 'file' } : { ...out, ask: !!info, source: 'file' };
   }
-  if (info?.l === 'mpx' && findGuide && (info.s === 'L' || info.s === 'R')) out.suggest = info.s;
+  if (found && findGuide) out.suggest = found;
   if (flags.vocals) out.mixed = true;
   return out;
 }
 
 /**
  * How a version's lead vocal can be used, for version lists and requests: 'adjustable' (side
- * known), 'multiplex' (named so; the side is found when the TV first decodes it), 'mixed' (in the
- * stereo mix) or null.
+ * known), 'multiplex' (named so and not analysed yet: the side is found when the TV first decodes
+ * it), 'mixed' (in the stereo mix) or null (also a named one whose side the TV couldn't tell).
  */
 export function leadKind(v) {
   if (!v) return null;
   if (v.adjustable) return 'adjustable';
-  if (v.source === 'file' && !v.mixed) return 'multiplex';
+  if (v.source === 'file' && !v.mixed && !v.ask) return 'multiplex'; // named so, not analysed yet
   return v.mixed ? 'mixed' : null;
 }
 
 // ---- analysis (on the TV, from the decoded channels) ------------------------------------------
+
+/**
+ * Lets the page draw between chunks. A message, not a timer: nested timers are clamped to 4 ms
+ * each and throttled to once a second (or minute) in a background tab, which would hold up the
+ * song's start.
+ */
+function breathe() {
+  if (typeof MessageChannel !== 'function') return new Promise((r) => setTimeout(r, 0));
+  return new Promise((r) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => {
+      ch.port1.close();
+      r();
+    };
+    ch.port2.postMessage(0);
+  });
+}
 
 function percentile(sorted, p) {
   return sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] : 0;
@@ -109,10 +132,11 @@ function percentile(sorted, p) {
  * looks at the residual R = X − a·Y in 0.1 s frames, relative to the music channel: on a
  * multiplex track it is silent between the lines (intro, breaks, outro) and loud while the guide
  * sings; the other side's residual never goes quiet. `yieldEvery` (async version) lets the page
- * breathe between chunks. → { l: 'mono'|'stereo'|'mpx', s, lean, a, c, stats }
+ * breathe between chunks. → { l: 'mono'|'stereo'|'mpx', s, lean, a, aL, aR, c, stats } (aL / aR:
+ * the fitted music level in each channel, for a side the host sets by hand)
  */
 export async function analyseChannelsAsync(L, R, sampleRate, { yieldEvery = 0 } = {}) {
-  const pause = yieldEvery ? () => new Promise((r) => setTimeout(r, 0)) : () => null;
+  const pause = yieldEvery ? breathe : () => null;
   if (!L || !R) return { l: 'mono', s: '', lean: '', a: 1, c: 'high' };
   const n = Math.min(L.length, R.length);
   const chunk = yieldEvery || n;
@@ -169,7 +193,8 @@ export async function analyseChannelsAsync(L, R, sampleRate, { yieldEvery = 0 } 
   };
   const onR = side(0, 3); // music channel L, singer on R
   const onL = side(1, 2); // music channel R, singer on L
-  if (onR.rho.length < 60 || onL.rho.length < 60) return { l: 'stereo', s: '', lean: '', a: 1, c: 'low' };
+  const fits = { aL: +aL.toFixed(3), aR: +aR.toFixed(3) };
+  if (onR.rho.length < 60 || onL.rho.length < 60) return { l: 'stereo', s: '', lean: '', a: 1, ...fits, c: 'low' };
   const qualifies = (x, y) => x.p70 - x.p10 >= 12 && y.p10 - x.p10 >= 8 && x.p70 >= -20;
   const r = qualifies(onR, onL);
   const l = qualifies(onL, onR);
@@ -181,7 +206,7 @@ export async function analyseChannelsAsync(L, R, sampleRate, { yieldEvery = 0 } 
   let lean = '';
   if (onR.p10 <= onL.p10 - 3 && onR.p70 - onR.p10 >= 6) lean = 'R';
   else if (onL.p10 <= onR.p10 - 3 && onL.p70 - onL.p10 >= 6) lean = 'L';
-  if (!s) return { l: 'stereo', s: '', lean, a: 1, c: 'low', stats };
+  if (!s) return { l: 'stereo', s: '', lean, a: lean ? fits[`a${lean}`] : 1, ...fits, c: 'low', stats };
   // Sure enough to be used without a word in the file name: a clear gap, and the quiet moments
   // (the guide not singing) spread over the song — not one instrument resting for a while.
   const x = s === 'R' ? onR : onL;
@@ -191,5 +216,5 @@ export async function analyseChannelsAsync(L, R, sampleRate, { yieldEvery = 0 } 
   const span = Math.max(1, Math.floor(frames.length * 0.8) / 5);
   const parts = new Set(x.rho.filter(([v, i]) => v <= quietAt && i >= lo && i < lo + span * 5).map(([, i]) => Math.floor((i - lo) / span)));
   const high = x.p70 - x.p10 >= 18 && y.p10 - x.p10 >= 14 && parts.size >= 3;
-  return { l: 'mpx', s, lean: s, a: +(s === 'R' ? aR : aL).toFixed(3), c: high ? 'high' : 'low', stats };
+  return { l: 'mpx', s, lean: s, a: fits[`a${s}`], ...fits, c: high ? 'high' : 'low', stats };
 }

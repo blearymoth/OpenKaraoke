@@ -938,27 +938,35 @@ What CD+G karaoke recordings really allow — no source separation, nothing inve
 both sides, then the residual X − a·Y relative to the music channel in 0.1 s frames. On a
 multiplex track it is silent between the lines and loud while the guide sings; the other side's
 never goes quiet. Result `{ l: 'mono'|'stereo'|'mpx', s: 'L'|'R'|'', lean, a, c: 'high'|'low' }`,
-sent once per track as `tv.analysis` (main display only; checked field by field), kept in
-`data/vocals.json` (≤ 20 000 tracks, the oldest 10 % dropped). `c: 'high'` needs a clear gap and
-quiet moments spread over ≥ 3 of 5 parts of the song (not one instrument resting).
+sent once per track as `tv.analysis` (main display only; checked field by field; the TV sends
+its recent ones again after a reconnect), kept in `data/vocals.json` (≤ 20 000 tracks, the oldest
+10 % dropped). `c: 'high'` (a clear gap, quiet moments spread over ≥ 3 of 5 parts of the song) is
+kept for the log only. The analysis yields to the page through a MessageChannel every 10 s of
+audio (timers would be throttled in a background tab and hold up the song's start).
 
 **What a track allows** (`resolveVocals`, server; `player.vocals` in every view):
 1. The host's correction (`player.layout` `auto|stereo|mpxL|mpxR`, kept per track in
    `trackPrefs`) wins.
-2. Analysis says multiplex with a side, and the file name says multiplex/vocals or the analysis
-   is sure (`c: 'high'`, setting `playback.findGuideVocal`) → **adjustable**.
+2. The file name says multiplex and the analysis found the side → **adjustable**.
 3. Named multiplex, the analysis only leans one way → adjustable on that side; no lean → the
    host is **asked** which side (until then it plays as before — a wrong guess would play the
    guide singer alone).
-4. Not named, analysis unsure → **suggested** to the host, not used.
-Versions report `vocals.lead`: `adjustable`, `multiplex` (named, side not known yet — the TV finds
-it on first play), `mixed` or none (`leadKind`).
+4. Not named multiplex (also "Con Voz" / "with vocals" mixes): whatever the analysis found is
+   only **suggested** to the host, never used by itself — a hard-panned instrument that rests
+   between phrases looks just like a guide singer, and "lead off" would mute it all song long.
+   Setting `playback.findGuideVocal` off stops the suggestions.
+The music level `a` is fitted for both sides (`aL`, `aR`), so a side set by hand or found by a
+lean uses its own measurement (a channel with the singer alone has a ≈ 0).
+Versions report `vocals.lead`: `adjustable`, `multiplex` (named, not analysed yet — the TV finds
+the side on first play), `mixed` or none (`leadKind`; also a named one whose side the TV couldn't
+tell, until the host answers).
 
 **Level** `player.lead` 0–100 (presets off 0 / quiet 50 = −12 dB / full 100). Starts at: chosen
 when queued → this singer's last level for the song (`songPrefs.bySinger`, never another
 singer's) → `playback.leadVocal` (0). Host and co-hosts: any level. The singer's own phone, on
 their own song: guide on (50) or off, rate-limited, setting `queue.guestVocals`. TV shortcut
 C / V: off → quiet → full. `player.channel` is refused on an adjustable track ("use Lead vocal").
+A battle round is judged: no guide singer (0, refused). Nothing playing → `player.vocals` null.
 
 **Queueing** `queue.add {lead, bgv}`: `pickTrack` prefers a version that fits — a guide singer →
 adjustable, else named multiplex; no guide → not one with the singer mixed in; `bgv` → with /

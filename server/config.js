@@ -65,7 +65,7 @@ export const DEFAULT_SETTINGS = {
     normalize: true,
     defaultChannelMode: 'stereo',
     leadVocal: 0, // the guide singer's level on multiplex tracks at the start of a song (0 = off … 100)
-    findGuideVocal: true, // the TV may find multiplex tracks by their sound (not only by the file name)
+    findGuideVocal: true, // tracks that sound like a multiplex (not named so) are suggested to the host
     fadeSeconds: 1.5,
     lyricOffsetMs: 0,
     ratingAfterSong: true,

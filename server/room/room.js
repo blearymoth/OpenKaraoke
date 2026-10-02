@@ -87,6 +87,8 @@ const num = (v, min, max, def) => {
 const fail = (message, code) => {
   throw new UserError(message, { code });
 };
+/** A battle round: judged, so no guide singer and no other version. */
+const judged = (entry) => String(entry?.source || '').startsWith('game:battle');
 /** A singer name for matching: folded, or as typed when it has no letters or digits ("🦄🦄"). */
 const nameKey = (name) => fold(name) || String(name || '').trim().toLowerCase();
 const EVERYONE = 'everyone'; // the sing-along singer's name key
@@ -501,7 +503,7 @@ export class Room {
     // The guide vocal and backing vocals wanted (guests only when the host allows it).
     const vocalChoice = !isGuest || this.settings.get('queue.guestVocals') !== false;
     let lead = vocalChoice && m.lead !== undefined && m.lead !== null ? clampLead(m.lead) : null;
-    if (isGuest && lead !== null) lead = lead >= 75 ? 100 : lead >= 25 ? 50 : 0;
+    if (isGuest && lead !== null) lead = lead >= 25 ? 50 : 0; // a guest's guide: quiet or off
     const bgv = vocalChoice && (m.bgv === 'with' || m.bgv === 'without') ? m.bgv : null;
     track ||= this.pickTrack(song, { noExplicit, lead, bgv });
     if (!track) fail(noExplicit ? 'Explicit songs are turned off for this party.' : 'No playable version of that song was found.', 'not_found');
@@ -902,7 +904,7 @@ export class Room {
   resetPlayer() {
     const p = this.s.player;
     clearTimeout(this.introTimer);
-    Object.assign(p, { state: 'idle', entryId: null, pos: 0, dur: 0, tvReady: false, error: null, displayLost: false, startedAt: 0, seek: { seq: (p.seek?.seq || 0) + 1, pos: 0 } });
+    Object.assign(p, { state: 'idle', entryId: null, pos: 0, dur: 0, tvReady: false, error: null, displayLost: false, startedAt: 0, vocals: null, lead: 0, seek: { seq: (p.seek?.seq || 0) + 1, pos: 0 } });
   }
 
   seek(m) {
@@ -961,6 +963,7 @@ export class Room {
 
   /** The guide level a song starts with: chosen when queued → this singer's last → the setting. */
   leadFor(entry) {
+    if (judged(entry)) return 0; // a battle round is judged: no guide singer
     const chosen = clampLead(entry.lead);
     if (chosen !== null) return chosen;
     const song = this.catalog.song(entry.songId);
@@ -974,6 +977,7 @@ export class Room {
     const cur = this.s.current;
     if (!cur) fail('Nothing is playing.', 'idle');
     if (!p.vocals?.adjustable) fail('This version has no lead vocal of its own to turn up or down.', 'not_adjustable');
+    if (judged(cur)) fail('Not during a battle round — it is judged.', 'busy');
     let lead = clampLead(m.level ?? m.lead);
     if (lead === null) fail('Unknown level', 'bad_request');
     if (client.role === GUEST) {
@@ -1013,7 +1017,7 @@ export class Room {
   setVersion(m) {
     const cur = this.s.current;
     if (!cur) fail('Nothing is playing.', 'idle');
-    if (cur.clipEnd || String(cur.source || '').startsWith('game:battle')) fail('Not during a game round.', 'busy');
+    if (cur.clipEnd || judged(cur)) fail('Not during a game round.', 'busy');
     const track = this.catalog.track(str(m.trackId, 80));
     if (!track || track.songId !== cur.songId) fail('That isn’t a version of this song.', 'bad_request');
     if (track.id === cur.trackId) return { trackId: track.id };
@@ -1600,6 +1604,7 @@ export class Room {
     if (paths) await this.libraryPaths({ paths });
     if (clean.artwork) this.app.artwork?.settingsChanged();
     if (clean.playback?.breakMusic) this.breakMusic.settingsChanged(clean.playback.breakMusic);
+    if (clean.playback && Object.hasOwn(clean.playback, 'findGuideVocal') && this.s.current) this.s.player.vocals = this.trackVocals(this.s.current.trackId);
     return { settings: clean };
   }
 

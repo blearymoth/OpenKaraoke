@@ -320,6 +320,13 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
 - Owner: look at both skins on the TV from across the room and on a phone.
 
 ## Desktop app (after session 3)
+**Releases (2026-10-02):** v0.1.13–v0.1.20 were never published — the installers left out
+`desktop/graphics.mjs`, so the built app could not start and the workflow's "Test the built app"
+failed. Fixed (and guarded by a test that every module the app imports is packaged); **v0.1.21**
+is the first release with native Wayland + Graphics, the party hotspot, the guide singer and the
+admin panel. An installed v0.1.12 offers it as an update. (A change to tests or docs alone
+doesn't start the workflow; Actions → Desktop app → Run workflow builds `main` by hand.)
+
 **What**: `desktop/` wraps the same server and pages in Electron (only there: Electron and
 electron-builder are dev dependencies of `desktop/package.json`; the server keeps zero runtime
 dependencies and still runs with `node server/index.js`).

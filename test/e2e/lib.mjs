@@ -12,7 +12,11 @@ export function loadPlaywright() {
   const require = createRequire(import.meta.url);
   const tries = ['playwright-core', 'playwright'];
   try {
-    const globalRoot = execSync('npm root -g', { encoding: 'utf8' }).trim();
+    // Under `npm --prefix desktop test` npm hands the prefix down, and "global" would mean desktop/.
+    const env = { ...process.env };
+    delete env.npm_config_prefix;
+    delete env.NPM_CONFIG_PREFIX;
+    const globalRoot = execSync('npm root -g', { encoding: 'utf8', env }).trim();
     tries.push(path.join(globalRoot, 'playwright'), path.join(globalRoot, 'playwright-core'));
   } catch { /* no npm */ }
   for (const t of tries) {

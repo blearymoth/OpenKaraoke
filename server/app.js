@@ -1,5 +1,6 @@
 // Builds the OpenKaraoke server: settings, library, HTTP routes, WebSocket hub.
 // `createApp()` is used by server/index.js and by the tests (listen on port 0).
+import crypto from 'node:crypto';
 import http from 'node:http';
 import path from 'node:path';
 import { Settings, applyArgs, makeRoomCode, VERSION, PUBLIC_DIR, SHARED_DIR } from './config.js';
@@ -43,7 +44,8 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
 
   const router = new Router();
   const hub = new Hub();
-  const app = { dataDir, settings, library, artwork, auth, router, hub, version: VERSION, port: 0, server: null, closers: [] };
+  // `instance` tells this process apart from another server on the same address (/api/health).
+  const app = { dataDir, settings, library, artwork, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [] };
 
   app.info = () => {
     const port = app.port || settings.get('server.port');

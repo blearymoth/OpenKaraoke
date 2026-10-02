@@ -73,6 +73,9 @@ export function apiRoutes(router, app) {
   };
 
   router.get('/api/info', () => app.info());
+  // Is this OpenKaraoke up, and is it this very process (the hotspot checks it through the
+  // hotspot's address)? Nothing secret.
+  router.get('/api/health', () => ({ ok: true, version: app.version, instance: app.instance }));
 
   // Many phones typing at once on a 90k-track library: identical searches are answered from a
   // small cache, and each phone gets a generous but finite number of searches.

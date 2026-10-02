@@ -218,12 +218,24 @@ try {
   if (secondExit === 'still running') second.kill();
   check(secondExit === 0, `starting the app again only brings the running one forward (exit ${secondExit})`);
 
-  // Stop the song, then quit: the party is saved and the data folder is free again.
+  // Stop the song, then close the host window: the TV window goes with it at once (before the
+  // party is saved, which can take seconds with a big library), the app quits, the party is
+  // saved and the data folder is free again.
   await ws.req('player.stop').catch(() => {});
   ws.close();
   ws = null;
-  await quit(app);
+  const marks = path.join(tmp, 'close-marks.txt');
+  await app.evaluate(({ BrowserWindow }, [file, lockFile]) => {
+    const nodeFs = process.getBuiltinModule('fs');
+    const tvWindow = BrowserWindow.getAllWindows().find((w) => /\/tv/.test(w.webContents.getURL()));
+    tvWindow?.once('closed', () => nodeFs.appendFileSync(file, nodeFs.existsSync(lockFile) ? 'tv closed while saving\n' : 'tv closed after saving\n'));
+  }, [marks, path.join(userData, 'data', 'server.json')]);
+  const exited = app.waitForEvent('close', { timeout: 30_000 });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => /\/host/.test(w.webContents.getURL())).close());
+  await exited;
   app = null;
+  const closedTv = (await fs.readFile(marks, 'utf8').catch(() => '')).trim();
+  check(closedTv === 'tv closed while saving', `closing the host window closes the TV window with it, straight away (${closedTv || 'the TV window stayed'})`);
   await sleep(300);
   const leftLock = await fs.access(path.join(userData, 'data', 'server.json')).then(() => true, () => false);
   const state = await readJson(path.join(userData, 'data', 'state.json'));

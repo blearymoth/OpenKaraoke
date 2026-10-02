@@ -64,7 +64,8 @@ function run() {
   let tvWin = null;
   let updater = null;
   let quitting = false;
-  let stopped = false;
+  let saving = null; // the party being saved on the way out
+  let saved = false;
   let logFile = '';
   const dataDir = path.join(app.getPath('userData'), 'data');
   const stateFile = path.join(app.getPath('userData'), 'window-state.json');
@@ -184,7 +185,8 @@ function run() {
     });
     hostWin.on('closed', () => {
       hostWin = null;
-      app.quit(); // the TV window goes with it
+      closeOtherWindows(); // the TV (and a songbook or table card) at once: saving the party can take seconds
+      app.quit();
     });
     hostWin.loadURL(`${base}/host`);
   }
@@ -260,6 +262,12 @@ function run() {
     tvWin.on('closed', () => { tvWin = null; });
     tvWin.loadURL(`${base}/tv`);
     return { already: false, second: !!target, fullscreen: !!target };
+  }
+
+  /** Takes the TV window and any other window but the host's away now (closing, quitting). */
+  function closeOtherWindows() {
+    for (const w of BrowserWindow.getAllWindows()) if (w !== hostWin && !w.isDestroyed()) w.destroy();
+    tvWin = null;
   }
 
   function moveTvToNextScreen() {
@@ -440,13 +448,21 @@ function run() {
   app.on('before-quit', (e) => {
     quitting = true;
     updater?.stop();
-    if (stopped || !server) return;
+    if (saved || !server) return;
+    // Every quit waits for the save: a second request while saving (the last window closing,
+    // a signal) must not end the app halfway through it.
     e.preventDefault();
-    stopped = true;
+    if (saving) return;
+    // The TV goes first, so it doesn't linger (or play on) while the party is saved. The host
+    // window stays until the end: it is the app.
+    closeOtherWindows();
     // Saves the party (queue, settings, library index) before the app goes away.
-    Promise.race([server.close(), new Promise((r) => setTimeout(r, 8000))])
+    saving = Promise.race([server.close(), new Promise((r) => setTimeout(r, 8000))])
       .catch((err) => log.error('error while saving', err))
-      .finally(() => app.quit());
+      .finally(() => {
+        saved = true;
+        app.quit();
+      });
   });
   app.on('window-all-closed', () => app.quit());
   // Logging out or shutting down (SIGTERM), Ctrl+C in a terminal, the terminal closing: like Quit.

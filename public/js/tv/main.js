@@ -14,6 +14,9 @@ const store = createStore({ status: 'connecting', state: null, display: 'main', 
 
 const preview = params.get('display') === 'preview'; // the host's small live preview
 const board = params.get('layout') === 'board'; // a queue board for a second screen (muted)
+// The desktop app on native Wayland, which can't place its windows: the person moves this one to
+// the TV. The app marks <html class="tv-placed"> once it is full screen there.
+const placeHint = params.get('place') === 'wayland';
 const muted = preview || board; // never plays sound, whatever the server says
 if (board) document.body.classList.add('board-layout');
 if (preview) document.body.classList.add('preview');
@@ -196,8 +199,13 @@ function loop() {
     const dur = controller.duration();
     bar.style.width = `${dur ? Math.min(100, (controller.position() / dur) * 100) : 0}%`;
   }
-  const level = controller.engine.ctx ? controller.engine.level() : 0;
-  document.documentElement.style.setProperty('--level', level.toFixed(3));
+  // The music's level for the aurora's blobs: set on the aurora only (not the whole page, which
+  // would restyle every element every frame), and only when it changed visibly.
+  const aurora = document.querySelector('.aurora');
+  if (aurora) {
+    const level = (controller.engine.ctx ? Math.round(controller.engine.level() * 50) / 50 : 0).toFixed(2);
+    if (aurora.style.getPropertyValue('--level') !== level) aurora.style.setProperty('--level', level);
+  }
 }
 requestAnimationFrame(loop);
 
@@ -287,7 +295,15 @@ function App() {
     ${s.toast && html`<div class="conn-lost" style="background:var(--stage-3);color:var(--ink)">${s.toast}</div>`}
     ${s.help && html`<${Help} />`}
     ${!s.unlocked && s.display === 'main' && html`<${StartOverlay} />`}
+    ${placeHint && html`<${PlaceHint} />`}
   `;
+}
+
+function PlaceHint() {
+  return html`<div class="place-hint" role="note">
+    <b>Move this window to the TV</b>
+    <span>Press <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>→</kbd> (or <kbd>←</kbd>), or drag it there: it goes full screen on the TV by itself. <kbd>F11</kbd> — full screen right here.</span>
+  </div>`;
 }
 
 function Refused({ reason, title = 'This screen can\'t join', text = DENIED_MESSAGES[reason] || reason }) {

@@ -57,6 +57,14 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .mosaic-scrim { position: absolute; inset: 0; background: radial-gradient(ellipse at 35% 45%, rgba(var(--tv-rgb), 0.5), rgba(var(--tv-rgb), 0.93) 75%); }
 @keyframes mosaic-drift { to { translate: -8vw -10vh; } }
 @media (prefers-reduced-motion: reduce) { .fanart-bg, .mosaic { animation: none; } }
+/* Lighter effects: the desktop app sets .lite-fx on a PC that draws without graphics acceleration
+   (or when chosen in Settings → About). Still backgrounds instead of drifting ones, no blur, and a
+   still shade behind the lyrics instead of a shadow filter redrawn with every lyric change. */
+.lite-fx :is(.aurora i, .fanart-bg, .photo-bg, .mosaic) { animation: none; }
+.lite-fx .aurora i { transform: none; transition: none; }
+.lite-fx :is(.scrim, .announce, .start) { -webkit-backdrop-filter: none; backdrop-filter: none; }
+.lite-fx #cdg { filter: none; }
+.lite-fx #stage:has(#cdg.show)::before { content: ''; position: absolute; inset: 0; z-index: -1; background: radial-gradient(ellipse 62% 58% at center, rgba(var(--shade-rgb), 0.6), rgba(var(--shade-rgb), 0) 72%); }
 .plain-bg { position: absolute; inset: 0; }
 
 /* ---- shared ------------------------------------------------------------------------- */
@@ -178,6 +186,11 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .corner-qr { position: absolute; top: 3vh; right: 2.5vw; display: grid; justify-items: center; gap: 0.8vh; padding: 1.2vh; border-radius: 1.6vh; background: var(--corner-qr-bg); color: var(--paper-ink); box-shadow: 0 1.5vh 4vh rgba(0, 0, 0, 0.45); }
 .corner-qr img { width: 13vh; height: 13vh; }
 .corner-qr span { font-family: var(--font-display); font-weight: 800; font-size: 2.6vh; letter-spacing: 0.16em; }
+/* The desktop app on native Wayland: how to move the TV window to the TV (gone once it's there). */
+.place-hint { position: absolute; left: 50%; bottom: 6vh; transform: translateX(-50%); z-index: 60; display: grid; gap: 1vh; width: min(70vw, 120vh); padding: 2.4vh 3vh; border-radius: 2vh; background: var(--stage); color: var(--ink-2); border: 1px solid var(--line-strong); box-shadow: 0 2vh 6vh rgba(0, 0, 0, 0.5); font-size: 2.6vh; text-align: center; }
+.place-hint b { font-size: 3.4vh; color: var(--ink); }
+.place-hint kbd { font: inherit; font-weight: 700; color: var(--ink); padding: 0.1vh 0.9vh; border-radius: 0.8vh; border: 1px solid var(--line-strong); background: var(--stage-2); }
+.tv-placed .place-hint { display: none; }
 .corner-qr.two { grid-template-columns: auto auto; gap: 1.4vh; }
 .corner-qr figure { margin: 0; display: grid; justify-items: center; gap: 0.8vh; }
 .corner-qr.two img { width: 11vh; height: 11vh; }

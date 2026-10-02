@@ -183,6 +183,32 @@ try {
   await shot(tv, 'tv-singing');
   await shot(host, 'host-playing');
 
+  // Graphics: the report Settings → About shows. Xvfb has no graphics card, so the pages draw in
+  // software and get the lighter effects by themselves.
+  const gfxReport = await host.evaluate(() => window.okDesktop.graphics.get());
+  const rep = gfxReport.report || {};
+  check(gfxReport.ok && rep.verdict?.accelerated === false && /Software/.test(rep.verdict.text) && rep.kind === 'x11-session' && !rep.canChooseBackend,
+    `graphics report: ${rep.verdict?.text} on ${rep.kind} (renderer "${rep.renderer}", gpu_compositing ${rep.features?.gpu_compositing})`);
+  check(rep.windows?.host?.fps > 0 && rep.windows?.tv?.fps > 0 && rep.displays?.length > 0, `it measures both windows (host ${rep.windows?.host?.fps} fps, TV ${rep.windows?.tv?.fps} fps) and the screens`);
+  const lite = async () => [await host.evaluate(() => document.documentElement.classList.contains('lite-fx')), await tv.evaluate(() => document.documentElement.classList.contains('lite-fx'))];
+  check((await poll(async () => ((await lite()).every(Boolean) ? true : null), 8000)) === true, 'software rendering: both windows use the lighter effects');
+  await host.evaluate(() => window.okDesktop.graphics.set({ lighter: 'off' }));
+  check((await poll(async () => ((await lite()).some(Boolean) ? null : true), 5000)) === true, 'lighter effects “Never”: gone from both windows');
+  await host.evaluate(() => window.okDesktop.graphics.set({ lighter: 'auto' }));
+  check(JSON.parse(await fs.readFile(path.join(userData, 'display.json'), 'utf8')).lighter === 'auto', 'the choice is kept in display.json');
+  check(new URL(tv.url()).hostname === 'tv.localhost', `the TV window has its own origin (${new URL(tv.url()).origin})`);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => /\/host/.test(w.webContents.getURL())).webContents.setZoomFactor(1.5));
+  await sleep(300);
+  const zooms = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((w) => [new URL(w.webContents.getURL()).pathname, w.webContents.getZoomFactor()]));
+  check(zooms.find(([p]) => p === '/tv')?.[1] === 1, `zooming the host window leaves the TV alone (${JSON.stringify(zooms)})`);
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => /\/host/.test(w.webContents.getURL())).webContents.setZoomFactor(1));
+  await host.goto(`${host.url().split('#')[0]}#/settings/about`);
+  const about = await host.waitForSelector('.gfx-verdict', { timeout: 15000 }).then(() => host.textContent('.gfx'), () => '');
+  check(/Software rendering/.test(about) && /Lighter effects/.test(about) && !/Display system<\/b>/.test(await host.innerHTML('.gfx').catch(() => '')), 'Settings → About shows the graphics (no display-system choice outside Wayland)');
+  await host.$eval('.gfx', (e) => e.scrollIntoView());
+  await shot(host, 'host-about-graphics');
+  await host.goto(host.url().split('#')[0] + '#/');
+
   // "Open TV display" again: the same window, not a second one.
   await host.click('button:has-text("Open TV display")').catch(() => {});
   await sleep(800);

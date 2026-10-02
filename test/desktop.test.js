@@ -1,5 +1,5 @@
-// The desktop app's parts that need no Electron: where the TV window goes (desktop/displays.mjs)
-// and its updates (desktop/update-logic.mjs, desktop/updater.mjs against a stand-in for GitHub).
+// The desktop app's parts that need no Electron: where the TV window goes (desktop/displays.mjs),
+// the display system and graphics verdict (desktop/graphics.mjs) and its updates (desktop/update-logic.mjs, desktop/updater.mjs against a stand-in for GitHub).
 // The app itself is tested end to end by desktop/test/app.mjs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,6 +8,7 @@ import path from 'node:path';
 import { centredBounds, displayFor, nextDisplay, tvDisplay, visibleBounds } from '../desktop/displays.mjs';
 import { compareVersions, expectedHash, installCommand, installKind, parseChecksums, parseVersion, pickAsset, releaseInfo } from '../desktop/update-logic.mjs';
 import { Updater } from '../desktop/updater.mjs';
+import { chooseBackend, displaySettings, gpuInfoProblem, gpuVerdict, graphicsLine, useLighterEffects } from '../desktop/graphics.mjs';
 import { tmpDir } from './helpers.js';
 import { fakeGitHub, serve } from './fake-github.js';
 
@@ -47,6 +48,41 @@ test('displays: which screen a window is on, where the TV goes, next screen, cen
 });
 
 // ---- update logic ---------------------------------------------------------------------------
+
+test('graphics: the display system — native Wayland by default, XWayland when chosen', () => {
+  const wayland = { XDG_SESSION_TYPE: 'wayland', WAYLAND_DISPLAY: 'wayland-0', DISPLAY: ':0' };
+  const pick = (o) => chooseBackend({ platform: 'linux', argv: [], ...o });
+  assert.deepEqual(pick({ env: wayland }), { kind: 'wayland', relaunchX11: false, why: 'default' }, 'like Chrome: no XWayland restart');
+  assert.equal(pick({ env: wayland, saved: { backend: 'x11' } }).relaunchX11, true, 'XWayland chosen in Settings → About');
+  assert.equal(pick({ env: { ...wayland, OPENKARAOKE_X11: '1' } }).relaunchX11, true);
+  assert.equal(pick({ env: { ...wayland, OPENKARAOKE_WAYLAND: '1' }, saved: { backend: 'x11' } }).kind, 'wayland', 'the environment wins');
+  assert.deepEqual(pick({ env: wayland, saved: { backend: 'x11' }, argv: ['--ozone-platform=x11'] }), { kind: 'xwayland', relaunchX11: false, why: 'command line' }, 'restarted: no second restart');
+  assert.equal(pick({ env: wayland, argv: ['--ozone-platform=wayland'] }).kind, 'wayland');
+  assert.equal(pick({ env: { ...wayland, DISPLAY: '' }, saved: { backend: 'x11' } }).kind, 'wayland', 'no XWayland to restart into');
+  assert.equal(pick({ env: { XDG_SESSION_TYPE: 'x11', DISPLAY: ':0' } }).kind, 'x11-session');
+  assert.equal(chooseBackend({ platform: 'darwin', env: wayland }).kind, 'other');
+  assert.deepEqual(displaySettings({ backend: 'nonsense', lighter: 'on', extra: 1 }), { backend: 'auto', lighter: 'on' });
+  assert.deepEqual(displaySettings(null), { backend: 'auto', lighter: 'auto' });
+});
+
+test('graphics: hardware or software, and when the pages use lighter effects', () => {
+  const gpu = { gpu_compositing: 'enabled', rasterization: 'enabled', webgl: 'enabled' };
+  assert.equal(gpuVerdict({ features: gpu, renderer: 'ANGLE (AMD, AMD Radeon RX 6600 (radeonsi, navi23, LLVM 17.0.6), OpenGL 4.6)' }).accelerated, true);
+  assert.equal(gpuVerdict({ features: gpu, renderer: 'ANGLE (Mesa, llvmpipe (LLVM 17.0.6, 256 bits), OpenGL 4.5)' }).accelerated, false, 'llvmpipe is the processor');
+  assert.equal(gpuVerdict({ features: gpu, renderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)' }).accelerated, false);
+  assert.equal(gpuVerdict({ features: { gpu_compositing: 'disabled_software' } }).accelerated, false);
+  assert.equal(gpuVerdict({ features: { gpu_compositing: 'unavailable_off' } }).accelerated, false);
+  assert.equal(gpuVerdict({ features: gpu, ready: false }).accelerated, null, 'before the GPU process reported');
+  const soft = gpuVerdict({ features: { gpu_compositing: 'disabled_software' } });
+  assert.equal(useLighterEffects('auto', soft), true);
+  assert.equal(useLighterEffects('auto', gpuVerdict({ features: gpu })), false);
+  assert.equal(useLighterEffects('auto', { accelerated: null }), false, 'not known yet: as before');
+  assert.equal(useLighterEffects('on', gpuVerdict({ features: gpu })), true);
+  assert.equal(useLighterEffects('off', soft), false);
+  assert.match(gpuInfoProblem('GPU access not allowed. Reason: GPU access is disabled due to frequent crashes.'), /not in use \(software compositing\)/);
+  assert.equal(gpuInfoProblem(''), '');
+  assert.match(graphicsLine({ kind: 'xwayland', ozone: 'x11', session: 'wayland', features: { gpu_compositing: 'disabled_software' }, renderer: 'llvmpipe', lighter: true }), /display system xwayland \(ozone x11\).*gpu_compositing disabled_software.*renderer llvmpipe.*lighter effects on/);
+});
 
 test('update logic: versions, the right file of a release, checksums', () => {
   assert.deepEqual(parseVersion('v1.2.3'), { parts: [1, 2, 3], pre: '' });

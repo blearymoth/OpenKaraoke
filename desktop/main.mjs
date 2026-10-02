@@ -15,6 +15,7 @@ import { VERSION } from '../server/config.js';
 import { logger, setLogSink } from '../server/util/log.js';
 import { THEMES, DEFAULT_THEME } from '../shared/themes.js';
 import { centredBounds, displayFor, nextDisplay, tvDisplay, visibleBounds } from './displays.mjs';
+import { chooseBackend, displaySettings, gpuInfoProblem, gpuVerdict, graphicsLine, useLighterEffects, BACKENDS, LIGHTER } from './graphics.mjs';
 import { Updater } from './updater.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -38,16 +39,23 @@ app.setName('OpenKaraoke');
 app.setPath('userData', process.env.OPENKARAOKE_USER_DATA || path.join(app.getPath('appData'), 'OpenKaraoke'));
 
 /**
- * On a Wayland desktop (Fedora/GNOME, Ubuntu) apps can't place their own windows, so the TV
- * window couldn't go to the TV's screen by itself: the app restarts once through XWayland,
- * where it can. OPENKARAOKE_WAYLAND=1 keeps native Wayland.
+ * The display system (desktop/graphics.mjs): on a Wayland desktop (Ubuntu, Fedora/GNOME) the app
+ * runs natively, like Chrome — XWayland, which lets the app place the TV window by itself but
+ * draws slowly on some PCs, is a choice in Settings → About (userData/display.json), started
+ * through a restart with --ozone-platform=x11.
  */
-function wantsXWayland() {
-  return process.platform === 'linux' && process.env.XDG_SESSION_TYPE === 'wayland' && !!process.env.DISPLAY &&
-    !process.env.OPENKARAOKE_WAYLAND && !process.argv.some((a) => a.startsWith('--ozone-platform'));
+const DISPLAY_FILE = path.join(app.getPath('userData'), 'display.json');
+function readDisplaySettings() {
+  try {
+    return displaySettings(JSON.parse(fs.readFileSync(DISPLAY_FILE, 'utf8')));
+  } catch {
+    return displaySettings();
+  }
 }
+const BACKEND = chooseBackend({ platform: process.platform, env: process.env, argv: process.argv, saved: readDisplaySettings() });
+const WAYLAND = BACKEND.kind === 'wayland'; // the TV window can't be placed by the app
 
-if (wantsXWayland()) {
+if (BACKEND.relaunchX11) {
   app.relaunch({ execPath: process.env.APPIMAGE || process.execPath, args: [...process.argv.slice(1), '--ozone-platform=x11'] });
   app.exit(0);
 } else if (!app.requestSingleInstanceLock()) {
@@ -60,6 +68,7 @@ function run() {
   const log = logger('desktop');
   let server = null; // what startServer returned
   let base = '';
+  let tvBase = ''; // the TV's own origin (its own zoom level and storage): http://tv.localhost:<port>
   let hostWin = null;
   let tvWin = null;
   let updater = null;
@@ -73,7 +82,8 @@ function run() {
   // ---- small helpers ------------------------------------------------------------------------
   const ours = (url) => {
     try {
-      return !!base && new URL(url).origin === base;
+      const { origin } = new URL(url);
+      return !!base && (origin === base || origin === tvBase);
     } catch {
       return false;
     }
@@ -108,6 +118,23 @@ function run() {
     setLogSink((line) => out.write(line));
   }
 
+  /**
+   * Calls `show` once the window has something to show. 'ready-to-show' alone isn't enough: on
+   * native Wayland a hidden window never paints, so it never comes — there the page having
+   * loaded shows it, and anywhere 3 s at most.
+   */
+  function whenReady(win, show) {
+    let done = false;
+    const once = () => {
+      if (done || win.isDestroyed()) return;
+      done = true;
+      show();
+    };
+    win.once('ready-to-show', once);
+    if (WAYLAND) win.webContents.once('did-finish-load', once);
+    setTimeout(once, 3000).unref?.();
+  }
+
   /** Keeps every window on the app's own pages: other links open in the normal browser. */
   function guard(contents) {
     contents.setWindowOpenHandler(({ url }) => {
@@ -127,6 +154,181 @@ function run() {
       if (ours(url)) return;
       e.preventDefault();
       if (/^https?:\/\//i.test(url)) openExternal(url);
+    });
+  }
+
+  // ---- graphics: hardware or software, lighter effects, the report in Settings → About ---------
+  const gfx = { features: null, ready: false, renderer: '', crashes: [], lighter: false, logged: false };
+
+  /** Asks a page of ours what it sees (WebGL renderer, frame rate, …); null when it can't answer. */
+  function ask(win, code, ms = 3000) {
+    if (!win || win.isDestroyed() || win.webContents.isLoading()) return Promise.resolve(null);
+    return Promise.race([win.webContents.executeJavaScript(code, true).catch(() => null), new Promise((r) => setTimeout(() => r(null), ms))]);
+  }
+  const RENDERER_JS = `(() => {
+    const gl = document.createElement('canvas').getContext('webgl');
+    if (!gl) return '';
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) || '');
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return name;
+  })()`;
+  const FRAMES_JS = `new Promise((done) => {
+    let n = 0;
+    const t0 = performance.now();
+    const step = () => {
+      n++;
+      const t = performance.now() - t0;
+      if (t < 1000) requestAnimationFrame(step);
+      else done({ fps: Math.round((n * 1000) / t), dpr: devicePixelRatio, width: innerWidth, height: innerHeight });
+    };
+    requestAnimationFrame(step);
+  })`;
+
+  function verdict() {
+    return gpuVerdict({ features: gfx.features, renderer: gfx.renderer, ready: gfx.ready });
+  }
+
+  /** Lighter effects (CSS under .lite-fx) on the app's own windows, when chosen or when the PC draws in software. */
+  function applyLighter(win) {
+    if (!win || win.isDestroyed() || !ours(win.webContents.getURL())) return;
+    win.webContents.executeJavaScript(`document.documentElement.classList.toggle('lite-fx', ${gfx.lighter})`).catch(() => {});
+  }
+  function updateGraphics() {
+    gfx.lighter = useLighterEffects(readDisplaySettings().lighter, verdict());
+    for (const w of BrowserWindow.getAllWindows()) applyLighter(w);
+    if (!gfx.logged && gfx.ready && (gfx.renderer || gfx.rendererTried)) {
+      gfx.logged = true;
+      log.info(`graphics: ${graphicsLine({ ...gfx, kind: BACKEND.kind, ozone: app.commandLine.getSwitchValue('ozone-platform'), session: process.env.XDG_SESSION_TYPE })}`);
+    }
+  }
+  app.on('gpu-info-update', () => {
+    gfx.features = app.getGPUFeatureStatus();
+    gfx.ready = true;
+    updateGraphics();
+  });
+  app.on('child-process-gone', (e, d) => {
+    if (d.type !== 'GPU') return;
+    gfx.crashes.push({ reason: d.reason, exitCode: d.exitCode, at: Date.now() });
+    log.warn(`the graphics process stopped (${d.reason}, exit ${d.exitCode})`);
+  });
+
+  async function graphicsReport() {
+    if (!gfx.ready) {
+      gfx.features = app.getGPUFeatureStatus();
+      gfx.ready = true;
+    }
+    let devices = [];
+    let gpuProblem = '';
+    try {
+      const info = await app.getGPUInfo('basic');
+      devices = (info?.gpuDevice || []).map((d) => ({ vendorId: d.vendorId, deviceId: d.deviceId, active: !!d.active, driverVendor: d.driverVendor || '', driverVersion: d.driverVersion || '' }));
+    } catch (e) {
+      gpuProblem = gpuInfoProblem(e?.message || e);
+    }
+    const [host, tv] = await Promise.all([ask(hostWin, FRAMES_JS), ask(tvWin, FRAMES_JS)]);
+    const primary = screen.getPrimaryDisplay().id;
+    const f = gfx.features || {};
+    return {
+      kind: BACKEND.kind,
+      why: BACKEND.why,
+      ozone: app.commandLine.getSwitchValue('ozone-platform') || '',
+      session: process.env.XDG_SESSION_TYPE || '',
+      desktop: process.env.XDG_CURRENT_DESKTOP || '',
+      settings: readDisplaySettings(),
+      choices: { backend: BACKENDS, lighter: LIGHTER },
+      canChooseBackend: BACKEND.kind === 'wayland' || BACKEND.kind === 'xwayland',
+      verdict: verdict(),
+      lighter: gfx.lighter,
+      features: Object.fromEntries(['gpu_compositing', 'rasterization', '2d_canvas', 'webgl', 'video_decode', 'opengl', 'vulkan'].map((k) => [k, f[k] || ''])),
+      renderer: gfx.renderer,
+      devices,
+      gpuProblem,
+      crashes: gfx.crashes.length,
+      displays: screen.getAllDisplays().map((d) => ({ width: d.size.width, height: d.size.height, scaleFactor: d.scaleFactor, hz: Math.round(d.displayFrequency || 0), primary: d.id === primary })),
+      windows: {
+        host: host && { ...host, zoom: hostWin.webContents.getZoomFactor() },
+        tv: tv && { ...tv, zoom: tvWin.webContents.getZoomFactor(), fullscreen: tvWin.isFullScreen() },
+      },
+      versions: { electron: process.versions.electron, chrome: process.versions.chrome },
+    };
+  }
+
+  /** chrome://gpu in a window of its own (everything Chromium knows about the graphics). */
+  function openGpuPage() {
+    const win = new BrowserWindow({ width: 1000, height: 800, title: 'Graphics — OpenKaraoke', icon: ICON, autoHideMenuBar: true, webPreferences: { contextIsolation: true, sandbox: true } });
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('chrome://gpu')) e.preventDefault(); });
+    win.loadURL('chrome://gpu');
+  }
+
+  /** Saves a display choice; a new display system needs a restart (the page offers it). */
+  function setDisplay(patch) {
+    const next = displaySettings({ ...readDisplaySettings(), ...patch });
+    fs.writeFileSync(DISPLAY_FILE, JSON.stringify(next));
+    updateGraphics();
+    const wantX11 = next.backend === 'x11';
+    return { settings: next, restart: (BACKEND.kind === 'xwayland') !== wantX11 && (BACKEND.kind === 'wayland' || BACKEND.kind === 'xwayland') };
+  }
+
+  /** Restarts the app on the chosen display system (asks first while a song is on). */
+  function restartForDisplay() {
+    if (server?.app.room?.s.current) {
+      const choice = dialog.showMessageBoxSync(hostWin, {
+        type: 'question', buttons: ['Restart', 'Not now'], defaultId: 1, cancelId: 1,
+        title: 'Restart OpenKaraoke?', message: 'Restart OpenKaraoke now?',
+        detail: 'A song is on: restarting stops it. The queue and the singers stay.',
+      });
+      if (choice !== 0) return false;
+    }
+    const args = process.argv.slice(1).filter((a) => !a.startsWith('--ozone-platform'));
+    if (readDisplaySettings().backend === 'x11' && process.env.DISPLAY) args.push('--ozone-platform=x11');
+    app.relaunch({ execPath: process.env.APPIMAGE || process.execPath, args });
+    quitting = true;
+    app.quit();
+    return true;
+  }
+
+  /** A message for the host page (shown as a toast). */
+  function tellHost(text, level = 'info') {
+    if (hostWin && !hostWin.isDestroyed()) hostWin.webContents.send('okd:notice', { text, level });
+  }
+
+  /**
+   * Native Wayland: the app can't put the TV window on the TV, and doesn't learn where its windows
+   * are (positions and the page's screen stay as they were). One thing does show a move: GNOME
+   * resizes a maximized window to the work area of the screen it is moved to (Super+Shift+→, a
+   * drag). The TV window opens maximized; when it is resized like that, it goes full screen —
+   * full screen lands on the screen it is on. (Same-sized work areas show nothing: F11.)
+   */
+  function watchTvMove(win) {
+    let settled = null; // its size once maximized and still
+    let timer = null;
+    const size = () => {
+      const b = win.getBounds();
+      return `${b.width}x${b.height}`;
+    };
+    const settle = () => {
+      clearTimeout(timer);
+      settled = null;
+      timer = setTimeout(() => { if (!win.isDestroyed() && win.isMaximized() && !win.isFullScreen()) settled = size(); }, 1200);
+    };
+    const placed = (on) => win.webContents.executeJavaScript(`document.documentElement.classList.toggle('tv-placed', ${on})`).catch(() => {});
+    win.on('maximize', settle);
+    win.on('resize', () => {
+      if (settled === null || win.isFullScreen() || !win.isMaximized() || size() === settled) return;
+      settled = null;
+      win.setFullScreen(true);
+      tellHost('The TV window is full screen on the TV now.', 'ok');
+    });
+    win.on('enter-full-screen', () => {
+      clearTimeout(timer);
+      settled = null;
+      placed(true);
+    });
+    win.on('leave-full-screen', () => {
+      placed(false);
+      settle();
     });
   }
 
@@ -164,7 +366,16 @@ function run() {
     });
     if (saved.maximized) hostWin.maximize();
     guard(hostWin.webContents);
-    hostWin.once('ready-to-show', () => hostWin.show());
+    whenReady(hostWin, () => hostWin.show());
+    hostWin.webContents.on('dom-ready', () => applyLighter(hostWin));
+    // What draws the pages: the WebGL renderer's name tells a graphics card from software.
+    hostWin.webContents.once('did-finish-load', () => {
+      ask(hostWin, RENDERER_JS).then((name) => {
+        gfx.renderer = String(name || '');
+        gfx.rendererTried = true;
+        updateGraphics();
+      });
+    });
     const remember = () => {
       if (!hostWin || hostWin.isDestroyed() || hostWin.isMinimized() || hostWin.isFullScreen()) return;
       saveState({ host: { bounds: hostWin.isMaximized() ? saved.bounds : hostWin.getBounds(), maximized: hostWin.isMaximized() } });
@@ -193,6 +404,7 @@ function run() {
 
   // ---- the TV window ------------------------------------------------------------------------
   function tvInfo(already) {
+    if (WAYLAND) return { already, second: tvWin.isFullScreen(), fullscreen: tvWin.isFullScreen(), wayland: true };
     const all = displays();
     const tvOn = displayFor(all, tvWin.getBounds());
     return { already, second: !!tvOn && tvOn.id !== hostDisplay()?.id, fullscreen: tvWin.isFullScreen() };
@@ -223,7 +435,8 @@ function run() {
     }
     const all = displays();
     const host = hostDisplay();
-    const target = tvDisplay(all, host.id, { primaryId: primaryId(), rememberedId: readState().tvDisplay });
+    // Native Wayland: windows go where the compositor puts them (the screen under the mouse).
+    const target = WAYLAND ? null : tvDisplay(all, host.id, { primaryId: primaryId(), rememberedId: readState().tvDisplay });
     const bounds = target ? target.bounds : centredBounds(host);
     tvWin = new BrowserWindow({
       ...bounds,
@@ -238,30 +451,40 @@ function run() {
     });
     tvWin.setMenu(null);
     guard(tvWin.webContents);
+    tvWin.webContents.on('dom-ready', () => applyLighter(tvWin));
     tvWin.webContents.on('before-input-event', (e, input) => {
       if (input.type === 'keyDown' && input.key === 'F11') {
         e.preventDefault();
         tvWin.setFullScreen(!tvWin.isFullScreen());
       }
     });
-    tvWin.once('ready-to-show', () => {
+    const shown = tvWin;
+    whenReady(tvWin, () => {
+      if (tvWin !== shown) return;
       if (target) {
-        tvWin.setFullScreen(true);
+        // Shown first (already on the TV's screen), then full screen: an X11 window asked for full
+        // screen before it is mapped sometimes stays a window.
+        tvWin.once('show', () => setTimeout(() => tvWin?.setFullScreen(true), 300));
         tvWin.showInactive(); // the host keeps the keyboard
+      } else if (WAYLAND) {
+        tvWin.maximize(); // see watchTvMove()
+        tvWin.show();
       } else {
         tvWin.show();
       }
     });
     const remember = () => {
-      if (!tvWin) return;
+      if (!tvWin || WAYLAND) return; // (Wayland: the app doesn't know where its windows are)
       const on = displayFor(displays(), tvWin.getBounds());
       if (on && on.id !== hostDisplay()?.id) saveState({ tvDisplay: on.id });
     };
     tvWin.on('moved', remember);
     tvWin.on('enter-full-screen', remember);
     tvWin.on('closed', () => { tvWin = null; });
-    tvWin.loadURL(`${base}/tv`);
-    return { already: false, second: !!target, fullscreen: !!target };
+    if (WAYLAND) watchTvMove(tvWin);
+    // Its own origin: zooming the host window (Ctrl +/−, kept per origin) never zooms the TV.
+    tvWin.loadURL(`${tvBase}/tv${WAYLAND ? '?place=wayland' : ''}`);
+    return { already: false, second: !!target, fullscreen: !!target, wayland: WAYLAND };
   }
 
   /** Takes the TV window and any other window but the host's away now (closing, quitting). */
@@ -272,6 +495,12 @@ function run() {
 
   function moveTvToNextScreen() {
     if (!tvWin) return openTv();
+    if (WAYLAND) {
+      if (tvWin.isFullScreen()) tvWin.setFullScreen(false);
+      tvWin.focus();
+      tellHost('Wayland doesn’t let apps move their windows: with the TV window in front, press Super+Shift+→ (or ←), or drag it — it goes full screen on the other screen by itself.', 'info');
+      return tvInfo(true);
+    }
     const all = displays();
     const now = displayFor(all, tvWin.getBounds());
     placeTv(nextDisplay(all, now?.id));
@@ -281,6 +510,7 @@ function run() {
   // A TV plugged in while the TV window waits on the host's screen: it moves there by itself.
   // The TV's screen unplugged: the window comes back as a normal window next to the host.
   function watchDisplays() {
+    if (WAYLAND) return; // the compositor moves windows off a screen that goes away by itself
     screen.on('display-added', (e, added) => {
       if (!tvWin || FAKE_DISPLAYS) return;
       const host = hostDisplay();
@@ -390,6 +620,7 @@ function run() {
         submenu: [
           { label: 'Open the data folder', click: () => shell.openPath(dataDir) },
           { label: 'Open the log file', click: () => shell.openPath(logFile) },
+          { label: 'Graphics details (chrome://gpu)', click: () => openGpuPage() },
           { label: 'OpenKaraoke on GitHub', click: () => openExternal(REPO) },
           { label: 'Check for updates…', click: showUpdates },
           { type: 'separator' },
@@ -419,6 +650,26 @@ function run() {
         properties: ['openDirectory'],
       });
       return r.canceled ? null : r.filePaths[0] || null;
+    });
+    ipcMain.handle('okd:graphics', async (event, what, value) => {
+      if (!fromUs(event)) throw new Error('Not allowed');
+      try {
+        if (what === 'get') return { ok: true, report: await graphicsReport() };
+        if (what === 'set') {
+          const patch = {};
+          if (BACKENDS.includes(value?.backend)) patch.backend = value.backend;
+          if (LIGHTER.includes(value?.lighter)) patch.lighter = value.lighter;
+          return { ok: true, ...setDisplay(patch) };
+        }
+        if (what === 'restart') return { ok: restartForDisplay() };
+        if (what === 'gpu-page') {
+          openGpuPage();
+          return { ok: true };
+        }
+        return { ok: false, error: 'Unknown request' };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
     });
     ipcMain.handle('okd:update', async (event, what, value) => {
       if (!fromUs(event)) throw new Error('Not allowed');
@@ -482,6 +733,7 @@ function run() {
       return;
     }
     base = `http://127.0.0.1:${server.port}`;
+    tvBase = `http://tv.localhost:${server.port}`;
     log.info(`server on port ${server.port}${server.moved ? ` (${server.wanted} is used by another program)` : ''}`);
     allowPermissions();
     listen();
@@ -489,6 +741,14 @@ function run() {
     createHostWindow();
     watchDisplays();
     startUpdater();
+    log.info(`display system: ${BACKEND.kind} (${BACKEND.why})`);
+    // The graphics status comes with the GPU process's first report; without one, read it anyway.
+    setTimeout(() => {
+      if (gfx.ready) return;
+      gfx.features = app.getGPUFeatureStatus();
+      gfx.ready = true;
+      updateGraphics();
+    }, 5000).unref?.();
   }).catch((e) => {
     log.error('desktop start failed', e);
     app.exit(1);

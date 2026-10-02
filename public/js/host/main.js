@@ -3,7 +3,7 @@ import { html, render, useEffect, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore } from '../lib/store.js';
 import { useHashRoute, go, Toasts, Spinner } from '../lib/components.js';
-import { store, conn, toasts, act, loginWithPin, livePosition } from './state.js';
+import { store, conn, toasts, toast, act, loginWithPin, livePosition } from './state.js';
 import { PlayerBar, openInvite } from './player.js';
 import { QueuePanel } from './queue.js';
 import { Dialogs } from './dialogs.js';
@@ -16,6 +16,9 @@ import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
 import { followAppearance } from '../lib/theme.js';
 import { UpdatePill } from './updates.js';
 import { HotspotBanner } from './hotspot.js';
+
+// The desktop app's own messages (e.g. how to move the TV window on Wayland).
+window.okDesktop?.onNotice?.(({ text, level } = {}) => { if (typeof text === 'string') toast(text, level === 'ok' ? 'ok' : 'info', 8000); });
 
 // [path, icon, label, class]. Phones show a bottom bar with room for six tabs: the
 // 'desktop-only' pages are listed on the "More" page there instead.

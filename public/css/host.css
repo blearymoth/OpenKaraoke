@@ -469,3 +469,19 @@ body.host .toasts { bottom: 104px; }
 @media (max-width: 600px) {
   .invite-steps { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Settings → About → Graphics (desktop app) */
+.gfx { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.gfx-verdict { display: flex; align-items: center; gap: 8px; }
+.gfx-verdict.bad b { color: var(--bad); }
+.gfx-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; font-size: 14px; }
+.gfx-facts dt { color: var(--ink-3); }
+.gfx-facts dd { margin: 0; overflow-wrap: anywhere; }
+.gfx-restart { align-items: center; }
+.gfx .setting.column .select { max-width: 380px; }
+@media (max-width: 600px) {
+  .gfx-facts { grid-template-columns: minmax(0, 1fr); }
+  .gfx-facts dd { margin-bottom: 6px; }
+}
+/* Lighter effects (the desktop app sets .lite-fx on a PC that draws in software): no blur behind dialogs. */
+.lite-fx .scrim { backdrop-filter: none; background: rgba(var(--shade-rgb), 0.8); }

@@ -12,6 +12,7 @@ export async function openTvWindow() {
     try {
       const tv = await window.okDesktop.openTv();
       if (tv.already) toast('The TV window is already open.', 'info');
+      else if (tv.wayland) toast('TV window opened. Move it to the TV: press Super+Shift+→ (or drag it there) and it goes full screen there by itself. Tip: with the mouse on the TV, Ctrl+T opens it right there — then F11.', 'info', 10000);
       else if (tv.second) toast('The TV window is open full screen on your second screen.', 'ok', 5000);
       else toast('TV window opened. Drag it onto the TV and press F11 for full screen — or connect the TV now: the window moves there by itself.', 'info', 8000);
     } catch (e) {
@@ -38,14 +39,16 @@ export async function openTvWindow() {
   else toast('Your browser blocked the pop-up. Open /tv on the TV instead.', 'error', 7000);
 }
 
-function SeekBar({ dur, disabled }) {
+function SeekBar({ dur, disabled, playing }) {
   const input = useRef(null);
   const label = useRef(null);
   const [drag, setDrag] = useState(null);
+  // Follows the song every frame only while it plays (the position only moves then); otherwise
+  // once per render, e.g. after a seek while paused. An idle host page draws nothing.
   useEffect(() => {
-    let raf;
+    let raf = 0;
     const tick = () => {
-      raf = requestAnimationFrame(tick);
+      if (playing) raf = requestAnimationFrame(tick);
       if (drag !== null || !input.current) return;
       const pos = livePosition();
       input.current.value = String(pos);
@@ -54,7 +57,7 @@ function SeekBar({ dur, disabled }) {
     };
     tick();
     return () => cancelAnimationFrame(raf);
-  }, [drag, dur]);
+  });
   const commit = (v) => {
     setDrag(null);
     act('player.seek', { pos: Number(v) });
@@ -118,7 +121,7 @@ export function PlayerBar() {
         <button class="icon-btn" onClick=${() => act('player.next')} disabled=${idle && !hasQueue} aria-label="Next singer" title="Next singer (N)"><${Icon} name="next" /></button>
         <button class="icon-btn" onClick=${() => act('player.stop')} disabled=${idle} aria-label="Stop and return the song to the queue" title="Stop (song goes back to the queue)"><${Icon} name="stop" size=${18} /></button>
       </div>
-      <${SeekBar} dur=${cur ? p.dur || cur.dur : 0} disabled=${idle || p.state === 'intro'} />
+      <${SeekBar} dur=${cur ? p.dur || cur.dur : 0} disabled=${idle || p.state === 'intro'} playing=${p.state === 'playing'} />
     </div>
 
     <div class="controls">

@@ -8,6 +8,7 @@ import { CHANNEL_MODES, CHANNEL_LABELS } from '/shared/protocol.js';
 import { THEMES, THEME_IDS, DEFAULT_THEME, accentInk } from '/shared/themes.js';
 import { UpdatesBlock } from './updates.js';
 import { HotspotBlock } from './hotspot.js';
+import { GraphicsBlock } from './graphics.js';
 
 const SECTIONS = [
   {
@@ -374,11 +375,12 @@ function About({ state }) {
     <p><b>OpenKaraoke ${state.info.version}</b> — your own karaoke party server. ${plural(state.library.songs, 'song')} from ${plural(state.library.tracks, 'track')}.</p>
     <p class="hint">Addresses of this computer: ${state.info.lanUrls.join(', ') || 'none found'}.</p>
     <${UpdatesBlock} />
+    <${GraphicsBlock} />
     <h3 class="section-title">Keyboard shortcuts</h3>
     <div class="kbd-grid">${shortcuts.map(([k, v]) => html`<kbd>${k}</kbd><span>${v}</span>`)}</div>
     <h3 class="section-title">TV on a second screen</h3>
     ${window.okDesktop
-      ? html`<p class="muted">Use <b>Open TV display</b> on the home page or the TV button in the player bar: the TV window opens full screen on your second screen (connect the TV first — or later, the window moves there by itself). <kbd>F11</kbd> switches full screen on and off; the OpenKaraoke menu (<kbd>Alt</kbd>) can move it to another screen.</p>`
+      ? html`<p class="muted">Use <b>Open TV display</b> on the home page or the TV button in the player bar: the TV window opens full screen on your second screen (connect the TV first — or later, the window moves there by itself). <kbd>F11</kbd> switches full screen on and off; the OpenKaraoke menu (<kbd>Alt</kbd>) can move it to another screen. On native Wayland (see Graphics) move it yourself: <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd> or drag it to the TV, and it goes full screen there — or, with the mouse on the TV, <kbd>Ctrl</kbd>+<kbd>T</kbd> opens it right there (then <kbd>F11</kbd>).</p>`
       : html`<p class="muted">Use <b>Open TV display</b> in the player bar, or run <code>bin/open-tv.sh</code> to start Chrome/Chromium in full screen on the second screen with sound allowed straight away.</p>`}
   </div>`;
 }

@@ -73,6 +73,8 @@
 .qz-right li:nth-child(3) { animation-delay: 0.16s; }
 .qz-right li:nth-child(n + 4) { animation-delay: 0.24s; }
 .qz-right li.fastest { background: var(--bulb-soft); }
+:root:not([data-theme="party"]) .qz-right li { background: color-mix(in srgb, var(--stage) 90%, transparent); } /* Studio: TV rows are navy, not a white wash (see tv.css .upnext-item) */
+:root:not([data-theme="party"]) .qz-right li.fastest { background: color-mix(in srgb, var(--stage-2) 90%, transparent); }
 .qz-right .qz-fast { font-size: 2vh; color: var(--bulb); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
 .qz-right b { color: var(--ok); font-family: var(--font-display); }
 

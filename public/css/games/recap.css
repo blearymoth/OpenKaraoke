@@ -9,6 +9,7 @@
 
 /* ---- TV ---------------------------------------------------------------------------------- */
 .g-tv.recap { grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; background: radial-gradient(ellipse at 50% 120%, color-mix(in srgb, var(--neon) 22%, transparent), transparent 60%); }
+:root:not([data-theme="party"]) .g-tv.recap { background: none; } /* Studio: no accent glow under the slides: over a bright picture (dimmed to just 7:1 for ink-2) any glow would lift the background under the text */
 .rc-head { display: flex; justify-content: space-between; align-items: center; }
 .rc-head .kicker { font-size: 3vh; }
 .rc-count { font-size: 2.6vh; color: var(--ink-3); }
@@ -42,12 +43,16 @@
 .rc-rows li { display: grid; grid-template-columns: 6vh 11vh minmax(0, 1fr) auto; align-items: center; gap: 2.6vh; padding: 1.4vh 2.6vh; border-radius: 2vh; background: rgba(255, 255, 255, 0.05); animation: rc-pop 0.6s var(--ease) both; }
 .rc-rows li:first-child { background: var(--bulb-soft); border: 1px solid rgba(var(--bulb-rgb), 0.35); }
 .rc-rows .rank { font-family: var(--font-display); font-size: 5vh; font-weight: 800; color: var(--ink-3); text-align: center; }
+:root:not([data-theme="party"]) .rc-rows li:not(:first-child, .top) .rank { color: var(--ink-2); } /* Studio: TV text is ink-2 or brighter; the first and tied-first ranks stay gold */
 .rc-rows li:first-child .rank { color: var(--bulb); }
 .rc-rows .g-art { width: 11vh; }
 .rc-rows .what { display: grid; min-width: 0; gap: 0.4vh; }
 /* everyone tied for first place gets the first row's highlight */
 .rc-rows li.top { background: var(--bulb-soft); border: 1px solid color-mix(in srgb, var(--bulb) 35%, transparent); }
 .rc-rows li.top .rank { color: var(--bulb); }
+/* Studio: TV rows are navy, not a white wash (see tv.css .upnext-item); the first row a lighter navy, with its gold border */
+:root:not([data-theme="party"]) .rc-rows li { background: color-mix(in srgb, var(--stage) 90%, transparent); }
+:root:not([data-theme="party"]) .rc-rows li:is(:first-child, .top) { background: color-mix(in srgb, var(--stage-2) 90%, transparent); }
 .rc-rows .what b { font-size: 4vh; }
 .rc-rows .what span { font-size: 2.8vh; color: var(--ink-2); }
 .rc-rows .score { display: grid; justify-items: end; gap: 0.4vh; font-size: 2.6vh; color: var(--ink-2); }

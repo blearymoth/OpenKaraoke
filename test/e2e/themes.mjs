@@ -100,6 +100,122 @@ const faintTvText = async (page, what) => {
   const faint = await textIn(page, rgbOf(studioToken('--ink-3')));
   check(faint.length === 0, `studio: ${what} has no text in the faintest ink${faint.length ? `: ${faint.join(' | ')}` : ''}`);
 };
+const nextFrames = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+/**
+ * Studio: every line of text on the TV reads at 7:1 or more against what is really behind it: the
+ * text's colour against the brightest pixels (95th percentile) under it in a screenshot with all
+ * text hidden. Emoji, avatars, QR codes and the clock are left out. With `sweep`, the aurora's blobs
+ * are stepped through their drift and the brightest moment counts.
+ */
+async function tvTextOver(page, what, { sweep = false } = {}) {
+  const runs = await page.evaluate(() => {
+    const EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u{1F3FB}-\u{1F3FF}\u200d\ufe0f]/u;
+    const list = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const el = n.parentElement;
+      if (!el || !n.textContent.trim() || el.closest('svg, canvas, .corner-qr, .marquee, .photo-flash, .clock, .avatar, .avatar-big')) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility !== 'visible') continue;
+      let op = 1;
+      for (let e = el; e; e = e.parentElement) op *= Number(getComputedStyle(e).opacity);
+      if (op < 0.05) continue;
+      // what is visible of it: inside the screen and every ancestor that clips its overflow
+      let clip = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+      for (let e = el; e && e !== document.body; e = e.parentElement) {
+        if (getComputedStyle(e).overflow === 'visible') continue;
+        const b = e.getBoundingClientRect();
+        clip = { left: Math.max(clip.left, b.left), top: Math.max(clip.top, b.top), right: Math.min(clip.right, b.right), bottom: Math.min(clip.bottom, b.bottom) };
+      }
+      const t = n.textContent;
+      let start = null;
+      const flush = (end) => {
+        if (start !== null && /[\p{L}\p{N}]/u.test(t.slice(start, end))) {
+          const range = document.createRange();
+          range.setStart(n, start);
+          range.setEnd(n, end);
+          for (const box of range.getClientRects()) {
+            const r = { x: Math.max(box.left, clip.left), y: Math.max(box.top, clip.top) };
+            r.width = Math.min(box.right, clip.right) - r.x;
+            r.height = Math.min(box.bottom, clip.bottom) - r.y;
+            if (r.width < 2 || r.height < box.height / 2) continue; // (mostly cut off)
+            list.push({ x: r.x, y: r.y, w: r.width, h: r.height, color: cs.color, op, text: t.slice(start, end).trim().slice(0, 24) });
+          }
+        }
+        start = null;
+      };
+      for (const s of new Intl.Segmenter().segment(t)) {
+        if (EMOJI.test(s.segment)) flush(s.index);
+        else if (start === null) start = s.index;
+      }
+      flush(t.length);
+    }
+    return list;
+  });
+  const hide = await page.addStyleTag({ content: '*, *::before, *::after { color: transparent !important; -webkit-text-fill-color: transparent !important; text-shadow: none !important; transition: none !important; }' });
+  await nextFrames(page);
+  const blobs = sweep ? await page.evaluate(() => document.getAnimations().filter((a) => /^drift/.test(a.animationName || '')).length) : 0;
+  const shots = [];
+  for (const t of blobs ? Array.from({ length: 12 }, (_, k) => k * 8000) : [null]) {
+    if (t !== null) {
+      await page.evaluate((at) => { for (const a of document.getAnimations()) if (/^drift/.test(a.animationName || '')) { a.pause(); a.currentTime = at; } }, t);
+      await nextFrames(page);
+    }
+    shots.push((await page.screenshot()).toString('base64'));
+  }
+  if (blobs) await page.evaluate(() => { for (const a of document.getAnimations()) if (/^drift/.test(a.animationName || '')) a.play(); });
+  await hide.evaluate((el) => el.remove());
+  const low = await page.evaluate(async ([shots, runs]) => {
+    const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    const L = (r, g, b) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    const images = [];
+    for (const png of shots) {
+      const img = new Image();
+      await new Promise((r) => { img.onload = r; img.src = `data:image/png;base64,${png}`; });
+      const c = new OffscreenCanvas(img.width, img.height).getContext('2d', { willReadFrequently: true });
+      c.drawImage(img, 0, 0);
+      images.push(c);
+    }
+    const out = [];
+    for (const run of runs) {
+      const [r, g, b, a = 1] = run.color.match(/[\d.]+/g).map(Number);
+      let worst = Infinity;
+      let on = '';
+      for (const c of images) {
+        const x = Math.max(0, Math.ceil(run.x));
+        const y = Math.max(0, Math.ceil(run.y));
+        const d = c.getImageData(x, y, Math.max(1, Math.min(c.canvas.width - x, Math.floor(run.w))), Math.max(1, Math.min(c.canvas.height - y, Math.floor(run.h)))).data;
+        const px = [];
+        for (let o = 0; o < d.length; o += 4) px.push([L(d[o], d[o + 1], d[o + 2]), d[o], d[o + 1], d[o + 2]]);
+        px.sort((p, q) => p[0] - q[0]);
+        const mid = px[Math.floor(px.length / 2)];
+        const alpha = a * run.op;
+        const fg = [r, g, b].map((v, k) => v * alpha + mid[k + 1] * (1 - alpha));
+        const light = L(...fg) > mid[0];
+        const bg = px[Math.floor((px.length - 1) * (light ? 0.95 : 0.05))];
+        const ratio = (Math.max(L(...fg), bg[0]) + 0.05) / (Math.min(L(...fg), bg[0]) + 0.05);
+        if (ratio < worst) { worst = ratio; on = `rgb(${bg.slice(1).join(', ')})`; }
+      }
+      if (worst < 7) out.push(`"${run.text}" ${run.color} on ${on}: ${worst.toFixed(2)}`);
+    }
+    return out;
+  }, [shots, runs]);
+  check(runs.length > 0 && low.length === 0, `studio: ${what}: every text on the TV at 7:1 or more over what is behind it (${runs.length} lines${blobs ? ', aurora swept' : ''})${low.length ? `: ${low.join(' | ')}` : ''}`);
+}
+/** Host → Queue → History: the time each song was sung has a column of its own, clear of the singer's name. */
+async function historyTimes(page, what) {
+  await page.click('.queue-panel .tabs button:has-text("History")');
+  await page.waitForSelector('.queue-panel .q-item .q-singer');
+  const rows = await page.$$eval('.queue-panel .q-item', (items) => items.map((li) => {
+    const box = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect(); };
+    const el = li.querySelector('.q-text').previousElementSibling; // the time, before the singer and the song
+    const time = box(el);
+    const name = box(li.querySelector('.q-singer'));
+    const song = box(li.querySelector('.q-song'));
+    return { time: el.textContent.trim(), clear: time.right <= Math.min(name.left, song.left) && time.width > 0, inside: time.left >= li.getBoundingClientRect().left };
+  }));
+  check(rows.length > 0 && rows.every((r) => r.clear && r.inside), `${what}: History times clear of the singer’s name and the song (${rows.map((r) => `${r.time}${r.clear && r.inside ? '' : ' overlaps'}`).join(', ')})`);
+}
 
 async function setSkin(theme, open) {
   await hostReq('settings.update', { patch: { appearance: { theme } } });
@@ -337,8 +453,70 @@ try {
     await shot(tv, `${skin}-tv-singing`);
     await shot(host, `${skin}-host-playing`);
     await shot(guest, `${skin}-guest-playing`);
+    // the title card (its first 6.5 s) lies over the bottom lines of the lyrics: in Studio its band is
+    // opaque under the singer's name, the title and the artist
+    if (skin === 'studio') {
+      check(await tv.$('.titlecard') !== null, 'studio: the title card is up while the song starts');
+      const hold = (on) => tv.evaluate((p) => { for (const a of document.getAnimations()) if (a.animationName === 'card-out') p ? a.pause() : a.play(); }, on);
+      await hold(true); // (it stays up while the lyrics draw)
+      // the lyrics have a line under the end of the "title by artist" line (where Party's band fades out)
+      const underCard = await tv.waitForFunction(() => {
+        const cv = document.getElementById('cdg');
+        const line = document.querySelector('.titlecard .ellipsis > span');
+        if (!cv || !line) return false;
+        const a = line.getBoundingClientRect();
+        const c = cv.getBoundingClientRect();
+        const [sx, sy] = [cv.width / c.width, cv.height / c.height];
+        const x0 = Math.max(0, Math.floor((a.left + a.width * 0.6 - c.left) * sx));
+        const y0 = Math.max(0, Math.floor((a.top - c.top) * sy));
+        const w = Math.min(cv.width, Math.ceil((a.right - c.left) * sx)) - x0;
+        const h = Math.min(cv.height, Math.ceil((a.bottom - c.top) * sy)) - y0;
+        if (w <= 0 || h <= 0) return false;
+        const d = cv.getContext('2d').getImageData(x0, y0, w, h).data;
+        for (let o = 0; o < d.length; o += 4) if (d[o + 3] > 200 && d[o] + d[o + 1] + d[o + 2] > 300) return true;
+        return false;
+      }, null, { timeout: 8000, polling: 100 }).then(() => true, () => false);
+      check(underCard, 'studio: the lyrics have a line under the title card’s artist line');
+      await tvTextOver(tv, 'TV singing: the title card over the lyrics');
+      await hold(false);
+      // a mirror screen: "Mirror display (muted)" sits on a navy chip in the bottom-right corner, and
+      // the ticker leaves room for it, so the host's message never runs under it
+      await hostReq('settings.update', { patch: { display: { tickerMessage: 'Drinks at the bar after the next song — the kitchen closes at eleven' } } });
+      const mirror = await tvSize('mirror');
+      await mirror.goto(`${base}/tv?display=mirror`);
+      await mirror.waitForSelector('.mirror-badge');
+      await mirror.waitForSelector('.ticker .message');
+      const badge = await mirror.evaluate(() => {
+        const a = document.querySelector('.mirror-badge').getBoundingClientRect();
+        const b = document.querySelector('.ticker .message').getBoundingClientRect();
+        return { meet: a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom, gap: Math.round(a.left - b.right), fill: getComputedStyle(document.querySelector('.mirror-badge')).backgroundColor };
+      });
+      check(!badge.meet && badge.fill !== 'rgba(0, 0, 0, 0)', `studio: a mirror screen’s badge is on a chip of its own (${badge.fill}), clear of the ticker’s message (${badge.gap} px)`);
+      await shot(mirror, 'studio-tv-mirror-singing');
+      await mirror.close();
+      await hostReq('settings.update', { patch: { display: { tickerMessage: '' } } });
+    }
   }
-  await hostReq('player.stop');
+  await hostReq('player.next'); // skipped: into tonight's history
+  await tv.waitForSelector('.lobby');
+
+  // Host → Queue → History (the song just skipped is there): the time it was sung has a column of its
+  // own, clear of the singer's name, on a desktop and on a 360 px phone, in both skins.
+  for (const skin of ['studio', 'party']) {
+    await setSkin(skin, all());
+    await historyTimes(host, `${skin}: host`);
+    await shot(host, `${skin}-host-history`);
+    await host.click('.queue-panel .tabs button:has-text("Queue")');
+    await hostPhone.setViewportSize({ width: 360, height: 760 });
+    await hostPhone.goto(`${base}/host#/queue`);
+    await hostPhone.waitForSelector('.queue-panel .tabs');
+    await historyTimes(hostPhone, `${skin}: host phone at 360px`);
+    await shot(hostPhone, `${skin}-host-phone-history`);
+    scrollChecks.push([`${skin}: host phone History at 360px`, await noSideways(hostPhone)]);
+  }
+  await hostPhone.setViewportSize({ width: 390, height: 844 });
+  await hostReq('queue.add', { songId: songs[1].id, singerName: 'Dora' }); // (for the queue board below)
+  await hostReq('player.stop'); // (it started on its own: back to the queue, held)
   await tv.waitForSelector('.lobby');
 
   // A game: the roulette wheel (answer colours and confetti come from the skin too).
@@ -401,6 +579,46 @@ try {
   await shot(board, 'studio-tv-board');
   check(await board.$$eval('.board-list .pos', (els) => els.length) > 0, 'board: the queue is listed');
   await faintTvText(board, 'queue board');
+
+  // Studio: the TV's text over a white guest photo (the background "photos", dimmed by the skin) and
+  // over the skin's own aurora (the background "visualizer"): the lobby with its up-next chips, the
+  // intro and the queue board, panels and rows included, every line at 7:1 or more.
+  for (const [i, singerName] of ['Ann', 'Bo', 'Cy', 'Di'].entries()) await hostReq('queue.add', { songId: songs[(i + 2) % songs.length].id, singerName });
+  await hostReq('settings.update', { patch: { display: { background: 'photos' }, guests: { photoApproval: false } } });
+  const uploaded = await guest.evaluate(async () => {
+    const c = Object.assign(document.createElement('canvas'), { width: 640, height: 360 });
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, c.width, c.height);
+    const body = await new Promise((r) => c.toBlob(r, 'image/png'));
+    return (await fetch('/api/photos', { method: 'POST', headers: { 'content-type': 'image/png', 'x-guest-token': localStorage.getItem('ok.guestToken') || '' }, body })).ok;
+  });
+  check(uploaded, 'a guest sends a white photo (shown without approval)');
+  for (const p of [tv, board]) {
+    await p.addStyleTag({ content: '.photo-flash { display: none !important; }' }); // (the new photo's flash would cover the text)
+    await p.waitForSelector('#bg .photo-bg');
+  }
+  await tv.waitForSelector('.lobby .upnext-item');
+  await sleep(1800); // the photo fades in
+  await tvTextOver(tv, 'TV lobby over a white guest photo');
+  await tvTextOver(board, 'queue board over a white guest photo');
+  await hostReq('player.play'); // the first song's intro (it waits for "play")
+  await tv.waitForSelector('.intro');
+  await board.waitForSelector('.board-now b');
+  await sleep(1800);
+  await tvTextOver(tv, 'TV intro over a white guest photo');
+  await tvTextOver(board, 'queue board (a song getting ready) over a white guest photo');
+  await hostReq('settings.update', { patch: { display: { background: 'visualizer' } } });
+  await tv.waitForSelector('#bg .aurora');
+  await board.waitForSelector('#bg .aurora');
+  await tvTextOver(tv, 'TV intro over the aurora', { sweep: true });
+  await tvTextOver(board, 'queue board over the aurora', { sweep: true });
+  await hostReq('player.stop');
+  await tv.waitForSelector('.lobby .upnext-item');
+  await sleep(600);
+  await tvTextOver(tv, 'TV lobby over the aurora', { sweep: true });
+  await hostReq('settings.update', { patch: { display: { background: 'art' } } });
+
   check(await setSkin('party', [...all(), board]), 'board: switches to Party live');
   await shot(board, 'party-tv-board');
 

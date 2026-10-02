@@ -62,6 +62,7 @@ button.g-answer:active:not(:disabled) { transform: scale(0.97); }
 .g-leaderboard .score { font-family: var(--font-display); font-size: 1.15em; }
 .tv .g-leaderboard { gap: 1vh; width: min(70vw, 110vh); margin: 0 auto; }
 .tv .g-leaderboard li { padding: 1.4vh 2.4vh; border-radius: 1.6vh; font-size: 3.2vh; }
+:root:not([data-theme="party"]) .tv .g-leaderboard li { background: color-mix(in srgb, var(--stage) 90%, transparent); } /* Studio: TV rows are navy, not a white wash (see tv.css .upnext-item) */
 .g-podium { display: flex; align-items: flex-end; justify-content: center; gap: 16px; }
 .g-podium .step { display: grid; justify-items: center; gap: 6px; width: 120px; }
 /* The name never gets wider than its step (tied singers stand side by side at the same height). */

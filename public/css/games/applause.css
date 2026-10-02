@@ -54,6 +54,8 @@
 .tv .ap-list li { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.4fr) auto; gap: 2vh; padding: 1.6vh 2.4vh; border-radius: 1.6vh; font-size: 3.4vh; }
 .tv .ap-list .ap-bar { height: 2vh; }
 .tv .ap-list b { font-size: 4.6vh; }
+:root:not([data-theme="party"]) .tv .ap-list li { background: color-mix(in srgb, var(--stage) 90%, transparent); } /* Studio: TV rows are navy, not a white wash (see tv.css .upnext-item) */
+:root:not([data-theme="party"]) .tv .ap-list li.best { background: color-mix(in srgb, var(--stage-2) 90%, transparent); }
 
 /* ---- phones ---------------------------------------------------------------------------------------------- */
 .g-guest.applause { text-align: center; }

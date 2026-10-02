@@ -128,7 +128,7 @@ function HistoryTab({ state }) {
   const items = state.tonight.history;
   if (!items.length) return html`<${Empty} icon="🕘" title="Nothing sung yet tonight">Finished songs show up here so you can queue them again.</${Empty}>`;
   return html`<ol class="q-list">${items.map((h) => html`<li class="q-item" key=${h.at}>
-    <span class="q-pos faint num">${new Date(h.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+    <span class="q-time faint num">${new Date(h.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
     <div class="q-text">
       <div class="q-singer ellipsis">${h.singers.join(' & ') || 'No singer'}</div>
       <div class="q-song ellipsis">${h.title} <span class="faint">· ${h.artist}</span></div>

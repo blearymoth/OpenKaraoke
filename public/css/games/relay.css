@@ -23,6 +23,10 @@
   box-shadow: var(--glow-flash);
   animation: rl-in 0.55s var(--ease) both, rl-out 0.5s ease 3.5s forwards;
 }
+/* Studio: the band fades out only within its side padding (6vw; 2.5vw along the top, below), never
+   under its text: a long name (or a narrow screen) reached the see-through outer 12% of the band,
+   over a bright video frame or picture, and fell far below 7:1 */
+:root:not([data-theme="party"]) .rl-flash { background: linear-gradient(90deg, rgba(var(--night-rgb), 0), rgba(var(--night-rgb), 0.95) 6vw, rgba(var(--night-rgb), 0.95) calc(100% - 6vw), rgba(var(--night-rgb), 0)); }
 .rl-flash .kick { font-size: 8vh; color: var(--bulb); text-transform: uppercase; white-space: nowrap; text-shadow: var(--glow-text-bulb); }
 .rl-flash .arrow { font-size: 10vh; line-height: 1; color: var(--neon); animation: rl-nudge 0.5s ease-in-out infinite alternate; }
 .rl-flash .avatar { width: 17vh; height: 17vh; font-size: 10vh; box-shadow: 0 0 0 1vh color-mix(in srgb, var(--avatar, var(--neon)) 35%, transparent); animation: rl-pop 0.6s var(--ease) 0.25s both; }
@@ -45,6 +49,7 @@
   padding: 0 2.5vw; border-top-width: 0; border-bottom-width: min(calc(var(--band) * 0.08), 0.7vh);
   animation: rl-in-top 0.45s var(--ease) both, rl-out-top 0.4s ease 3.6s forwards;
 }
+:root:not([data-theme="party"]) .rl-flash.top { background: linear-gradient(90deg, rgba(var(--night-rgb), 0), rgba(var(--night-rgb), 0.95) 2.5vw, rgba(var(--night-rgb), 0.95) calc(100% - 2.5vw), rgba(var(--night-rgb), 0)); }
 .rl-flash.top.qr { right: calc(4vw + 15.4vh); }
 .rl-flash.top .kick { font-size: min(calc(var(--band) * 0.56), 3.2vw); line-height: 1; }
 .rl-flash.top .arrow { font-size: min(calc(var(--band) * 0.62), 3.5vw); margin-right: 2vw; } /* (room for its nudge) */

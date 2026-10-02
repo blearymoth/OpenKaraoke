@@ -116,6 +116,14 @@
 .tv .bt-bline { gap: 1vh; padding: 0.8vh 1.2vh; font-size: 2.4vh; }
 .tv .bt-bline .avatar { width: 3.6vh; height: 3.6vh; font-size: 2.2vh; }
 .tv .bt-bmatch.now { box-shadow: var(--glow-bracket); }
+/* Studio: on the TV the bracket's and the standings' rows are navy, not a white wash (see tv.css .upnext-item); the
+   champion's row a lighter navy with an accent ring. Every line reads at ink-2 or brighter: round names, empty slots
+   and knocked-out singers in ink-2 at full strength (a knocked-out singer's avatar still fades), byes too */
+:root:not([data-theme="party"]) .tv :is(.bt-bmatch, .bt-standings li) { background: color-mix(in srgb, var(--stage) 90%, transparent); }
+:root:not([data-theme="party"]) .tv .bt-standings li.me { background: color-mix(in srgb, var(--stage-2) 90%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--neon) 55%, transparent); }
+:root:not([data-theme="party"]) .tv :is(.bt-bhead, .bt-bline.tbd, .bt-bline.out) { color: var(--ink-2); }
+:root:not([data-theme="party"]) .tv :is(.bt-bline.out, .bt-bmatch.bye) { opacity: 1; }
+:root:not([data-theme="party"]) .tv .bt-bline.out .avatar { opacity: 0.45; }
 
 .bt-score { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5vw; align-items: center; align-content: center; justify-content: center; }
 .bt-score > div { display: grid; gap: 2vh; min-width: 0; }
@@ -143,6 +151,8 @@
 .bt-result-row.win { background: var(--bulb-soft); outline: 0.3vh solid var(--bulb); }
 .bt-result-row.win b { color: var(--bulb); }
 .bt-result-row small { font-size: 2.4vh; color: var(--ink-2); }
+:root:not([data-theme="party"]) .bt-result-row { background: color-mix(in srgb, var(--stage) 90%, transparent); } /* Studio: TV rows are navy, not a white wash (see tv.css .upnext-item) */
+:root:not([data-theme="party"]) .bt-result-row.win { background: color-mix(in srgb, var(--stage-2) 90%, transparent); }
 .tv .battle .bt-result-row .avatar { width: 7vh; height: 7vh; font-size: 4vh; }
 .bt-result-text .kicker { font-size: 3.6vh; }
 .bt-result-text .muted { font-size: 3vh; }

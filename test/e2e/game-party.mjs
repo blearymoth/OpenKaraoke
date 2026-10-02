@@ -130,6 +130,7 @@ async function flashGeometry(tv, name) {
     const f = flash.getBoundingClientRect();
     const nameEl = flash.querySelector('.name');
     const parts = [...flash.querySelectorAll('.kick, .arrow, .avatar, .name')].map((e) => e.getBoundingClientRect());
+    const pad = getComputedStyle(flash);
     const qr = document.querySelector('.corner-qr')?.getBoundingClientRect();
     const canvas = document.getElementById('cdg');
     const c = canvas.getBoundingClientRect();
@@ -139,6 +140,7 @@ async function flashGeometry(tv, name) {
     return {
       top: flash.classList.contains('top'), flashTop: f.top, flashBottom: f.bottom, flashLeft: f.left, flashRight: f.right, flashWidth: f.width, overflow: flash.scrollWidth - flash.clientWidth,
       partsLeft: Math.min(...parts.map((r) => r.left)), partsRight: Math.max(...parts.map((r) => r.right)), qrLeft: qr ? qr.left : null,
+      padLeft: parseFloat(pad.paddingLeft), padRight: parseFloat(pad.paddingRight),
       nameCut: nameEl.scrollWidth > nameEl.clientWidth + 1, nameSize: parseFloat(getComputedStyle(nameEl).fontSize), vw: innerWidth, vh: innerHeight,
       lyricsShown: canvas.classList.contains('show'), cdgTop: c.top, firstLit: lit < 0 ? null : c.top + (lit / canvas.height) * c.height,
     };
@@ -153,6 +155,8 @@ function checkFlashClear(geo, what) {
   const reach = geo.qrLeft === null ? geo.vw : geo.qrLeft;
   check(geo.flashLeft <= 0.5 && geo.flashRight <= reach + 0.5 && geo.flashRight >= reach - geo.vw * 0.05, `${what}: the band spans the screen (${Math.round(geo.flashLeft)}–${Math.round(geo.flashRight)} px)${geo.qrLeft === null ? '' : `, short of the QR card (from ${Math.round(geo.qrLeft)} px)`}`);
   check(geo.nameSize >= Math.min(geo.vh, geo.vw) * 0.05 && geo.overflow <= 0 && geo.partsLeft >= 0 && geo.partsRight <= geo.flashRight, `${what}: still big — the name ${Math.round(geo.nameSize)} px tall, nothing sticking out`);
+  // (Studio's band fades out within its side padding: the text stays clear of it)
+  check(geo.partsLeft >= geo.flashLeft + geo.padLeft - 0.5 && geo.partsRight <= geo.flashRight - geo.padRight + 0.5, `${what}: the text (${Math.round(geo.partsLeft)}–${Math.round(geo.partsRight)} px) stays clear of the band's side padding (${Math.round(geo.padLeft)} px)`);
 }
 
 /**
@@ -217,9 +221,13 @@ try {
     const f = document.querySelector('.rl-flash');
     const n = f.querySelector('.name');
     const r = f.getBoundingClientRect();
-    return { top: f.classList.contains('top'), cut: n.scrollWidth > n.clientWidth + 1, inside: r.left >= 0 && r.right <= innerWidth && f.scrollWidth <= f.clientWidth, size: parseFloat(getComputedStyle(n).fontSize), vh: innerHeight };
+    const cs = getComputedStyle(f);
+    const parts = [...f.querySelectorAll('.kick, .arrow, .avatar, .name')].map((e) => e.getBoundingClientRect());
+    const inPad = Math.min(...parts.map((p) => p.left)) >= r.left + parseFloat(cs.paddingLeft) - 0.5 && Math.max(...parts.map((p) => p.right)) <= r.right - parseFloat(cs.paddingRight) + 0.5;
+    return { top: f.classList.contains('top'), cut: n.scrollWidth > n.clientWidth + 1, inside: r.left >= 0 && r.right <= innerWidth && f.scrollWidth <= f.clientWidth, inPad, size: parseFloat(getComputedStyle(n).fontSize), vh: innerHeight };
   });
   check(!lobbyFlash.top && lobbyFlash.size >= lobbyFlash.vh * 0.12 && lobbyFlash.inside, 'between songs: a big flash across the middle of the TV');
+  check(lobbyFlash.inPad, '…its text clear of the band\'s side padding (where Studio\'s band fades out)');
   check(!lobbyFlash.cut, `…with "${LONG}" in full`);
   await shot(tv, 'tv-relay-flash-lobby', 0);
   rename(wide, WIDE);

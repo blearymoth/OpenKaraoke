@@ -7,6 +7,7 @@ import { Settings, applyArgs, listenAddress } from './config.js';
 import { createApp } from './app.js';
 import { acquireDataLock } from './util/datalock.js';
 import { probePort, findFreePort } from './util/net.js';
+import { systemRunner } from './net/nmcli.js';
 
 /** A port problem a free port can solve (as opposed to e.g. EADDRNOTAVAIL: a wrong --host). */
 const MOVABLE = new Set(['EADDRINUSE', 'EACCES']);
@@ -74,7 +75,7 @@ export async function startServer({ dataDir, args = {}, env = process.env, appOp
     }
     await settings.flush(); // createApp reads the settings again (with the port picked here)
 
-    const app = await createApp({ dataDir, args, ...appOptions });
+    const app = await createApp({ dataDir, args, ...appOptions, hotspot: { run: await hotspotRunner(log), ...appOptions.hotspot } });
     for (let attempt = 1; ; attempt++) {
       try {
         await app.listen(port, host);
@@ -113,4 +114,22 @@ export async function startServer({ dataDir, args = {}, env = process.env, appOp
     await lock.release();
     throw e;
   }
+}
+
+/**
+ * How the party hotspot reaches NetworkManager: the real nmcli (through execFile), or the fake
+ * of scripts/fake-nmcli.mjs with OPENKARAOKE_FAKE_NMCLI=<scenario> for trying the hotspot without
+ * Wi-Fi (the fake is not part of the desktop app's files: it is only loaded when asked for).
+ * Always the process's own environment (PATH), whatever `env` the caller gave for the config.
+ */
+async function hotspotRunner(log) {
+  const scenario = process.env.OPENKARAOKE_FAKE_NMCLI;
+  if (scenario) {
+    try {
+      return (await import('../scripts/fake-nmcli.mjs')).fakeNmcli(scenario).run;
+    } catch (e) {
+      log?.warn(`OPENKARAOKE_FAKE_NMCLI ignored: ${e.message}`);
+    }
+  }
+  return systemRunner({ env: process.env });
 }

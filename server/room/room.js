@@ -8,6 +8,7 @@ import { JsonDoc } from '../util/jsonfile.js';
 import { UserError } from '../util/errors.js';
 import { RateLimiter } from '../util/ratelimit.js';
 import { wifiPayload } from '../util/qr.js';
+import { BANDS, makePassword, validIfname, validPassword, validSsid } from '../net/nmcli.js';
 import { mediaUrls } from '../http/media.js';
 import { insertIndex, etas, leadOf, shuffled } from './rotation.js';
 import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, RATING_SECONDS, MAX_LIST_SONGS, clampKey, clampTempo } from '../../shared/protocol.js';
@@ -383,6 +384,9 @@ export class Room {
       'duet.answer': [[GUEST], (c, m) => this.duetAnswer(c, m)],
       'duet.invites': [[GUEST], (c, m) => this.duetInvites(c, m)],
       'settings.update': [H, (c, m) => this.settingsUpdate(m)],
+      'hotspot.set': [H, (c, m) => this.hotspotSet(m)],
+      'hotspot.config': [H, (c, m) => this.hotspotConfig(m)],
+      'hotspot.retry': [H, () => this.hotspotRetry()],
       'library.rescan': [H, () => this.libraryRescan()],
       'library.paths': [H, (c, m) => this.libraryPaths(m)],
       'party.new': [H, () => this.partyNew()],
@@ -1423,6 +1427,8 @@ export class Room {
 
   async settingsUpdate(m) {
     const patch = m.patch && typeof m.patch === 'object' ? structuredClone(m.patch) : {};
+    // The party hotspot changes only through its own actions (validated, and they start/stop it).
+    if (patch.party && typeof patch.party === 'object') delete patch.party.hotspot;
     if (patch.party?.roomCode !== undefined) {
       const code = String(patch.party.roomCode).toUpperCase().replace(/[^A-Z]/g, '');
       if (code.length !== 4) fail('The room code must be 4 letters.', 'bad_request');
@@ -1805,6 +1811,100 @@ export class Room {
     this.hub.broadcast({ t: 'toast', level, text }, (c) => c.role === HOST);
   }
 
+  // ---- party hotspot (PLAN §20) -------------------------------------------------------------------
+
+  /** Switches the party hotspot on (with its checks) or off; the switch is remembered. */
+  hotspotSet(m) {
+    const on = m.on === true;
+    const patch = { enabled: on };
+    if (on) {
+      // The network's name and password are fixed the first time, so a new room code (or
+      // anything else) never renames the Wi-Fi under the guests and printed cards.
+      const saved = this.settings.get('party.hotspot') || {};
+      if (!validSsid(saved.ssid)) patch.ssid = this.app.hotspot.config().ssid;
+      if (!validPassword(saved.password)) patch.password = makePassword();
+    }
+    this.settings.update({ party: { hotspot: patch } });
+    const hs = this.app.hotspot;
+    (on ? hs.start() : hs.stop()).catch((e) => log.error('hotspot', e));
+    this.markDirty();
+    return { enabled: on };
+  }
+
+  /** Name, password (empty = a new one), band, adapter; a running hotspot restarts with them. */
+  hotspotConfig(m) {
+    const patch = {};
+    if (m.ssid !== undefined) {
+      const ssid = String(m.ssid).trim();
+      if (ssid && !validSsid(ssid)) fail('The network name can have up to 32 characters (no line breaks, not starting with “-”).', 'bad_request');
+      patch.ssid = ssid;
+    }
+    if (m.password !== undefined && m.password !== MASK) {
+      const pw = String(m.password);
+      if (pw && !validPassword(pw)) fail('The password needs 8 to 63 characters (letters, digits and ordinary symbols).', 'bad_request');
+      patch.password = pw || makePassword();
+    }
+    if (m.band !== undefined) {
+      if (!BANDS.includes(m.band)) fail('Unknown Wi-Fi band.', 'bad_request');
+      patch.band = m.band;
+    }
+    if (m.ifname !== undefined) {
+      const ifname = String(m.ifname);
+      if (ifname && !validIfname(ifname)) fail('Unknown Wi-Fi adapter.', 'bad_request');
+      patch.ifname = ifname;
+    }
+    this.settings.update({ party: { hotspot: patch } });
+    const hs = this.app.hotspot;
+    if (this.settings.get('party.hotspot.enabled') && hs.state !== 'off') hs.retry().catch((e) => log.error('hotspot', e));
+    this.markDirty();
+    return { ok: true };
+  }
+
+  hotspotRetry() {
+    if (!this.settings.get('party.hotspot.enabled')) this.settings.update({ party: { hotspot: { enabled: true } } });
+    this.app.hotspot.retry().catch((e) => log.error('hotspot', e));
+    return { ok: true };
+  }
+
+  /**
+   * The hotspot changed. Hosts follow every step of the checks; every screen gets the new join
+   * address when the hotspot comes or goes (one broadcast), and the host is told why.
+   */
+  onHotspot(view) {
+    this.hub.broadcast({ t: 'hotspot', hotspot: { ...view, tv: this.hotspotTv() } }, (c) => c.role === HOST);
+    const was = this.hotspotState;
+    const wasIp = this.hotspotIp || '';
+    this.hotspotState = view.state;
+    this.hotspotIp = this.app.hotspot?.ip || '';
+    if (view.state === was && this.hotspotIp === wasIp) return;
+    if (view.state === 'on' && was !== 'on') this.toastHosts(`Party hotspot on: guests join “${view.ssid}” (step 1 on the TV), then open the party (step 2).`, 'ok');
+    if (view.state === 'failed' && was !== 'failed') this.toastHosts(`Party hotspot off: ${view.reason} Guests use the home Wi-Fi.`, 'error');
+    if (wasIp && !this.hotspotIp) this.dropHotspotClients(wasIp);
+    this.markDirty();
+  }
+
+  /**
+   * The hotspot is gone: its phones and screens can't be reached any more. Their connections
+   * close now (a paired TV on it pauses the song at once, as when any TV leaves) instead of at
+   * the next heartbeat. This computer's own connections stay.
+   */
+  dropHotspotClients(address) {
+    const subnet = `${address.split('.').slice(0, 3).join('.')}.`; // the hotspot's /24
+    const gone = this.hub.list((c) => {
+      const ip = String(c.ip || '').replace(/^::ffff:/, '');
+      return ip.startsWith(subnet) && ip !== address && !c.isLocal;
+    });
+    for (const c of gone) c.close(1001, 'The party Wi-Fi is off');
+  }
+
+  /** What the TV shows for step 1 while the hotspot is on (the TV is a trusted screen). */
+  hotspotTv() {
+    const hs = this.app.hotspot;
+    if (!hs?.active) return null;
+    const { ssid, password } = hs.config();
+    return { ssid, password, qr: wifiPayload({ ssid, password, security: 'WPA' }) };
+  }
+
   // ---- views -------------------------------------------------------------------------------------
 
   singerView(id) {
@@ -1904,14 +2004,17 @@ export class Room {
     const hasPin = !!settings.party.adminPin;
     settings.party.adminPin = hasPin ? '••••' : '';
     if (settings.party.wifi?.password) settings.party.wifi.password = MASK;
+    if (settings.party.hotspot?.password) settings.party.hotspot.password = MASK; // shown in `hotspot` below
     const eta = this.etaList();
     const online = new Set(this.hub.list((c) => c.role === GUEST).map((c) => c.data.deviceId));
     const queuedBy = new Map();
     for (const e of [...s.queue, ...s.pending]) queuedBy.set(e.addedBy, (queuedBy.get(e.addedBy) || 0) + 1);
     const byName = (e) => (e.addedBy === 'host' ? 'Host' : this.profileOf(e.addedBy)?.name || 'Guest');
+    const hotspot = this.app.hotspot ? { ...this.app.hotspot.view(), tv: this.hotspotTv() } : null;
     return {
       info: this.app.info(),
       settings,
+      hotspot,
       hasPin,
       library: this.library.status(),
       current: this.currentView(),
@@ -1964,7 +2067,9 @@ export class Room {
         normalize: this.settings.get('playback.normalize'),
         startPaused: this.settings.get('playback.startPaused'),
       },
-      wifi: party.wifi?.show && party.wifi.ssid ? { ssid: party.wifi.ssid, qr: wifiPayload(party.wifi) } : null,
+      // Hotspot on: its own Wi-Fi is step 1 (the home network's QR would lead phones astray).
+      hotspot: this.hotspotTv(),
+      wifi: !this.app.hotspot?.active && party.wifi?.show && party.wifi.ssid ? { ssid: party.wifi.ssid, qr: wifiPayload(party.wifi) } : null,
       guestsEnabled: party.guestsEnabled,
       current: this.currentView({ media: true }),
       next: s.queue[0] ? { entryId: s.queue[0].id, trackId: s.queue[0].trackId, media: mediaUrls(this.catalog.track(s.queue[0].trackId)) } : null,

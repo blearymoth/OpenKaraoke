@@ -17,6 +17,13 @@ import { ArtworkService } from './artwork/service.js';
 import { ArtFeed } from './artwork/feed.js';
 import { lanAddresses, isLocalAddress } from './util/net.js';
 import { HttpError } from './util/errors.js';
+import { Hotspot } from './net/hotspot.js';
+import { logger } from './util/log.js';
+
+/** Without a runner (tests, e2e) nothing can reach NetworkManager: server/start.js gives the real one. */
+const noNetworkManager = async () => {
+  throw new Error('no NetworkManager runner given');
+};
 
 
 /**
@@ -27,8 +34,10 @@ import { HttpError } from './util/errors.js';
  * @param {boolean} [opts.watch] poll library folders for USB plug/unplug
  * @param {typeof fetch} [opts.fetch] outgoing HTTP for artwork providers (tests inject a fake)
  * @param {boolean} [opts.crawl] run the background artwork crawler (default true)
+ * @param {object} [opts.hotspot] the party hotspot's runner (`run`) and checks — server/start.js
+ *   passes the real nmcli, tests scripts/fake-nmcli.mjs; without one NetworkManager is never asked
  */
-export async function createApp({ dataDir, args = {}, scan, watch = true, fetch = globalThis.fetch, crawl = true } = {}) {
+export async function createApp({ dataDir, args = {}, scan, watch = true, fetch = globalThis.fetch, crawl = true, hotspot: hotspotOpts = {} } = {}) {
   const settings = new Settings(dataDir);
   await settings.load();
   applyArgs(settings, args);
@@ -47,18 +56,35 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   // `instance` tells this process apart from another server on the same address (/api/health).
   const app = { dataDir, settings, library, artwork, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [] };
 
+  // The party hotspot (PLAN §20).
+  const hotspot = new Hotspot({
+    listenAddress: () => app.server?.address()?.address || '',
+    ...hotspotOpts,
+    run: hotspotOpts.run || noNetworkManager,
+    settings,
+    port: () => app.port || settings.get('server.port'),
+    instance: app.instance,
+    log: logger('hotspot'),
+  });
+  app.hotspot = hotspot;
+  auth.hotspotAddress = () => hotspot.ip;
+
   app.info = () => {
     const port = app.port || settings.get('server.port');
     const code = settings.get('party.roomCode');
     const lanUrls = lanAddresses().map((a) => `http://${a.address}:${port}`);
     const pub = String(settings.get('server.publicUrl') || '').trim().replace(/\/+$/, '');
-    const baseUrl = pub || lanUrls[0] || `http://localhost:${port}`;
+    // While the hotspot is on, phones on it can only reach its address (publicUrl names the
+    // home network); when it is off or failed, everything is as before ("same Wi-Fi").
+    const hotspotUrl = hotspot.ip ? `http://${hotspot.ip}:${port}` : '';
+    const baseUrl = hotspotUrl || pub || lanUrls[0] || `http://localhost:${port}`;
     const st = library.status();
     return {
       name: settings.get('party.name'),
       roomCode: code,
       joinUrl: `${baseUrl}/j/${code}`,
       baseUrl,
+      mode: hotspotUrl ? 'hotspot' : 'lan',
       lanUrls,
       version: VERSION,
       library: { tracks: st.tracks, songs: st.songs, artists: st.artists, offline: st.offline, scanning: st.scanning },
@@ -96,6 +122,27 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   hub.on('leave', (client) => room.onLeave(client));
   app.closers.push((opts) => room.close(opts));
   app.closers.push((opts) => artwork.close(opts));
+  app.closers.push(() => hotspot.close());
+  hotspot.on('change', (view) => room.onHotspot(view));
+  // After the hotspot stops or drops, the home network's address comes back a few seconds
+  // later (NetworkManager reconnects the Wi-Fi): every screen gets the new join link then too.
+  let lanTimer = null;
+  hotspot.on('change', (view) => {
+    if (view.state !== 'failed' && view.state !== 'off') return;
+    clearInterval(lanTimer);
+    let last = JSON.stringify(lanAddresses());
+    let ticks = 0;
+    lanTimer = setInterval(() => {
+      const now = JSON.stringify(lanAddresses());
+      if (now !== last) {
+        last = now;
+        room.markDirty();
+      }
+      if (++ticks >= 12) clearInterval(lanTimer);
+    }, 5000);
+    lanTimer.unref?.();
+  });
+  app.closers.push(() => clearInterval(lanTimer));
 
   library.on('changed', () => room.onLibraryChanged());
   library.on('status', () => room.markDirty());
@@ -116,6 +163,10 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
     const onListening = () => {
       server.off('error', onError);
       app.port = server.address().port;
+      // Switched on last time: on again (with the checks; a failure falls back to the home Wi-Fi).
+      // Off: a party hotspot left up by a crashed run is brought down.
+      if (settings.get('party.hotspot.enabled')) hotspot.start().catch(() => {});
+      else hotspot.cleanup().catch(() => {});
       resolve(app);
     };
     server.once('error', onError);

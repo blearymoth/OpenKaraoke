@@ -36,8 +36,8 @@ test('hotspot values: name, password, adapter; the connection nmcli gets', () =>
   for (const bad of ['1234567', 'x'.repeat(64), 'héllo123', 'tab\tinside', undefined]) assert.ok(!validPassword(bad), String(bad));
   for (const ok of ['wlp2s0', 'wlan0', 'wlx00c0ca1234ab', 'wl.0_1']) assert.ok(validIfname(ok), ok);
   for (const bad of ['', '-x', 'a'.repeat(16), 'wl p', 'wl/0', 'wl;rm']) assert.ok(!validIfname(bad), bad);
-  const pw = makePassword(() => 0.5);
-  assert.match(pw, /^[a-z2-9]{12}$/);
+  const pw = makePassword(() => 3);
+  assert.equal(pw, 'dddddddddddd');
   assert.ok(validPassword(makePassword()));
 
   const args = addConnectionArgs({ ifname: 'wlp2s0', ssid: 'OpenKaraoke-ABCD', password: 'secret-pass', band: 'auto' });
@@ -48,6 +48,7 @@ test('hotspot values: name, password, adapter; the connection nmcli gets', () =>
   assert.equal(kv('ssid'), 'OpenKaraoke-ABCD');
   assert.equal(kv('802-11-wireless.mode'), 'ap');
   assert.equal(kv('ipv4.method'), 'shared');
+  assert.equal(kv('ipv4.addresses'), '10.42.0.1/24', 'a fixed address: printed QR cards stay right');
   assert.equal(kv('wifi-sec.key-mgmt'), 'wpa-psk');
   assert.equal(kv('wifi-sec.psk'), 'secret-pass');
   assert.equal(kv('autoconnect'), 'no');
@@ -145,11 +146,11 @@ function fakeSettings(hotspot = {}, server = {}) {
   };
 }
 
-async function makeHotspot(scenario, { settings = fakeSettings(), health, platform = 'linux', readText = async () => '', pollMs = 60_000 } = {}) {
+async function makeHotspot(scenario, { settings = fakeSettings(), health, platform = 'linux', readText = async () => '', pollMs = 60_000, listenAddress = () => '0.0.0.0' } = {}) {
   const { Hotspot } = await import('../server/net/hotspot.js');
   const nm = fakeNmcli(scenario);
   const hs = new Hotspot({
-    run: nm.run, settings, port: () => 6527, instance: 'me', platform, readText, pollMs,
+    run: nm.run, settings, port: () => 6527, instance: 'me', platform, readText, pollMs, listenAddress,
     health: health || (async (url) => (url === 'http://10.42.0.1:6527/api/health' ? { ok: true, instance: 'me' } : null)),
   });
   const changes = [];
@@ -194,10 +195,19 @@ test('Hotspot: warnings — the home Wi-Fi drops, a password prompt, firewalls',
   await hs.stop();
   assert.equal(nm.state.devices[0].connection, 'HomeNet', 'the home Wi-Fi comes back');
 
-  ({ hs } = await makeHotspot('auth'));
+  let auth;
+  ({ hs, nm: auth } = await makeHotspot('auth'));
   v = await hs.start();
   assert.equal(v.state, 'on');
   assert.equal(byId(v).permission.level, 'warn');
+  assert.ok(auth.calls.some((c) => c.join(' ') === `nmcli --wait 90 connection up id ${CONNECTION_NAME}`), 'time to type the password');
+
+  ({ hs, nm } = await makeHotspot('gnome-hotspot'));
+  v = await hs.start();
+  assert.equal(v.state, 'on');
+  assert.equal(byId(v)['other-ap'].level, 'warn');
+  assert.match(byId(v)['other-ap'].text, /Another hotspot \(“Hotspot”\)/);
+  assert.ok(!byId(v).uplink || byId(v).uplink.level === 'ok', 'GNOME’s hotspot is not the home Wi-Fi');
 
   ({ hs } = await makeHotspot('firewalld'));
   v = await hs.start();
@@ -237,7 +247,7 @@ test('Hotspot: every blocking check fails with its reason and fix, and leaves no
   assert.equal((await mac.hs.start()).check, 'linux');
   assert.equal(mac.nm.calls.length, 0);
   // Bound to one address: nothing is changed.
-  const bound = await makeHotspot('ok', { settings: fakeSettings({}, { host: '192.168.1.20' }) });
+  const bound = await makeHotspot('ok', { listenAddress: () => '192.168.1.20' });
   const b = await bound.hs.start();
   assert.equal(b.check, 'listen');
   assert.ok(!bound.nm.calls.some((c) => c[2] === 'add' || c[2] === 'up'));
@@ -300,3 +310,279 @@ test('Hotspot: one start at a time; bad saved settings fall back to safe values'
   const cfg = odd.hs.config();
   assert.deepEqual([cfg.ssid, cfg.password, cfg.band, cfg.ifname], ['OpenKaraoke-ABCD', '', 'auto', '']);
 });
+
+// ---- the app with a hotspot: join address, views, security (PLAN §20.3, §20.6) ----------------
+
+import { WebSocket } from '../server/vendor/ws.mjs';
+import { fetchHealth } from '../server/net/hotspot.js';
+
+const HOTSPOT_IP = '10.42.0.1';
+
+async function hotspotApp(scenario = 'ok', { enabled = false } = {}) {
+  const dir = await tmpDir('ok-hotspot-app-');
+  if (enabled) {
+    await (await import('node:fs/promises')).writeFile(`${dir}/settings.json`, JSON.stringify({ party: { roomCode: 'WXYZ', hotspot: { enabled: true } } }));
+  }
+  const nm = fakeNmcli(scenario);
+  // Phones would reach this server at 10.42.0.1; in the test it is 127.0.0.1.
+  const health = (url) => (url.startsWith(`http://${HOTSPOT_IP}:`) ? fetchHealth(url.replace(HOTSPOT_IP, '127.0.0.1')) : Promise.resolve(null));
+  // The test server listens on 127.0.0.1 only; a real one on 0.0.0.0 (check 8 is tested apart).
+  const app = await createApp({ dataDir: dir, scan: false, watch: false, fetch: offlineFetch, crawl: false, hotspot: { run: nm.run, health, platform: 'linux', readText: async () => '', pollMs: 60_000, listenAddress: () => '0.0.0.0' } });
+  await app.listen(0, '127.0.0.1');
+  return { app, nm, base: `http://127.0.0.1:${app.port}` };
+}
+
+/** Waits for the hotspot's start/stop under way (they run one at a time). */
+const settle = (app) => app.hotspot.chain;
+const asHost = { role: 'host', data: {}, isLocal: true, ip: '127.0.0.1', send() {} };
+
+function rawGet(base, path, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(path, base);
+    http.get({ hostname: u.hostname, port: u.port, path: u.pathname, headers }, (res) => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode));
+    }).on('error', reject);
+  });
+}
+
+function wsHello(base, headers, hello) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(`${base.replace('http', 'ws')}/ws`, { headers });
+    ws.on('unexpected-response', (_, res) => reject(new Error(`HTTP ${res.statusCode}`)));
+    ws.on('error', reject);
+    ws.on('open', () => ws.send(JSON.stringify(hello)));
+    ws.on('message', (d) => {
+      const msg = JSON.parse(d.toString());
+      if (msg.t === 'welcome' || msg.t === 'denied') {
+        ws.close();
+        resolve(msg);
+      }
+    });
+  });
+}
+
+test('app: the hotspot moves every join link to its address, and back when it drops', async (t) => {
+  const { app, nm } = await hotspotApp('ok');
+  t.after(() => app.close());
+  const room = app.room;
+  assert.equal(app.info().mode, 'lan');
+  assert.equal(room.tvView().hotspot, null);
+
+  await room.request(asHost, { t: 'hotspot.set', on: true });
+  await settle(app);
+  assert.equal(app.hotspot.state, 'on');
+  const info = app.info();
+  assert.equal(info.mode, 'hotspot');
+  assert.equal(info.joinUrl, `http://${HOTSPOT_IP}:${app.port}/j/${info.roomCode}`);
+  assert.equal(room.publicInfo().joinUrl, info.joinUrl, 'the TV, boards and guests get it too');
+  const tv = room.tvView().hotspot;
+  assert.equal(tv.ssid, `OpenKaraoke-${info.roomCode}`);
+  assert.match(tv.qr, new RegExp(`^WIFI:T:WPA;S:OpenKaraoke-${info.roomCode};P:${tv.password};;$`));
+  assert.equal(room.tvView().wifi, null, 'no home-Wi-Fi QR while the hotspot is step 1');
+  const hv = room.hostView();
+  assert.equal(hv.hotspot.state, 'on');
+  assert.equal(hv.hotspot.password, tv.password, 'the host sees the password');
+  assert.equal(hv.settings.party.hotspot.password, '••••••', 'masked in the settings view');
+  assert.ok(!JSON.stringify(room.guestBase()).includes(tv.password), 'guests never get the password');
+  assert.ok(!('hotspot' in room.guestBase()));
+
+  // Settings can't switch it around the checks.
+  assert.equal(app.settings.get('party.hotspot.ssid'), `OpenKaraoke-${info.roomCode}`, 'the name is fixed when switched on');
+  assert.equal(app.settings.get('party.hotspot.password'), tv.password);
+  await room.request(asHost, { t: 'settings.update', patch: { party: { roomCode: 'QQQQ', hotspot: { enabled: false, ssid: 'sneaky' } } } });
+  assert.equal(app.settings.get('party.hotspot.enabled'), true);
+  assert.equal(app.settings.get('party.hotspot.ssid'), `OpenKaraoke-${info.roomCode}`, 'a new room code doesn’t rename the Wi-Fi');
+  const publicInfo = await (await fetch(`http://127.0.0.1:${app.port}/api/info`)).text();
+  assert.ok(!publicInfo.includes(tv.password) && !publicInfo.includes('WIFI:'), '/api/info (anyone may read it) has no password');
+
+  // It drops: the join link is the home network's again, at once.
+  nm.drop();
+  await app.hotspot.poll();
+  await app.hotspot.poll();
+  assert.equal(app.hotspot.state, 'failed');
+  assert.equal(app.info().mode, 'lan');
+  assert.notEqual(app.info().joinUrl, info.joinUrl);
+  assert.equal(room.tvView().hotspot, null);
+  assert.match(room.hostView().hotspot.reason, /stopped/);
+
+  // Try again; then off.
+  await room.request(asHost, { t: 'hotspot.retry' });
+  await settle(app);
+  assert.equal(app.hotspot.state, 'on');
+  await room.request(asHost, { t: 'hotspot.set', on: false });
+  await settle(app);
+  assert.equal(app.hotspot.state, 'off');
+  assert.equal(app.settings.get('party.hotspot.enabled'), false);
+  assert.equal(app.info().mode, 'lan');
+});
+
+test('app: hotspot settings are validated; switched on last time it starts again; quitting brings it down', async (t) => {
+  let { app, nm } = await hotspotApp('ok');
+  t.after(() => app.close());
+  const room = app.room;
+  for (const bad of [{ ssid: 'x'.repeat(33) }, { ssid: '-x' }, { password: 'short' }, { band: '6ghz' }, { ifname: 'wl;rm' }]) {
+    await assert.rejects(room.request(asHost, { t: 'hotspot.config', ...bad }), undefined, JSON.stringify(bad));
+  }
+  await room.request(asHost, { t: 'hotspot.config', ssid: 'Karaoke Night', password: '', band: 'bg', ifname: 'wlp2s0' });
+  const saved = app.settings.get('party.hotspot');
+  assert.equal(saved.ssid, 'Karaoke Night');
+  assert.ok(validPassword(saved.password), 'an empty password makes a new one');
+  await room.request(asHost, { t: 'hotspot.config', password: '••••••' });
+  assert.equal(app.settings.get('party.hotspot.password'), saved.password, 'the masked password is not saved');
+  assert.deepEqual(nm.calls, [['nmcli', '-g', 'GENERAL.STATE', 'connection', 'show', 'id', CONNECTION_NAME]], 'with the switch off only the look for a left-over hotspot reached nmcli');
+  await app.close();
+
+  ({ app, nm } = await hotspotApp('ok', { enabled: true }));
+  await settle(app);
+  assert.equal(app.hotspot.state, 'on', 'on again after a restart');
+  await app.close();
+  assert.ok(nm.calls.some((c) => c[1] === 'connection' && c[2] === 'down'), 'quitting brings it down');
+  assert.equal(nm.state.devices[0].state, 'disconnected');
+
+  // A failing hotspot at start-up: the party starts anyway, on the home network.
+  ({ app } = await hotspotApp('wifi-off', { enabled: true }));
+  await settle(app);
+  assert.equal(app.hotspot.state, 'failed');
+  assert.equal(app.info().mode, 'lan');
+  assert.match(app.room.hostView().hotspot.fix, /Switch Wi-Fi on/);
+});
+
+test('security: guests on the hotspot address are welcome; the host role and foreign origins are not', async (t) => {
+  const { app, nm, base } = await hotspotApp('ok');
+  t.after(() => app.close());
+  await app.room.request(asHost, { t: 'hotspot.set', on: true });
+  await settle(app);
+  const port = app.port;
+  const code = app.info().roomCode;
+  const hotspotHost = `${HOTSPOT_IP}:${port}`;
+  const hotspotOrigin = `http://${hotspotHost}`;
+
+  // Guests: the join page and the WebSocket with the IP-literal Host and its Origin.
+  assert.equal(await rawGet(base, `/j/${code}`, { host: hotspotHost }), 200);
+  // An IP-literal Host can't be rebound: this computer keeps its host rights through it; a
+  // foreign name never gets them.
+  assert.equal(await rawGet(base, '/api/fs/list', { host: hotspotHost }), 200);
+  assert.equal(await rawGet(base, '/api/fs/list', { host: `evil.example:${port}` }), 403);
+  const welcome = await wsHello(base, { host: hotspotHost, origin: hotspotOrigin }, { t: 'hello', role: 'guest', room: code });
+  assert.equal(welcome.t, 'welcome');
+  assert.equal(welcome.role, 'guest');
+  assert.equal(welcome.state.info.joinUrl, `${hotspotOrigin}/j/${code}`);
+  const pin = await fetch(`${base}/api/auth/pin`, { method: 'POST', headers: { 'content-type': 'application/json', origin: hotspotOrigin }, body: '{"pin":"1234"}' });
+  assert.ok(!/other web sites/.test(await pin.text()), 'a POST from the hotspot page is not cross-site');
+
+  // Foreign origins: another site, another phone's address on the hotspot.
+  for (const origin of ['http://evil.example', `http://10.42.0.99:${port}`, `http://${HOTSPOT_IP}.evil.example:${port}`]) {
+    await assert.rejects(wsHello(base, { host: hotspotHost, origin }, { t: 'hello', role: 'guest', room: code }), /403/, origin);
+    const res = await fetch(`${base}/api/auth/pin`, { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: '{"pin":"1234"}' });
+    assert.equal(res.status, 403, origin);
+    assert.match(await res.text(), /other web sites/, origin);
+  }
+
+  // The host role from a phone on the hotspot: never without the PIN, whatever the headers say.
+  const auth = app.auth;
+  for (const ip of ['10.42.0.23', '::ffff:10.42.0.23']) {
+    assert.equal(auth.isHost(ip, null), false, ip);
+    assert.equal(auth.isHostRequest({ headers: { host: hotspotHost, origin: hotspotOrigin }, socket: { remoteAddress: ip } }), false, ip);
+    const denied = await app.room.hello({ role: 'host', ip, isLocal: false, data: {}, send() {} }, { role: 'host' });
+    assert.deepEqual(denied, { ok: false, reason: 'host_only' }, ip);
+  }
+  // With a PIN set, only its token opens the host role.
+  app.settings.update({ party: { adminPin: '4321' } });
+  assert.equal((await app.room.hello({ role: 'host', ip: '10.42.0.23', isLocal: false, data: {}, send() {} }, { role: 'host' })).reason, 'pin_required');
+  const token = auth.loginWithPin('4321', '10.42.0.23');
+  assert.equal(auth.isHost('10.42.0.23', token), true);
+  // A TV on the hotspot still needs pairing.
+  assert.equal((await app.room.hello({ role: 'tv', ip: '10.42.0.23', isLocal: false, data: {}, send() {} }, { role: 'tv' })).reason, 'pairing_required');
+
+  // Once the hotspot is gone, its address is no longer one of our names.
+  nm.drop();
+  await app.hotspot.poll();
+  await app.hotspot.poll();
+  assert.ok(!auth.extraNames().includes(HOTSPOT_IP));
+  await assert.rejects(wsHello(base, { host: hotspotHost, origin: hotspotOrigin }, { t: 'hello', role: 'guest', room: code }), /403/);
+});
+
+test('app: without a runner NetworkManager is never asked; bound to one address the hotspot refuses', async (t) => {
+  const dir = await tmpDir('ok-hotspot-norun-');
+  const app = await createApp({ dataDir: dir, scan: false, watch: false, fetch: offlineFetch, crawl: false });
+  await app.listen(0, '127.0.0.1');
+  t.after(() => app.close());
+  await app.room.request(asHost, { t: 'hotspot.set', on: true });
+  await settle(app);
+  assert.equal(app.hotspot.state, 'failed');
+  assert.equal(app.hotspot.view().check, process.platform === 'linux' ? 'nmcli' : 'linux');
+
+  const nm = fakeNmcli('ok');
+  const dir2 = await tmpDir('ok-hotspot-bound-');
+  const bound = await createApp({ dataDir: dir2, scan: false, watch: false, fetch: offlineFetch, crawl: false, hotspot: { run: nm.run, platform: 'linux' } });
+  await bound.listen(0, '127.0.0.1');
+  t.after(() => bound.close());
+  await bound.room.request(asHost, { t: 'hotspot.set', on: true });
+  await settle(bound);
+  assert.equal(bound.hotspot.view().check, 'listen');
+  assert.match(bound.hotspot.view().reason, /only listens on 127\.0\.0\.1/);
+  assert.ok(!nm.calls.some((c) => c[2] === 'add'));
+});
+
+test('fake nmcli as a program (OPENKARAOKE_NMCLI): the real runner starts it, its state lasts between calls', async () => {
+  const dir = await tmpDir('ok-fake-prog-');
+  const env = { ...process.env, OPENKARAOKE_NMCLI: new URL('../scripts/fake-nmcli.mjs', import.meta.url).pathname, FAKE_NMCLI_SCENARIO: 'home-wifi', FAKE_NMCLI_STATE: `${dir}/nm.json` };
+  const run = systemRunner({ env });
+  assert.match((await run('nmcli', ['--version'])).stdout, /nmcli tool, version/);
+  assert.equal((await run('nmcli', ['-t', '-f', 'WIFI', 'radio'])).stdout, 'enabled\n');
+  assert.equal((await run('nmcli', addConnectionArgs({ ifname: 'wlp2s0', ssid: 'P', password: '12345678', band: 'auto' }))).code, 0);
+  assert.equal((await run('nmcli', ['connection', 'up', 'id', CONNECTION_NAME])).code, 0);
+  assert.equal((await run('nmcli', ['-g', 'GENERAL.STATE', 'connection', 'show', 'id', CONNECTION_NAME])).stdout, 'activated\n', 'remembered between runs');
+  assert.equal((await run('firewall-cmd', ['--state'])).code, 252);
+});
+
+test('Hotspot: an older NetworkManager without client isolation; a hotspot left up by a crash', async () => {
+  let { hs, nm } = await makeHotspot('old-nm');
+  let v = await hs.start();
+  assert.equal(v.state, 'on');
+  assert.equal(byId(v).isolation.level, 'warn');
+  const adds = nm.calls.filter((c) => c[2] === 'add');
+  assert.equal(adds.length, 2);
+  assert.ok(adds[0].includes('802-11-wireless.ap-isolation') && !adds[1].includes('802-11-wireless.ap-isolation'));
+  ({ hs, nm } = await makeHotspot('ok'));
+  v = await hs.start();
+  assert.ok(!v.checks.some((c) => c.id === 'isolation'));
+  assert.ok(nm.calls.find((c) => c[2] === 'add').includes('802-11-wireless.ap-isolation'), 'phones kept apart');
+
+  // Switch off at start-up: the left-over party hotspot goes down; on: it is replaced.
+  ({ hs, nm } = await makeHotspot('leftover'));
+  await hs.cleanup();
+  assert.equal(nm.state.devices[0].state, 'disconnected');
+  ({ hs, nm } = await makeHotspot('leftover'));
+  assert.equal((await hs.start()).state, 'on');
+  assert.equal(nm.state.connections.filter((c) => c.name === CONNECTION_NAME).length, 1);
+});
+
+test('app: hosts follow the checks; when the hotspot goes, its phones and screens are let go at once', async (t) => {
+  const { app, nm } = await hotspotApp('ok');
+  t.after(() => app.close());
+  const sent = [];
+  const fakeClient = (role, ip, isLocal = false) => ({ role, ip, isLocal, data: {}, closed: null, send(m) { sent.push([role, m.t]); }, close(code) { this.closed = code; } });
+  const phone = fakeClient('guest', '10.42.0.23');
+  const v6phone = fakeClient('guest', '::ffff:10.42.0.24');
+  const home = fakeClient('guest', '192.168.1.40');
+  const local = fakeClient('tv', '10.42.0.1', true);
+  const host = fakeClient('host', '127.0.0.1', true);
+  const realList = app.hub.list.bind(app.hub);
+  app.hub.list = (pred = () => true) => [...realList(pred), ...[phone, v6phone, home, local, host].filter(pred)];
+  const realBroadcast = app.hub.broadcast.bind(app.hub);
+  app.hub.broadcast = (msg, pred = () => true) => {
+    for (const c of [phone, v6phone, home, local, host]) if (pred(c)) c.send(msg);
+    return realBroadcast(msg, pred);
+  };
+  await app.room.request(asHost, { t: 'hotspot.set', on: true });
+  await settle(app);
+  const progress = sent.filter(([, t]) => t === 'hotspot');
+  assert.ok(progress.length >= 10 && progress.every(([role]) => role === 'host'), 'every check step, to hosts only');
+  nm.drop();
+  await app.hotspot.poll();
+  await app.hotspot.poll();
+  assert.deepEqual([phone.closed, v6phone.closed, home.closed, local.closed, host.closed], [1001, 1001, null, null, null]);
+});
+

@@ -39,6 +39,9 @@ export const DEFAULT_SETTINGS = {
     trustLocalhost: true, // the computer running OpenKaraoke never needs the PIN
     guestsEnabled: true,
     wifi: { ssid: '', password: '', security: 'WPA', hidden: false, show: false },
+    // The party hotspot (PLAN §20): this PC's own Wi-Fi through NetworkManager. Empty name →
+    // OpenKaraoke-<room code>; empty password → one is made up the first time.
+    hotspot: { enabled: false, ssid: '', password: '', band: 'auto', ifname: '' },
   },
   queue: {
     mode: 'rotation', // 'rotation' (fair round-robin) or 'fifo'

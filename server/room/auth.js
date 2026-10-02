@@ -31,15 +31,21 @@ export class Auth {
     this.pinLimiterAll = new RateLimiter({ capacity: 20, perMs: 5 * 60_000 }); // across all addresses
   }
 
-  /** Extra host names we answer to (the public URL set in settings). */
+  /**
+   * Extra host names we answer to: the public URL set in settings, and the party hotspot's
+   * address while it is on (pages loaded from http://10.42.0.1:<port>; app.js sets
+   * `hotspotAddress`).
+   */
   extraNames() {
+    const names = [];
+    const hs = this.hotspotAddress?.();
+    if (hs) names.push(hs);
     const pub = this.settings.get('server.publicUrl');
-    if (!pub) return [];
+    if (!pub) return names;
     try {
-      return [hostnameOf(new URL(pub).host)];
-    } catch {
-      return [];
-    }
+      names.push(hostnameOf(new URL(pub).host));
+    } catch { /* not a URL */ }
+    return names;
   }
 
   trustedHost(hostHeader) {

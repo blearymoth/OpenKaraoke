@@ -7,8 +7,9 @@
 //     const nm = fakeNmcli('home-wifi'); createApp({ hotspotRunner: nm.run }); nm.calls; nm.drop();
 //   As a program:  FAKE_NMCLI_SCENARIO=ok FAKE_NMCLI_STATE=/tmp/nm.json node scripts/fake-nmcli.mjs -t -f WIFI radio
 //
-// Scenarios: ok, home-wifi, auth, no-nmcli, nm-stopped, no-permission, wifi-off, no-device,
-// no-ap, up-fails, no-dnsmasq, no-address, drops, firewalld.
+// Scenarios: ok, home-wifi, gnome-hotspot, auth, no-nmcli, nm-stopped, no-permission, wifi-off,
+// no-device, no-ap, up-fails, no-dnsmasq, no-address, drops, firewalld, old-nm (no client
+// isolation), leftover (a party hotspot still up from an earlier run).
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -44,7 +45,7 @@ export function scenarioState(name = 'ok') {
     ],
     connections: [
       { name: 'Wired connection 1', uuid: uuid(1), type: '802-3-ethernet', device: 'enp3s0', active: true },
-      { name: 'HomeNet', uuid: uuid(2), type: '802-11-wireless', device: '', active: false, autoconnect: true },
+      { name: 'HomeNet', uuid: uuid(2), type: '802-11-wireless', device: '', active: false, autoconnect: true, mode: 'infrastructure' },
       { name: 'lo', uuid: uuid(3), type: 'loopback', device: 'lo', active: true },
     ],
     hotspotAddress: '10.42.0.1/24',
@@ -64,6 +65,10 @@ export function scenarioState(name = 'ok') {
       st.connections[0].active = false;
       st.connections[0].device = '';
       break;
+    case 'gnome-hotspot': // GNOME's own "Hotspot" already runs on the adapter
+      st.connections.push({ name: 'Hotspot', uuid: uuid(4), type: '802-11-wireless', device: 'wlp2s0', active: true, mode: 'ap' });
+      Object.assign(wifi, { state: 'connected', connection: 'Hotspot', address: '10.42.0.1/24' });
+      break;
     case 'auth': st.permission = 'auth'; break;
     case 'no-nmcli': st.installed = false; break;
     case 'nm-stopped': st.running = false; break;
@@ -76,6 +81,11 @@ export function scenarioState(name = 'ok') {
     case 'no-address': st.hotspotAddress = ''; break;
     case 'drops': st.dropAfterPolls = 2; break;
     case 'firewalld': st.firewalld = true; break;
+    case 'old-nm': st.version = '1.22.10'; st.noIsolation = true; break;
+    case 'leftover':
+      st.connections.push({ name: 'OpenKaraoke hotspot', uuid: uuid(5), type: '802-11-wireless', device: 'wlp2s0', active: true, hotspot: true, mode: 'ap' });
+      Object.assign(wifi, { state: 'connected', connection: 'OpenKaraoke hotspot', address: '10.42.0.1/24' });
+      break;
     default: throw new Error(`unknown fake-nmcli scenario: ${name}`);
   }
   return st;
@@ -130,6 +140,11 @@ export function runFake(st, cmd, args) {
     const active = rest.includes('--active');
     return out(st.connections.filter((c) => !active || c.active).map((c) => [c.name, c.uuid, c.type, c.active ? c.device : ''].map(esc).join(':')).join('\n'));
   }
+  if (object === 'connection' && verb === 'show' && fields === '802-11-wireless.mode' && getValues) {
+    const c = hotspot();
+    if (!c) return err(10, 'no such connection profile.');
+    return out(c.type === '802-11-wireless' ? c.mode || (c.hotspot ? 'ap' : 'infrastructure') : '');
+  }
   if (object === 'connection' && verb === 'show' && fields === 'GENERAL.STATE' && getValues) {
     const c = hotspot();
     if (!c) return err(10, 'no such connection profile.');
@@ -147,6 +162,7 @@ export function runFake(st, cmd, args) {
     const kv = {};
     for (let i = 0; i < rest.length; i += 2) kv[rest[i]] = rest[i + 1];
     if (kv.type !== 'wifi' || !kv['con-name'] || !kv.ssid) return err(2, 'invalid connection settings.');
+    if (st.noIsolation && '802-11-wireless.ap-isolation' in kv) return err(2, "invalid property 'ap-isolation': 'ap-isolation' not among [ssid, mode, band, channel, bssid, mac-address, mtu, hidden, powersave]."); // NetworkManager < 1.28
     if (!wifiDev(kv.ifname)) return err(10, `Device '${kv.ifname}' not found.`);
     if (st.permission === 'no') return err(1, 'Failed to add \'' + kv['con-name'] + '\' connection: Insufficient privileges');
     const c = { name: kv['con-name'], uuid: uuid(st.nextId++), type: '802-11-wireless', device: kv.ifname, active: false, hotspot: kv['802-11-wireless.mode'] === 'ap', settings: kv };

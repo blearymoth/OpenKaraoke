@@ -10,12 +10,14 @@ import { addConnectionArgs, getValues, makePassword, nmError, terseRows, validIf
 
 const POLL_MS = 5000;
 const UP_WAIT_S = 30;
-const SAFE_HOSTS = new Set(['0.0.0.0', '::', '']);
+const UP_WAIT_PROMPT_S = 90; // someone types a password at the system's prompt
+const CLOSE_MS = 4000; // quitting waits this long at most for the hotspot to go down
+const ALL_ADDRESSES = new Set(['0.0.0.0', '::']);
 
 /** GET http://…/api/health with a short timeout → the parsed body, or null. */
 export function fetchHealth(url, timeoutMs = 3000) {
   return new Promise((resolve) => {
-    const req = http.get(url, { timeout: timeoutMs }, (res) => {
+    const req = http.get(url, { timeout: timeoutMs, agent: false }, (res) => {
       let body = '';
       res.setEncoding('utf8');
       res.on('data', (d) => { if (body.length < 10_000) body += d; });
@@ -51,14 +53,16 @@ export class Hotspot extends EventEmitter {
    * @param {(cmd: string, args: string[]) => Promise<{code: number, stdout: string, stderr: string}>} o.run
    * @param {import('../config.js').Settings} o.settings party.hotspot lives there
    * @param {() => number} o.port the port this server listens on
+   * @param {() => string} [o.listenAddress] the address it listens on ('0.0.0.0' = every one)
    * @param {string} o.instance this process (/api/health)
    * @param {(url: string) => Promise<object|null>} [o.health] reachability check (tests pass a fake)
    * @param {string} [o.platform]
    * @param {(file: string) => Promise<string>} [o.readText] for /etc/ufw/ufw.conf
    */
-  constructor({ run, settings, port, instance, health = fetchHealth, platform = process.platform, readText = (f) => fs.readFile(f, 'utf8'), pollMs = POLL_MS, log } = {}) {
+  constructor({ run, settings, port, listenAddress = () => '0.0.0.0', instance, health = fetchHealth, platform = process.platform, readText = (f) => fs.readFile(f, 'utf8'), pollMs = POLL_MS, log } = {}) {
     super();
-    this.run = run;
+    this.runner = run;
+    this.listenAddress = listenAddress;
     this.settings = settings;
     this.port = port;
     this.instance = instance;
@@ -118,8 +122,17 @@ export class Hotspot extends EventEmitter {
     return next;
   }
 
-  nmcli(args) {
-    return this.run('nmcli', args);
+  /** Runs a program; a runner that can't (none given, not allowed) counts as "not installed". */
+  async run(cmd, args, opts) {
+    try {
+      return await this.runner(cmd, args, opts);
+    } catch (e) {
+      return { code: 127, stdout: '', stderr: String(e?.message || e) };
+    }
+  }
+
+  nmcli(args, opts) {
+    return this.run('nmcli', args, opts);
   }
 
   // ---- start -------------------------------------------------------------------------------
@@ -192,12 +205,16 @@ export class Hotspot extends EventEmitter {
     if (ap !== 'yes') return fail(CHECK('ap', 'fail', `This Wi-Fi adapter (${dev.name}) can’t be a hotspot.`, 'A USB Wi-Fi adapter that supports hotspot (AP) mode can.'));
     done(CHECK('ap', 'ok', `${dev.name} can be a hotspot`));
 
-    const host = String(this.settings.get('server.host') ?? '0.0.0.0');
-    if (!SAFE_HOSTS.has(host)) return fail(CHECK('listen', 'fail', `OpenKaraoke only listens on ${host}, which phones on the hotspot can’t reach.`, 'Start it without --host (or with --host 0.0.0.0).'));
+    const host = String(this.listenAddress() || '');
+    if (!ALL_ADDRESSES.has(host)) return fail(CHECK('listen', 'fail', `OpenKaraoke only listens on ${host || 'one address'}, which phones on the hotspot can’t reach.`, 'Start it without --host (or with --host 0.0.0.0).'));
     done(CHECK('listen', 'ok', 'OpenKaraoke listens on every network'));
 
-    // The adapter's own Wi-Fi connection goes away while it is a hotspot (one radio).
-    const homeWifi = dev.state === 'connected' && dev.connection && dev.connection !== CONNECTION_NAME ? dev.connection : '';
+    // What the adapter does now: another hotspot (GNOME's own), or the home Wi-Fi, which goes
+    // away while it is a hotspot (one radio).
+    const current = dev.state === 'connected' && dev.connection && dev.connection !== CONNECTION_NAME ? dev.connection : '';
+    const currentMode = current ? getValues((await this.nmcli(['-g', '802-11-wireless.mode', 'connection', 'show', 'id', current])).stdout)[0] : '';
+    if (currentMode === 'ap') done(CHECK('other-ap', 'warn', `Another hotspot (“${current}”) is on this adapter: the party hotspot takes its place.`, 'Phones on that hotspot have to join the party’s Wi-Fi.'));
+    const homeWifi = current && currentMode !== 'ap' ? current : '';
     const otherUplink = devices.find((d) => d !== dev && d.state === 'connected' && d.type !== 'loopback' && d.type !== 'wifi-p2p' && !/^(lo|docker|virbr|veth|br-)/.test(d.name));
     if (homeWifi && !otherUplink) done(CHECK('uplink', 'warn', `This PC leaves “${homeWifi}” while the hotspot is on.`, 'No internet for new song covers and updates until the hotspot is off — a network cable keeps both.'));
     else if (otherUplink) done(CHECK('uplink', 'ok', `Internet stays on (${otherUplink.name}) and is shared with the phones`));
@@ -218,12 +235,19 @@ export class Hotspot extends EventEmitter {
       this.settings.update({ party: { hotspot: { password } } });
     }
     await this.nmcli(['connection', 'delete', 'id', CONNECTION_NAME]);
-    const added = await this.nmcli(addConnectionArgs({ ifname: dev.name, ssid: cfg.ssid, password, band: cfg.band }));
+    const conn = { ifname: dev.name, ssid: cfg.ssid, password, band: cfg.band };
+    let added = await this.nmcli(addConnectionArgs(conn));
+    if (added.code !== 0 && /ap-isolation/i.test(nmError(added))) {
+      // NetworkManager older than 1.28: no client isolation.
+      added = await this.nmcli(addConnectionArgs({ ...conn, isolation: false }));
+      if (added.code === 0) done(CHECK('isolation', 'warn', 'This NetworkManager can’t keep the phones apart: guests on the hotspot can reach each other.', 'Use the PC (not a phone with the PIN) for the host controls while the hotspot is on.'));
+    }
     if (added.code !== 0) {
       const why = nmError(added);
       return fail(CHECK('up', 'fail', `NetworkManager couldn’t create the hotspot: ${why}`, fixForUpError(why)));
     }
-    const up = await this.nmcli(['--wait', String(UP_WAIT_S), 'connection', 'up', 'id', CONNECTION_NAME]);
+    const wait = may.includes('auth') ? UP_WAIT_PROMPT_S : UP_WAIT_S;
+    const up = await this.nmcli(['--wait', String(wait), 'connection', 'up', 'id', CONNECTION_NAME], { timeout: (wait + 10) * 1000 });
     if (up.code !== 0) {
       const why = nmError(up);
       await this.nmcli(['connection', 'delete', 'id', CONNECTION_NAME]);
@@ -242,9 +266,9 @@ export class Hotspot extends EventEmitter {
     const health = await this.health(`${url}/api/health`);
     if (health?.instance !== this.instance) {
       await this.down();
-      return fail(CHECK('reach', 'fail', `The party doesn’t answer at ${url}.`, 'Another program may use this address, or OpenKaraoke listens on one address only: restart OpenKaraoke, then Try again.'));
+      return fail(CHECK('reach', 'fail', `The party doesn’t answer at ${url}.`, 'Another program may use this address: restart OpenKaraoke, then Try again.'));
     }
-    done(CHECK('reach', 'ok', `Phones can open the party at ${url}`));
+    done(CHECK('reach', 'ok', `This server answers on the hotspot: ${url}`));
 
     this.set({ state: 'on', ifname: dev.name, address, reason: '', fix: '', check: '' });
     this.log?.info(`party hotspot on: ${cfg.ssid} at ${url}`);
@@ -307,9 +331,25 @@ export class Hotspot extends EventEmitter {
     return this.view();
   }
 
+  /**
+   * At start-up with the switch off: a party hotspot still up (OpenKaraoke crashed or was killed
+   * while it was on) is ours by its name — brought down so the home Wi-Fi comes back.
+   */
+  cleanup() {
+    return this.serial(async () => {
+      if (this.st.state !== 'off') return;
+      const state = getValues((await this.nmcli(['-g', 'GENERAL.STATE', 'connection', 'show', 'id', CONNECTION_NAME])).stdout)[0];
+      if (state === 'activated') {
+        this.log?.info('party hotspot left on by an earlier run: bringing it down');
+        await this.nmcli(['connection', 'down', 'id', CONNECTION_NAME]);
+      }
+    });
+  }
+
   /** Quitting: the hotspot goes off if this process turned it on (the home Wi-Fi comes back). */
   close() {
     this.stopWatching();
-    return this.serial(() => this.down());
+    const done = this.serial(() => this.down());
+    return Promise.race([done, new Promise((r) => setTimeout(r, CLOSE_MS).unref?.())]);
   }
 }

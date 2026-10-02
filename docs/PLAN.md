@@ -656,12 +656,15 @@ When it is off — or when it can't be used — everything works as before ("sam
   OpenKaraoke (with the same checks).
 
 ### 20.3 How it is built
-- `server/net/nmcli.js` — how to talk to NetworkManager: `nmcli` is called **only** through
-  `child_process.execFile` (never a shell), with `LC_ALL=C` and terse output (`-t`), a
-  timeout and an output limit. A *runner* `(args) → { code, stdout, stderr }` is injected:
-  tests pass the fake (`scripts/fake-nmcli.mjs`, §20.7); only the app's default runner calls
-  the real `nmcli`, and it refuses to run under `node --test`. Parsers for terse output
-  (`\:` escapes) are pure functions.
+- `server/net/nmcli.js` — how to talk to NetworkManager: `nmcli` (and `firewall-cmd --state`)
+  are called **only** through `child_process.execFile` (never a shell), with `LC_ALL=C`, terse
+  output (`-t` / `-g`), a timeout and an output limit. A *runner* `(cmd, args) → { code,
+  stdout, stderr }` is injected. Changed after the check: `createApp()` has **no** runner of its
+  own (NetworkManager is never asked: tests, `npm run e2e` and the desktop test call it
+  directly and are not all under `node --test`); only `server/start.js` (the CLI and the
+  desktop app) gives the real one — or the fake with `OPENKARAOKE_FAKE_NMCLI=<scenario>`, or
+  another program with `OPENKARAOKE_NMCLI=<path>` — and the real one also refuses under
+  `node --test`. Parsers for terse output (`\:` escapes, `[n]` lists) are pure functions.
 - `server/net/hotspot.js` — `Hotspot` (EventEmitter): `start()` runs the checks (§20.4),
   creates or updates the NetworkManager connection `OpenKaraoke hotspot` (802-11-wireless
   mode `ap`, `ipv4.method shared` — NetworkManager gives phones addresses (DHCP/DNS) and
@@ -669,6 +672,12 @@ When it is off — or when it can't be used — everything works as before ("sam
   that this server answers there (`/api/health`), and from then on watches it (every 5 s);
   `stop()` brings it down (NetworkManager then reconnects the home Wi-Fi by itself). States:
   `off` → `starting` → `on` | `failed`; `on` → `failed` when it drops; `stopping` → `off`.
+  The connection: `autoconnect no` (never up at boot without OpenKaraoke), a fixed
+  `ipv4.addresses 10.42.0.1/24` (printed QR cards stay right), `ipv6.method disabled`, WPA2
+  (`rsn`, `ccmp`, no PMF — like GNOME's own hotspot) and `802-11-wireless.ap-isolation yes`
+  (phones can't reach each other; NetworkManager < 1.28 rejects it: retried without, ⚠). One
+  start or stop at a time; at start-up with the switch off, a party hotspot left up by a
+  crashed run is brought down (it is ours by its name); quitting waits at most 4 s for it.
 - **App wiring (check).** Code: `createApp()` in `server/app.js` builds settings, auth,
   library, artwork, router, hub and room, and `app.closers` closes them; the hotspot service
   is created there too (`app.hotspot`, with an optional injected runner for tests and the
@@ -679,7 +688,12 @@ When it is off — or when it can't be used — everything works as before ("sam
   the invite dialog, the queue board and the songbook all use `info.joinUrl`. In hotspot mode
   `baseUrl` becomes `http://<hotspot address>:<port>` — the only address phones on the hotspot
   can reach — even when `server.publicUrl` is set (that one names the home network); `info`
-  also gets `mode: 'hotspot' | 'lan'` and, for the host and TV views only, the hotspot QR.
+  also gets `mode: 'hotspot' | 'lan'`. Code: `GET /api/info` returns `app.info()` to anyone and
+  the TV and guests get `publicInfo()` (name, room code, join URL only), so the hotspot's name,
+  password and Wi-Fi QR are **not** in `info`: they are in the host view's `hotspot` and the TV
+  view's `hotspot` only. More places show the join QR than listed first — the TV's corner QR
+  during songs, the quiz's join corner, the queue board, the landing page, the songbook — and
+  all of them re-render from `info.joinUrl` with the next broadcast.
 - **QR encoder (check).** Code: `server/util/qr.js` has `qrSvg()` (vendored qrcode-generator,
   byte mode, UTF-8) and `wifiPayload({ ssid, password, security, hidden })` with the standard
   escapes (`\ ; , : "`); `/api/qr.svg?text=` renders any text for the pages. The hotspot QR
@@ -694,8 +708,9 @@ When it is off — or when it can't be used — everything works as before ("sam
   `{ ok: true, version, instance }` (`instance` = random per process, nothing secret) — the
   hotspot's own reachability check, and handy for the owner (`curl http://10.42.0.1:6527/api/health`).
 - **Listening address (check).** Code: `server.host` defaults to `0.0.0.0`
-  (`listenAddress()` in config.js; `--host` overrides). Bound to one address (or loopback)
-  phones on the hotspot can't reach it: blocking check.
+  (`listenAddress()` in config.js), but `--host` is never saved to the settings — so check 8
+  reads the address the server is really bound to (`app.server.address()`), not the setting.
+  Bound to one address (or loopback) phones on the hotspot can't reach it: blocking check.
 
 ### 20.4 Checks when the hotspot is switched on
 Blocking (✗: the hotspot is not used, §20.5) unless marked ⚠ (a warning shown with its fix):
@@ -706,8 +721,11 @@ Blocking (✗: the hotspot is not used, §20.5) unless marked ⚠ (a warning sho
    NetworkManager`.
 4. **Allowed to change the network** (`nmcli -t -f PERMISSION,VALUE general permissions`:
    `org.freedesktop.NetworkManager.network-control` and `settings.modify.system` are `yes`,
-   or `auth` = a password prompt) — `no`: "This user may not change the network: run
-   OpenKaraoke as the desktop user (not over SSH or as a service of another user)."
+   or `auth` = a password prompt: ⚠, and `connection up` then waits 90 s instead of 30 s for
+   the typing) — `no`: "This user may not change the network: run OpenKaraoke as the desktop
+   user (not over SSH or as a service of another user)." (The systemd user service of
+   `bin/install-service.sh` runs outside the desktop session: no password prompt can appear
+   there, so it needs `yes`.)
 5. **Wi-Fi is switched on** (`nmcli -t -f WIFI radio`) — fix: "Switch Wi-Fi on (top-right
    menu) — flight mode off."
 6. **A Wi-Fi adapter** (`nmcli -t -f DEVICE,TYPE,STATE device`; the chosen one, else the
@@ -716,7 +734,9 @@ Blocking (✗: the hotspot is not used, §20.5) unless marked ⚠ (a warning sho
    `yes`) — fix: "This Wi-Fi adapter can't be a hotspot; a USB adapter that supports AP mode can."
 8. **This server listens on every address** (`server.host` is `0.0.0.0` / `::`) — fix: start
    without `--host`, or with `--host 0.0.0.0`.
-9. ⚠ **The home Wi-Fi drops** — the adapter is connected to a Wi-Fi network and there is no
+9. ⚠ **Another hotspot** (GNOME's own "Hotspot") runs on the adapter — the party hotspot takes
+   its place.
+   ⚠ **The home Wi-Fi drops** — the adapter is connected to a Wi-Fi network and there is no
    other connection (Ethernet): "This PC leaves <SSID> while the hotspot is on: no internet
    for new song covers and updates until it is off. Ethernet keeps both."
 10. **The hotspot came up** (`nmcli connection up` succeeded within 30 s) — the reason
@@ -725,9 +745,11 @@ Blocking (✗: the hotspot is not used, §20.5) unless marked ⚠ (a warning sho
     reserved" (fix: `sudo apt install dnsmasq-base` — NetworkManager's shared mode needs it).
 11. **It has an address** (`IP4.ADDRESS` of the device) — fix: "NetworkManager gave the
     hotspot no address: install dnsmasq-base."
-12. **Phones can reach the party** — `GET http://<address>:<port>/api/health` answered by
-    this process (`instance` matches) within 3 s — fix: "Another program uses that address,
-    or the server is bound to one address."
+12. **This server answers on the hotspot address** — `GET http://<address>:<port>/api/health`
+    answered by this process (`instance` matches) within 3 s (no keep-alive). Changed after the
+    check: this request goes through `lo`, never through the Wi-Fi or its firewall zone, so it
+    does not prove that *phones* get through — ⚠ 13 covers firewalls. Fix: "Another program may
+    use this address: restart OpenKaraoke."
 13. ⚠ **Firewall** — `firewall-cmd --state` = running (Fedora): "If phones can't open the
     party: `sudo firewall-cmd --zone=nm-shared --add-port=<port>/tcp --permanent && sudo
     firewall-cmd --reload`"; `ufw` installed and its `/etc/ufw/ufw.conf` says `ENABLED=yes`
@@ -743,11 +765,23 @@ hotspot down again.
   and the invite dialog switch to the home-network QR at once (one broadcast). The host gets a
   toast and a banner with the reason and the fix, and **Try again**.
 - The setting stays on (the owner's choice); the next start (or Try again) tries again.
+- Hosts follow every check as it runs (a `{ t: 'hotspot' }` message to hosts only); every
+  screen gets one broadcast when the hotspot comes or goes (`info.mode`/`joinUrl` change).
+- The hotspot's phones and screens can't be reached any more: their connections are closed at
+  once (a paired TV on it pauses the song, as when any TV leaves) instead of at the next
+  heartbeat (20–40 s). Connections of this computer stay.
+- The home network's address comes back some seconds after a drop or stop (NetworkManager
+  reconnects the Wi-Fi): for a minute the server looks for it every 5 s and broadcasts the new
+  join link when it appears (until then it can be `localhost` on a Wi-Fi-only PC).
 - Switching it off, quitting OpenKaraoke: the connection is brought down if this process
   brought it up (a hotspot the owner started by hand in GNOME is left alone and not used).
 - Guests already on the hotspot when it drops lose the connection; their phones rejoin the
-  home Wi-Fi on their own and the home QR on the TV gets them back in (their device token
-  survives, so they keep their name and songs).
+  home Wi-Fi on their own and the home QR on the TV gets them back in. Changed after the check:
+  they come back as **new** guests — the device token lives in the page's storage, and
+  `http://10.42.0.1:<port>` and `http://192.168.x.y:<port>` are different origins (the same for
+  a remote host's PIN login and a paired screen's pairing). Their queued songs stay in the
+  rotation under the old name. A hand-over (the guest page finding the home address and taking
+  its token along) is possible later; not built.
 
 ### 20.6 Security
 - Nothing about who may do what changes: guests on the hotspot are guests, the host is this
@@ -759,9 +793,24 @@ hotspot down again.
   and is also added to the trusted names while the hotspot is on (`auth.extraNames()`), so a
   page from `http://10.42.0.1:<port>` may use the WebSocket and POST; any other origin —
   another site, another hotspot client's address — is refused (403 / no upgrade). Tests.
-- **Host role (check).** Code: `Auth.isHost()` trusts `isLocalAddress(ip)` — loopback and this
-  computer's own addresses only. A phone on the hotspot (`10.42.0.x`) is not local: no host
-  rights without the PIN, even with a trusted Host/Origin. Test.
+- **Host role (check).** Code: `Auth.isHost()` trusts `isLocalAddress(ip)` (when
+  `party.trustLocalhost` is on) — loopback and this computer's own addresses only — and a TV
+  skips pairing only when `client.isLocal`. A phone on the hotspot (`10.42.0.x`) is not local:
+  no host rights without the PIN and no TV without pairing, whatever Host/Origin it sends.
+  NetworkManager's shared mode never NATs traffic *to* this PC (only forwarded traffic leaving
+  through the uplink), so phones keep their own addresses (per-IP rate limits stay meaningful),
+  and a forged source address of this PC is dropped by Linux as a martian. Tests over real
+  sockets with forged peer addresses and a mocked interface table.
+- Plain HTTP on a WPA2 network whose password is on the TV: anyone on the hotspot can read the
+  others' traffic (the PIN, host and pairing tokens). Client isolation stops spoofing between
+  phones; still, while the hotspot is on the host should use the PC rather than a phone with
+  the PIN (said in the owner checklist).
+- With an Ethernet uplink, shared mode lets the phones reach the home network (router, NAS,
+  printers) through this PC's address. The app doesn't touch the firewall (that needs root);
+  said in the uplink check and the owner checklist.
+- Who may switch it: every host (this computer, or someone with the PIN) — not co-hosts. A
+  remote host on the home Wi-Fi switching it on can cut itself off on a Wi-Fi-only PC: the UI
+  says so before.
 - `nmcli` gets every value as its own argument (`execFile`, no shell); the name (1–32 bytes,
   no control characters, not starting with `-`), password (8–63 printable ASCII), band
   (`auto | bg | a`) and adapter (`[A-Za-z0-9_.-]{1,15}`) are validated before. The password is
@@ -772,11 +821,17 @@ hotspot down again.
 
 ### 20.7 Tests
 - `scripts/fake-nmcli.mjs` — a fake `nmcli` (the commands the app uses, terse output, exit
-  codes, NetworkManager's error texts) driven by a scenario: `ok`, `no-nmcli`, `nm-stopped`,
-  `no-permission`, `wifi-off`, `no-device`, `no-ap`, `up-fails`, `no-address`, `drops`
-  (goes down after N watcher polls), `home-wifi` (⚠ 9), `firewalld` (⚠ 13). Usable in-process
-  (`fakeNmcli(scenario)` → runner) and as a program (`node scripts/fake-nmcli.mjs`, scenario
-  in `FAKE_NMCLI_SCENARIO`) for trying the UI by hand.
+  codes, NetworkManager's error texts) driven by a scenario: `ok`, `home-wifi` (⚠ 9),
+  `gnome-hotspot` (⚠ 9), `auth` (⚠ 4), `no-nmcli`, `nm-stopped`, `no-permission`, `wifi-off`,
+  `no-device`, `no-ap`, `up-fails`, `no-dnsmasq`, `no-address`, `drops` (goes down after a few
+  watcher polls), `firewalld` (⚠ 13), `old-nm` (no client isolation), `leftover` (a party
+  hotspot still up). Usable in-process (`fakeNmcli(scenario)` → runner;
+  `OPENKARAOKE_FAKE_NMCLI=<scenario>` for trying the UI by hand) and as a program
+  (`OPENKARAOKE_NMCLI=scripts/fake-nmcli.mjs`, scenario in `FAKE_NMCLI_SCENARIO`, state kept
+  between runs in `FAKE_NMCLI_STATE`).
+- Files: `test/hotspot.test.js` (runner, parsers, the service against every scenario, the app
+  wiring) and `test/hotspot-security.test.js` (§20.6 over real HTTP/WebSocket: the server's
+  sockets get forged peer addresses, `os.networkInterfaces()` is a fixed table).
 - Unit: parsers, every scenario's checks/state/fix, fallback on drop, stop/close, argument
   validation (nothing reaches the runner), the default runner refusing to run under tests.
 - Integration: `createApp({ hotspotRunner })` → `info()` in both modes, room views (host gets
@@ -822,4 +877,12 @@ hotspot down again.
    within ~10 s the TV shows the home-network QR and the host page says why; Try again.
 6. Quit OpenKaraoke with the hotspot on: it goes off and the home Wi-Fi comes back.
 7. 2.4 GHz vs 5 GHz: older phones may only see 2.4 GHz.
+8. On a PC with Wi-Fi only the hotspot has no internet: Android asks "This network has no
+   internet access. Stay connected?" — guests answer **Yes** (else the phone may keep using
+   mobile data and can't open step 2).
+9. While the hotspot is on, run the host controls on the PC itself rather than a phone with the
+   PIN (everyone on the hotspot knows its password). With Ethernet, phones on the hotspot can
+   reach the home network through the PC.
+10. Started as the systemd user service (`bin/install-service.sh`): the hotspot needs the
+    permission without a password prompt (check 4 says so if not).
 

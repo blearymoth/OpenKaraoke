@@ -127,3 +127,176 @@ test('GET /api/health: up, version and this process', async (t) => {
   assert.equal(body.instance, app.instance);
   assert.match(body.instance, /^[0-9a-f]{16}$/);
 });
+
+// ---- the Hotspot service (PLAN §20.4, §20.5) ------------------------------------------------
+
+/** Just the settings the hotspot reads and writes. */
+function fakeSettings(hotspot = {}, server = {}) {
+  const data = { party: { roomCode: 'ABCD', hotspot: { enabled: true, ssid: '', password: '', band: 'auto', ifname: '', ...hotspot } }, server: { host: '0.0.0.0', ...server } };
+  const updates = [];
+  return {
+    data,
+    updates,
+    get: (p) => p.split('.').reduce((o, k) => (o == null ? undefined : o[k]), data),
+    update(patch) {
+      updates.push(patch);
+      if (patch.party?.hotspot) Object.assign(data.party.hotspot, patch.party.hotspot);
+    },
+  };
+}
+
+async function makeHotspot(scenario, { settings = fakeSettings(), health, platform = 'linux', readText = async () => '', pollMs = 60_000 } = {}) {
+  const { Hotspot } = await import('../server/net/hotspot.js');
+  const nm = fakeNmcli(scenario);
+  const hs = new Hotspot({
+    run: nm.run, settings, port: () => 6527, instance: 'me', platform, readText, pollMs,
+    health: health || (async (url) => (url === 'http://10.42.0.1:6527/api/health' ? { ok: true, instance: 'me' } : null)),
+  });
+  const changes = [];
+  hs.on('change', (v) => changes.push(v.state));
+  return { hs, nm, settings, changes };
+}
+
+const byId = (view) => Object.fromEntries(view.checks.map((c) => [c.id, c]));
+
+test('Hotspot: on with every check passed; a name from the room code; a password made up once', async () => {
+  const { hs, nm, settings, changes } = await makeHotspot('ok');
+  const v = await hs.start();
+  assert.equal(v.state, 'on');
+  assert.equal(hs.active, true);
+  assert.equal(hs.ip, '10.42.0.1');
+  assert.equal(v.ssid, 'OpenKaraoke-ABCD');
+  assert.ok(validPassword(v.password));
+  assert.deepEqual(settings.updates, [{ party: { hotspot: { password: v.password } } }], 'the password is kept for next time');
+  assert.deepEqual(v.checks.map((c) => `${c.id}:${c.level}`), ['linux:ok', 'nmcli:ok', 'running:ok', 'permission:ok', 'radio:ok', 'device:ok', 'ap:ok', 'listen:ok', 'uplink:ok', 'up:ok', 'address:ok', 'reach:ok']);
+  assert.match(byId(v).uplink.text, /enp3s0/);
+  assert.equal(changes[0], 'starting');
+  assert.equal(changes.at(-1), 'on');
+  const add = nm.calls.find((c) => c[1] === 'connection' && c[2] === 'add');
+  assert.equal(add[add.indexOf('ssid') + 1], 'OpenKaraoke-ABCD');
+  assert.ok(nm.calls.every((c) => c[0] === 'nmcli' || c[0] === 'firewall-cmd'), 'only nmcli and firewall-cmd');
+  // Started again while on: nothing happens (changed settings go through retry()).
+  const before = nm.calls.length;
+  assert.equal((await hs.start()).state, 'on');
+  assert.equal(nm.calls.length, before);
+  // Off: brought down, the adapter is free again.
+  assert.equal((await hs.stop()).state, 'off');
+  assert.equal(nm.state.devices[0].state, 'disconnected');
+  assert.equal(hs.ip, '');
+});
+
+test('Hotspot: warnings — the home Wi-Fi drops, a password prompt, firewalls', async () => {
+  let { hs, nm } = await makeHotspot('home-wifi');
+  let v = await hs.start();
+  assert.equal(v.state, 'on');
+  assert.equal(byId(v).uplink.level, 'warn');
+  assert.match(byId(v).uplink.text, /leaves “HomeNet”/);
+  await hs.stop();
+  assert.equal(nm.state.devices[0].connection, 'HomeNet', 'the home Wi-Fi comes back');
+
+  ({ hs } = await makeHotspot('auth'));
+  v = await hs.start();
+  assert.equal(v.state, 'on');
+  assert.equal(byId(v).permission.level, 'warn');
+
+  ({ hs } = await makeHotspot('firewalld'));
+  v = await hs.start();
+  assert.equal(byId(v).firewall.level, 'warn');
+  assert.match(byId(v).firewall.fix, /--zone=nm-shared --add-port=6527\/tcp/);
+
+  ({ hs } = await makeHotspot('ok', { readText: async (f) => (f === '/etc/ufw/ufw.conf' ? '# comment\nENABLED=yes\nLOGLEVEL=low\n' : '') }));
+  v = await hs.start();
+  assert.match(byId(v).firewall.fix, /ufw allow in on wlp2s0 to any port 6527 proto tcp/);
+});
+
+test('Hotspot: every blocking check fails with its reason and fix, and leaves nothing behind', async () => {
+  const cases = [
+    ['no-nmcli', 'nmcli', /isn’t installed/, /apt install network-manager/],
+    ['nm-stopped', 'running', /isn’t running/, /systemctl start NetworkManager/],
+    ['no-permission', 'permission', /may not change the network/, /logged in at this computer/],
+    ['wifi-off', 'radio', /Wi-Fi is switched off/, /flight mode/],
+    ['no-device', 'device', /No Wi-Fi adapter/, /USB Wi-Fi adapter/],
+    ['no-ap', 'ap', /can’t be a hotspot/, /AP\) mode/],
+    ['up-fails', 'up', /couldn’t start the hotspot: Connection activation failed: 802\.1X/, /Try again/],
+    ['no-dnsmasq', 'up', /IP configuration could not be reserved/, /dnsmasq-base/],
+    ['no-address', 'address', /got no address/, /dnsmasq/],
+  ];
+  for (const [scenario, id, reason, fix] of cases) {
+    const { hs, nm } = await makeHotspot(scenario);
+    const v = await hs.start();
+    assert.equal(v.state, 'failed', scenario);
+    assert.equal(v.check, id, scenario);
+    assert.match(v.reason, reason, scenario);
+    assert.match(v.fix, fix, scenario);
+    assert.equal(hs.active, false, scenario);
+    assert.equal(byId(v)[id].level, 'fail', scenario);
+    assert.ok(!nm.state.connections.some((c) => c.hotspot && c.active), `${scenario}: no hotspot left up`);
+  }
+  // Not Linux: not even nmcli is asked.
+  const mac = await makeHotspot('ok', { platform: 'darwin' });
+  assert.equal((await mac.hs.start()).check, 'linux');
+  assert.equal(mac.nm.calls.length, 0);
+  // Bound to one address: nothing is changed.
+  const bound = await makeHotspot('ok', { settings: fakeSettings({}, { host: '192.168.1.20' }) });
+  const b = await bound.hs.start();
+  assert.equal(b.check, 'listen');
+  assert.ok(!bound.nm.calls.some((c) => c[2] === 'add' || c[2] === 'up'));
+  // Up, but another program answers on the address (or nothing does): down again.
+  const other = await makeHotspot('ok', { health: async () => ({ ok: true, instance: 'someone-else' }) });
+  const o = await other.hs.start();
+  assert.equal(o.check, 'reach');
+  assert.match(o.reason, /doesn’t answer at http:\/\/10\.42\.0\.1:6527/);
+  assert.equal(other.nm.state.devices[0].state, 'disconnected');
+});
+
+test('Hotspot: dropping during the party falls back with the reason; quitting brings it down', async () => {
+  let { hs, nm, changes } = await makeHotspot('ok');
+  await hs.start();
+  nm.drop();
+  await hs.poll();
+  assert.equal(hs.state, 'on', 'one miss is not a drop');
+  await hs.poll();
+  assert.equal(hs.state, 'failed');
+  assert.equal(hs.view().check, 'dropped');
+  assert.match(hs.view().reason, /NetworkManager took it down/);
+  assert.match(hs.view().fix, /home Wi-Fi/);
+  assert.equal(hs.ip, '');
+  assert.equal(changes.at(-1), 'failed');
+  // Try again: on again.
+  assert.equal((await hs.retry()).state, 'on');
+
+  ({ hs, nm } = await makeHotspot('ok'));
+  await hs.start();
+  nm.radioOff();
+  await hs.poll();
+  await hs.poll();
+  assert.match(hs.view().reason, /Wi-Fi was switched off/);
+
+  // The watcher runs by itself.
+  ({ hs, nm } = await makeHotspot('drops', { pollMs: 10 }));
+  await hs.start();
+  for (let i = 0; i < 100 && hs.state === 'on'; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(hs.state, 'failed');
+  await hs.close();
+
+  // Quitting with the hotspot on: down; started by someone else (never by us): left alone.
+  ({ hs, nm } = await makeHotspot('ok'));
+  await hs.start();
+  await hs.close();
+  assert.equal(nm.state.devices[0].state, 'disconnected');
+  assert.ok(nm.calls.some((c) => c[1] === 'connection' && c[2] === 'down'));
+  ({ hs, nm } = await makeHotspot('ok'));
+  await hs.close();
+  assert.equal(nm.calls.length, 0);
+});
+
+test('Hotspot: one start at a time; bad saved settings fall back to safe values', async () => {
+  const { hs, nm } = await makeHotspot('ok');
+  const [a, b] = await Promise.all([hs.start(), hs.start()]);
+  assert.equal(a.state, 'on');
+  assert.equal(b.state, 'on');
+  assert.equal(nm.calls.filter((c) => c[2] === 'add').length, 1);
+  const odd = await makeHotspot('ok', { settings: fakeSettings({ ssid: '-bad\nname', password: 'short', band: 'x', ifname: 'wl;rm' }) });
+  const cfg = odd.hs.config();
+  assert.deepEqual([cfg.ssid, cfg.password, cfg.band, cfg.ifname], ['OpenKaraoke-ABCD', '', 'auto', '']);
+});

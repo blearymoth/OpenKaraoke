@@ -589,8 +589,11 @@ No telemetry. Outbound traffic only to the artwork providers (can be disabled).
   (provider parsers tested against documented-shape fixtures; live check pending on the PC).
 - ✅ **M6 Games**: quiz, battle, wheel, poll, pass-the-mic, applause meter, ratings, recap
   (game framework in `server/games/`, UIs in `public/js/games/`; sound/mic/legibility to check on the PC).
-- ⬜ **M7 Polish**: break music/autoplay, photos, mirrors & pairing, printable songbook/QR card,
-  systemd service, README screenshots, performance pass.
+- ✅ **M7 Polish**: break music/autoplay, photos, mirrors & pairing, printable songbook/QR card,
+  systemd service, playlists, duet invitations, co-hosts, host preview. Still open: README
+  screenshots, a performance pass on the real library.
+- ✅ **Skins** (owner request): Studio (default, professional) and Party (the original look),
+  Settings → Appearance (§14).
 
 ## 19. Open questions for the owner
 - Host PIN default: none (localhost-only host) — OK?

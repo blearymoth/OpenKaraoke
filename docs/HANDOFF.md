@@ -1,6 +1,6 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-09-30 (end of the third build session, run in a cloud sandbox without the
+_Last updated: 2026-10-02 (end of the third build session, run in a cloud sandbox without the
 owner's PC or drive). Everything is pushed to GitHub `main`._
 
 ## TL;DR
@@ -8,8 +8,9 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   metadata (M5), seven party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → all green (see the table below); `npm run e2e` → 10 Playwright scripts, all green
-  (the tenth, `themes.mjs`, checks the skins).
+- `npm test` → 370/370; `npm run e2e` → 10 Playwright scripts, all green (the tenth,
+  `themes.mjs`, checks the skins). Every milestone also went through an independent review
+  whose confirmed findings were fixed and re-verified (table below).
 - **Skins** (after session 3): Settings → Appearance switches every screen between **Studio**
   (the new default, midnight navy and teal) and **Party** (the original neon look) — see
   "Skins" below.
@@ -95,9 +96,10 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
 | Check | Result |
 | --- | --- |
 | Unit + integration tests (`npm test`) | all pass — artwork providers/matching/service against a fake provider network (`test/fake-art.js`, fixtures in `test/fixtures/artwork/`), every game, ratings, photos, pairing, break music, songbook, marks, host-only routes |
-| `npm run e2e` (Chromium) | party 20, apps 26, artwork 17, games 13, polish 29, battle 31, quiz 59, wheel 40, party games 39 — all pass; no console errors, no sideways scrolling on phones |
+| `npm run e2e` (Chromium) | party 27, apps 34, artwork 37, games 25, polish 95, battle 33, quiz 65, wheel 42, party games 124, themes 127 — all pass; no console errors, no sideways scrolling on phones (measured against the viewport) |
 | Provider field names | the sandbox could not reach the APIs (WebFetch and curl were blocked), so the field names were confirmed from the providers' published docs/examples; the fixtures are built from those shapes (`test/fixtures/artwork/README.md`) |
-| Independent reviews | M5 review: 36 confirmed findings (≈24 distinct issues); M6/M7 and party-games reviews running — fixes are being merged (this row is updated when they land) |
+| Independent reviews | Each review ran one reviewer per area (security, state machine, games, TV, UI, operations, performance…), then a second agent tried to refute every finding. M5 (artwork): 36 confirmed (≈24 issues). Last three games: 14 + 1. M6/M7: 53 confirmed (≈35 issues). All fixed with regression tests; every fix was checked again by a fresh verifier (up to three rounds) before it was merged |
+| Skins | Party compared with the pre-skins `main` on 112 captured screens (computed style of every element + pixels) after every change: identical apart from the Appearance page and the intended fixes listed under "Skins". Studio: WCAG AA everywhere, 7:1 for TV text (measured over white pictures, the aurora and video frames) |
 | Quiz scale | 30 questions from a synthetic 90,000-song catalog in ≈220 ms |
 
 ## Owner checklist — needs the PC
@@ -121,8 +123,10 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
    `--use-fake-ui-for-media-stream`, so Chrome uses the default mic without asking). A quiet room
    should read ≈10–25 and loud cheering ≈70–95; otherwise adjust `FLOOR_DB`/`CEIL_DB` in
    `shared/applause.js`. A normal Chrome window asks for the mic once.
-6. **TV legibility** from across the room: game screens, pass-the-mic flash, rating card,
-   photo flash, queue board (`/tv?layout=board`), intro card with cover/logo.
+6. **TV legibility** from across the room, in **both skins** (Settings → Appearance): game
+   screens, pass-the-mic band, rating card, photo flash, queue board (`/tv?layout=board`),
+   intro card with cover/logo. Studio is the default — if you prefer Party as the default for
+   your parties, just pick it there (it is remembered).
 7. **Phones on the real Wi-Fi**: join, photo upload from an iPhone and an Android phone,
    game answers (latency, early close), duet invitation, vibration (Android only — iPhones get
    the toast). Firewall on Fedora: `sudo firewall-cmd --add-port=8080/tcp` (+ `--permanent`).
@@ -168,10 +172,17 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
    are not a secure context, so their mics are unavailable.
 7. **Break music on by default, autoplay off**: an empty queue shows the lobby unless the host
    chooses autoplay.
-8. **Photos need approval by default**, at most 300 are kept (4 MB each, JPEG/PNG/WebP checked
-   by their bytes), files live in `data/photos/`.
+8. **Photos need approval by default**: at most 5 waiting per phone, 10 per address, 50 in all
+   (a phone with nothing waiting always gets a place); 300 approved/rejected are kept (4 MB each,
+   JPEG/PNG/WebP checked by their bytes, uploads checked before their body is read); files live
+   in `data/photos/`.
 9. Tests create temp folders through `tmpDir()` (removed on exit) and sparse fake CDGs — the
    sandbox disk filled up with ≈30 GB of leftovers before this was fixed.
+10. **Skins**: Studio is the default (the owner asked for a more professional look); Party is
+    the original look. Studio's design ("Midnight") was chosen by a panel: three designers
+    (graphite, midnight, lounge), three judges (brand, accessibility, karaoke host); the losing
+    designs are kept on the local branches `studio-graphite` and `studio-lounge` of the
+    session's checkout only (not pushed).
 
 ## Skins: Studio (default) and Party
 - The owner asked for a more professional look as the default while keeping today's one:

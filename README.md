@@ -12,14 +12,18 @@ library (built for a ~90,000-track USB collection) with:
   TheAudioDB, cached locally
 - **Party games**: singing battles with audience voting, a music quiz, roulette wheel, polls,
   pass-the-mic and more
+- **Two skins**: a calm, professional **Studio** look (the default) and the original neon
+  **Party** look — switch every screen at once in Settings → Appearance
 
 Everything runs on your PC — no cloud, no accounts, no runtime npm dependencies.
 
 ## Status
 
-The first party-ready version works: server, TV display, host controls and guest app
-(milestones M0–M4 in [`docs/PLAN.md`](docs/PLAN.md)). Cover art, party games and extras
-such as break music are next — see [`docs/HANDOFF.md`](docs/HANDOFF.md).
+All planned milestones are built (M0–M7 in [`docs/PLAN.md`](docs/PLAN.md)): server, TV
+display, host controls, guest app, cover art and metadata, party games, break music, guest
+photos, remote displays, songbook, systemd service and the two skins. What still needs a
+real PC, drive, TV and phones is listed in the owner checklist in
+[`docs/HANDOFF.md`](docs/HANDOFF.md).
 
 ## Quick start
 

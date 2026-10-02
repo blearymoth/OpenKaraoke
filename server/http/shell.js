@@ -26,7 +26,7 @@ export function appearanceVariant(appearance) {
 
 // The "page not found" page has no stylesheet: its few colours per skin (Party's are the ones it always had).
 const NOT_FOUND_COLORS = {
-  studio: { bg: '#0f1216', ink: '#eceff4' },
+  studio: { bg: '#0a1120', ink: '#e8eef7' },
   party: { bg: '#0e0b16', ink: '#eee' },
 };
 

@@ -143,7 +143,7 @@ test('shell: the skin is written into <html> and theme-color', async () => {
   const page = await fs.readFile(path.join(PUBLIC_DIR, 'host.html'), 'utf8');
   const studio = withAppearance(page, { theme: 'studio', accent: '' });
   assert.match(studio, /<html lang="en" data-theme="studio">/);
-  assert.match(studio, /<meta name="theme-color" content="#0f1216">/);
+  assert.match(studio, /<meta name="theme-color" content="#0a1120">/);
   const party = withAppearance(page, { theme: 'party', accent: '' });
   assert.match(party, /<html lang="en" data-theme="party">/);
   assert.match(party, /<meta name="theme-color" content="#150f26">/);
@@ -166,7 +166,7 @@ test('shell: the skin is written into <html> and theme-color', async () => {
     assert.equal(withAppearance(studioText, { theme: 'party' }), withAppearance(text, { theme: 'party' }), `${f}: and back`);
   }
   assert.match(notFoundPage({ theme: 'party' }), /data-theme="party"[\s\S]*background:#0e0b16[\s\S]*color:#ff3d8b/);
-  assert.match(notFoundPage({ theme: 'studio', accent: '#00c2ff' }), /data-theme="studio"[\s\S]*background:#0f1216[\s\S]*color:#00c2ff/);
+  assert.match(notFoundPage({ theme: 'studio', accent: '#00c2ff' }), /data-theme="studio"[\s\S]*background:#0a1120[\s\S]*color:#00c2ff/);
 });
 
 let app;
@@ -199,7 +199,7 @@ test('http: every page is served in the current skin; a switch changes the page 
     const r = await rawGet(p);
     assert.equal(r.status, 200, p);
     assert.match(r.body.toString(), /<html lang="en" data-theme="studio">/, `${p} in Studio`);
-    assert.match(r.body.toString(), /<meta name="theme-color" content="#0f1216">/);
+    assert.match(r.body.toString(), /<meta name="theme-color" content="#0a1120">/);
     etags[p] = r.headers.etag;
     assert.ok(etags[p]);
     const again = await rawGet(p, { 'if-none-match': etags[p] });

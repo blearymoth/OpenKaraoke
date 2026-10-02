@@ -78,8 +78,8 @@ test('songbook: the toolbar and headings follow the skin; Party prints as it alw
 
   const studio = songbookHtml(catalog, songs, { title: 'S' });
   assert.doesNotMatch(studio, /Bricolage/, 'Studio headings are Figtree');
-  assert.match(studio, /\.toolbar \{[^}]*background: #0f1216;/);
-  assert.match(studio, /\.toolbar button \{[^}]*border-radius: 8px; background: #6ea8fe; color: #0b1526;/);
+  assert.match(studio, /\.toolbar \{[^}]*background: #0a1120;/);
+  assert.match(studio, /\.toolbar button \{[^}]*border-radius: 10px; background: #2fd3c6; color: #03191b;/);
 
   // an accent the owner picked brings the text colour that reads best on it, in either skin
   assert.match(songbookHtml(catalog, songs, { appearance: { theme: 'party', accent: '#00c2ff' } }), /background: #00c2ff; color: #111;/);

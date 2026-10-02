@@ -36,7 +36,8 @@
 }
 
 /* ---- skins ----------------------------------------------------------------------
-   Every rule in the app's CSS is shared by the two skins; only the tokens below differ.
+   Every rule in the app's CSS is shared by the two skins; only the tokens below differ
+   (plus a few Studio-only rules at the end of this file, scoped :root:not([data-theme="party"])).
    - Studio (default): :root, also without a data-theme attribute, and [data-theme="studio"].
    - Party: [data-theme="party"] — a dim karaoke bar lit by one neon sign and marquee bulbs.
    The server writes data-theme on <html> of every page it serves (no flash of the other skin)
@@ -58,154 +59,154 @@
 
 :root, [data-theme="studio"] {
   color-scheme: dark;
-  /* surfaces, lines, text: calm graphite */
-  --night: #0f1216;
-  --night-rgb: 15, 18, 22;
-  --stage: #161a20;
-  --stage-2: #1d222a;
-  --stage-3: #29303a;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.15);
-  --ink: #eceff4;
-  --ink-2: #aab2bf;
-  --ink-3: #87909e;
-  /* the accent and the second highlight */
-  --neon: #6ea8fe;
-  --neon-ink: #0b1526;
-  --neon-soft: color-mix(in srgb, var(--neon) 16%, transparent);
-  --neon-hover: color-mix(in srgb, var(--neon) 88%, #fff);
-  --neon-end: color-mix(in srgb, var(--neon) 65%, var(--ink)); /* where accent gradients end: barely a gradient */
-  --bulb: #e8b556;
-  --bulb-rgb: 232, 181, 86;
-  --bulb-soft: rgba(232, 181, 86, 0.14);
-  --bulb-ink: #221700;
-  --bulb-ink-2: #4d3907;
+  /* surfaces, lines, text: midnight navy, one step lighter per layer */
+  --night: #0a1120;
+  --night-rgb: 10, 17, 32;
+  --stage: #101a2d;
+  --stage-2: #16223a;
+  --stage-3: #22304a;
+  --line: rgba(148, 172, 214, 0.11);
+  --line-strong: rgba(148, 172, 214, 0.2);
+  --ink: #e8eef7;
+  --ink-2: #a9b6ca;
+  --ink-3: #8a99b0;
+  /* the accent (cool teal) and the second highlight (warm gold) */
+  --neon: #2fd3c6;
+  --neon-ink: #03191b;
+  --neon-soft: color-mix(in srgb, var(--neon) 15%, transparent);
+  --neon-hover: color-mix(in srgb, var(--neon) 86%, #fff);
+  --neon-end: color-mix(in srgb, var(--neon) 55%, #74a6ef); /* where accent gradients end: teal into sky blue */
+  --bulb: #f0be67;
+  --bulb-rgb: 240, 190, 103;
+  --bulb-soft: rgba(240, 190, 103, 0.13);
+  --bulb-ink: #241800;
+  --bulb-ink-2: #4f3a08;
   /* status */
-  --ok: #4cc38a;
-  --ok-rgb: 76, 195, 138;
-  --ok-bg: #12352a;
-  --ok-bg-ink: #d2f5e6;
-  --bad: #f06b73;
-  --bad-rgb: 240, 107, 115;
-  --bad-bg: #3a1c21;
-  --bad-bg-ink: #ffd6da;
-  --bad-pill-ink: #ffc2c7;
-  --bad-panel: rgba(58, 28, 33, 0.95);
-  --danger-ink: #ff9ca3;
-  --warn-bg: #33270f;
-  --warn-bg-ink: #f5e1b5;
+  --ok: #6ed889;
+  --ok-rgb: 110, 216, 137;
+  --ok-bg: #0f3127;
+  --ok-bg-ink: #d3f6e4;
+  --bad: #f4757e;
+  --bad-rgb: 244, 117, 126;
+  --bad-bg: #3a1a26;
+  --bad-bg-ink: #ffd8dc;
+  --bad-pill-ink: #ffc4ca;
+  --bad-panel: rgba(58, 26, 38, 0.95);
+  --danger-ink: #ff9ea6;
+  --warn-bg: #332611;
+  --warn-bg-ink: #f6e2b8;
   /* dark tints behind dialogs, sheets and TV overlays */
-  --shade-rgb: 6, 8, 11;
-  --deep-rgb: 9, 11, 14;
-  --overlay-rgb: 12, 14, 18;
+  --shade-rgb: 4, 8, 16;
+  --deep-rgb: 6, 10, 19;
+  --overlay-rgb: 9, 14, 26;
   /* type, shape, depth */
   --font-display: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 12px;
-  --r-pill: 8px; /* buttons, chips, search boxes, segmented controls */
-  --glow: 0 1px 2px rgba(0, 0, 0, 0.4); /* raised accent buttons */
-  --halo: 0; /* 0–1: coloured glow around big avatars and vote cards */
-  --avatar-veil: linear-gradient(rgba(var(--night-rgb), 0.2), rgba(var(--night-rgb), 0.2)); /* tones down singers’ colours */
-  --avatar-tbd: #353c47;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-pill: 10px; /* buttons, chips, search boxes, segmented controls */
+  --glow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 16px -10px color-mix(in srgb, var(--neon) 50%, transparent); /* raised accent buttons */
+  --halo: 0.3; /* 0–1: coloured glow around big avatars and vote cards */
+  --avatar-veil: linear-gradient(rgba(var(--night-rgb), 0.18), rgba(var(--night-rgb), 0.18)); /* tones down singers’ colours */
+  --avatar-tbd: #2a3852;
   /* QR codes and the frame around them */
   --paper: #ffffff;
-  --paper-ink: #111418;
-  --qr-dark: #111418;
+  --paper-ink: #0a1120;
+  --qr-dark: #0a1120;
   --qr-light: #ffffff;
   --marquee-bg: #ffffff;
   --marquee-ring: 0;
   --marquee-frame: transparent;
-  --marquee-edge: #353c47;
-  --marquee-glow: 0 18px 50px -16px rgba(0, 0, 0, 0.7);
+  --marquee-edge: color-mix(in srgb, var(--neon) 45%, transparent);
+  --marquee-glow: 0 18px 50px -16px rgba(0, 0, 0, 0.75);
   --marquee-bulb: transparent;
   --marquee-bulb-halo: transparent;
   --marquee-bulbs: none;
   /* the app icon, drawn in place of every <img src="/img/icon.svg">; normal = that original */
   --app-icon: url('/img/icon-studio.svg');
   /* landing page, host, guest */
-  --landing-bg: radial-gradient(1200px 600px at 15% -10%, #1a2231 0%, transparent 60%), var(--night);
+  --landing-bg: radial-gradient(1200px 600px at 15% -10%, #15284a 0%, transparent 60%), radial-gradient(900px 500px at 110% 110%, #0b2a35 0%, transparent 55%), var(--night);
   --landing-join-bg: linear-gradient(180deg, var(--stage-2), var(--stage));
-  --hero-bg: linear-gradient(135deg, #1c2533, var(--stage));
-  --guest-bg: radial-gradient(120% 50% at 50% -10%, #1a2231 0%, transparent 60%), var(--night);
-  --alert-bg: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--neon) 26%, var(--night)), var(--night) 75%);
-  --glow-banner: 0 10px 24px -12px rgba(0, 0, 0, 0.7);
+  --hero-bg: linear-gradient(135deg, color-mix(in srgb, var(--neon) 9%, #182844), var(--stage) 70%);
+  --guest-bg: radial-gradient(120% 50% at 50% -10%, #16284a 0%, transparent 60%), var(--night);
+  --alert-bg: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--neon) 24%, var(--night)), var(--night) 75%);
+  --glow-banner: 0 10px 24px -12px rgba(0, 0, 0, 0.75);
   /* TV */
-  --tv-bg: #0a0c0f;
-  --tv-rgb: 10, 12, 15;
-  --aurora-bg: radial-gradient(120vh 80vh at 50% 120%, #17202d, transparent 70%), var(--night);
-  --aurora-1: #2a4468;
-  --aurora-2: #1e2f45;
-  --aurora-3: #3b4656;
-  --aurora-opacity: 0.4;
-  --aurora-3-opacity: 0.2;
-  --art-bg-filter: blur(7vh) saturate(0.8) brightness(0.42);
-  --fanart-filter: brightness(0.55) saturate(0.85);
-  --mosaic-opacity: 0.22;
-  --mosaic-filter: saturate(0.6);
+  --tv-bg: #050a14;
+  --tv-rgb: 5, 10, 20;
+  --aurora-bg: radial-gradient(120vh 80vh at 50% 120%, #10243f, transparent 70%), var(--night);
+  --aurora-1: #10606a;
+  --aurora-2: #1b3768;
+  --aurora-3: #2d3f80;
+  --aurora-opacity: 0.45;
+  --aurora-3-opacity: 0.25;
+  --art-bg-filter: blur(7vh) saturate(1) brightness(0.45);
+  --fanart-filter: brightness(0.56) saturate(0.95);
+  --mosaic-opacity: 0.26;
+  --mosaic-filter: saturate(0.75);
   --corner-qr-bg: rgba(255, 255, 255, 0.96);
-  --progress-fill: var(--neon);
-  --progress-glow: none;
+  --progress-fill: linear-gradient(90deg, var(--neon), var(--neon-end));
+  --progress-glow: 0 0 1vh color-mix(in srgb, var(--neon) 40%, transparent);
   --glow-text-bulb: none;
-  --glow-upnext: 0 1.5vh 4vh rgba(0, 0, 0, 0.45);
-  --glow-announce: 0 3vh 8vh -2vh rgba(0, 0, 0, 0.6);
+  --glow-upnext: 0 1.5vh 4vh rgba(0, 0, 0, 0.5);
+  --glow-announce: 0 3vh 8vh -2vh rgba(0, 0, 0, 0.65);
   /* games */
-  --answer-1: #b5475a;
-  --answer-2: #2f63b8;
-  --answer-3: #8a6410;
-  --answer-4: #2e7a3c;
+  --answer-1: #8b1c2a;
+  --answer-2: #3246a9;
+  --answer-3: #845a0f;
+  --answer-4: #117555;
   --confetti-1: var(--neon);
   --confetti-2: var(--bulb);
-  --confetti-3: #4cc38a;
-  --confetti-4: #aab2bf;
-  --confetti-5: #5b8def;
-  --confetti-6: #eceff4;
-  --podium-gold: linear-gradient(180deg, var(--bulb), #9a7131);
-  --meter-lo: #4cc38a;
-  --meter-mid: #e8b556;
-  --meter-hi: #e7646d;
+  --confetti-3: #74a6ef;
+  --confetti-4: #e8eef7;
+  --confetti-5: #b59be6;
+  --confetti-6: #f08f83;
+  --podium-gold: linear-gradient(180deg, var(--bulb), #a77a2c);
+  --meter-lo: #6ed889;
+  --meter-mid: #f0be67;
+  --meter-hi: #f4757e;
   --meter-gradient: linear-gradient(90deg, var(--meter-lo), var(--meter-mid) 55%, var(--meter-hi));
   --glow-gauge: none;
   --glow-text-gauge: none;
   --glow-text-count: none;
   --glow-text-vs: none;
   --glow-bracket: 0 0 0 0.4vh var(--neon-soft);
-  --glow-badge: 0 1.5vh 4vh rgba(0, 0, 0, 0.45);
-  --glow-flash: 0 2vh 6vh rgba(0, 0, 0, 0.5);
-  --quiz-bg: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--neon) 8%, transparent), transparent 60%), var(--night);
-  --eq-helium: linear-gradient(0deg, #5fb0d6, #8e98d6);
-  --wheel-rim: #171b22;
-  --wheel-rim-stroke: #3b4350;
-  --wheel-divider: rgba(0, 0, 0, 0.3);
-  --wheel-bulb-on: #d9dee6;
-  --wheel-bulb-odd: #7d8795;
-  --wheel-bulb-off: #3b4350;
-  --wheel-hub-bg: radial-gradient(circle at 35% 30%, #3a4250, #181c23 70%);
-  --wheel-hub-border: #3b4350;
-  --wheel-1: #5b8def;
-  --wheel-2: #d9a94e;
-  --wheel-3: #4fae86;
-  --wheel-4: #4aa7c9;
-  --wheel-5: #8f7fd6;
-  --wheel-6: #d4804f;
-  --wheel-7: #86b35a;
-  --wheel-8: #d0616b;
-  --wheel-9: #45b3a8;
-  --wheel-10: #b86fb3;
-  --wheel-11: #cdbd6a;
-  --wheel-12: #6a7be0;
-  --wheel-ink-1: #111418;
-  --wheel-ink-2: #111418;
-  --wheel-ink-3: #111418;
-  --wheel-ink-4: #111418;
-  --wheel-ink-5: #111418;
-  --wheel-ink-6: #111418;
-  --wheel-ink-7: #111418;
-  --wheel-ink-8: #111418;
-  --wheel-ink-9: #111418;
-  --wheel-ink-10: #111418;
-  --wheel-ink-11: #111418;
-  --wheel-ink-12: #111418;
+  --glow-badge: 0 1.5vh 4vh rgba(0, 0, 0, 0.5);
+  --glow-flash: 0 2vh 6vh rgba(0, 0, 0, 0.55);
+  --quiz-bg: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--neon) 9%, transparent), transparent 60%), var(--night);
+  --eq-helium: linear-gradient(0deg, #6ac5e8, #9d99ed);
+  --wheel-rim: #0e1729;
+  --wheel-rim-stroke: #2a3852;
+  --wheel-divider: rgba(5, 10, 20, 0.35);
+  --wheel-bulb-on: #e8eef7;
+  --wheel-bulb-odd: #7d8ca6;
+  --wheel-bulb-off: #2a3852;
+  --wheel-hub-bg: radial-gradient(circle at 35% 30%, #2c3c5c, #0e1729 70%);
+  --wheel-hub-border: #2a3852;
+  --wheel-1: #4ad1d1;
+  --wheel-2: #ebbc69;
+  --wheel-3: #b59be6;
+  --wheel-4: #83d186;
+  --wheel-5: #f08f83;
+  --wheel-6: #74a6ef;
+  --wheel-7: #c2cd6f;
+  --wheel-8: #e68aaf;
+  --wheel-9: #6ac5e8;
+  --wheel-10: #f2a26a;
+  --wheel-11: #6cd5b3;
+  --wheel-12: #9d99ed;
+  --wheel-ink-1: #0a1120;
+  --wheel-ink-2: #0a1120;
+  --wheel-ink-3: #0a1120;
+  --wheel-ink-4: #0a1120;
+  --wheel-ink-5: #0a1120;
+  --wheel-ink-6: #0a1120;
+  --wheel-ink-7: #0a1120;
+  --wheel-ink-8: #0a1120;
+  --wheel-ink-9: #0a1120;
+  --wheel-ink-10: #0a1120;
+  --wheel-ink-11: #0a1120;
+  --wheel-ink-12: #0a1120;
 }
 
 [data-theme="party"] {
@@ -594,3 +595,9 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
 /* "Sung tonight" / "In queue" marks next to song titles */
 .tag-mark { display: inline-flex; align-items: center; margin-left: 4px; padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 700; vertical-align: middle; background: var(--stage-3); color: var(--ink-2); white-space: nowrap; }
 .tag-mark.queued { background: var(--neon-soft); color: var(--ink); }
+
+/* ---- Studio only ------------------------------------------------------------------
+   Studio's answer colours are deep, for white labels on the tiles; the shapes and bars that
+   vote counts draw straight on the dark page use a lighter tint of them so they stay visible. */
+:root:not([data-theme="party"]) :is(.g-votebar, .bt-split-row) .shape { color: color-mix(in srgb, var(--answer) 55%, #fff); }
+:root:not([data-theme="party"]) :is(.g-votebar, .bt-split-row) .bar i { background: color-mix(in srgb, var(--answer) 75%, #fff); }

@@ -5,10 +5,10 @@
 export const THEMES = {
   studio: {
     name: 'Studio',
-    description: 'Calm graphite and one clear accent. Easy to read, easy on the eyes.',
-    themeColor: '#0f1216', // --night
-    accent: '#6ea8fe', // --neon
-    accentInk: '#0b1526', // --neon-ink: text on the skin's own accent
+    description: 'Midnight navy and a cool teal accent. Calm, crisp and easy to read.',
+    themeColor: '#0a1120', // --night
+    accent: '#2fd3c6', // --neon
+    accentInk: '#03191b', // --neon-ink: text on the skin's own accent
     icon: '/img/icon-studio.svg', // the app icon (favicon; --app-icon in CSS)
   },
   party: {

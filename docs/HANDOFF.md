@@ -169,10 +169,12 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   colour" resets it; text on the accent is dark or white, whichever reads better). Changes show
   live everywhere (screens without a party connection — landing page, PIN and can't-join
   screens — within 2 s; the printable songbook on its next load); guests never see the setting.
-- **Studio** (new default): graphite surfaces, one blue accent, Figtree headings, smaller radii,
-  soft shadows instead of glows, calmer TV backgrounds and game colours, and a graphite-and-blue
-  app icon (`public/img/icon-studio.svg`; Party keeps the pink one). A first draft — its
-  values are the token block at the top of `public/css/base.css`.
+- **Studio** (new default, "midnight"): deep navy surfaces, one cool teal accent (#2fd3c6) with a
+  warm gold second highlight, Figtree headings, smaller radii, soft shadows instead of glows,
+  calm navy/teal TV backgrounds, deep colour-blind-safe quiz colours (wine, blue, ochre, emerald —
+  always paired with the shapes) and a navy-and-teal app icon (`public/img/icon-studio.svg`; Party
+  keeps the pink one). Its values are the token block at the top of `public/css/base.css`, plus
+  two Studio-only rules at the end of that file (lighter answer tints for vote shapes and bars).
 - **Party**: the original look, pixel for pixel (checked against a890418 rule by rule and on 47
   screens; `test/themes.test.js` pins the values). Existing parties switch to Studio; a custom
   `display.accent` became `appearance.accent`.

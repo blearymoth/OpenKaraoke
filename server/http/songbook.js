@@ -104,7 +104,7 @@ section.letter h2 { font: 800 15pt/1 ${headFont}system-ui, sans-serif; margin: 6
 .t span { color: #555; }
 i { font-style: normal; font-size: 7pt; font-weight: 700; color: #b0003a; }
 .toolbar { position: sticky; top: 0; display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: ${THEMES[look.theme].themeColor}; color: #fff; font: 14px system-ui, sans-serif; }
-.toolbar button { font: inherit; font-weight: 700; padding: 8px 16px; border: 0; border-radius: ${look.theme === 'party' ? '99px' : '8px'}; background: ${accent}; color: ${ink}; cursor: pointer; }
+.toolbar button { font: inherit; font-weight: 700; padding: 8px 16px; border: 0; border-radius: ${look.theme === 'party' ? '99px' : '10px'}; background: ${accent}; color: ${ink}; cursor: pointer; }
 .page { padding: 12px 16px; }
 @media print { .toolbar { display: none; } .page { padding: 0; } }
 </style></head><body>

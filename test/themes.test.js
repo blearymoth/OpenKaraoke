@@ -728,6 +728,45 @@ test('TV CSS: Studio’s title card and ticker are opaque under their text (they
   }
 });
 
+test('TV CSS: Studio’s reaction names, mirror badge and pass-the-mic bands hold 7:1 over a white frame', () => {
+  const studio = skins.studio;
+  const rgbOf = (name) => `#${studio.get(`${name}-rgb`).split(',').map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
+  const overWhite = (what, fill, inks) => {
+    const m = /^rgba\(var\((--[\w-]+)-rgb\), ([\d.]+)\)$/.exec(fill);
+    assert.ok(m, `${what}: an even navy fill in Studio (${fill || 'no Studio rule'})`);
+    for (const ink of inks) {
+      const r = contrast(studio.get(ink), blend(rgbOf(m[1]), '#ffffff', Number(m[2])));
+      assert.ok(r >= 7, `Studio ${what}: ${ink} on ${fill} over white: ${r.toFixed(2)}`);
+    }
+  };
+  // A translucent black fill behind TV text lets a bright video frame or a white lyric line through:
+  // each one carries no text or has a Studio fill of its own.
+  const noText = { '.bt-vote-bar': 'the battle’s vote bars' };
+  const black = tvRules.flatMap((r) => (/rgba\(0, 0, 0, 0?\.\d+\)/.test(r.decls.background ?? r.decls['background-color'] ?? '') ? r.selectors.filter((s) => !s.startsWith(STUDIO_ONLY)) : []));
+  assert.ok(black.includes('.reaction span'), `found the translucent black fills (${black.join(', ')})`);
+  for (const sel of black) if (!Object.hasOwn(noText, sel)) assert.ok(studioOverride(sel, 'background'), `${sel}: a translucent black fill behind TV text and no Studio fill`);
+  // A guest's reaction rises up the right side, across the lyrics or a video: their name, in ink, on its chip.
+  const chip = tvRules.find((r) => r.selectors.includes('.reaction span') && !r.selectors.some((s) => s.startsWith(STUDIO_ONLY)));
+  assert.ok(!chip.decls.color, 'the reaction name is in ink');
+  overWhite('reaction name chip', studioOverride('.reaction span', 'background')?.decls.background ?? '', ['--ink']);
+  // "Mirror display (muted)" in a corner of a mirror screen: in ink-2, on a video's frame when there is no ticker
+  assert.equal(studioOverride('.mirror-badge', 'color')?.decls.color, 'var(--ink-2)');
+  overWhite('mirror badge', studioOverride('.mirror-badge', 'background')?.decls.background ?? '', ['--ink-2']);
+  // "PASS THE MIC ➜ name": along the top edge while a song plays (over a video's frame), across the
+  // middle between songs; the band fades out only within its side padding, never under its text
+  // (test/e2e/game-party.mjs: its text stays inside that padding).
+  for (const sel of ['.rl-flash', '.rl-flash.top']) {
+    const shared = tvRules.find((r) => r.selectors.includes(sel) && Object.hasOwn(r.decls, 'padding'));
+    const pad = shared.decls.padding.split(/\s+/);
+    const side = pad[1] ?? pad[0];
+    const band = studioRules.find((r) => r.sel === sel && Object.hasOwn(r.decls, 'background'))?.decls.background ?? '';
+    const m = /^linear-gradient\(90deg, rgba\(var\((--[\w-]+)-rgb\), 0\), rgba\(var\(\1-rgb\), ([\d.]+)\) ([\d.]+v[wh]), rgba\(var\(\1-rgb\), \2\) calc\(100% - \3\), rgba\(var\(\1-rgb\), 0\)\)$/.exec(band);
+    assert.ok(m, `Studio ${sel}: a band that fades out only at its ends (${band || 'no Studio rule'})`);
+    assert.equal(m[3], side, `Studio ${sel}: the fade is the band's side padding (${side})`);
+    overWhite(`${sel} band`, `rgba(var(${m[1]}-rgb), ${m[2]})`, ['--ink', '--ink-2', '--bulb']);
+  }
+});
+
 test('singers’ colours: stored as one of COLORS, drawn by the skin', () => {
   COLORS.forEach((c, i) => {
     assert.equal(singerColor(c), `var(--singer-${i + 1})`);

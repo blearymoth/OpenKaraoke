@@ -194,8 +194,11 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   are a navy surface, never a white wash, which would lift a bright picture under their text
   (highlighted rows a lighter navy), the recap has no accent glow under its slides, the title
   card that slides in while a song starts (over the bottom lyric line) is opaque under all of its
-  text and fades out only in its right padding, and the ticker is an even band (it lies over a
-  video's frame), deep
+  text and fades out only in its right padding, the ticker is an even band (it lies over a
+  video's frame), and so is everything else that crosses the lyrics or a video: the
+  pass-the-mic band fades out only within its side padding, a guest's name under a reaction sits
+  on a navy chip, and so does a mirror screen's "Mirror display (muted)" (its ticker leaves
+  room for it), deep
   game-show quiz colours (wine, royal blue, ochre, emerald — white labels and artist lines 7–11:1
   on the TV, 5.7:1 on ochre; on phones the artist line is at 85%, 4.6:1 or more; four lightness
   steps L* 24/31/37/43 so they differ in grey too, always with the ▲◆●■ shapes) and a 12-colour
@@ -208,10 +211,12 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   cobalt (`--singer-1…10`; Party shows its neon ones, the stored value is the same). TV text is
   never the faintest ink (`test/themes.test.js` checks the 7:1 cases: white pictures, a white-cover
   mosaic, the aurora, every TV panel's fill and every game screen's own glow over each of them, the
-  title card's and the ticker's bands over white lyrics or video, and that no TV rule in ink-3 or a
-  white wash lacks its Studio counterpart; `test/e2e/themes.mjs` checks the TV screens, and
+  title card's, the ticker's and the pass-the-mic bands and the reaction and mirror chips over
+  white lyrics or video, and that no TV rule in ink-3, a white wash or a translucent black fill
+  behind text lacks its Studio counterpart; `test/e2e/themes.mjs` checks the TV screens, and
   measures the lobby, intro and queue board pixel by pixel over a white guest photo and the swept
-  aurora, and the title card over the lyrics).
+  aurora, and the title card over the lyrics; `test/e2e/game-party.mjs` keeps the pass-the-mic
+  text clear of the band's side padding).
   Disabled buttons go neutral grey, a switch that is
   on has a dark knob, the current bottom tab has a pill behind its icon, losing quiz answers and
   wheel segments turn into quiet navy tiles (7:1 on the TV; the winning segment keeps its colour,

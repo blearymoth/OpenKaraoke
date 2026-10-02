@@ -479,6 +479,22 @@ try {
       check(underCard, 'studio: the lyrics have a line under the title card’s artist line');
       await tvTextOver(tv, 'TV singing: the title card over the lyrics');
       await hold(false);
+      // a mirror screen: "Mirror display (muted)" sits on a navy chip in the bottom-right corner, and
+      // the ticker leaves room for it, so the host's message never runs under it
+      await hostReq('settings.update', { patch: { display: { tickerMessage: 'Drinks at the bar after the next song — the kitchen closes at eleven' } } });
+      const mirror = await tvSize('mirror');
+      await mirror.goto(`${base}/tv?display=mirror`);
+      await mirror.waitForSelector('.mirror-badge');
+      await mirror.waitForSelector('.ticker .message');
+      const badge = await mirror.evaluate(() => {
+        const a = document.querySelector('.mirror-badge').getBoundingClientRect();
+        const b = document.querySelector('.ticker .message').getBoundingClientRect();
+        return { meet: a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom, gap: Math.round(a.left - b.right), fill: getComputedStyle(document.querySelector('.mirror-badge')).backgroundColor };
+      });
+      check(!badge.meet && badge.fill !== 'rgba(0, 0, 0, 0)', `studio: a mirror screen’s badge is on a chip of its own (${badge.fill}), clear of the ticker’s message (${badge.gap} px)`);
+      await shot(mirror, 'studio-tv-mirror-singing');
+      await mirror.close();
+      await hostReq('settings.update', { patch: { display: { tickerMessage: '' } } });
     }
   }
   await hostReq('player.next'); // skipped: into tonight's history

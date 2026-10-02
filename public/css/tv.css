@@ -191,6 +191,9 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .reaction { position: absolute; bottom: -12vh; display: grid; justify-items: center; animation: rise 4.2s cubic-bezier(0.25, 0.6, 0.4, 1) forwards; }
 .reaction b { font-size: 9vh; line-height: 1; filter: drop-shadow(0 1vh 2vh rgba(0, 0, 0, 0.5)); }
 .reaction span { font-size: 2.2vh; font-weight: 700; padding: 0.3vh 1.2vh; border-radius: 99vh; background: rgba(0, 0, 0, 0.55); margin-top: 0.6vh; }
+/* Studio: a navy chip, like the Paused pill's: the guest's name rises over the lyrics or a video,
+   and over a bright frame 55% black left it near 4:1 */
+:root:not([data-theme="party"]) .reaction span { background: rgba(var(--night-rgb), 0.9); }
 @keyframes rise {
   0% { transform: translate(0, 0) scale(0.6); opacity: 0; }
   12% { opacity: 1; transform: translate(0, -12vh) scale(1.05); }
@@ -214,6 +217,11 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 
 .conn-lost { position: absolute; top: 2vh; left: 50%; transform: translateX(-50%); z-index: 9; padding: 1.2vh 2.6vh; border-radius: 99vh; background: var(--bad-bg); color: var(--bad-bg-ink); font-weight: 700; font-size: 2.4vh; }
 .mirror-badge { position: absolute; bottom: 1vh; right: 1vw; font-size: 1.8vh; color: var(--ink-3); z-index: 9; }
+/* Studio: a navy chip under it (its ink-2, below): with no ticker it lies on a video's frame. With
+   the ticker, the ticker leaves room for it (20vh wide) at its right end, where the host's message
+   would otherwise run under it. */
+:root:not([data-theme="party"]) .mirror-badge { padding: 0.3vh 1vh; border-radius: 99vh; background: rgba(var(--night-rgb), 0.94); }
+:root:not([data-theme="party"]) #app:has(.mirror-badge) .ticker { padding-right: calc(1vw + 23vh); }
 
 .help { position: absolute; inset: 0; z-index: 11; display: grid; place-items: center; background: rgba(var(--shade-rgb), 0.8); }
 .help div { display: grid; grid-template-columns: auto auto; gap: 1.4vh 4vh; padding: 5vh 6vh; border-radius: 3vh; background: var(--stage); font-size: 2.8vh; }

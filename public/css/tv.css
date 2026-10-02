@@ -104,8 +104,8 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .tv-step h2 { display: flex; align-items: center; gap: 1.6vh; font-size: 6vh; }
 .step-no { display: inline-grid; place-items: center; flex: none; width: 1.25em; height: 1.25em; border-radius: 50%; background: var(--neon); color: var(--neon-ink); font-size: 0.75em; font-weight: 800; line-height: 1; }
 .tv-step .wifi-name { font-size: 4.6vh; font-weight: 800; color: var(--ink); overflow-wrap: anywhere; }
-.tv-step .wifi-pass { display: flex; align-items: baseline; gap: 1.6vh; font-size: 3.2vh; color: var(--ink-2); }
-.pw { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-weight: 700; letter-spacing: 0.08em; color: var(--ink); }
+.tv-step .wifi-pass { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 0.4vh 1.6vh; max-width: 100%; font-size: 3.2vh; color: var(--ink-2); }
+.pw { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-weight: 700; letter-spacing: 0.08em; color: var(--ink); overflow-wrap: anywhere; min-width: 0; }
 .tv-step .wifi-pass .pw { font-size: 4.4vh; }
 .tv-step .url { font-size: 3.4vh; font-weight: 700; color: var(--ink); overflow-wrap: anywhere; }
 .tv-step .code-row { display: flex; align-items: baseline; gap: 2vh; font-size: 3.2vh; color: var(--ink-2); }
@@ -191,7 +191,7 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .place-hint b { font-size: 3.4vh; color: var(--ink); }
 .place-hint kbd { font: inherit; font-weight: 700; color: var(--ink); padding: 0.1vh 0.9vh; border-radius: 0.8vh; border: 1px solid var(--line-strong); background: var(--stage-2); }
 .tv-placed .place-hint { display: none; }
-.corner-qr.two { grid-template-columns: auto auto; gap: 1.4vh; }
+.corner-qr.two { gap: 1vh; } /* the two steps one above the other: as narrow as one, clear of the lyrics */
 .corner-qr figure { margin: 0; display: grid; justify-items: center; gap: 0.8vh; }
 .corner-qr.two img { width: 11vh; height: 11vh; }
 .corner-qr.two span { font-size: 2.2vh; letter-spacing: 0.08em; }
@@ -325,5 +325,6 @@ body:has(#video:not([hidden])) .photo-flash.corner figcaption { width: auto; min
 .board-join b { display: block; font-size: 3.4vh; color: var(--ink); }
 .board-join.two { gap: 5vh; }
 .board-join.two > div { display: flex; align-items: center; gap: 2vh; min-width: 0; }
+.board-join.two > div > div { min-width: 0; }
 .board-join.two b { display: flex; align-items: center; gap: 1vh; }
 body.board-layout #stage { display: none; }

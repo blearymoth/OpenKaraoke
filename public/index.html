@@ -82,8 +82,10 @@
         document.title = `${info.name} · OpenKaraoke`;
         $('party').textContent = info.name;
         $('code').textContent = info.roomCode;
-        $('url').textContent = info.joinUrl;
-        $('qr').src = `/api/qr.svg?margin=1&text=${encodeURIComponent(info.joinUrl)}`;
+        if ($('url').textContent !== info.joinUrl) { // (the QR image is only fetched again when it changed)
+          $('url').textContent = info.joinUrl;
+          $('qr').src = `/api/qr.svg?margin=1&text=${encodeURIComponent(info.joinUrl)}`;
+        }
         // The party hotspot is on: phones join its Wi-Fi first (the password is on the TV).
         $('first').hidden = !info.wifiName;
         if (info.wifiName) {
@@ -102,6 +104,9 @@
       }
     }
     load();
+    // The join link and the Wi-Fi to join first change when the party hotspot comes or goes.
+    setInterval(() => { if (!document.hidden) load(); }, 5000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
     followAppearance(); // no live connection here: pick up a skin switch every few seconds
   </script>
 </body>

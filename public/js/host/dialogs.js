@@ -293,7 +293,7 @@ export function InviteDialog() {
       .card{border:3px dashed #999;border-radius:24px;padding:30px;max-width:560px;margin:0 auto}
       .steps{display:flex;gap:28px;justify-content:center;text-align:center}.steps>div{flex:1}.steps img{width:250px;height:250px;margin:14px auto}
       .steps h2{font-size:26px;margin:6px 0}.steps .code{font-size:40px}.no{display:inline-block;width:44px;height:44px;line-height:44px;border-radius:50%;background:#111;color:#fff;font-weight:800;font-size:26px}
-      .pw{font-family:ui-monospace,monospace;font-size:24px;font-weight:700;letter-spacing:.06em}
+      .pw{font-family:ui-monospace,monospace;font-size:24px;font-weight:700;letter-spacing:.06em;overflow-wrap:anywhere}.steps>div{min-width:0}
       .hotspot .card{max-width:720px}</style>
       ${hotspot
         ? `<div class="hotspot"><div class="card"><h1>${escapeHtml(info.name)}</h1><p>Pick your karaoke songs on your phone — two scans</p>

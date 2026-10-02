@@ -133,7 +133,10 @@ async function hotspotOptions(log) {
       log?.warn(`party hotspot: a pretend NetworkManager (scenario “${scenario}”) — no real Wi-Fi changes`);
       return { run, health: (url) => fetchHealth(url.startsWith(pretend) ? url.replace(pretend, 'http://127.0.0.1:') : url) };
     } catch (e) {
-      log?.warn(`OPENKARAOKE_FAKE_NMCLI ignored: ${e.message}`);
+      // Asked for a pretend NetworkManager: never fall back to the real one (a typo, or the
+      // packaged desktop app, which doesn't ship scripts/).
+      log?.warn(`party hotspot: the pretend NetworkManager couldn’t start (${e.message}) — NetworkManager is left alone`);
+      return { run: async () => { throw new Error(`pretend NetworkManager unavailable: ${e.message}`); } };
     }
   }
   return { run: systemRunner({ env: process.env }) };

@@ -120,12 +120,23 @@ try {
   const corner = await qrTexts(tv, '.corner-qr.two');
   check(corner.length === 2 && corner[0].startsWith('WIFI:') && corner[1].includes(`/j/${code}`), 'during a song: the corner QR shows Wi-Fi and party');
   check(await inView(tv, '.corner-qr.two'), 'the corner QR fits');
+  await tv.waitForSelector('#cdg.show', { timeout: 15000 }).catch(() => {});
+  const overlap = await tv.evaluate(() => {
+    const a = document.querySelector('.corner-qr').getBoundingClientRect();
+    const b = document.getElementById('cdg').getBoundingClientRect();
+    return Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  });
+  check(overlap === 0, `the two codes stay clear of the lyrics (${overlap} px² overlap)`);
   await shot(tv, 'tv-corner-steps');
   await app.room.request(asHost, { t: 'player.stop' }).catch(() => {});
 
   // ---- a new password: the TV follows ------------------------------------------------------------
+  const adds = nm.calls.filter((c) => c.includes('add')).length;
   await host.click('.hotspot-block button:has-text("New")');
-  check(await until(() => app.hotspot.state === 'on' && app.hotspot.config().password !== pw, 15000), 'a new password restarts the hotspot with it');
+  check(await until(() => {
+    const now = app.hotspot.config().password;
+    return app.hotspot.state === 'on' && now !== pw && nm.state.connections.some((c) => c.active && c.hotspot && c.settings?.['wifi-sec.psk'] === now);
+  }, 15000) && nm.calls.filter((c) => c.includes('add')).length === adds + 1, 'a new password restarts the hotspot with it (NetworkManager runs the new one)');
   const pw2 = app.hotspot.config().password;
   const tvPw = await until(async () => (await text(tv, '.tv-step .pw, .board-join .pw')) === pw2 || (await qrTexts(tv, '.corner-qr.two'))[0]?.includes(`P:${pw2};`), 15000);
   check(tvPw, 'the TV shows the new password');
@@ -143,8 +154,8 @@ try {
   await shot(host, 'host-banner');
   await tv.waitForSelector('.lobby-main:not(.steps), .scene:not(.lobby)', { timeout: 10000 });
   check(!(await tv.$('.tv-step, .corner-qr.two')), 'TV: back to the one QR code of the home network');
-  const homeQr = await qrTexts(tv, '.lobby .marquee, .corner-qr');
-  check(homeQr.length >= 1 && !homeQr.some((t) => t.includes(HOTSPOT_IP) || t.startsWith('WIFI:T:WPA;S:OpenKaraoke')), 'TV: its QR no longer points at the hotspot');
+  const homeQr = [...await qrTexts(tv, '.lobby .marquee'), ...await qrTexts(tv, '.corner-qr')];
+  check(homeQr.length >= 1 && homeQr.every((t) => t.includes(`/j/${code}`) && !t.includes(HOTSPOT_IP)), `TV: its QR no longer points at the hotspot (${homeQr.join(' | ')})`);
   await host.click('.code-chip');
   await host.waitForSelector('.invite-body');
   check(!(await host.$('.invite-steps')), 'invite: one QR code again');
@@ -188,7 +199,6 @@ try {
   await landing.waitForSelector('#first:not([hidden])');
   const first = await text(landing, '#first');
   check(first.includes(ssid) && !first.includes(app.hotspot.config().password), `landing page: “${first}”`);
-  await landing.close();
 
   // ---- off from the banner's sibling: Settings switch ----------------------------------------------
   await host.click('.hotspot-block .switch');
@@ -197,6 +207,9 @@ try {
   await tv.waitForSelector('.lobby-main:not(.steps), .corner-qr:not(.two)', { timeout: 10000 });
   check(!(await tv.$('.tv-step')), 'TV: one QR code after switching off');
   check(!(await host.$('.top-right .pill:has-text("Party Wi-Fi")')), 'the top bar pill is gone');
+  check(await landing.waitForSelector('#first', { state: 'hidden', timeout: 8000 }).then(() => true, () => false)
+    && !(await text(landing, '#url')).includes(HOTSPOT_IP), 'the landing page follows: no Wi-Fi step, the home link');
+  await landing.close();
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);
 } finally {

@@ -28,10 +28,21 @@ async function config(patch, done = 'Saved') {
   return r;
 }
 
+/** A phone or tablet with the PIN may cut itself off: asked before the hotspot comes up from there. */
+function mayStart() {
+  return store.get().local || confirm('Switch the party hotspot on?\n\nOn a computer with Wi-Fi only, it leaves the home Wi-Fi while the hotspot is on — this phone or tablet then loses the host controls until it joins the party Wi-Fi (step 1 on the TV).');
+}
+
+/** false when the person changed their mind (the switch then shows the old state again). */
 function switchHotspot(on) {
-  const { local } = store.get();
-  if (on && !local && !confirm('Switch the party hotspot on?\n\nOn a computer with Wi-Fi only, it leaves the home Wi-Fi while the hotspot is on — this phone or tablet then loses the host controls until it joins the party Wi-Fi (step 1 on the TV).')) return;
+  if (on && !mayStart()) return false;
   act('hotspot.set', { on });
+  return true;
+}
+
+function retryHotspot(hs) {
+  if (hs.state !== 'on' && !mayStart()) return;
+  act('hotspot.retry');
 }
 
 function NameField({ hs }) {
@@ -39,7 +50,7 @@ function NameField({ hs }) {
   useEffect(() => setV(hs.ssid), [hs.ssid]);
   const commit = () => {
     const ssid = v.trim();
-    if (ssid === hs.ssid) return setV(hs.ssid);
+    if (!ssid || ssid === hs.ssid) return setV(hs.ssid); // emptied by mistake: the name stays
     return config({ ssid }).then((r) => r || setV(hs.ssid));
   };
   return html`<input class="input" value=${v} maxlength="32" aria-label="Hotspot network name"
@@ -83,6 +94,7 @@ function Checks({ checks }) {
 /** Settings → Party → Party hotspot. */
 export function HotspotBlock({ state }) {
   const hs = state.hotspot;
+  const [switchKey, setSwitchKey] = useState(0);
   if (!hs) return null;
   const busy = hs.state === 'starting' || hs.state === 'stopping';
   const dot = hs.state === 'on' ? 'on' : hs.state === 'failed' ? 'bad' : '';
@@ -94,11 +106,11 @@ export function HotspotBlock({ state }) {
         <p class=${`hs-status ${hs.state}`} role="status"><span class=${`dot ${dot}`}></span> ${busy && html`<span class="spinner tiny"></span> `}${statusText(hs)}</p>
         ${hs.state === 'failed' && hs.fix && html`<p class="hint hs-fix">${hs.fix}</p>`}
       </div>
-      <div class="setting-control"><${Switch} checked=${!!hs.enabled} label="Party hotspot" onChange=${switchHotspot} /></div>
+      <div class="setting-control"><${Switch} key=${switchKey} checked=${!!hs.enabled} label="Party hotspot" onChange=${(on) => switchHotspot(on) || setSwitchKey(switchKey + 1)} /></div>
     </div>
     ${(hs.enabled || hs.state !== 'off') && html`<${Checks} checks=${hs.checks} />`}
     ${(hs.state === 'failed' || hs.state === 'on') && html`<div class="btn-row hs-actions">
-      <button class="btn small" disabled=${busy} onClick=${() => act('hotspot.retry')}><${Icon} name="refresh" size=${14} /> ${hs.state === 'on' ? 'Restart the hotspot' : 'Try again'}</button>
+      <button class="btn small" disabled=${busy} onClick=${() => retryHotspot(hs)}><${Icon} name="refresh" size=${14} /> ${hs.state === 'on' ? 'Restart the hotspot' : 'Try again'}</button>
     </div>`}
     <${Row} label="Hotspot name" help="What phones list under Wi-Fi."><${NameField} hs=${hs} /></${Row}>
     <${Row} label="Hotspot password" help="8 to 63 characters. Shown on the TV with step 1 (WPA2)."><${PasswordField} hs=${hs} /></${Row}>
@@ -110,7 +122,7 @@ export function HotspotBlock({ state }) {
         <option value="">Automatic</option>${adapters.map((d) => html`<option value=${d}>${d}</option>`)}
       </select>
     </${Row}>`}
-    ${hs.enabled && hs.state !== 'on' && html`<p class="hint hs-note">Changes apply the next time it starts (Try again).</p>`}
+    ${hs.enabled && (hs.state === 'failed' || hs.state === 'off') && html`<p class="hint hs-note">Changes apply the next time it starts (Try again).</p>`}
   </div>`;
 }
 
@@ -126,7 +138,7 @@ export function HotspotBanner() {
       ${hs.fix && html`<p class="hs-banner-fix">${hs.fix}</p>`}
       <p class="hs-banner-fix">Meanwhile guests join over the home Wi-Fi: the TV and the invite show its QR code.</p>
       <div class="btn-row">
-        <button class="btn small primary" onClick=${() => act('hotspot.retry')}><${Icon} name="refresh" size=${14} /> Try again</button>
+        <button class="btn small primary" onClick=${() => retryHotspot(hs)}><${Icon} name="refresh" size=${14} /> Try again</button>
         <button class="btn small ghost" onClick=${() => act('hotspot.set', { on: false })}>Turn the hotspot off</button>
         <a class="btn small ghost" href="#/settings/party">Details</a>
       </div>

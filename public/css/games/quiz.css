@@ -28,6 +28,10 @@
 .qz-join { position: absolute; right: 3vw; bottom: 4vh; display: flex; align-items: center; gap: 2vh; padding: 1.4vh; border-radius: 2vh; background: rgba(var(--night-rgb), 0.85); border: 1px solid var(--line); font-size: 2.2vh; color: var(--ink-2); }
 .qz-join img { width: 12vh; height: 12vh; border-radius: 1vh; background: var(--paper); padding: 0.8vh; }
 .qz-join b { display: block; font-size: 2.8vh; color: var(--ink); }
+.qz-join.two { gap: 1.4vh; }
+.qz-join.two figure { margin: 0; display: grid; justify-items: center; gap: 0.6vh; }
+.qz-join.two img { width: 10vh; height: 10vh; }
+.qz-join.two figcaption { font-size: 2vh; font-weight: 700; color: var(--ink); }
 
 /* question */
 .g-tv.qz-question, .g-tv.qz-reveal { grid-template-rows: auto minmax(0, 1fr) auto auto; gap: 2.6vh; padding: 4vh 4vw 3vh; }

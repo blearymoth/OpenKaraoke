@@ -1837,7 +1837,7 @@ export class Room {
     if (m.ssid !== undefined) {
       const ssid = String(m.ssid).trim();
       if (ssid && !validSsid(ssid)) fail('The network name can have up to 32 characters (no line breaks, not starting with “-”).', 'bad_request');
-      patch.ssid = ssid;
+      patch.ssid = ssid || this.app.hotspot.config().ssid; // emptied: the name stays (never one that follows the room code)
     }
     if (m.password !== undefined && m.password !== MASK) {
       const pw = String(m.password);
@@ -1853,11 +1853,15 @@ export class Room {
       if (ifname && !validIfname(ifname)) fail('Unknown Wi-Fi adapter.', 'bad_request');
       patch.ifname = ifname;
     }
-    this.settings.update({ party: { hotspot: patch } });
     const hs = this.app.hotspot;
-    if (this.settings.get('party.hotspot.enabled') && hs.state !== 'off') hs.retry().catch((e) => log.error('hotspot', e));
+    const before = JSON.stringify(hs.config());
+    this.settings.update({ party: { hotspot: patch } });
+    // A hotspot that is on (or starting) restarts with what changed; one that failed waits for
+    // Try again (where a phone host is asked first).
+    const changed = JSON.stringify(hs.config()) !== before;
+    if (changed && this.settings.get('party.hotspot.enabled') && (hs.state === 'on' || hs.state === 'starting')) hs.retry().catch((e) => log.error('hotspot', e));
     this.markDirty();
-    return { ok: true };
+    return { ok: true, changed };
   }
 
   hotspotRetry() {

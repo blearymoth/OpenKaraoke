@@ -155,11 +155,10 @@ function fakeSettings(hotspot = {}, server = {}) {
   };
 }
 
-async function makeHotspot(scenario, { settings = fakeSettings(), health, platform = 'linux', readText = async () => '', pollMs = 60_000, listenAddress = () => '0.0.0.0' } = {}) {
+async function makeHotspot(scenario, { settings = fakeSettings(), health, platform = 'linux', readText = async () => '', pollMs = 60_000, listenAddress = () => '0.0.0.0', nm = fakeNmcli(scenario), ownedFile = '', closeMs, run } = {}) {
   const { Hotspot } = await import('../server/net/hotspot.js');
-  const nm = fakeNmcli(scenario);
   const hs = new Hotspot({
-    run: nm.run, settings, port: () => 6527, instance: 'me', platform, readText, pollMs, listenAddress,
+    run: run || nm.run, settings, port: () => 6527, instance: 'me', platform, readText, pollMs, listenAddress, ownedFile, closeMs,
     health: health || (async (url) => (url === 'http://10.42.0.1:6527/api/health' ? { ok: true, instance: 'me' } : null)),
   });
   const changes = [];
@@ -177,7 +176,8 @@ test('Hotspot: on with every check passed; a name from the room code; a password
   assert.equal(hs.ip, '10.42.0.1');
   assert.equal(v.ssid, 'OpenKaraoke-ABCD');
   assert.ok(validPassword(v.password));
-  assert.deepEqual(settings.updates, [{ party: { hotspot: { password: v.password } } }], 'the password is kept for next time');
+  assert.deepEqual(settings.updates, [{ party: { hotspot: { ssid: 'OpenKaraoke-ABCD' } } }, { party: { hotspot: { password: v.password } } }], 'the name and the password are kept for next time');
+  assert.deepEqual([v.ifname, v.device], ['', 'wlp2s0'], 'the saved adapter choice (none) and the one in use, apart');
   assert.deepEqual(v.checks.map((c) => `${c.id}:${c.level}`), ['linux:ok', 'nmcli:ok', 'running:ok', 'permission:ok', 'radio:ok', 'device:ok', 'ap:ok', 'listen:ok', 'uplink:ok', 'up:ok', 'address:ok', 'reach:ok']);
   assert.match(byId(v).uplink.text, /enp3s0/);
   assert.equal(changes[0], 'starting');
@@ -219,6 +219,13 @@ test('Hotspot: warnings — the home Wi-Fi drops, a password prompt, firewalls',
   assert.equal(byId(v)['other-ap'].level, 'warn');
   assert.match(byId(v)['other-ap'].text, /Another hotspot \(“Hotspot”\)/);
   assert.ok(!byId(v).uplink || byId(v).uplink.level === 'ok', 'GNOME’s hotspot is not the home Wi-Fi');
+  // The same on a PC with Wi-Fi only (no Ethernet to make the uplink check "ok" anyway).
+  const wifiOnly = fakeNmcli('gnome-hotspot');
+  Object.assign(wifiOnly.state.devices[1], { state: 'unavailable', connection: '', address: '' });
+  ({ hs } = await makeHotspot('gnome-hotspot', { nm: wifiOnly }));
+  v = await hs.start();
+  assert.equal(v.state, 'on');
+  assert.equal(byId(v).uplink, undefined, 'no "leaves the home Wi-Fi" warning for GNOME’s hotspot');
 
   ({ hs } = await makeHotspot('firewalld'));
   v = await hs.start();
@@ -303,15 +310,66 @@ test('Hotspot: dropping during the party falls back with the reason; quitting br
   assert.equal(hs.state, 'failed');
   await hs.close();
 
-  // Quitting with the hotspot on: down; started by someone else (never by us): left alone.
+  // Quitting with the hotspot on: its profile goes; never started by us: nothing is asked.
   ({ hs, nm } = await makeHotspot('ok'));
   await hs.start();
   await hs.close();
   assert.equal(nm.state.devices[0].state, 'disconnected');
-  assert.ok(nm.calls.some((c) => c[1] === 'connection' && c[2] === 'down'));
+  assert.ok(nm.calls.some((c) => c.join(' ').includes('connection delete uuid')));
+  assert.ok(!nm.state.connections.some((c) => c.name === CONNECTION_NAME), 'no profile left behind');
   ({ hs, nm } = await makeHotspot('ok'));
   await hs.close();
   assert.equal(nm.calls.length, 0);
+
+  // Quitting while it is still starting (NetworkManager slow to bring it up): the start in
+  // flight is cancelled — nothing is left up with nobody to take it down.
+  const slow = fakeNmcli('ok');
+  let upAsked = false;
+  const slowRun = async (cmd, args) => {
+    if (args.includes('up')) {
+      upAsked = true;
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return slow.run(cmd, args);
+  };
+  ({ hs } = await makeHotspot('ok', { nm: slow, run: slowRun, closeMs: 50 }));
+  const starting = hs.start();
+  for (let i = 0; i < 200 && !upAsked; i++) await new Promise((r) => setTimeout(r, 2));
+  assert.ok(upAsked);
+  await hs.close(); // returns while `up` is still under way
+  assert.ok(!slow.state.connections.some((c) => c.name === CONNECTION_NAME), 'its profile was removed at once');
+  await starting;
+  assert.ok(!slow.state.connections.some((c) => c.name === CONNECTION_NAME && c.active), 'and nothing came up after');
+  assert.equal(slow.state.devices[0].state, 'disconnected');
+
+  // Still up but with another address: failed means off — its profile goes, nothing to leave behind.
+  ({ hs, nm } = await makeHotspot('ok'));
+  await hs.start();
+  nm.state.devices[0].address = '10.42.0.2/24';
+  await hs.poll();
+  await hs.poll();
+  assert.equal(hs.view().reason, 'The hotspot’s address changed.');
+  assert.ok(!nm.state.connections.some((c) => c.name === CONNECTION_NAME), 'taken down when given up on');
+  assert.equal((await hs.stop()).state, 'off');
+});
+
+test('Hotspot: another OpenKaraoke’s hotspot is never touched; its own crashed one is found again', async () => {
+  const dir = await tmpDir('ok-hotspot-own-');
+  // Two servers (two data folders) on one PC, one NetworkManager.
+  const nm = fakeNmcli('ok');
+  const a = (await makeHotspot('ok', { nm, ownedFile: `${dir}/a.json` })).hs;
+  assert.equal((await a.start()).state, 'on');
+  const b = (await makeHotspot('ok', { nm, ownedFile: `${dir}/b.json` })).hs;
+  await b.cleanup(); // b starts with its switch off
+  await a.poll();
+  await a.poll();
+  assert.equal(a.state, 'on', 'the other server’s start-up left the running hotspot alone');
+  assert.ok(nm.state.connections.some((c) => c.name === CONNECTION_NAME && c.active));
+  // a "crashes" (never closed); a new run of the same server (same data folder) cleans up.
+  const again = (await makeHotspot('ok', { nm, ownedFile: `${dir}/a.json` })).hs;
+  await again.cleanup();
+  assert.ok(!nm.state.connections.some((c) => c.name === CONNECTION_NAME), 'its own left-over hotspot is removed');
+  assert.equal(nm.state.devices[0].state, 'disconnected');
 });
 
 test('Hotspot: one start at a time; bad saved settings fall back to safe values', async () => {
@@ -446,14 +504,41 @@ test('app: hotspot settings are validated; switched on last time it starts again
   assert.ok(validPassword(saved.password), 'an empty password makes a new one');
   await room.request(asHost, { t: 'hotspot.config', password: '••••••' });
   assert.equal(app.settings.get('party.hotspot.password'), saved.password, 'the masked password is not saved');
-  assert.deepEqual(nm.calls, [['nmcli', '-g', 'GENERAL.STATE', 'connection', 'show', 'id', CONNECTION_NAME]], 'with the switch off only the look for a left-over hotspot reached nmcli');
+  assert.deepEqual(nm.calls, [], 'with the switch off (and nothing left over) NetworkManager is never asked');
   await app.close();
 
   ({ app, nm } = await hotspotApp('ok', { enabled: true }));
   await settle(app);
   assert.equal(app.hotspot.state, 'on', 'on again after a restart');
+  // While on: a new password restarts it with that password; the same values change nothing.
+  const adds = () => nm.calls.filter((c) => c.includes('add'));
+  const n = adds().length;
+  const pw1 = app.hotspot.config().password;
+  assert.deepEqual(await app.room.request(asHost, { t: 'hotspot.config', password: '' }), { ok: true, changed: true });
+  await settle(app);
+  const pw2 = app.hotspot.config().password;
+  assert.notEqual(pw2, pw1);
+  assert.equal(adds().length, n + 1, 'restarted');
+  assert.equal(adds().at(-1)[adds().at(-1).indexOf('wifi-sec.psk') + 1], pw2, 'with the new password');
+  assert.ok(nm.state.connections.some((c) => c.active && c.hotspot && c.settings['wifi-sec.psk'] === pw2));
+  assert.deepEqual(await app.room.request(asHost, { t: 'hotspot.config', band: 'auto', ifname: '' }), { ok: true, changed: false });
+  await settle(app);
+  assert.equal(adds().length, n + 1, 'nothing changed: no restart');
+  // An emptied name keeps the name the hotspot has (a new room code never renames it).
+  await app.room.request(asHost, { t: 'hotspot.config', ssid: '' });
+  assert.equal(app.settings.get('party.hotspot.ssid'), app.hotspot.view().ssid);
+  app.settings.update({ party: { roomCode: 'MNOP' } });
+  assert.notEqual(app.hotspot.config().ssid, 'OpenKaraoke-MNOP');
+  // Failed: a change waits for Try again (where a phone host is asked first).
+  nm.drop();
+  await app.hotspot.poll();
+  await app.hotspot.poll();
+  assert.equal(app.hotspot.state, 'failed');
+  await app.room.request(asHost, { t: 'hotspot.config', band: 'a' });
+  await settle(app);
+  assert.equal(app.hotspot.state, 'failed', 'not restarted behind the host’s back');
   await app.close();
-  assert.ok(nm.calls.some((c) => c[1] === 'connection' && c[2] === 'down'), 'quitting brings it down');
+  assert.ok(nm.calls.some((c) => c.join(' ').includes('connection delete uuid')), 'quitting brings it down');
   assert.equal(nm.state.devices[0].state, 'disconnected');
 
   // A failing hotspot at start-up: the party starts anyway, on the home network.
@@ -524,6 +609,7 @@ test('app: without a runner NetworkManager is never asked; bound to one address 
   const app = await createApp({ dataDir: dir, scan: false, watch: false, fetch: offlineFetch, crawl: false });
   await app.listen(0, '127.0.0.1');
   t.after(() => app.close());
+  await assert.rejects(app.hotspot.runner('nmcli', ['--version']), /no NetworkManager runner given/, 'createApp’s own runner refuses');
   await app.room.request(asHost, { t: 'hotspot.set', on: true });
   await settle(app);
   assert.equal(app.hotspot.state, 'failed');
@@ -566,13 +652,25 @@ test('Hotspot: an older NetworkManager without client isolation; a hotspot left 
   assert.ok(!v.checks.some((c) => c.id === 'isolation'));
   assert.ok(nm.calls.find((c) => c[2] === 'add').includes('802-11-wireless.ap-isolation'), 'phones kept apart');
 
-  // Switch off at start-up: the left-over party hotspot goes down; on: it is replaced.
+  // A party hotspot up that this server didn't make (no note in its data folder): left alone at
+  // start-up; switched on, ours takes the adapter and the old one stays as an unused profile —
+  // removed by the next start.
   ({ hs, nm } = await makeHotspot('leftover'));
   await hs.cleanup();
-  assert.equal(nm.state.devices[0].state, 'disconnected');
-  ({ hs, nm } = await makeHotspot('leftover'));
+  assert.equal(nm.state.devices[0].connection, CONNECTION_NAME);
+  assert.equal(nm.calls.length, 0);
   assert.equal((await hs.start()).state, 'on');
-  assert.equal(nm.state.connections.filter((c) => c.name === CONNECTION_NAME).length, 1);
+  const ours = nm.state.connections.filter((c) => c.name === CONNECTION_NAME);
+  assert.deepEqual(ours.map((c) => c.active), [false, true]);
+  await hs.retry();
+  assert.equal(nm.state.connections.filter((c) => c.name === CONNECTION_NAME).length, 1, 'the unused one is gone');
+  // Its own note: removed at start-up.
+  const dir = await tmpDir('ok-hotspot-left-');
+  await (await import('node:fs/promises')).writeFile(`${dir}/hotspot.json`, JSON.stringify({ uuid: '6f1c2a3e-0000-4000-8000-000000000005' }));
+  ({ hs, nm } = await makeHotspot('leftover', { ownedFile: `${dir}/hotspot.json` }));
+  await hs.cleanup();
+  assert.equal(nm.state.devices[0].state, 'disconnected');
+  assert.ok(!nm.state.connections.some((c) => c.name === CONNECTION_NAME));
 });
 
 test('app: hosts follow the checks; when the hotspot goes, its phones and screens are let go at once', async (t) => {

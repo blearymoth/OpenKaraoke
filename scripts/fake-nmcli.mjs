@@ -4,7 +4,7 @@
 // from a scenario. Real nmcli is never used in tests.
 //
 //   In-process (tests, OPENKARAOKE_FAKE_NMCLI=<scenario> for trying the UI by hand):
-//     const nm = fakeNmcli('home-wifi'); createApp({ hotspotRunner: nm.run }); nm.calls; nm.drop();
+//     const nm = fakeNmcli('home-wifi'); createApp({ hotspot: { run: nm.run } }); nm.calls; nm.drop();
 //   As a program:  FAKE_NMCLI_SCENARIO=ok FAKE_NMCLI_STATE=/tmp/nm.json node scripts/fake-nmcli.mjs -t -f WIFI radio
 //
 // Scenarios: ok, home-wifi, gnome-hotspot, auth (a password prompt), no-session (over SSH or as

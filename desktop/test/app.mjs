@@ -60,6 +60,9 @@ const env = {
   OPENKARAOKE_TEST_EXTERNAL: '1', // links to other sites are noted, not opened in a browser
   APPIMAGE: appImage,
   PORT: '1', // ignored by the app: it never takes the port from the environment
+  // The party hotspot's NetworkManager is the pretend one (scripts/fake-nmcli.mjs); a build that
+  // doesn't ship it gets none at all — never the real one, which may run a party hotspot here.
+  OPENKARAOKE_FAKE_NMCLI: 'ok',
 };
 delete env.XDG_SESSION_TYPE; // never restart through XWayland in a test
 

@@ -64,6 +64,7 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
     settings,
     port: () => app.port || settings.get('server.port'),
     instance: app.instance,
+    ownedFile: path.join(dataDir, 'hotspot.json'),
     log: logger('hotspot'),
   });
   app.hotspot = hotspot;

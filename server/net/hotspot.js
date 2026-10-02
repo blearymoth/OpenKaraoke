@@ -5,6 +5,7 @@
 // home network. Every program runs through the injected runner (server/net/nmcli.js).
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import http from 'node:http';
 import { addConnectionArgs, addedUuid, getValues, makePassword, nmError, terseRows, validIfname, validPassword, validSsid, BANDS, CONNECTION_NAME } from './nmcli.js';
 
@@ -63,8 +64,11 @@ export class Hotspot extends EventEmitter {
    * @param {(url: string) => Promise<object|null>} [o.health] reachability check (tests pass a fake)
    * @param {string} [o.platform]
    * @param {(file: string) => Promise<string>} [o.readText] for /etc/ufw/ufw.conf
+   * @param {string} [o.ownedFile] where the UUID of the profile this server made is kept (the
+   *   data folder: one server per folder), so a crashed run's hotspot is found again — and
+   *   another OpenKaraoke's hotspot is never touched
    */
-  constructor({ run, settings, port, listenAddress = () => '0.0.0.0', instance, health = fetchHealth, platform = process.platform, readText = (f) => fs.readFile(f, 'utf8'), pollMs = POLL_MS, log } = {}) {
+  constructor({ run, settings, port, listenAddress = () => '0.0.0.0', instance, health = fetchHealth, platform = process.platform, readText = (f) => fs.readFile(f, 'utf8'), pollMs = POLL_MS, ownedFile = '', closeMs = CLOSE_MS, log } = {}) {
     super();
     this.runner = run;
     this.listenAddress = listenAddress;
@@ -79,8 +83,35 @@ export class Hotspot extends EventEmitter {
     this.timer = null;
     this.misses = 0;
     this.chain = Promise.resolve();
-    this.ownsConnection = false; // brought up by this process: brought down again when it quits
-    this.st = { state: 'off', checks: [], reason: '', fix: '', check: '', address: '', ifname: '', devices: [] };
+    this.ownedFile = ownedFile;
+    this.closeMs = closeMs;
+    this.uuid = this.readOwned(); // the profile this server made (and removes again), '' = none
+    this.closing = false;
+    this.polling = false;
+    // device: the adapter in use (the saved choice is config().ifname)
+    this.st = { state: 'off', checks: [], reason: '', fix: '', check: '', address: '', device: '', devices: [] };
+  }
+
+  readOwned() {
+    if (!this.ownedFile) return '';
+    try {
+      const uuid = JSON.parse(fsSync.readFileSync(this.ownedFile, 'utf8'))?.uuid;
+      return typeof uuid === 'string' && /^[0-9a-f-]{36}$/i.test(uuid) ? uuid : '';
+    } catch {
+      return '';
+    }
+  }
+
+  /** Remembers (or forgets, '') the profile this server made. */
+  own(uuid) {
+    this.uuid = uuid;
+    if (!this.ownedFile) return;
+    try {
+      if (uuid) fsSync.writeFileSync(this.ownedFile, JSON.stringify({ uuid }));
+      else fsSync.rmSync(this.ownedFile, { force: true });
+    } catch (e) {
+      this.log?.warn(`party hotspot: couldn’t note its profile: ${e.message}`);
+    }
   }
 
   /** The hotspot's settings, completed (a name from the room code, a password made up once). */
@@ -112,7 +143,7 @@ export class Hotspot extends EventEmitter {
   /** Everything the host page shows (the password too: the host shares it). */
   view() {
     const c = this.config();
-    return { ...c, ...this.st, checks: this.st.checks.map((x) => ({ ...x })), devices: [...this.st.devices] };
+    return { ...this.st, ...c, checks: this.st.checks.map((x) => ({ ...x })), devices: [...this.st.devices] };
   }
 
   set(patch) {
@@ -159,7 +190,7 @@ export class Hotspot extends EventEmitter {
   }
 
   async doStart() {
-    if (this.st.state === 'on') return this.view(); // changed settings: retry()
+    if (this.st.state === 'on' || this.closing) return this.view(); // changed settings: retry()
     this.stopWatching();
     const checks = [];
     const done = (check) => {
@@ -176,6 +207,8 @@ export class Hotspot extends EventEmitter {
     this.set({ state: 'starting', checks: [], reason: '', fix: '', check: '', address: '' });
     const cfg = this.config();
     const port = this.port();
+    // The name brought up is the one kept: a new room code later doesn't rename it on the TV.
+    if (!validSsid(this.settings.get('party.hotspot')?.ssid)) this.settings.update({ party: { hotspot: { ssid: cfg.ssid } } });
 
     if (this.platform !== 'linux') return fail(CHECK('linux', 'fail', 'The party hotspot needs Linux with NetworkManager.', 'Use the home Wi-Fi: guests scan the QR code on the TV.'));
     done(CHECK('linux', 'ok', 'Linux'));
@@ -243,13 +276,20 @@ export class Hotspot extends EventEmitter {
       password = makePassword();
       this.settings.update({ party: { hotspot: { password } } });
     }
-    // Deleting removes every profile of that name; if it can't, a new one with the same name
-    // would not be the one `up` picks — stop instead.
-    const del = await this.nmcli(['--wait', String(DELETE_WAIT_S), 'connection', 'delete', 'id', CONNECTION_NAME]);
-    if (del.code !== 0 && del.code !== 10) {
-      const why = nmError(del);
-      return fail(CHECK('up', 'fail', `NetworkManager couldn’t replace the earlier party hotspot: ${why}`, fixForUpError(why, cfg.band)));
+    if (this.closing) return this.view(); // quitting: nothing new is brought up
+    // The earlier profile goes: the one this server made, and party hotspots nobody uses (older
+    // runs). One that is up and not ours belongs to another OpenKaraoke: it is left alone.
+    const old = terseRows((await this.nmcli(['-t', '-f', 'NAME,UUID,TYPE,DEVICE', 'connection', 'show'])).stdout)
+      .filter(([name, uuid, , device]) => name === CONNECTION_NAME && (uuid === this.uuid || !device))
+      .map(([, uuid]) => uuid);
+    for (const uuid of new Set([...old, ...(this.uuid ? [this.uuid] : [])])) {
+      const del = await this.nmcli(['--wait', String(DELETE_WAIT_S), 'connection', 'delete', 'uuid', uuid]);
+      if (del.code !== 0 && del.code !== 10) {
+        const why = nmError(del);
+        return fail(CHECK('up', 'fail', `NetworkManager couldn’t replace the earlier party hotspot: ${why}`, fixForUpError(why, cfg.band)));
+      }
     }
+    this.own('');
     const conn = { ifname: dev.name, ssid: cfg.ssid, password, band: cfg.band };
     let added = await this.nmcli(addConnectionArgs(conn));
     if (added.code !== 0 && /ap-isolation/i.test(nmError(added))) {
@@ -262,14 +302,21 @@ export class Hotspot extends EventEmitter {
       return fail(CHECK('up', 'fail', `NetworkManager couldn’t create the hotspot: ${why}`, fixForUpError(why, cfg.band)));
     }
     const uuid = addedUuid(added.stdout);
-    const which = uuid ? ['uuid', uuid] : ['id', CONNECTION_NAME];
-    const up = await this.nmcli(['--wait', String(UP_WAIT_S), 'connection', 'up', ...which], { timeout: (UP_WAIT_S + 10) * 1000 });
+    if (!uuid) {
+      await this.nmcli(['--wait', String(DELETE_WAIT_S), 'connection', 'delete', 'id', CONNECTION_NAME]);
+      return fail(CHECK('up', 'fail', 'NetworkManager didn’t say which hotspot it created.', fixForUpError('', cfg.band)));
+    }
+    this.own(uuid); // from here on ours: quitting (even now) removes it
+    const up = await this.nmcli(['--wait', String(UP_WAIT_S), 'connection', 'up', 'uuid', uuid], { timeout: (UP_WAIT_S + 10) * 1000 });
+    if (this.closing) {
+      await this.down();
+      return this.view();
+    }
     if (up.code !== 0) {
       const why = nmError(up);
-      await this.nmcli(['--wait', String(DELETE_WAIT_S), 'connection', 'delete', ...which]);
+      await this.down();
       return fail(CHECK('up', 'fail', `NetworkManager couldn’t start the hotspot: ${why}`, fixForUpError(why, cfg.band)));
     }
-    this.ownsConnection = true;
     done(CHECK('up', 'ok', `Hotspot “${cfg.ssid}” is on`));
 
     const address = (getValues((await this.nmcli(['-g', 'IP4.ADDRESS', 'device', 'show', dev.name])).stdout)[0] || '').replace(/\/\d+$/, '');
@@ -286,7 +333,11 @@ export class Hotspot extends EventEmitter {
     }
     done(CHECK('reach', 'ok', `This server answers on the hotspot: ${url}`));
 
-    this.set({ state: 'on', ifname: dev.name, address, reason: '', fix: '', check: '' });
+    if (this.closing) {
+      await this.down();
+      return this.view();
+    }
+    this.set({ state: 'on', device: dev.name, address, reason: '', fix: '', check: '' });
     this.log?.info(`party hotspot on: ${cfg.ssid} at ${url}`);
     this.watch();
     return this.view();
@@ -308,10 +359,20 @@ export class Hotspot extends EventEmitter {
 
   /** Still up, still with its address? Two misses in a row: it dropped (§20.5). */
   async poll() {
-    if (this.st.state !== 'on') return;
-    const state = getValues((await this.nmcli(['-g', 'GENERAL.STATE', 'connection', 'show', 'id', CONNECTION_NAME])).stdout)[0];
+    if (this.st.state !== 'on' || this.polling) return;
+    this.polling = true;
+    try {
+      await this.checkUp();
+    } finally {
+      this.polling = false;
+    }
+  }
+
+  async checkUp() {
+    const shown = await this.nmcli(['-g', 'GENERAL.STATE', 'connection', 'show', 'uuid', this.uuid]);
+    const state = getValues(shown.stdout)[0];
     const address = state === 'activated'
-      ? (getValues((await this.nmcli(['-g', 'IP4.ADDRESS', 'device', 'show', this.st.ifname])).stdout)[0] || '').replace(/\/\d+$/, '')
+      ? (getValues((await this.nmcli(['-g', 'IP4.ADDRESS', 'device', 'show', this.st.device])).stdout)[0] || '').replace(/\/\d+$/, '')
       : '';
     if (state === 'activated' && address === this.st.address) {
       this.misses = 0;
@@ -319,8 +380,12 @@ export class Hotspot extends EventEmitter {
     }
     if (++this.misses < 2 || this.st.state !== 'on') return;
     this.stopWatching();
-    this.ownsConnection = false;
     const radio = (await this.nmcli(['-t', '-f', 'WIFI', 'radio'])).stdout.trim();
+    if (this.st.state !== 'on') return; // stopped or restarted meanwhile
+    // Whatever is left of it goes (still up with another address, or nmcli not answering):
+    // "failed" means off, and Turn off / quitting have nothing left behind.
+    await this.down();
+    if (this.st.state !== 'on') return;
     const check = radio !== 'enabled'
       ? CHECK('dropped', 'fail', 'The hotspot stopped: Wi-Fi was switched off.', 'Switch Wi-Fi on again (system menu, top right), then Try again.')
       : state === 'activated'
@@ -332,13 +397,16 @@ export class Hotspot extends EventEmitter {
 
   // ---- stop --------------------------------------------------------------------------------
 
+  /** Removes the profile this server made (deleting an active connection takes it down too). */
   async down() {
-    if (!this.ownsConnection) return;
-    this.ownsConnection = false;
-    // A refused deactivation prints "… deactivation failed: …" on stdout and still exits 0.
-    const res = await this.nmcli(['connection', 'down', 'id', CONNECTION_NAME]).catch(() => null);
-    if (res && res.code !== 0 && res.code !== 10) this.log?.warn(`party hotspot: couldn’t switch it off: ${nmError(res)}`);
-    else if (/deactivation failed/i.test(res?.stdout || '')) this.log?.warn(`party hotspot: couldn’t switch it off: ${res.stdout.trim().slice(0, 200)}`);
+    const uuid = this.uuid;
+    if (!uuid) return;
+    const res = await this.nmcli(['--wait', String(DELETE_WAIT_S), 'connection', 'delete', 'uuid', uuid]).catch(() => null);
+    if (res && res.code !== 0 && res.code !== 10) {
+      this.log?.warn(`party hotspot: couldn’t switch it off: ${nmError(res)}`);
+      return; // kept: the next start or clean-up tries again
+    }
+    if (this.uuid === uuid) this.own('');
   }
 
   async doStop() {
@@ -351,24 +419,28 @@ export class Hotspot extends EventEmitter {
   }
 
   /**
-   * At start-up with the switch off: a party hotspot still up (OpenKaraoke crashed or was killed
-   * while it was on) is ours by its name — brought down so the home Wi-Fi comes back.
+   * At start-up with the switch off: the hotspot an earlier run of this server left (it crashed
+   * or was killed while it was on) — known by the UUID kept in the data folder — is removed, so
+   * the home Wi-Fi comes back. A party hotspot of another OpenKaraoke is never touched.
    */
   cleanup() {
     return this.serial(async () => {
-      if (this.st.state !== 'off') return;
-      const state = getValues((await this.nmcli(['-g', 'GENERAL.STATE', 'connection', 'show', 'id', CONNECTION_NAME])).stdout)[0];
-      if (state === 'activated') {
-        this.log?.info('party hotspot left on by an earlier run: bringing it down');
-        await this.nmcli(['connection', 'down', 'id', CONNECTION_NAME]);
-      }
+      if (this.st.state !== 'off' || !this.uuid) return;
+      this.log?.info('party hotspot left by an earlier run: removing it');
+      await this.down();
     });
   }
 
-  /** Quitting: the hotspot goes off if this process turned it on (the home Wi-Fi comes back). */
-  close() {
+  /** Quitting: the hotspot this server made goes (also one still starting); the home Wi-Fi comes back. */
+  async close() {
+    this.closing = true;
     this.stopWatching();
-    const done = this.serial(() => this.down());
-    return Promise.race([done, new Promise((r) => setTimeout(r, CLOSE_MS).unref?.())]);
+    const done = this.serial(() => this.down()).then(() => false);
+    const late = await Promise.race([done, new Promise((r) => setTimeout(() => r(true), this.closeMs).unref?.())]);
+    // A start still under way (a password prompt, NetworkManager slow to bring it up): its
+    // profile is removed right away, which also cancels the activation.
+    if (late && this.uuid) {
+      await Promise.race([this.nmcli(['--wait', '3', 'connection', 'delete', 'uuid', this.uuid], { timeout: 4000 }), new Promise((r) => setTimeout(r, 4000).unref?.())]);
+    }
   }
 }

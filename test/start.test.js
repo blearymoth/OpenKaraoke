@@ -11,8 +11,11 @@ import { listenAddress, migrateSettings, DEFAULT_PORT, DEFAULT_SETTINGS } from '
 import { startServer, StartError } from '../server/start.js';
 import { tmpDir } from './helpers.js';
 import { offlineFetch } from './fake-art.js';
+import { fakeNmcli } from '../scripts/fake-nmcli.mjs';
 
-const APP = { scan: false, watch: false, fetch: offlineFetch, crawl: false };
+// A pretend NetworkManager: startServer would otherwise give the real nmcli (run on its own,
+// outside `node --test`, nothing else stops it).
+const APP = { scan: false, watch: false, fetch: offlineFetch, crawl: false, hotspot: { run: fakeNmcli('ok').run } };
 const readJson = async (file) => JSON.parse(await fs.readFile(file, 'utf8'));
 const exists = (file) => fs.access(file).then(() => true, () => false);
 

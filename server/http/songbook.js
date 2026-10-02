@@ -153,7 +153,7 @@ header .qr svg { width: 100%; height: 100%; }
 header .join { text-align: right; font-size: 8pt; color: #333; max-width: 60mm; }
 header .join b { font-size: 13pt; letter-spacing: 0.15em; }
 header .join .url { font-size: 11pt; letter-spacing: 0.01em; overflow-wrap: anywhere; } /* a long address wraps instead of running into the QR code */
-header .join .pw { font: 700 10pt ui-monospace, monospace; letter-spacing: 0.06em; }
+header .join .pw { font: 700 10pt ui-monospace, monospace; letter-spacing: 0.06em; overflow-wrap: anywhere; }
 main { column-count: ${cols}; column-gap: 7mm; column-rule: 1px solid #ddd; }
 section.letter h2 { font: 800 15pt/1 ${headFont}system-ui, sans-serif; margin: 6px 0 3px; padding: 2px 6px; background: #111; color: #fff; break-after: avoid; }
 .a { break-inside: avoid; margin: 0 0 4px; }

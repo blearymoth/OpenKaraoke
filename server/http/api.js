@@ -11,6 +11,7 @@ import { placeholderSvg } from '../artwork/placeholder.js';
 import { hash32 } from '../../shared/text.js';
 import { MAX_LIST_SONGS } from '../../shared/protocol.js';
 import { leadKind } from '../../shared/vocals.js';
+import { HOST_VOTER } from '../room/versions.js';
 import { songbookRoutes } from './songbook.js';
 import { RateLimiter } from '../util/ratelimit.js';
 import { Lru } from '../util/lru.js';
@@ -126,7 +127,12 @@ export function apiRoutes(router, app) {
       lead: detail.versions.some((v) => v.vocals?.lead === 'adjustable' || v.vocals?.lead === 'multiplex'),
       bgv: many && detail.versions.some((v) => v.vocals?.bgv === 'without'),
     };
-    return detail;
+    // Plays and votes per version. A valid guest token counts first: a guest page on this
+    // computer (trusted as the host over HTTP) still gets the guest's view and its own vote.
+    const guestId = auth.verify(String(ctx.req.headers['x-guest-token'] || ''), 'guest')?.id || null;
+    const guest = !!guestId || !ctx.isHost;
+    const voter = guestId || (ctx.isHost ? HOST_VOTER : null);
+    return app.room ? app.room.decorateVersions(detail, { voter, guest }) : detail;
   });
 
   router.get('/api/artists', (ctx) => {

@@ -34,7 +34,7 @@ test('displays: a queue board or a mirror never takes the sound; the reloaded TV
   }
   assert.equal(s().player.state, 'paused');
   assert.equal(s().player.displayLost, true);
-  assert.ok(host.inbox.some((m) => m.t === 'toast' && /disconnected/.test(m.text) && /Settings → Displays/.test(m.text)));
+  assert.ok(host.inbox.some((m) => m.t === 'toast' && /disconnected/.test(m.text) && /the Devices tab/.test(m.text)));
   await req(board, 'tv.ready', { entryId: entry.id, dur: 200 });
   assert.equal(s().player.tvReady, false, 'a board is never the main display');
 
@@ -145,6 +145,7 @@ test('displays: a paired screen asking to be the host preview is listed (and log
   const { app, room, connect, req, view } = await setupRoom();
   const host = await connect('host');
   const { id } = room.pairRequest('192.168.1.50');
+  assert.ok(host.inbox.some((m) => m.t === 'toast' && /Approve it in the Devices tab/.test(m.text)));
   await req(host, 'display.approve', { id });
   const { token } = room.pairStatus(id);
   const sneaky = await connect('tv', { token, display: 'preview' }, { local: false });

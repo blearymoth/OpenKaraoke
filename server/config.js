@@ -106,6 +106,7 @@ export const DEFAULT_SETTINGS = {
     photos: true,
     photoApproval: true,
     games: true,
+    versionVotes: true, // thumbs up / down on the versions played tonight (they steer the default version)
   },
 };
 
@@ -202,6 +203,7 @@ export class Settings extends JsonDoc {
   /** Applies a (partial) settings object, only for keys that exist in the defaults. */
   update(patch) {
     const clean = sanitize(patch, DEFAULT_SETTINGS);
+    if (clean.playback && Object.hasOwn(clean.playback, 'lyricOffsetMs')) clean.playback.lyricOffsetMs = Math.round(Math.min(2000, Math.max(-2000, clean.playback.lyricOffsetMs)));
     const look = clean.appearance;
     // An unknown skin or a malformed colour is ignored (the current one stays), never "fixed".
     if (look?.theme !== undefined && !(typeof look.theme === 'string' && Object.hasOwn(THEMES, look.theme))) delete look.theme;

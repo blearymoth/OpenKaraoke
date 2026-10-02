@@ -16,6 +16,8 @@ import { createGame } from '../games/index.js';
 import { BreakMusic } from './breakmusic.js';
 import { Photos } from './photos.js';
 import { VocalsStore, cleanAnalysis } from './vocals.js';
+import { VersionStats, HOST_VOTER, bestVersion, defaultReason, statusName } from './versions.js';
+import { deviceLabel } from '../util/useragent.js';
 import { clampLead, resolveVocals, leadKind, LAYOUTS } from '../../shared/vocals.js';
 import { fold } from '../../shared/text.js';
 import { logger } from '../util/log.js';
@@ -25,7 +27,7 @@ const SESSION_IDLE_MS = 8 * 3600 * 1000;
 const MAX_HISTORY = 200; // tonight's history for the host's list (skipped songs too)
 const MAX_PERFS = 2000; // tonight's sung songs for the counts and the recap (a long night has a few hundred)
 // No party state change → no broadcast.
-const QUIET = new Set(['tv.status', 'tv.break', 'tv.analysis', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
+const QUIET = new Set(['tv.status', 'tv.break', 'tv.analysis', 'version.vote', 'display.identify', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
 const HOST = 'host';
 const TV = 'tv';
 const GUEST = 'guest';
@@ -125,8 +127,11 @@ export class Room {
       invite: new RateLimiter({ capacity: 3, perMs: 10 * 60_000 }), // duet invitations per inviter → invitee
       invited: new RateLimiter({ capacity: 6, perMs: 10 * 60_000 }), // duet invitations one guest receives
       lead: new RateLimiter({ capacity: 6, perMs: 10_000 }), // a singer's guide-vocal switch
+      vote: new RateLimiter({ capacity: 20, perMs: 60_000 }), // version votes per guest
+      voteIp: new RateLimiter({ capacity: 120, perMs: 10 * 60_000 }), // … and per address
     };
     this.vocals = new VocalsStore(app.dataDir);
+    this.versions = new VersionStats(path.join(app.dataDir, 'versions.json'));
     this.declined = new Set(); // "inviter>invitee>song" duet invitations turned down this session
     this.handlers = this.buildHandlers();
     this.breakMusic = new BreakMusic(this);
@@ -143,6 +148,7 @@ export class Room {
 
   async load() {
     await this.doc.load();
+    await this.versions.load(this.historyFile);
     await this.vocals.load();
     const s = this.s;
     // After a restart nothing is playing: keep the current song paused where it was.
@@ -174,10 +180,11 @@ export class Room {
     this.closeRating();
     this.breakMusic.close();
     this.photos.close();
-    if (save) await Promise.all([this.doc.flush(), this.vocals.flush()]);
+    if (save) await Promise.all([this.doc.flush(), this.vocals.flush(), this.versions.flush()]);
     else {
       this.doc.discard();
       this.vocals.discard();
+      this.versions.discard();
     }
   }
 
@@ -218,6 +225,7 @@ export class Room {
   // ---- connections ---------------------------------------------------------------------
 
   async hello(client, msg) {
+    client.data.device = deviceLabel(client.userAgent); // for the host's Devices list only
     this.ensureSession();
     const role = msg.role;
     if (role === HOST) {
@@ -296,7 +304,7 @@ export class Room {
           if (p.state === 'playing' || p.state === 'intro' || p.state === 'ready') {
             p.state = 'paused';
             const mirror = this.hub.list((c) => c.role === TV && c !== client && c.open && c.data.kind === 'mirror').length;
-            this.toastHosts(`The TV display disconnected — playback is paused.${mirror ? ' Open the TV page again, or pick another display in Settings → Displays.' : ''}`, 'error');
+            this.toastHosts(`The TV display disconnected — playback is paused.${mirror ? ' Open the TV page again, or pick another display in the Devices tab.' : ''}`, 'error');
           }
           p.displayLost = true;
           p.tvReady = false;
@@ -334,7 +342,7 @@ export class Room {
     this.markDirty();
   }
 
-  /** The host picks the display that plays the sound (Settings → Displays). */
+  /** The host picks the display that plays the sound (the Devices tab, Settings → Displays). */
   displayMain(m) {
     const id = typeof m.id === 'string' ? m.id.slice(0, 64) : '';
     const c = this.hub.list((x) => x.role === TV && x.id === id && x.open && !x.data.preview)[0];
@@ -345,6 +353,37 @@ export class Room {
       this.setMain(c);
     }
     return { ok: true };
+  }
+
+  /**
+   * The connected screens for the host (oldest first): "Main TV", "Mirror 1", "Queue board 1"…
+   * The host's own preview is not one of them.
+   */
+  displayList() {
+    let mirrors = 0;
+    let boards = 0;
+    return this.hub.list((c) => c.role === TV && c.open && !c.data.preview)
+      .sort((a, b) => (a.connectedAt || 0) - (b.connectedAt || 0))
+      .map((c) => {
+        const kind = c.data.kind || 'main';
+        const name = c.data.display === 'main' ? 'Main TV' : kind === 'board' ? `Queue board ${++boards}` : `Mirror ${++mirrors}`;
+        return {
+          id: c.id, name, display: c.data.display, kind, standIn: !!c.data.standIn,
+          local: !!c.isLocal, ip: c.isLocal ? '' : String(c.ip || '').replace(/^::ffff:/, ''),
+          device: c.data.device || 'Browser', paired: !!c.data.screen,
+          audioBlocked: c.data.display === 'main' && c.data.audioUnlocked === false, since: c.connectedAt || 0,
+        };
+      });
+  }
+
+  /** Shows a display's name on that screen for a few seconds ("which one is Mirror 2?"). */
+  displayIdentify(m) {
+    const id = typeof m.id === 'string' ? m.id.slice(0, 64) : '';
+    const d = this.displayList().find((x) => x.id === id);
+    const c = d && this.hub.list((x) => x.role === TV && x.id === id && x.open && !x.data.preview)[0];
+    if (!c) fail('That display is not connected any more.', 'not_found');
+    c.send({ t: 'identify', name: d.name, where: d.local ? 'This computer' : d.ip, seconds: 6 });
+    return { name: d.name };
   }
 
   // ---- requests ------------------------------------------------------------------------
@@ -395,6 +434,8 @@ export class Room {
       'display.deny': [H, (c, m) => this.displayDeny(m)],
       'display.forget': [H, () => this.displayForget()],
       'display.main': [H, (c, m) => this.displayMain(m)],
+      'display.identify': [H, (c, m) => this.displayIdentify(m)],
+      'version.vote': [HG, (c, m) => this.versionVote(c, m)],
       'duet.answer': [[GUEST], (c, m) => this.duetAnswer(c, m)],
       'duet.invites': [[GUEST], (c, m) => this.duetInvites(c, m)],
       'settings.update': [H, (c, m) => this.settingsUpdate(m)],
@@ -664,24 +705,121 @@ export class Room {
    * singer mixed in; `bgv` 'with'/'without' prefers versions with or without backing vocals —
    * each only when such a version exists (the lead first).
    */
+  /**
+   * The version that plays when none was chosen: one that fits what the singer asked for (a
+   * guide singer, backing vocals) when there is one, then by the votes (bestVersion: liked,
+   * neither, avoided; the version used last time; the label).
+   */
   pickTrack(song, { noExplicit = false, lead = null, bgv = null } = {}) {
     const ok = (t) => !!t && t.songId === song.id && !(noExplicit && t.p?.flags?.explicit);
-    const ranked = this.catalog.rankTracks(song, this.settings.get('library.brandPriority')).filter(ok);
-    const prefTrack = this.s.songPrefs[song.key]?.trackId;
-    const pref = prefTrack && this.catalog.track(prefTrack);
+    let pool = song.trackIds.map((id) => this.catalog.track(id)).filter(ok);
+    if (!pool.length) return null;
     const wants = [];
     // A guide singer: a version where it can be turned up or down — known, else named multiplex.
     if (lead > 0) wants.push((t) => ['adjustable', 'multiplex'].includes(leadKind(this.trackVocals(t.id))), (t) => !!this.trackVocals(t.id)?.adjustable);
     if (lead === 0) wants.push((t) => !this.trackVocals(t.id)?.mixed);
     if (bgv === 'without') wants.push((t) => !!t.p?.flags?.nobgv);
     if (bgv === 'with') wants.push((t) => !t.p?.flags?.nobgv);
-    let pool = ranked;
     for (const w of wants) {
       const fits = pool.filter(w);
       if (fits.length) pool = fits;
     }
-    if (ok(pref) && pool.includes(pref)) return pref;
-    return pool[0] || null;
+    const brands = this.settings.get('library.brandPriority');
+    return bestVersion(pool, { infoOf: (id) => this.versions.info(id), pref: this.s.songPrefs[song.key]?.trackId, scoreOf: (t) => this.catalog.trackScore(t, brands) });
+  }
+
+  // ---- versions: play counts and votes (versions.js) ------------------------------------------
+
+  /** Played (or skipped) tonight, or on now: guests may vote on it. */
+  heardTonight(trackId) {
+    return this.s.current?.trackId === trackId || this.s.tonight.history.some((h) => h.trackId === trackId);
+  }
+
+  /** Why this version plays by default ('host' | 'guests' | 'last' | 'label'). */
+  defaultWhy(song, track) {
+    return track ? defaultReason(track, this.versions.info(track.id), this.s.songPrefs[song.key]?.trackId) : null;
+  }
+
+  /** Thumbs up / down on a version: guests on what was heard tonight, the host on anything. */
+  versionVote(client, m) {
+    const track = this.catalog.track(str(m.trackId, 40));
+    if (!track) fail('That version is not in the library (any more).', 'not_found');
+    const song = this.catalog.song(track.songId);
+    if (!song || song.trackIds.length < 2) fail('This song has only one version.', 'bad_request');
+    if (m.vote !== 1 && m.vote !== -1 && m.vote !== 0) fail('Vote up, down or not at all.', 'bad_request');
+    const isGuest = client.role === GUEST;
+    const explicitFilter = this.settings.get('queue.explicitFilter');
+    let voter = HOST_VOTER;
+    if (isGuest) {
+      const deviceId = client.data.deviceId;
+      const profile = this.profileOf(deviceId);
+      if (!this.settings.get('guests.versionVotes')) fail('The host has turned off voting on versions.', 'closed');
+      if (!profile?.name) fail('Choose a name first.', 'no_profile');
+      if (profile.banned) fail('The host has removed you from this party.', 'banned');
+      if (explicitFilter && track.p?.flags?.explicit) fail('That version is not in the library (any more).', 'not_found');
+      // Taking one's own vote back is always fine.
+      if (m.vote !== 0 && !this.heardTonight(track.id)) fail('You can vote on a version once it has been played tonight.', 'not_heard');
+      if (!this.limits.vote.take(deviceId) || !this.limits.voteIp.take(String(client.ip))) fail('Slow down — too many votes in a minute.', 'rate_limited');
+      voter = deviceId;
+    }
+    this.versions.vote(track.id, voter, m.vote);
+    if (this.s.current?.trackId === track.id) this.markDirty();
+    const info = this.versions.info(track.id, voter);
+    const def = this.pickTrack(song, { noExplicit: isGuest && explicitFilter });
+    const out = {
+      trackId: track.id, plays: info.plays, up: info.up, down: info.down, mine: info.mine, status: statusName(info.status),
+      heard: this.heardTonight(track.id), defaultTrackId: def?.id || null, defaultWhy: this.defaultWhy(song, def),
+    };
+    if (!isGuest) out.host = info.host;
+    return out;
+  }
+
+  /**
+   * A song's versions for /api/songs/:id with their plays, votes and whether they were heard
+   * tonight; the default version first. Guests: no file paths, no explicit versions under the
+   * filter, their own vote only.
+   */
+  decorateVersions(detail, { voter = null, guest = false } = {}) {
+    const song = this.catalog.song(detail.id);
+    if (!song) return detail;
+    const noExplicit = guest && this.settings.get('queue.explicitFilter');
+    let versions = detail.versions || [];
+    if (noExplicit) versions = versions.filter((v) => !v.flags?.explicit);
+    const heard = new Set(this.s.tonight.history.map((h) => h.trackId));
+    if (this.s.current) heard.add(this.s.current.trackId);
+    const def = this.pickTrack(song, { noExplicit });
+    versions = versions.map((v) => {
+      const i = this.versions.info(v.id, voter);
+      const out = { ...v, plays: i.plays, up: i.up, down: i.down, mine: i.mine, heard: heard.has(v.id) };
+      const status = statusName(i.status);
+      if (status) out.status = status;
+      if (guest) {
+        delete out.file;
+        delete out.discId;
+      } else {
+        out.host = i.host;
+      }
+      return out;
+    });
+    const at = def ? versions.findIndex((v) => v.id === def.id) : -1;
+    if (at > 0) versions.unshift(...versions.splice(at, 1));
+    detail.versions = versions;
+    detail.defaultTrackId = def?.id || null;
+    detail.defaultWhy = this.defaultWhy(song, def);
+    detail.votable = versions.length > 1 && (!guest || this.settings.get('guests.versionVotes'));
+    return detail;
+  }
+
+  /** The version on now, for a song with several: { label, count, plays, up, down [, mine, host, status] }. */
+  versionView(e, voter = null) {
+    const song = this.catalog.song(e.songId);
+    const track = this.catalog.track(e.trackId);
+    if (!song || !track || song.trackIds.length < 2) return null;
+    const ts = this.catalog.trackSummary(track);
+    const i = this.versions.info(track.id, voter);
+    const out = { label: [ts.brandName || ts.brand || 'Unknown label', ...(ts.variant ? [ts.variant] : [])].join(' · '), count: song.trackIds.length, plays: i.plays, up: i.up, down: i.down };
+    if (voter) Object.assign(out, { mine: i.mine, host: i.host, status: statusName(i.status) });
+    return out;
   }
 
   prefsFor(song, singerId) {
@@ -1105,6 +1243,7 @@ export class Room {
       }
       if (!s.tonight.sung.includes(entry.songId)) s.tonight.sung.push(entry.songId);
       s.stats.plays[entry.songId] = (s.stats.plays[entry.songId] || 0) + 1;
+      this.versions.addPlay(entry.trackId);
       this.catalog.plays.set(entry.songId, s.stats.plays[entry.songId]);
       this.catalog.metaChanged();
     }
@@ -1325,6 +1464,7 @@ export class Room {
       this.s.pending = this.s.pending.filter((e) => e.addedBy !== m.deviceId);
       if (profile.singerId) this.dropInvites(profile.singerId);
       this.photos.dropPending(m.deviceId);
+      this.versions.dropVoter(m.deviceId);
     }
     for (const c of this.hub.list((x) => x.role === GUEST && x.data.deviceId === m.deviceId)) {
       c.send({ t: 'denied', reason: ban ? 'banned' : 'kicked' });
@@ -1498,10 +1638,10 @@ export class Room {
     const now = Date.now();
     const p = { id: newId(12), code, ip: addr, at: now, until: now + PAIR_TTL_MS, status: 'waiting', token: null };
     this.pairings.set(p.id, p);
-    // Settings → Displays lists every waiting screen; the toast is only a heads-up (not a flood).
+    // The Devices tab lists every waiting screen; the toast is only a heads-up (not a flood).
     if (now - (this.pairToastAt || 0) >= PAIR_TOAST_MS) {
       this.pairToastAt = now;
-      this.toastHosts(`A screen at ${addr.replace(/^::ffff:/, '')} wants to be a TV display (code ${code}). Approve it in Settings → Displays.`);
+      this.toastHosts(`A screen at ${addr.replace(/^::ffff:/, '')} wants to be a TV display (code ${code}). Approve it in the Devices tab.`);
     }
     this.markDirty();
     return { id: p.id, code };
@@ -2139,7 +2279,7 @@ export class Room {
     return etas(this.s.queue, { remaining, hasCurrent, countdown: Number(this.settings.get('playback.countdown')) || 0, gap: 5 });
   }
 
-  currentView({ media = false } = {}) {
+  currentView({ media = false, version = false, voter = null } = {}) {
     const e = this.s.current;
     if (!e) return null;
     const out = this.entryView(e);
@@ -2147,6 +2287,11 @@ export class Room {
     if (track) {
       out.brand = track.p?.brand || '';
       out.flags = track.p?.flags || {};
+      out.kind = track.kind;
+    }
+    if (version) {
+      const v = this.versionView(e, voter);
+      if (v) out.version = v;
     }
     const song = this.catalog.song(e.songId);
     const meta = song && this.catalog.metaFor(song.key);
@@ -2172,7 +2317,13 @@ export class Room {
     if (settings.party.wifi?.password) settings.party.wifi.password = MASK;
     if (settings.party.hotspot?.password) settings.party.hotspot.password = MASK; // shown in `hotspot` below
     const eta = this.etaList();
-    const online = new Set(this.hub.list((c) => c.role === GUEST).map((c) => c.data.deviceId));
+    // Each guest's newest open connection (their device name; two tabs of one phone are one guest).
+    const newest = new Map();
+    for (const c of this.hub.list((x) => x.role === GUEST && x.open !== false)) {
+      const had = newest.get(c.data.deviceId);
+      if (!had || (c.connectedAt || 0) >= (had.connectedAt || 0)) newest.set(c.data.deviceId, c);
+    }
+    const online = { has: (id) => newest.has(id) };
     const queuedBy = new Map();
     for (const e of [...s.queue, ...s.pending]) queuedBy.set(e.addedBy, (queuedBy.get(e.addedBy) || 0) + 1);
     const byName = (e) => (e.addedBy === 'host' ? 'Host' : this.profileOf(e.addedBy)?.name || 'Guest');
@@ -2183,7 +2334,7 @@ export class Room {
       hotspot,
       hasPin,
       library: this.library.status(),
-      current: this.currentView(),
+      current: this.currentView({ version: true, voter: HOST_VOTER }),
       player: this.playerView(),
       queue: s.queue.map((e, i) => ({ ...this.entryView(e), eta: eta[i], addedByName: byName(e) })),
       pending: s.pending.map((e) => ({ ...this.entryView(e), addedByName: byName(e) })),
@@ -2195,13 +2346,15 @@ export class Room {
       })),
       guests: Object.entries(s.profiles)
         .filter(([, p]) => p.name)
-        .map(([deviceId, p]) => ({ deviceId, name: p.name, emoji: p.emoji, color: p.color, online: online.has(deviceId), banned: !!p.banned, coHost: !!p.coHost, queued: queuedBy.get(deviceId) || 0, lastSeen: p.lastSeen || 0 }))
+        .map(([deviceId, p]) => ({ deviceId, name: p.name, emoji: p.emoji, color: p.color, online: online.has(deviceId), device: newest.get(deviceId)?.data.device || '', banned: !!p.banned, coHost: !!p.coHost, queued: queuedBy.get(deviceId) || 0, lastSeen: p.lastSeen || 0 }))
         .sort((a, b) => Number(b.online) - Number(a.online) || b.lastSeen - a.lastSeen)
         .slice(0, 300),
-      displays: this.hub.list((c) => c.role === TV && !c.data.preview).map((c) => ({
-        id: c.id, display: c.data.display, kind: c.data.kind || 'main', standIn: !!c.data.standIn,
-        local: c.isLocal, ip: c.isLocal ? '' : String(c.ip || '').replace(/^::ffff:/, ''),
+      guestsJoining: [...newest.keys()].filter((id) => !this.profileOf(id)?.name).length,
+      displays: this.displayList(),
+      hostClients: this.hub.list((c) => c.role === HOST).map((c) => ({
+        id: c.id, local: !!c.isLocal, ip: c.isLocal ? '' : String(c.ip || '').replace(/^::ffff:/, ''), device: c.data.device || 'Browser', since: c.connectedAt || 0,
       })),
+      gameBlocks: this.gameBlocks(),
       pairings: this.waitingPairings().map((p) => ({ id: p.id, code: p.code, ip: p.ip.replace(/^::ffff:/, ''), at: p.at })),
       hosts: this.hub.list((c) => c.role === HOST).length,
       announcement: this.announcement,
@@ -2270,12 +2423,13 @@ export class Room {
         guestsSeeQueue: q.guestsSeeQueue,
         guestKeyChange: q.guestKeyChange,
         guestVocals: q.guestVocals !== false,
+        versionVotes: this.settings.get('guests.versionVotes') !== false,
         reactions: this.settings.get('guests.reactions'),
         games: this.settings.get('guests.games'),
         photos: this.settings.get('guests.photos'),
         photoApproval: this.settings.get('guests.photoApproval'),
       },
-      current: this.currentView(),
+      current: this.currentView({ version: true }),
       player: (({ state, pos, dur, entryId, introEndsAt, lead, vocals }) => ({ state, pos, dur, entryId, introEndsAt, lead, leadAdjustable: !!vocals?.adjustable }))(this.playerView()),
       queue: s.queue.map((e, i) => ({ ...this.entryView(e, { mask: true }), eta: eta[i], _by: e.addedBy })),
       library: { songs: this.catalog.songs.size, offline: this.library.status().offline },
@@ -2323,6 +2477,9 @@ export class Room {
         queued,
         left: max > 0 ? Math.max(0, max - queued) : null,
         invites: this.invitesFor(profile?.singerId, base.queue.map((e) => e.eta)),
+        // Their vote on the version on now (null: no vote row — one version, votes off, hidden).
+        versionVote: base.current?.version && base.rules.versionVotes && !(base.rules.explicitFilter && base.current.flags?.explicit)
+          ? this.versions.mine(deviceId, this.s.current.trackId) : null,
       },
     };
   }

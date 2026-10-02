@@ -371,3 +371,40 @@ test('security: bad cookies, foreign sites, DNS rebinding and oversized messages
   big.send(JSON.stringify({ t: 'hello', role: 'guest', pad: 'x'.repeat(64 * 1024) }));
   assert.equal(await closed, 1009, 'oversized message closes the socket');
 });
+
+test('song detail: plays and votes per version — the host’s view, a guest’s view (with its token)', async () => {
+  const hello = (await getJson('/api/search?q=hello')).items[0];
+  const song = app.library.catalog.song(hello.id);
+  const [a, b] = song.trackIds;
+  const guestId = 'guest-device-1';
+  app.room.versions.vote(a, guestId, -1);
+  app.room.versions.vote(b, '@host', 1);
+  app.room.versions.addPlay(b);
+  const host = await getJson(`/api/songs/${hello.id}`);
+  assert.equal(host.defaultTrackId, b, 'the host’s pick plays by default');
+  assert.equal(host.defaultWhy, 'host');
+  assert.equal(host.versions[0].id, b, 'the default first');
+  const vb = host.versions[0];
+  assert.deepEqual([vb.plays, vb.up, vb.down, vb.mine, vb.host, vb.status, vb.heard], [1, 1, 0, 1, 1, 'liked', false]);
+  assert.ok(vb.file, 'the host sees the file');
+  assert.equal(host.votable, true);
+  const token = app.auth.sign('guest', guestId);
+  const r = await get(`/api/songs/${hello.id}`, { 'x-guest-token': token });
+  const guest = await r.json();
+  const va = guest.versions.find((v) => v.id === a);
+  assert.deepEqual([va.mine, va.down, 'file' in va, 'discId' in va, 'host' in va], [-1, 1, false, false, false]);
+  app.room.versions.vote(a, guestId, 0);
+  app.room.versions.vote(b, '@host', 0);
+});
+
+test('settings: version votes on by default; lyrics timing kept within ±2 s', () => {
+  assert.equal(app.settings.get('guests.versionVotes'), true);
+  for (const [v, want] of [[5000, 2000], [-9999, -2000], [12.6, 13]]) {
+    app.settings.update({ playback: { lyricOffsetMs: v } });
+    assert.equal(app.settings.get('playback.lyricOffsetMs'), want);
+  }
+  app.settings.update({ guests: { versionVotes: 0 }, playback: { lyricOffsetMs: 0 } });
+  assert.equal(app.settings.get('guests.versionVotes'), false);
+  app.settings.update({ guests: { versionVotes: true } });
+});
+

@@ -155,3 +155,15 @@ test('filtered popular lists are cached for paging and rebuilt when the metadata
   exclude.add(cat.popularList()[1].id);
   assert.ok(!cat.popular({ limit: 50, filter: { exclude } }).items.some((s) => exclude.has(s.id)));
 });
+
+test('trackScore: the label score on its own — bestTrack is the version with the highest', () => {
+  const cat = build();
+  for (const prefs of [[], ['#Z'], ['SF', 'ZM']]) {
+    for (const song of cat.songList) {
+      const ts = song.trackIds.map((id) => cat.track(id));
+      const top = Math.max(...ts.map((t) => cat.trackScore(t, prefs)));
+      assert.equal(cat.trackScore(cat.bestTrack(song, prefs), prefs), top, song.title);
+      assert.equal(cat.bestTrack(song, prefs).id, ts.find((t) => cat.trackScore(t, prefs) === top).id, 'ties: the first one');
+    }
+  }
+});

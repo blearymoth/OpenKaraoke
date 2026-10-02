@@ -133,7 +133,9 @@ try {
   await host.click('.versions .btn:has-text("Preview") >> nth=0');
   await host.waitForSelector('.versions .btn:has-text("Stop")', { timeout: 8000 });
   const sinks = (await media()).sinks;
-  check(JSON.stringify(sinks) === JSON.stringify(['hp', '']) && await host.evaluate(() => localStorage.getItem('ok.previewSink')) === 'hp',
+  // The page tries the headphones (when the dialog opens and when the preview starts), the
+  // browser refuses, and the preview plays on the default output; the choice is kept.
+  check(sinks.includes('hp') && sinks.at(-1) === '' && await host.evaluate(() => localStorage.getItem('ok.previewSink')) === 'hp',
     `the preview falls back to the default output and keeps the choice (${JSON.stringify(sinks)})`);
   await host.click('.versions .btn:has-text("Stop")');
   // Choosing the default output again forgets the headphones.

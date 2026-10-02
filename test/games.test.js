@@ -276,8 +276,9 @@ test('the "Everyone" sing-along singer is never a guest who calls themself that'
   assert.equal(s().queue.find((e) => e.id === typed.id).singerIds[0], sa.id);
   assert.equal((await req(host, 'singer.add', { name: 'everyone' })).singer.id, sa.id);
   assert.equal(s().singers.filter((x) => x.singAlong).length, 1);
-  // The guest's own requests still use their own singer.
-  const own = (await req(everyone, 'queue.add', { songId: song('hello').id })).entry;
+  // The guest's own requests still use their own singer (a song the poll didn't happen to queue).
+  const free = ['hello', 'africa', 'wonderwall', 'wannabe'].map((t) => song(t)).find((x) => !room.isQueued(x.id));
+  const own = (await req(everyone, 'queue.add', { songId: free.id })).entry;
   assert.equal(s().queue.find((e) => e.id === own.id).singerIds[0], mine);
 });
 

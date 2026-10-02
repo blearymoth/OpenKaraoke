@@ -5,6 +5,7 @@
 import { html, useEffect, useState } from '../vendor/preact.js';
 import { useStore, useTick } from '../lib/store.js';
 import { SelectField, PlayerChip, ensureCss, useSecondsLeft } from './common.js';
+import { singerColor } from '/shared/protocol.js';
 
 ensureCss('/css/games/relay.css');
 
@@ -109,11 +110,11 @@ export function TvOverlay({ game, st, now }) {
       <span class="kick display">Pass the mic</span>
       <span class="arrow" aria-hidden="true">➜</span>
       <span class="who">
-        <span class="avatar" style=${{ '--avatar': flash.color }}>${flash.emoji || '🎤'}</span>
+        <span class="avatar" style=${{ '--avatar': singerColor(flash.color) }}>${flash.emoji || '🎤'}</span>
         <span class="name display ellipsis">${flash.name}</span>
       </span>
     </div>`}
-    ${!flash && singing && game.holder && html`<div class="rl-badge"><span aria-hidden="true">🎤</span><span class="avatar" style=${{ '--avatar': game.holder.color }}>${game.holder.emoji || '🎤'}</span><b class="ellipsis">${game.holder.name}</b></div>`}
+    ${!flash && singing && game.holder && html`<div class="rl-badge"><span aria-hidden="true">🎤</span><span class="avatar" style=${{ '--avatar': singerColor(game.holder.color) }}>${game.holder.emoji || '🎤'}</span><b class="ellipsis">${game.holder.name}</b></div>`}
   `;
 }
 

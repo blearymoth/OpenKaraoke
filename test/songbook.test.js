@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Catalog } from '../server/library/catalog.js';
 import { songbookSongs, songbookCsv, songbookHtml } from '../server/http/songbook.js';
 import { rawTracks } from './helpers.js';
+import { THEMES } from '../shared/themes.js';
 import { setupRoom, SONGS, MORE_SONGS } from './room-harness.js';
 
 const catalog = new Catalog().load(rawTracks([
@@ -90,4 +91,30 @@ test('songbook endpoint: host only, HTML or CSV download', async () => {
   } finally {
     await app.close();
   }
+});
+
+test('songbook: the toolbar and headings follow the skin; Party prints as it always did', async () => {
+  const songs = songbookSongs(catalog, {});
+  const party = await songbookHtml(catalog, songs, { title: 'P', appearance: { theme: 'party', accent: '' } });
+  // the exact rules the songbook had before skins existed
+  assert.ok(party.includes("header h1 { font: 800 22pt/1 'Bricolage', 'Figtree', system-ui, sans-serif; margin: 0; flex: 1; }"));
+  assert.ok(party.includes("section.letter h2 { font: 800 15pt/1 'Bricolage', system-ui, sans-serif; margin: 6px 0 3px;"));
+  assert.ok(party.includes('.toolbar { position: sticky; top: 0; display: flex; gap: 10px; align-items: center; padding: 10px 14px; background: #150f26; color: #fff; font: 14px system-ui, sans-serif; }'));
+  assert.ok(party.includes('.toolbar button { font: inherit; font-weight: 700; padding: 8px 16px; border: 0; border-radius: 99px; background: #ff3d8b; color: #fff; cursor: pointer; }'));
+
+  const studio = await songbookHtml(catalog, songs, { title: 'S' });
+  assert.doesNotMatch(studio, /Bricolage/, 'Studio headings are Figtree');
+  assert.ok(studio.includes(`background: ${THEMES.studio.themeColor}; color: #fff; font: 14px 'Figtree', system-ui, sans-serif; }`), 'Studio toolbar');
+  assert.ok(studio.includes(`border-radius: 10px; background: ${THEMES.studio.accent}; color: ${THEMES.studio.accentInk};`), 'Studio print button');
+  assert.match(studio, /@font-face \{ font-family: 'Figtree';[^}]*url\(\/fonts\/figtree-latin\.woff2\)/, 'Studio loads its font (no system fallback)');
+  assert.doesNotMatch(party, /@font-face/, 'Party names the fonts it always did');
+  // a long join address wraps instead of running into the QR code (either skin)
+  const withQr = await songbookHtml(catalog, songs, { title: 'Q', joinUrl: 'http://192.168.100.200:8080/j/ABCD', roomCode: 'ABCD' });
+  assert.match(withQr, /or open <b class="url">192\.168\.100\.200:8080\/j\/ABCD<\/b>/);
+  assert.match(withQr, /header \.join \.url \{[^}]*overflow-wrap: anywhere;/);
+  assert.match(withQr, /header \.qr \{ flex: none;/);
+
+  // an accent the owner picked brings the text colour that reads best on it, in either skin
+  assert.match(await songbookHtml(catalog, songs, { appearance: { theme: 'party', accent: '#00c2ff' } }), /background: #00c2ff; color: #111;/);
+  assert.match(await songbookHtml(catalog, songs, { appearance: { theme: 'studio', accent: '#1368ce' } }), /background: #1368ce; color: #fff;/);
 });

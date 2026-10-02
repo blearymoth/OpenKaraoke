@@ -5,6 +5,7 @@ import { useStore, plural } from '../lib/store.js';
 import { Switch } from '../lib/components.js';
 import { store, act, openDialog, toast } from './state.js';
 import { CHANNEL_MODES, CHANNEL_LABELS } from '/shared/protocol.js';
+import { THEMES, THEME_IDS, DEFAULT_THEME, accentInk } from '/shared/themes.js';
 
 const SECTIONS = [
   {
@@ -20,6 +21,7 @@ const SECTIONS = [
       { path: 'party.wifi.show', label: 'Show a Wi-Fi QR code on the TV', type: 'bool', help: 'Guests can join your Wi-Fi by scanning it.' },
     ],
   },
+  { id: 'appearance', title: 'Appearance', icon: 'palette', custom: 'appearance' },
   { id: 'library', title: 'Library', icon: 'folder', custom: 'library' },
   {
     id: 'queue', title: 'Queue & guests', icon: 'list', fields: [
@@ -71,7 +73,6 @@ const SECTIONS = [
       { path: 'display.tickerMessage', label: 'Ticker message', type: 'text', placeholder: 'For example: Happy birthday, Sam!' },
       { path: 'display.showProgress', label: 'Progress bar', type: 'bool' },
       { path: 'display.showReactions', label: 'Show guests’ reactions', type: 'bool' },
-      { path: 'display.accent', label: 'Accent colour', type: 'color' },
     ],
   },
   { id: 'displays', title: 'Displays', icon: 'tv', custom: 'displays' },
@@ -167,11 +168,48 @@ function Field({ f, settings, hasPin }) {
   else if (f.type === 'select') control = html`<select class="select" value=${value} onChange=${(e) => save(f.path, e.currentTarget.value)}>${f.options.map(([v, l]) => html`<option value=${v}>${l}</option>`)}</select>`;
   else if (f.type === 'pin') control = html`<${PinField} hasPin=${hasPin} />`;
   else if (f.type === 'roomcode') control = html`<${RoomCodeField} value=${value} />`;
-  else if (f.type === 'color') control = html`<input type="color" class="color-input" value=${value} onChange=${(e) => save(f.path, e.currentTarget.value)} aria-label=${f.label} />`;
   return html`<div class=${`setting ${f.type === 'bool' ? 'bool' : ''}`}>
     <div class="setting-text"><b>${f.label}</b>${f.help && html`<p class="hint">${f.help}</p>`}</div>
     <div class="setting-control">${control}</div>
   </div>`;
+}
+
+/** Skins for every screen (settings.appearance); the colours are tokens in /css/base.css. */
+function AppearanceSection({ state }) {
+  const theme = Object.hasOwn(THEMES, state.settings.appearance?.theme) ? state.settings.appearance.theme : DEFAULT_THEME;
+  const accent = state.settings.appearance?.accent || '';
+  return html`
+    <div class="setting column">
+      <div class="setting-text"><b>Skin</b><p class="hint">The look of the host controls, the TV and guests’ phones. A change shows everywhere straight away.</p></div>
+      <div class="skins" role="radiogroup" aria-label="Skin">
+        ${THEME_IDS.map((id) => html`<${SkinCard} key=${id} id=${id} on=${id === theme} accent=${accent} />`)}
+      </div>
+    </div>
+    <div class="setting">
+      <div class="setting-text"><b>Accent colour</b><p class="hint">${accent ? 'Your own colour replaces the skin’s, in either skin.' : `The ${THEMES[theme].name} skin’s own colour.`} Buttons, highlights and the TV’s progress bar use it.</p></div>
+      <div class="setting-control"><div class="inline-form accent-form">
+        <input type="color" class="color-input" value=${accent || THEMES[theme].accent} aria-label="Accent colour" onChange=${(e) => save('appearance.accent', e.currentTarget.value)} />
+        <button class="btn small" disabled=${!accent} onClick=${() => save('appearance.accent', '')}>Use the skin’s colour</button>
+      </div></div>
+    </div>`;
+}
+
+/** A skin to pick, with a small live sample drawn with that skin's own tokens. */
+function SkinCard({ id, on, accent }) {
+  const t = THEMES[id];
+  const sample = accent ? { '--neon': accent, '--neon-ink': accentInk(accent) } : undefined;
+  return html`<button type="button" role="radio" aria-checked=${on ? 'true' : 'false'} class=${`skin-card ${on ? 'on' : ''}`} data-skin=${id}
+    onClick=${() => !on && save('appearance.theme', id)}>
+    <span class="skin-sample" data-theme=${id} style=${sample} aria-hidden="true">
+      <span class="skin-panel">
+        <span class="skin-title"><img src="/img/icon.svg" alt="" width="26" height="26" /><b>Karaoke Night</b></span>
+        <span class="skin-line">Up next: <em>Sam</em> · room <em>ABCD</em></span>
+        <span class="skin-row"><span class="skin-button">Sing</span><i></i><i></i><i></i></span>
+      </span>
+    </span>
+    <span class="skin-name"><b>${t.name}</b>${on && html`<span class="pill neon">In use</span>`}</span>
+    <span class="hint">${t.description}</span>
+  </button>`;
 }
 
 function LibrarySection({ state, lib }) {
@@ -348,6 +386,7 @@ export function Settings({ section = 'party' }) {
       <nav class="settings-nav">${SECTIONS.map((s) => html`<a class=${s.id === current.id ? 'on' : ''} href=${`#/settings/${s.id}`}><${Icon} name=${s.icon} size=${18} /> ${s.title}</a>`)}</nav>
       <section class="settings-body">
         <h2>${current.title}</h2>
+        ${current.custom === 'appearance' && html`<${AppearanceSection} state=${state} />`}
         ${current.custom === 'library' && html`<${LibrarySection} state=${state} lib=${lib} />`}
         ${current.custom === 'about' && html`<${About} state=${state} />`}
         ${current.custom === 'artwork' && html`<${ArtworkSection} state=${state} />`}

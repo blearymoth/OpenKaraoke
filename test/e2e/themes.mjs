@@ -1,0 +1,418 @@
+#!/usr/bin/env node
+// End-to-end checks of the app-wide skins (settings.appearance): Studio is the default on every
+// app; switching skin or accent in Settings → Appearance changes the already-open host, TV and
+// guest pages live; a reload keeps the skin with no flash; screenshots of the key screens in both
+// skins; no console errors; phones never scroll sideways. Not part of `npm test`.
+//
+//   node test/e2e/themes.mjs [outDir]
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { setLogLevel } from '../../server/util/log.js';
+import { PUBLIC_DIR } from '../../server/config.js';
+import { THEMES } from '../../shared/themes.js';
+import { loadPlaywright, startParty, check, results, sleep } from './lib.mjs';
+
+setLogLevel(process.env.LOG_LEVEL || 'warn');
+const out = path.resolve(process.argv[2] || 'test-results/e2e-themes');
+await fs.mkdir(out, { recursive: true });
+
+const { chromium } = loadPlaywright();
+const { app, base } = await startParty();
+app.settings.update({ playback: { startPaused: true } }); // the intro waits for "play": a stable screen
+const code = app.settings.get('party.roomCode');
+const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+const errors = [];
+const pages = [];
+const hostClient = { role: 'host', data: {}, isLocal: true, send() {} };
+const hostReq = (t, m = {}) => app.room.request(hostClient, { t, ...m });
+const room = () => app.room.s;
+
+/** A page that records the skin its <html> had when the parser created it (a flash shows here). */
+async function open(name, opts) {
+  const page = await browser.newPage(opts);
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(`${name}: ${m.text()}`); });
+  page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
+  await page.addInitScript(() => {
+    const obs = new MutationObserver(() => {
+      if (document.documentElement && !window.__firstTheme) {
+        window.__firstTheme = document.documentElement.getAttribute('data-theme') || 'none';
+        obs.disconnect();
+      }
+    });
+    obs.observe(document, { childList: true, subtree: true });
+  });
+  pages.push({ name, page });
+  return page;
+}
+// Studio's own values, from shared/themes.js and base.css (a palette tweak does not touch this test)
+const STUDIO = THEMES.studio;
+const css = await fs.readFile(path.join(PUBLIC_DIR, 'css', 'base.css'), 'utf8');
+const studioBlock = css.slice(css.indexOf(':root, [data-theme="studio"] {'), css.indexOf('[data-theme="party"] {'));
+const studioToken = (name) => new RegExp(`^\\s*${name}:\\s*([^;]+);`, 'm').exec(studioBlock)[1].trim();
+const rgbOf = (hex) => `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(', ')})`;
+
+const desktop = (name) => open(name, { viewport: { width: 1440, height: 900 } });
+const phone = (name) => open(name, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+const tvSize = (name) => open(name, { viewport: { width: 1280, height: 720 } });
+
+const shot = (page, name) => page.screenshot({ path: path.join(out, `${name}.png`) });
+const themeOf = (page) => page.evaluate(() => document.documentElement.dataset.theme);
+const firstTheme = (page) => page.evaluate(() => window.__firstTheme);
+const tokenOf = (page, name) => page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name);
+const waitTheme = (page, theme) => page.waitForFunction((t) => document.documentElement.dataset.theme === t, theme, { timeout: 5000 }).then(() => true, () => false);
+const waitToken = (page, name, value) => page.waitForFunction(([n, v]) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() === v, [name, value], { timeout: 5000 }).then(() => true, () => false);
+/** Which app icon an <img src="/img/icon.svg"> shows: 'party' (the original) or 'studio' (swapped by --app-icon). */
+const iconOf = (page, sel) => page.$eval(sel, (img) => {
+  const c = getComputedStyle(img).content;
+  return c === 'normal' ? 'party' : c.includes('/img/icon-studio.svg') ? 'studio' : c;
+});
+const favicon = (page) => page.$eval('link[rel="icon"]', (l) => l.getAttribute('href'));
+const noSideways = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+/** Visible text drawn in the given colour (Studio keeps TV text at ink-2 or brighter, to read across a room); SVG text by its fill. */
+const textIn = (page, color) => page.evaluate((c) => [...document.querySelectorAll('body *')]
+  .filter((el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && el.getBoundingClientRect().width > 0
+    && (el instanceof SVGElement ? getComputedStyle(el).fill : getComputedStyle(el).color) === c)
+  .map((el) => `${(el.className?.baseVal ?? el.className) || el.tagName}: ${el.textContent.trim().slice(0, 24)}`), color);
+/** WCAG contrast of two computed rgb() colours. */
+const contrastOf = (a, b) => {
+  const lum = (rgb) => {
+    const [r, g, bl] = rgb.match(/[\d.]+/g).slice(0, 3).map((v) => {
+      const x = Number(v) / 255;
+      return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+/** Studio: every label on the TV's wheel reads at 7:1 on its segment, drawn as is (no fading, no lightening). */
+const wheelLabels = async (page, what) => {
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || !(a instanceof CSSTransition)), null, { timeout: 3000 }).catch(() => {});
+  const segs = await page.$$eval('.wheel-tv .wheel-seg', (gs) => gs.map((g) => {
+    const p = getComputedStyle(g.querySelector('path'));
+    const t = getComputedStyle(g.querySelector('text'));
+    return { text: g.textContent.trim(), seg: p.fill, ink: t.fill, plain: p.filter === 'none' && p.opacity === '1' && t.opacity === '1' };
+  }));
+  const low = segs.filter((s) => !s.plain || contrastOf(s.ink, s.seg) < 7).map((s) => `${s.text} ${s.ink} on ${s.seg} ${contrastOf(s.ink, s.seg).toFixed(2)}${s.plain ? '' : ' (filtered)'}`);
+  check(segs.length > 0 && low.length === 0, `studio: ${what}: every wheel label at 7:1 or more${low.length ? `: ${low.join(' | ')}` : ''}`);
+};
+const faintTvText = async (page, what) => {
+  const faint = await textIn(page, rgbOf(studioToken('--ink-3')));
+  check(faint.length === 0, `studio: ${what} has no text in the faintest ink${faint.length ? `: ${faint.join(' | ')}` : ''}`);
+};
+
+async function setSkin(theme, open) {
+  await hostReq('settings.update', { patch: { appearance: { theme } } });
+  const ok = await Promise.all(open.map((p) => waitTheme(p, theme)));
+  await sleep(250); // fonts, images in the new colours
+  return ok.every(Boolean);
+}
+
+async function joinAs(page, name) {
+  await page.goto(`${base}/j/${code}`);
+  await page.waitForSelector('.profile-form');
+  await page.fill('.profile-form input', name);
+  await page.click('.profile-form .btn.primary');
+  await page.waitForSelector('.g-tabs');
+}
+
+try {
+  // ---- Studio is the default, already in the first HTML ------------------------------------------
+  for (const p of ['/', '/host', '/tv', `/j/${code}`]) {
+    const res = await fetch(`${base}${p}`);
+    const text = await res.text();
+    check(/<html lang="en" data-theme="studio">/.test(text) && text.includes(`<meta name="theme-color" content="${STUDIO.themeColor}">`), `${p} is served in the Studio skin`);
+  }
+  const host = await desktop('host');
+  await host.goto(`${base}/host`);
+  await host.waitForSelector('.player');
+  const tv = await tvSize('tv');
+  await tv.goto(`${base}/tv`);
+  await tv.waitForSelector('.lobby');
+  const guest = await phone('guest');
+  await joinAs(guest, 'Gia');
+  const hostPhone = await phone('host-phone');
+  await hostPhone.goto(`${base}/host#/`);
+  await hostPhone.waitForSelector('.player');
+  const live = [host, tv, guest, hostPhone];
+  const scrollChecks = [];
+  for (const { name, page } of pages) {
+    check(await themeOf(page) === 'studio' && await firstTheme(page) === 'studio', `${name}: Studio from the first paint`);
+  }
+  check(await tokenOf(tv, '--neon') === STUDIO.accent && await tokenOf(guest, '--night') === STUDIO.themeColor, 'Studio tokens apply');
+  check(!(await tv.evaluate(() => [...document.fonts].some((f) => f.family.includes('Bricolage') && f.status === 'loaded'))), 'Studio does not load the Party display font');
+  check(await iconOf(host, '.brand img') === 'studio' && await iconOf(tv, '.lobby-top img') === 'studio' && await favicon(host) === '/img/icon-studio.svg', 'Studio shows its own app icon (header, TV lobby, favicon)');
+
+  // ---- switch to Party in Settings → Appearance: every open page follows, live --------------------
+  await host.goto(`${base}/host#/settings/appearance`);
+  await host.waitForSelector('.skin-card');
+  check(await host.$eval('.settings-nav a.on', (a) => a.textContent.trim()) === 'Appearance', 'Settings has an Appearance section');
+  check((await host.$$('.skin-card')).length === 2 && await host.$eval('.skin-card.on', (b) => b.dataset.skin) === 'studio', 'two skins to pick from, Studio in use');
+  await shot(host, 'studio-host-settings-appearance');
+  const tvQrBefore = await tv.$eval('.marquee img', (i) => i.getAttribute('src'));
+  await host.click('.skin-card[data-skin="party"]');
+  const followed = await Promise.all(live.map((p) => waitTheme(p, 'party')));
+  check(followed.every(Boolean), 'host, TV, guest and host phone switch to Party live (no reload)');
+  check(await host.$eval('.skin-card.on', (b) => b.dataset.skin) === 'party', 'the Party card is now in use');
+  check(await tokenOf(tv, '--night') === '#150f26' && await tokenOf(guest, '--neon') === '#ff3d8b', 'Party tokens apply on the TV and the phone');
+  await tv.waitForFunction((before) => document.querySelector('.marquee img')?.getAttribute('src') !== before, tvQrBefore, { timeout: 5000 }).catch(() => {});
+  check(/dark=%231b1230&light=%23fff8e6/.test(await tv.$eval('.marquee img', (i) => i.getAttribute('src'))), 'the TV redraws its QR code in the Party colours');
+  check(await guest.$eval('meta[name="theme-color"]', (m) => m.content) === '#150f26', 'the phone’s theme-color follows the skin');
+  check(await iconOf(host, '.brand img') === 'party' && await iconOf(tv, '.lobby-top img') === 'party' && await favicon(tv) === '/img/icon.svg', 'Party shows the original app icon again (header, TV lobby, favicon)');
+  check(app.settings.get('appearance.theme') === 'party', 'the choice is saved');
+  await sleep(300);
+  await shot(host, 'party-host-settings-appearance');
+
+  // ---- accent override: applies everywhere, readable text on it, and resets ----------------------
+  await host.fill('.accent-form input[type="color"]', '#00c2ff');
+  const accented = await Promise.all(live.map((p) => waitToken(p, '--neon', '#00c2ff')));
+  check(accented.every(Boolean), 'accent override applies on every open page');
+  check(await host.$eval('.accent-form .btn', (b) => !b.disabled), '“Use the skin’s colour” is offered');
+  const playInk = () => host.evaluate(() => getComputedStyle(document.querySelector('.play-btn')).color);
+  check(await tokenOf(guest, '--neon-ink') === '#111' && await playInk() === 'rgb(17, 17, 17)', 'dark text on a mid-light accent (higher contrast than white)');
+  await hostReq('settings.update', { patch: { appearance: { accent: '#1368ce' } } });
+  await waitToken(host, '--neon', '#1368ce');
+  check(await playInk() === 'rgb(255, 255, 255)' && await tokenOf(guest, '--neon-ink') === '#fff', 'white text on a dark accent');
+  await hostReq('settings.update', { patch: { appearance: { accent: '#ffe066' } } });
+  await waitToken(host, '--neon', '#ffe066');
+  check(await playInk() === 'rgb(17, 17, 17)', 'dark text on a light accent');
+  const res = await fetch(`${base}/tv`);
+  check((await res.text()).includes('style="--neon: #ffe066; --neon-ink: #111;"'), 'the served page already has the accent (no flash)');
+  await sleep(300); // the skin cards' border transition
+  await shot(host, 'party-host-accent');
+  await host.click('.accent-form .btn');
+  const reset = await Promise.all(live.map((p) => waitToken(p, '--neon', '#ff3d8b')));
+  check(reset.every(Boolean) && app.settings.get('appearance.accent') === '', 'accent resets to the skin’s own colour');
+  check(await host.evaluate(() => !document.documentElement.style.getPropertyValue('--neon')), 'no inline accent left');
+
+  // ---- a reload keeps the skin, with no flash of the default one ---------------------------------
+  for (const { name, page } of pages) {
+    const r = await page.reload();
+    const html = await r.text();
+    await page.waitForLoadState('load');
+    check(html.includes('data-theme="party"') && await firstTheme(page) === 'party' && await themeOf(page) === 'party', `${name}: reload keeps Party from the first paint`);
+  }
+  await host.waitForSelector('.player');
+  await tv.waitForSelector('.lobby');
+  await guest.waitForSelector('.g-tabs');
+
+  // ---- screens without a live connection follow a switch too (they check every few seconds) -----
+  const idle = await desktop('landing-idle');
+  await idle.goto(`${base}/`);
+  await idle.waitForSelector('#qr[src]');
+  const pinHost = await desktop('host-pin'); // another device, before its PIN: the server refuses it
+  await pinHost.routeWebSocket(/\/ws$/, (ws) => ws.onMessage((m) => {
+    if (JSON.parse(String(m)).t === 'hello') ws.send(JSON.stringify({ t: 'denied', reason: 'pin_required' }));
+  }));
+  await pinHost.goto(`${base}/host`);
+  await pinHost.waitForSelector('.pin-input');
+  const lost = await phone('guest-wrong-code');
+  await lost.goto(`${base}/j/ZZZZ`);
+  await lost.waitForSelector('.code-box');
+  const gates = [idle, pinHost, lost];
+  check((await Promise.all(gates.map(themeOf))).every((t) => t === 'party'), 'landing page, PIN screen and wrong-code screen are served in Party');
+  check(await setSkin('studio', gates), 'landing page, PIN screen and wrong-code screen follow a switch without a reload');
+  await shot(pinHost, 'studio-host-pin');
+  await shot(lost, 'studio-guest-wrong-code');
+  check(await setSkin('party', gates), '… and back to Party');
+  await shot(pinHost, 'party-host-pin');
+  await shot(lost, 'party-guest-wrong-code');
+  scrollChecks.push(['guest wrong-code screen', await noSideways(lost)]);
+  await Promise.all(gates.map((p) => p.close()));
+
+  // ---- screenshots of the key screens in both skins ----------------------------------------------
+  const songs = app.library.catalog.songList;
+  await hostReq('queue.add', { songId: songs[1].id, singerName: 'Dora' });
+  await hostReq('player.stop').catch(() => {});
+  const landing = await desktop('landing');
+  const landingPhone = await phone('landing-phone');
+  const all = () => live;
+
+  async function screens(skin) {
+    check(await setSkin(skin, all()), `${skin}: every page shows the skin`);
+    await landing.goto(`${base}/`);
+    await landing.waitForSelector('#qr[src]');
+    await sleep(600);
+    await shot(landing, `${skin}-landing`);
+    await landingPhone.goto(`${base}/`);
+    await sleep(300);
+    await shot(landingPhone, `${skin}-landing-phone`);
+    await host.goto(`${base}/host#/`);
+    await host.waitForSelector('.page-head, .hero-card');
+    await sleep(400);
+    await shot(host, `${skin}-host-home`);
+    await host.fill('.search-box input', 'neon');
+    await host.waitForSelector('.song-row');
+    await sleep(400);
+    await shot(host, `${skin}-host-search`);
+    await hostPhone.goto(`${base}/host#/queue`);
+    await hostPhone.waitForSelector('.q-item');
+    await shot(hostPhone, `${skin}-host-phone-queue`);
+    await hostPhone.goto(`${base}/host#/settings/appearance`);
+    await hostPhone.waitForSelector('.skin-card');
+    await shot(hostPhone, `${skin}-host-phone-appearance`);
+    scrollChecks.push([`${skin}: host phone`, await noSideways(hostPhone)]);
+    // the phone tab bar (six tabs, the other pages on "More"), from 390 down to 320px: every tab keeps
+    // its whole label and the current tab's pill (Studio) fits; the More page in this skin
+    const tabsAt = async (hash) => {
+      await hostPhone.evaluate((h) => { location.hash = h; }, hash);
+      await sleep(250);
+      return hostPhone.evaluate(() => [...document.querySelectorAll('.nav a')].filter((a) => getComputedStyle(a).display !== 'none')
+        .map((a) => `${a.querySelector('span:not(.badge)').textContent}${a.classList.contains('on') ? '*' : ''}`).join(' '));
+    };
+    for (const width of [390, 375, 360, 320]) {
+      await hostPhone.setViewportSize({ width, height: 760 });
+      await sleep(200);
+      const cut = await hostPhone.evaluate(() => [...document.querySelectorAll('.nav a')].filter((a) => getComputedStyle(a).display !== 'none').flatMap((a) => {
+        const label = a.querySelector('span:not(.badge)');
+        const tab = a.getBoundingClientRect().width;
+        return [(label.scrollWidth > label.clientWidth || label.getBoundingClientRect().width > tab) && label.textContent, a.querySelector('.icon').getBoundingClientRect().width > tab && `${label.textContent} pill`].filter(Boolean);
+      }));
+      check(cut.length === 0, `${skin}: host phone at ${width}px: whole tab labels${cut.length ? ` (cut: ${cut.join(', ')})` : ''}`);
+      scrollChecks.push([`${skin}: host phone at ${width}px`, await noSideways(hostPhone)]);
+      const home = await tabsAt('#/');
+      check(home === 'Home* Search Artists Games Queue More', `${skin}: host phone at ${width}px: six tabs, Home current on Home (${home})`);
+      const appearance = await tabsAt('#/settings/appearance');
+      check(appearance.endsWith('More*') && appearance.split('*').length === 2, `${skin}: host phone at ${width}px: Settings → Appearance marks More as current (${appearance})`);
+    }
+    await hostPhone.setViewportSize({ width: 390, height: 844 });
+    await hostPhone.click('.nav a[href="#/more"]');
+    await hostPhone.waitForSelector('.more-list');
+    await sleep(200);
+    check((await hostPhone.$$eval('.more-list a', (l) => l.map((a) => a.textContent.trim()))).some((t) => t.startsWith('Settings')), `${skin}: the More page leads to Settings`);
+    await shot(hostPhone, `${skin}-host-phone-more`);
+    scrollChecks.push([`${skin}: host phone More page`, await noSideways(hostPhone)]);
+    await guest.click('.g-tabs button:has-text("Home")');
+    await sleep(300);
+    await shot(guest, `${skin}-guest-home`);
+    scrollChecks.push([`${skin}: guest home`, await noSideways(guest)]);
+    await guest.click('.g-tabs button:has-text("Songs")');
+    await guest.fill('.g-search input', 'neon');
+    await guest.waitForSelector('.g-songs .song-row');
+    await sleep(300);
+    await shot(guest, `${skin}-guest-songs`);
+    await guest.click('.g-songs .song-row');
+    await guest.waitForSelector('.sheet .btn.primary');
+    await sleep(400);
+    await shot(guest, `${skin}-guest-song-sheet`);
+    scrollChecks.push([`${skin}: guest song sheet`, await noSideways(guest)]);
+    await guest.click('.sheet-close');
+    scrollChecks.push([`${skin}: landing`, await noSideways(landingPhone)]);
+    await tv.waitForSelector('.lobby .upnext-item');
+    await sleep(500);
+    await shot(tv, `${skin}-tv-lobby`);
+    if (skin === 'studio') await faintTvText(tv, 'TV lobby');
+  }
+  await screens('party');
+  await screens('studio');
+
+  // Intro (waits for "play"), then singing.
+  await hostReq('player.play');
+  await tv.waitForSelector('.intro');
+  await host.goto(`${base}/host#/`);
+  for (const skin of ['studio', 'party']) {
+    await setSkin(skin, all());
+    await tv.waitForFunction(() => /Ready when you are/.test(document.querySelector('.intro .status')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
+    await shot(tv, `${skin}-tv-intro`);
+    // the song's year (shown when the artwork lookup knows it; a stand-in, so the check never depends on the song)
+    await tv.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<div class="intro year-probe" style="position: fixed; left: -100vw; top: 0"><span class="year">(1999)</span></div>'));
+    if (skin === 'studio') await faintTvText(tv, 'TV intro');
+    else check(await tv.$eval('.year-probe .year', (e) => getComputedStyle(e).color) === 'rgb(129, 116, 168)', 'party: the intro’s year keeps Party’s faint ink');
+    await tv.evaluate(() => document.querySelector('.year-probe').remove());
+    // guests' photos as the TV background: dimmed like covers in Studio (7:1 for the lobby and intro text), as before in Party
+    const photoFilter = await tv.evaluate(() => {
+      const el = document.body.appendChild(Object.assign(document.createElement('div'), { className: 'photo-bg' }));
+      el.style.cssText = 'animation: none; visibility: hidden';
+      const f = getComputedStyle(el).filter;
+      el.remove();
+      return f;
+    });
+    check(photoFilter === (skin === 'party' ? 'brightness(0.6)' : studioToken('--photo-filter')), `${skin}: guests’ photos behind the TV text dimmed by the skin (${photoFilter})`);
+  }
+  await hostReq('player.play').catch(() => hostReq('player.resume'));
+  await tv.waitForSelector('#cdg.show', { timeout: 15000 });
+  for (const skin of ['studio', 'party']) {
+    await setSkin(skin, all());
+    await sleep(700);
+    await shot(tv, `${skin}-tv-singing`);
+    await shot(host, `${skin}-host-playing`);
+    await shot(guest, `${skin}-guest-playing`);
+  }
+  await hostReq('player.stop');
+  await tv.waitForSelector('.lobby');
+
+  // A game: the roulette wheel (answer colours and confetti come from the skin too).
+  await hostReq('game.start', { type: 'wheel', config: { kind: 'songs', count: 8 } });
+  await tv.waitForSelector('.wheel-tv .wheel-svg');
+  await guest.waitForSelector('.wheel-guest .wheel-svg');
+  const segFill = () => tv.$eval('.wheel-seg path', (p) => getComputedStyle(p).fill);
+  for (const skin of ['studio', 'party']) {
+    await setSkin(skin, all());
+    check(await segFill() === (skin === 'party' ? 'rgb(255, 61, 139)' : rgbOf(studioToken('--wheel-1'))), `${skin}: wheel segments use the skin’s palette`);
+    if (skin === 'studio') {
+      await wheelLabels(tv, 'TV wheel');
+      await faintTvText(tv, 'TV wheel');
+    }
+    await shot(tv, `${skin}-tv-wheel`);
+    await shot(guest, `${skin}-guest-wheel`);
+    scrollChecks.push([`${skin}: guest wheel`, await noSideways(guest)]);
+  }
+  await hostReq('game.action', { action: 'spin' });
+  await tv.waitForSelector('.wheel-reveal', { timeout: 15000 });
+  const winFilter = () => tv.$eval('.wheel-tv .wheel-seg.win path', (p) => getComputedStyle(p).filter);
+  for (const skin of ['studio', 'party']) {
+    await setSkin(skin, all());
+    if (skin === 'studio') {
+      await wheelLabels(tv, 'TV wheel result (winner and the navy segments)');
+      await faintTvText(tv, 'TV wheel result');
+    } else {
+      await tv.waitForFunction(() => getComputedStyle(document.querySelector('.wheel-tv .wheel-seg.win path')).filter === 'brightness(1.12)', null, { timeout: 3000 }).catch(() => {});
+      check(await winFilter() === 'brightness(1.12)', 'party: the winning segment lights up as before');
+    }
+    await shot(tv, `${skin}-tv-wheel-result`);
+  }
+  await hostReq('game.end');
+  await hostReq('game.close');
+
+  // The "What's next?" poll: answer colours per skin, on the TV and the phone.
+  await hostReq('game.start', { type: 'poll', config: {} });
+  await tv.waitForSelector('.g-tv .g-answer');
+  await guest.waitForSelector('button.g-answer');
+  const answerBg = () => guest.$eval('button.g-answer', (b) => getComputedStyle(b).backgroundColor);
+  for (const skin of ['studio', 'party']) {
+    await setSkin(skin, all());
+    check(await answerBg() === (skin === 'party' ? 'rgb(226, 27, 60)' : rgbOf(studioToken('--answer-1'))), `${skin}: answer colours come from the skin`);
+    await shot(tv, `${skin}-tv-poll`);
+    // the artist line on the TV's answers: full strength in Studio (7:1), Party's 85% as before
+    check(await tv.$eval('.g-tv .g-answer .text small', (e) => getComputedStyle(e).opacity).catch(() => '') === (skin === 'party' ? '0.85' : '1'), `${skin}: TV answers' artist line at ${skin === 'party' ? '85 %' : 'full strength'}`);
+    if (skin === 'studio') await faintTvText(tv, 'TV poll');
+    await shot(guest, `${skin}-guest-poll`);
+    scrollChecks.push([`${skin}: guest poll`, await noSideways(guest)]);
+  }
+  await hostReq('game.end');
+  await hostReq('game.close');
+
+  // The queue board for a second screen follows the skin too.
+  await setSkin('studio', all());
+  const board = await tvSize('board');
+  await board.goto(`${base}/tv?layout=board`);
+  await board.waitForSelector('.board');
+  check(await themeOf(board) === 'studio' && await firstTheme(board) === 'studio', 'board: Studio from the first paint');
+  await shot(board, 'studio-tv-board');
+  check(await board.$$eval('.board-list .pos', (els) => els.length) > 0, 'board: the queue is listed');
+  await faintTvText(board, 'queue board');
+  check(await setSkin('party', [...all(), board]), 'board: switches to Party live');
+  await shot(board, 'party-tv-board');
+
+  for (const [what, ok] of scrollChecks) check(ok, `${what}: no sideways scrolling`);
+  check(errors.length === 0, `no console errors${errors.length ? `: ${errors.slice(0, 5).join(' | ')}` : ''}`);
+} catch (e) {
+  check(false, `unexpected error: ${e.stack || e.message}`);
+} finally {
+  await browser.close();
+  await app.close();
+}
+
+const failed = results.filter((r) => !r.ok);
+console.log(`\n${results.length - failed.length}/${results.length} checks passed. Screenshots: ${out}`);
+process.exit(failed.length ? 1 : 0);

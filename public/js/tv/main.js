@@ -6,7 +6,8 @@ import { Icon } from '../lib/icons.js';
 import { TvController } from './controller.js';
 import { GAME_UI } from '../games/index.js';
 import { BreakPlayer } from './break-player.js';
-import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
+import { applyAppearance, followAppearance, qrSrc, appIcon } from '../lib/theme.js';
+import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo, singerColor } from '/shared/protocol.js';
 
 const params = new URLSearchParams(location.search);
 const store = createStore({ status: 'connecting', state: null, display: 'main', denied: null, unlocked: false, help: false, reactions: [], toast: null });
@@ -41,6 +42,7 @@ const controller = new TvController({
 });
 
 conn.on('welcome', (m) => {
+  applyAppearance(m.state.appearance);
   noteArt(m.art);
   resume = typeof m.resume === 'string' ? m.resume : undefined;
   store.update({ state: m.state, display: roleOf(m.display), denied: null });
@@ -56,6 +58,7 @@ const applyBreak = (st) => {
 };
 
 conn.on('state', (m) => {
+  applyAppearance(m.state.appearance);
   store.update({ state: m.state });
   controller.apply(m.state);
   applyBreak(m.state);
@@ -211,7 +214,7 @@ function Background() {
     const art = cur.art || {};
     const fanart = art.fanart && state.display.fanart !== false && !cur.mystery;
     return html`
-      <div class="art-bg" key=${cur.songId} style=${{ backgroundImage: `url(${artUrl(cur.mystery ? null : cur.songId, 500)})` }}></div>
+      <div class="art-bg" key=${cur.songId} style=${{ backgroundImage: `url(${cur.mystery ? appIcon() : artUrl(cur.songId, 500)})` }}></div>
       ${fanart && html`<${FanartShow} artistKey=${art.fanart} count=${art.fanartCount || 1} key=${art.fanart} />`}
       <div class="scrim"></div>`;
   }
@@ -254,15 +257,10 @@ function Mosaic({ ids }) {
 function App() {
   const s = useStore(store);
   const st = s.state;
-  useEffect(() => {
-    if (st?.display?.accent) document.documentElement.style.setProperty('--neon', st.display.accent);
-  }, [st?.display?.accent]);
   // The host's preview never asks to be paired: it signs in with the host's own token.
-  if (s.denied && preview) return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>No preview</h2><p>Sign in to the host again to see the TV here.</p></div>`;
+  if (s.denied && preview) return html`<${Refused} title="No preview" text="Sign in to the host again to see the TV here." />`;
   if (s.denied === 'pairing_required') return html`<${Pairing} />`;
-  if (s.denied) {
-    return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>This screen can't join</h2><p>${DENIED_MESSAGES[s.denied] || s.denied}</p></div>`;
-  }
+  if (s.denied) return html`<${Refused} reason=${s.denied} />`;
   if (!st) return html`<div class="denied"><div class="spinner"></div><p>Connecting to OpenKaraoke…</p></div>`;
   const p = st.player;
   const game = st.game;
@@ -290,6 +288,11 @@ function App() {
     ${s.help && html`<${Help} />`}
     ${!s.unlocked && s.display === 'main' && html`<${StartOverlay} />`}
   `;
+}
+
+function Refused({ reason, title = 'This screen can\'t join', text = DENIED_MESSAGES[reason] || reason }) {
+  useEffect(() => followAppearance(), []); // no party state here to carry a skin switch
+  return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>${title}</h2><p>${text}</p></div>`;
 }
 
 function StartOverlay() {
@@ -323,6 +326,7 @@ function Pairing() {
     if (!pair?.id) return;
     try {
       const r = await (await fetch(`/api/pair/${encodeURIComponent(pair.id)}`)).json();
+      applyAppearance(r.appearance);
       if (r.status === 'approved' && r.token) {
         localStorage.setItem('ok.tvToken', r.token);
         store.update({ denied: null });
@@ -376,7 +380,7 @@ function Clock() {
 function Board({ st }) {
   useTick(5000);
   const cur = st.current;
-  const qr = `/api/qr.svg?margin=0&dark=%231b1230&light=%23fff8e6&text=${encodeURIComponent(st.info.joinUrl)}`;
+  const qr = qrSrc(st.info.joinUrl);
   return html`<div class="scene board fade-in">
     <header class="board-head"><img src="/img/icon.svg" alt="" /><h1 class="display">${st.info.name}</h1><${Clock} /></header>
     <section class="board-now">
@@ -388,7 +392,7 @@ function Board({ st }) {
     </section>
     <ol class="board-list">${st.queue.slice(0, 8).map((e, i) => html`<li key=${e.id}>
       <span class="pos num">${i + 1}</span>
-      <span class="avatar" style=${{ '--avatar': e.singers[0]?.color }}>${e.singers[0]?.emoji || '🎤'}</span>
+      <span class="avatar" style=${{ '--avatar': singerColor(e.singers[0]?.color) }}>${e.singers[0]?.emoji || '🎤'}</span>
       <div class="ellipsis"><b class="ellipsis">${singersText(e.singers) || 'Anyone'}</b><span class="ellipsis">${e.mystery ? '🎁 Mystery song' : `${e.title} · ${e.artist}`}</span></div>
       <span class="eta">${formatEta(e.eta)}</span>
     </li>`)}</ol>
@@ -400,7 +404,7 @@ function Board({ st }) {
 
 function Lobby({ st }) {
   const info = st.info;
-  const qr = `/api/qr.svg?margin=0&dark=%231b1230&light=%23fff8e6&text=${encodeURIComponent(info.joinUrl)}`;
+  const qr = qrSrc(info.joinUrl);
   const next = st.queue.slice(0, 4);
   return html`<div class="scene lobby fade-in">
     <div class="lobby-top">
@@ -422,7 +426,7 @@ function Lobby({ st }) {
     <div class="lobby-bottom">
       ${next.length
         ? html`<h3>Up next</h3><div class="upnext-row">${next.map((e) => html`<div class="upnext-item">
-            <span class="avatar" style=${{ '--avatar': e.singers[0]?.color }}>${e.singers[0]?.emoji || '🎤'}</span>
+            <span class="avatar" style=${{ '--avatar': singerColor(e.singers[0]?.color) }}>${e.singers[0]?.emoji || '🎤'}</span>
             <div class="ellipsis"><b class="ellipsis">${singersText(e.singers) || 'Anyone'}</b><span class="ellipsis">${e.title}</span></div>
           </div>`)}</div>`
         : html`<div class="lobby-empty">${st.library.songs ? `${st.library.songs.toLocaleString()} songs ready to sing. The first song you pick starts the party.` : 'The song library is empty — add your karaoke folder in the host settings.'}</div>`}
@@ -449,15 +453,16 @@ function Intro({ st }) {
   const circ = 2 * Math.PI * 44;
   const cover = cur.art?.cover && !cur.mystery;
   const logo = cur.art?.logo && !cur.mystery;
-  const avatar = html`<div class="avatar-big" style=${{ '--c': singer?.color }}>${singer?.emoji || '🎤'}</div>`;
+  const avatar = html`<div class="avatar-big" style=${{ '--c': singerColor(singer?.color) }}>${singer?.emoji || '🎤'}</div>`;
   const song = html`<div class="song"><b>${cur.title}</b> by ${cur.artist}${cur.year && !cur.mystery ? html` <span class="year">(${cur.year})</span>` : ''}</div>`;
+  const name = html`<${BigName} text=${singersText(cur.singers) || 'Grab the mic!'} theme=${st.appearance?.theme} />`;
   // The name gets a row of its own across the card. With artwork, the cover (or the singer)
   // sits beside the song line and the logo, so everything still fits on the screen with the
   // countdown and key/tempo chips.
   return html`<div class="scene intro fade-in" key=${cur.id}>
     <div class="kicker">${cur.mystery ? 'Mystery song!' : 'Next singer'}</div>
     ${cover || logo
-      ? html`<${BigName} text=${singersText(cur.singers) || 'Grab the mic!'} />
+      ? html`${name}
         <div class="intro-main">
           ${cover ? html`<div class="intro-art"><img class="intro-cover" src=${artUrl(cur.songId, 500)} alt="" />${avatar}</div>` : avatar}
           <div class="intro-text">
@@ -465,12 +470,12 @@ function Intro({ st }) {
             ${logo && html`<img class="artist-logo" src=${artistArtUrl(cur.art.logo, 'logo', { size: 500 })} alt="" />`}
           </div>
         </div>`
-      : html`${avatar}<${BigName} text=${singersText(cur.singers) || 'Grab the mic!'} />${song}`}
+      : html`${avatar}${name}${song}`}
     ${(p.key !== 0 || p.tempo !== 1) && html`<div class="meta">
       ${p.key !== 0 && html`<span class="chip">Key ${formatKey(p.key)}</span>`}
       ${p.tempo !== 1 && html`<span class="chip">Tempo ${formatTempo(p.tempo)}</span>`}
     </div>`}
-    ${p.state === 'intro' && left > 0 && html`<div class="countdown">
+    ${p.state === 'intro' && left > 0 && html`<div class=${`countdown ${left > 99 ? 'wide' : ''}`}>
       <svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44" /><circle class="arc" cx="50" cy="50" r="44" stroke-dasharray=${circ} stroke-dashoffset=${circ * (1 - frac)} /></svg>
       <b>${left}</b>
     </div>`}
@@ -478,8 +483,11 @@ function Intro({ st }) {
   </div>`;
 }
 
-/** The singer's name on the intro card: a long one (a duet) gets smaller to fit on its line. */
-function BigName({ text }) {
+/**
+ * The singer's name on the intro card: a long one (a duet) gets smaller to fit on its line. The
+ * skin's display font sets its width, so a skin switch fits it again.
+ */
+function BigName({ text, theme }) {
   const ref = useRef(null);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -497,7 +505,7 @@ function BigName({ text }) {
     document.fonts?.ready.then(fit); // the display font may arrive after the first layout
     addEventListener('resize', fit);
     return () => removeEventListener('resize', fit);
-  }, [text]);
+  }, [text, theme]);
   return html`<div class="name display" ref=${ref}>${text}</div>`;
 }
 
@@ -514,12 +522,12 @@ function Singing({ st }) {
   return html`<div class=${`scene ${ticker ? 'with-ticker' : ''}`}>
     ${d.showTitleCard !== false && pos < 12 && html`<div class="titlecard" key=${cur.id}>
       ${cur.art?.cover && !cur.mystery && html`<img class="tc-cover" src=${artUrl(cur.songId, 250)} alt="" />`}
-      <span class="avatar" style=${{ '--avatar': cur.singers[0]?.color }}>${cur.singers[0]?.emoji || '🎤'}</span>
+      <span class="avatar" style=${{ '--avatar': singerColor(cur.singers[0]?.color) }}>${cur.singers[0]?.emoji || '🎤'}</span>
       <div class="ellipsis"><b class="display ellipsis">${singersText(cur.singers) || 'Sing along!'}</b><span>${cur.title} by ${cur.artist}</span></div>
     </div>`}
-    ${d.showQr !== false && html`<div class="corner-qr"><img src=${`/api/qr.svg?margin=0&dark=%231b1230&light=%23fff8e6&text=${encodeURIComponent(st.info.joinUrl)}`} alt="" /><span>${st.info.roomCode}</span></div>`}
+    ${d.showQr !== false && html`<div class="corner-qr"><img src=${qrSrc(st.info.joinUrl)} alt="" /><span>${st.info.roomCode}</span></div>`}
     ${showUpNext && html`<div class="upnext-banner">
-      <span class="avatar" style=${{ '--avatar': next.singers[0]?.color }}>${next.singers[0]?.emoji || '🎤'}</span>
+      <span class="avatar" style=${{ '--avatar': singerColor(next.singers[0]?.color) }}>${next.singers[0]?.emoji || '🎤'}</span>
       <div><small>Up next, get ready</small><b>${singersText(next.singers) || 'Next song'}</b></div>
     </div>`}
     ${ticker && html`<div class="ticker">

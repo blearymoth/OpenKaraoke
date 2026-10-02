@@ -14,7 +14,7 @@
 .bt-bline.out { opacity: 0.45; }
 .bt-bline.tbd { color: var(--ink-3); font-style: italic; }
 .bt-standings { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
-.bt-standings li { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); }
+.bt-standings li { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--r-md); background: rgba(255, 255, 255, 0.05); }
 .bt-standings li:not(:has(.rank)) { grid-template-columns: auto minmax(0, 1fr) auto; }
 .bt-standings li.me { background: var(--neon-soft); }
 .bt-standings li:first-child .rank { color: var(--bulb); }
@@ -53,7 +53,7 @@
 .bt-judge { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .bt-judge .hint { margin-right: 4px; }
 .bt-jbtn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--stage-3); color: var(--ink); font-weight: 700; cursor: pointer; }
-.bt-jbtn.on { background: var(--bulb); color: #2a1a00; border-color: transparent; }
+.bt-jbtn.on { background: var(--bulb); color: var(--bulb-ink); border-color: transparent; }
 .bt-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .bt-split-row { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 2fr) auto; align-items: center; gap: 10px; }
 .bt-split-row .shape { color: var(--answer); }
@@ -70,8 +70,8 @@
 .tv .battle .g-tv-foot b { color: var(--ink); }
 .bt-avatar {
   display: grid; place-items: center; flex: none; width: 26vh; height: 26vh; border-radius: 50%;
-  font-size: 15vh; line-height: 1; background: var(--c, var(--neon));
-  box-shadow: 0 0 0 1.2vh color-mix(in srgb, var(--c, var(--neon)) 30%, transparent), 0 2vh 6vh -1vh color-mix(in srgb, var(--c, var(--neon)) 60%, transparent);
+  font-size: 15vh; line-height: 1; background: var(--avatar-veil) var(--c, var(--neon));
+  box-shadow: 0 0 0 1.2vh color-mix(in srgb, var(--c, var(--neon)) 30%, transparent), 0 2vh 6vh -1vh color-mix(in srgb, var(--c, var(--neon)) calc(60% * var(--halo)), transparent);
 }
 .bt-avatar.small { width: 8vh; height: 8vh; font-size: 4.6vh; box-shadow: none; }
 .bt-avatar.huge { width: 32vh; height: 32vh; font-size: 19vh; }
@@ -82,7 +82,7 @@
 .bt-fighter span.ellipsis { font-size: 3.4vh; color: var(--ink-2); max-width: 100%; }
 .bt-fighter.side-a { animation: bt-in-left 0.8s var(--ease) both; }
 .bt-fighter.side-b { animation: bt-in-right 0.8s var(--ease) both; }
-.bt-vs-mark { font-size: 18vh; color: var(--neon); text-shadow: 0 0 4vh var(--neon), 0 0 10vh color-mix(in srgb, var(--neon) 50%, transparent); animation: bt-pulse 1.2s ease-in-out infinite alternate; }
+.bt-vs-mark { font-size: 18vh; color: var(--neon); text-shadow: var(--glow-text-vs); animation: bt-pulse 1.2s ease-in-out infinite alternate; }
 @keyframes bt-in-left { from { opacity: 0; transform: translateX(-20vw); } }
 @keyframes bt-in-right { from { opacity: 0; transform: translateX(20vw); } }
 @keyframes bt-pulse { from { transform: scale(0.94); } to { transform: scale(1.06); } }
@@ -103,7 +103,7 @@
 .bt-nextup-text b { font-size: 9vh; overflow-wrap: anywhere; }
 .bt-nextup-text span { font-size: 4.4vh; color: var(--ink-2); }
 .bt-nextup-text em { font-style: normal; font-size: 3.4vh; color: var(--bulb); font-weight: 700; margin-top: 2vh; }
-.bt-aside { width: min(34vw, 62vh); padding: 2.6vh; border-radius: 2.4vh; background: rgba(21, 15, 38, 0.78); border: 1px solid var(--line); display: grid; gap: 1.6vh; align-self: center; }
+.bt-aside { width: min(34vw, 62vh); padding: 2.6vh; border-radius: 2.4vh; background: rgba(var(--night-rgb), 0.78); border: 1px solid var(--line); display: grid; gap: 1.6vh; align-self: center; }
 .bt-aside h3 { font-size: 3vh; color: var(--ink-2); }
 .bt-series { font-size: 3vh; color: var(--bulb); font-weight: 700; }
 .bt-series.big { font-size: 4vh; }
@@ -115,7 +115,7 @@
 .tv .bt-bmatch { border-radius: 1.2vh; }
 .tv .bt-bline { gap: 1vh; padding: 0.8vh 1.2vh; font-size: 2.4vh; }
 .tv .bt-bline .avatar { width: 3.6vh; height: 3.6vh; font-size: 2.2vh; }
-.tv .bt-bmatch.now { box-shadow: 0 0 0 0.4vh var(--neon-soft), 0 0 3vh color-mix(in srgb, var(--neon) 40%, transparent); }
+.tv .bt-bmatch.now { box-shadow: var(--glow-bracket); }
 
 .bt-score { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5vw; align-items: center; align-content: center; justify-content: center; }
 .bt-score > div { display: grid; gap: 2vh; min-width: 0; }
@@ -124,7 +124,7 @@
 .bt-score em { font-style: normal; font-size: 3.6vh; color: var(--ink-2); }
 
 .bt-vote { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4vw; align-content: center; }
-.bt-vote-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3vh; padding: 4vh; border-radius: 3vh; background: color-mix(in srgb, var(--answer) 32%, var(--stage)); border: 0.5vh solid var(--answer); box-shadow: 0 2vh 6vh -2vh color-mix(in srgb, var(--answer) 70%, transparent); }
+.bt-vote-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3vh; padding: 4vh; border-radius: 3vh; background: color-mix(in srgb, var(--answer) 32%, var(--stage)); border: 0.5vh solid var(--answer); box-shadow: 0 2vh 6vh -2vh color-mix(in srgb, var(--answer) calc(70% * var(--halo)), transparent); }
 .bt-vote-top { display: flex; align-items: center; gap: 2vh; min-width: 0; }
 .bt-vote-top .shape { font-size: 6vh; color: #fff; }
 .bt-vote-top > div { display: grid; min-width: 0; }
@@ -156,7 +156,7 @@
 .tv .bt-final .bt-standings .avatar { width: 6.4vh; height: 6.4vh; font-size: 3.8vh; }
 
 /* over the karaoke while a battle song is on */
-.bt-badge { position: absolute; top: 3vh; left: 2.5vw; display: grid; gap: 0.8vh; max-width: 55vw; padding: 1.4vh 2.6vh; border-radius: 2vh; background: rgba(21, 15, 38, 0.9); border: 0.3vh solid var(--neon); box-shadow: 0 0 4vh color-mix(in srgb, var(--neon) 35%, transparent); z-index: 4; animation: tv-fade 0.5s var(--ease) both; }
+.bt-badge { position: absolute; top: 3vh; left: 2.5vw; display: grid; gap: 0.8vh; max-width: 55vw; padding: 1.4vh 2.6vh; border-radius: 2vh; background: rgba(var(--night-rgb), 0.9); border: 0.3vh solid var(--neon); box-shadow: var(--glow-badge); z-index: 4; animation: tv-fade 0.5s var(--ease) both; }
 .bt-badge-kicker { font-size: 2.4vh; font-weight: 800; color: var(--bulb); text-transform: uppercase; letter-spacing: 0.08em; }
 .bt-badge-vs { display: flex; align-items: center; gap: 1.2vh; min-width: 0; font-size: 3vh; font-weight: 700; }
 .bt-badge-vs em { font-style: normal; color: var(--neon); font-weight: 800; }
@@ -169,14 +169,14 @@
 .bt-scores button { min-height: 58px; border: 0; border-radius: 14px; background: var(--stage-3); color: var(--ink); font-family: var(--font-display); font-size: 24px; font-weight: 800; cursor: pointer; transition: transform 0.1s, background 0.15s; }
 .bt-scores button.on { background: var(--neon); color: var(--neon-ink); box-shadow: var(--glow); }
 .bt-scores button:active { transform: scale(0.94); }
-.bt-own { text-align: center; padding: 18px; border-radius: 16px; background: var(--stage-2); color: var(--ink-2); font-weight: 600; }
+.bt-own { text-align: center; padding: 18px; border-radius: var(--r-card); background: var(--stage-2); color: var(--ink-2); font-weight: 600; }
 .bt-guest-vs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; text-align: center; }
 .bt-guest-vs > span { display: grid; justify-items: center; gap: 6px; min-width: 0; }
 .bt-guest-vs .avatar { width: 64px; height: 64px; font-size: 36px; }
 .bt-guest-vs b { max-width: 100%; font-size: 18px; }
 .bt-guest-vs em { font-style: normal; font-family: var(--font-display); font-weight: 800; font-size: 28px; color: var(--neon); }
 .g-guest.battle > .hint { text-align: center; }
-.bt-guest-next { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 14px 16px; border-radius: 16px; background: var(--stage-2); border: 1px solid var(--line); }
+.bt-guest-next { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 14px 16px; border-radius: var(--r-card); background: var(--stage-2); border: 1px solid var(--line); }
 .bt-guest-next.mine { border-color: var(--bulb); background: var(--bulb-soft); }
 .bt-guest-next small { color: var(--bulb); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 12px; }
 .bt-guest-next b { font-size: 22px; font-family: var(--font-display); overflow-wrap: anywhere; }

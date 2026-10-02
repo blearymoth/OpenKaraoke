@@ -6,7 +6,8 @@ import { Settings, applyArgs, makeRoomCode, VERSION, PUBLIC_DIR, SHARED_DIR } fr
 import { LibraryService } from './library/service.js';
 import { Auth } from './room/auth.js';
 import { Router, json, sendError, sendText } from './http/router.js';
-import { serveStatic } from './http/static.js';
+import { serveStatic, serveTransformed } from './http/static.js';
+import { withAppearance, appearanceVariant, notFoundPage, appIconUrl } from './http/shell.js';
 import { apiRoutes } from './http/api.js';
 import { mediaRoutes } from './http/media.js';
 import { Hub } from './ws/hub.js';
@@ -59,12 +60,13 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
       lanUrls,
       version: VERSION,
       library: { tracks: st.tracks, songs: st.songs, artists: st.artists, offline: st.offline, scanning: st.scanning },
+      appearance: settings.get('appearance'),
     };
   };
 
   apiRoutes(router, app);
   mediaRoutes(router, app);
-  pageRoutes(router);
+  pageRoutes(router, app);
 
   const server = http.createServer((req, res) => handleRequest(app, req, res));
   server.keepAliveTimeout = 30_000;
@@ -168,17 +170,20 @@ async function handleRequest(app, req, res) {
   } catch (e) {
     const isPage = url && !/^\/(?:api|media)\//.test(url.pathname);
     if (isPage && e?.status === 404 && !res.headersSent) {
-      sendText(res, 404, NOT_FOUND_PAGE, 'text/html; charset=utf-8');
+      sendText(res, 404, notFoundPage(app.settings.get('appearance')), 'text/html; charset=utf-8');
     } else {
       sendError(res, e);
     }
   }
 }
 
-function pageRoutes(router) {
+function pageRoutes(router, app) {
+  // The pages carry the current skin, so the first paint already has it (http/shell.js).
   const shell = (file) => async ({ req, res }) => {
     res.setHeader('referrer-policy', 'same-origin');
-    if (!(await serveStatic(req, res, PUBLIC_DIR, file))) throw new HttpError(404, 'Page not found');
+    const look = app.settings.get('appearance');
+    const opts = { transform: (text) => withAppearance(text, look), variant: appearanceVariant(look) };
+    if (!(await serveTransformed(req, res, PUBLIC_DIR, file, opts))) throw new HttpError(404, 'Page not found');
   };
   router.get('/', shell('index.html'));
   router.get('/host', shell('host.html'));
@@ -192,11 +197,8 @@ function pageRoutes(router) {
   for (const dir of ['js', 'css', 'img', 'fonts']) router.get(`/${dir}/*`, folder(path.join(PUBLIC_DIR, dir)));
   router.get('/shared/*', folder(SHARED_DIR));
   router.get('/favicon.ico', ({ res }) => {
-    res.writeHead(301, { location: '/img/icon.svg' });
+    // not 301: the icon follows the skin (pages without a <link rel="icon">: songbook, API)
+    res.writeHead(302, { location: appIconUrl(app.settings.get('appearance')) });
     res.end();
   });
 }
-
-const NOT_FOUND_PAGE = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Not found · OpenKaraoke</title><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#0e0b16;color:#eee;font:16px system-ui,sans-serif;text-align:center">
-<div><div style="font-size:64px">🎤</div><h1 style="margin:.2em 0">Page not found</h1><p><a href="/" style="color:#ff3d8b">Go to the start page</a></p></div></body></html>`;

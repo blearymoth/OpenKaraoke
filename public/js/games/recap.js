@@ -3,6 +3,7 @@
 import { html, useEffect, useRef, useState } from '../vendor/preact.js';
 import { Switch } from '../lib/components.js';
 import { SongArt, SelectField, Podium, Confetti, ensureCss } from './common.js';
+import { singerColor } from '/shared/protocol.js';
 
 ensureCss('/css/games/recap.css');
 
@@ -240,7 +241,7 @@ export function Guest({ game, state }) {
       </div>
     </section>
     ${r.topSingers.length > 0 && html`<section class=${`rc-card ${on('singers')}`}><h2>Top singers</h2>
-      <ol class="rc-list">${r.topSingers.map((s, i) => html`<li key=${i}><span class="rank num">${s.rank}</span><span class="avatar" style=${{ '--avatar': s.color }}>${s.emoji || '🎤'}</span><span class="ellipsis">${s.name}</span><b class="num">${plural(s.songs, 'song')}</b></li>`)}</ol>
+      <ol class="rc-list">${r.topSingers.map((s, i) => html`<li key=${i}><span class="rank num">${s.rank}</span><span class="avatar" style=${{ '--avatar': singerColor(s.color) }}>${s.emoji || '🎤'}</span><span class="ellipsis">${s.name}</span><b class="num">${plural(s.songs, 'song')}</b></li>`)}</ol>
     </section>`}
     ${r.bestRated.length > 0 && html`<section class=${`rc-card ${on('rated')}`}><h2>Best rated</h2>
       <ol class="rc-list">${r.bestRated.map((p, i) => html`<li key=${i}><span class="rank num">${p.rank}</span><span class="what"><b class="ellipsis">${namesOf(p.singers)}</b><small class="ellipsis">${p.title}</small></span><b class="num">★ ${p.rating.avg.toFixed(1)}</b></li>`)}</ol>

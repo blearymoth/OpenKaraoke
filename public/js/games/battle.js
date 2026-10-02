@@ -5,7 +5,7 @@ import { useStore, useDebounced } from '../lib/store.js';
 import { useFetch, Switch } from '../lib/components.js';
 import { Countdown, AnswerTile, SongArt, SelectField, FilterFields, Confetti, ensureCss } from './common.js';
 import { usePhaseControl } from './phase-control.js';
-import { ANSWER_COLORS, ANSWER_SHAPES } from '/shared/protocol.js';
+import { ANSWER_COLORS, ANSWER_SHAPES, singerColor } from '/shared/protocol.js';
 
 ensureCss('/css/games/battle.css');
 
@@ -16,13 +16,13 @@ const FORMATS = [['duel', 'Head-to-head duel (2 singers)'], ['knockout', 'Knocko
 const MAX = 8;
 const PHASE_SECONDS = { vs: 6, waiting: 10, result: 7, final: 12 }; // as on the server (countdown rings)
 
-const who = (game, i) => game.contestants?.[i] || { name: 'To be decided', emoji: '❔', color: '#3a2f5c' };
+const who = (game, i) => game.contestants?.[i] || { name: 'To be decided', emoji: '❔', color: 'var(--avatar-tbd)' };
 const sideOf = (m, side) => (side === 'a' ? m.a : m.b);
 const score1 = (x) => (Number.isFinite(x) ? x.toFixed(1) : '–');
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function Avatar({ c, class: cls = '' }) {
-  return html`<span class=${`avatar ${cls}`} style=${{ '--avatar': c?.color }}>${c?.emoji || '🎤'}</span>`;
+  return html`<span class=${`avatar ${cls}`} style=${{ '--avatar': singerColor(c?.color) }}>${c?.emoji || '🎤'}</span>`;
 }
 
 /** Who sings in the current match / showcase, in singing order. */
@@ -294,7 +294,7 @@ function Standings({ game, highlight = -1 }) {
 
 function Fighter({ game, p, c, side }) {
   return html`<div class=${`bt-fighter side-${side}`}>
-    <span class="bt-avatar" style=${{ '--c': c.color }}>${c.emoji || '🎤'}</span>
+    <span class="bt-avatar" style=${{ '--c': singerColor(c.color) }}>${c.emoji || '🎤'}</span>
     <b class="display ellipsis">${c.name}</b>
     ${game.songMode !== 'same' && html`<span class="ellipsis">${songText(p)}</span>`}
   </div>`;
@@ -316,7 +316,7 @@ function VsScene({ game, now }) {
       <div class="bt-lineup">${(game.perfs || []).map((p, i) => {
         const c = who(game, p.c);
         return html`<div class="bt-lineup-item" key=${p.id} style=${{ animationDelay: `${i * 0.15}s` }}>
-          <span class="bt-avatar" style=${{ '--c': c.color }}>${c.emoji}</span><b class="ellipsis">${c.name}</b><span class="num">#${i + 1}</span>
+          <span class="bt-avatar" style=${{ '--c': singerColor(c.color) }}>${c.emoji}</span><b class="ellipsis">${c.name}</b><span class="num">#${i + 1}</span>
         </div>`;
       })}</div>
       <p class="g-tv-foot">${game.songMode === 'same' && game.perfs?.[0]?.title ? `Everyone sings “${game.perfs[0].title}”. ` : ''}Score every performance from 1 to 10 on your phone — the best average wins!</p>
@@ -364,7 +364,7 @@ function NextUpScene({ game, now }) {
     <div class="bt-nextup">
       <div class="bt-nextup-main">
         <div class="bt-cover">${p.songId ? html`<${SongArt} songId=${p.songId} />` : html`<div class="bt-cover-empty">🎵</div>`}
-          <span class="bt-avatar" style=${{ '--c': c.color }}>${c.emoji}</span></div>
+          <span class="bt-avatar" style=${{ '--c': singerColor(c.color) }}>${c.emoji}</span></div>
         <div class="bt-nextup-text">
           <b class="display">${p.title || 'Song to be chosen'}</b>
           ${p.artist && html`<span>${p.artist}</span>`}
@@ -382,7 +382,7 @@ function ScoreScene({ game, now }) {
   return html`<div class="scene g-tv battle fade-in" key=${p?.id}>
     <${TvHead} game=${game} title=${`Score ${c.name}!`} now=${now} total=${game.voteSeconds} />
     <div class="bt-score">
-      <span class="bt-avatar" style=${{ '--c': c.color }}>${c.emoji}</span>
+      <span class="bt-avatar" style=${{ '--c': singerColor(c.color) }}>${c.emoji}</span>
       <div><b class="display">1 – 10</b><span>Give ${c.name} a score for “${p?.title}” on your phone</span>
         <em class="num">${plural(p?.votes || 0, 'vote')}</em></div>
     </div>
@@ -399,7 +399,7 @@ function VoteScene({ game, now }) {
       const c = who(game, sideOf(m, side));
       const n = m.votes?.[side] || 0;
       return html`<div class="bt-vote-card" style=${{ '--answer': ANSWER_COLORS[i] }} key=${side}>
-        <div class="bt-vote-top"><span class="shape">${ANSWER_SHAPES[i]}</span><span class="bt-avatar small" style=${{ '--c': c.color }}>${c.emoji}</span>
+        <div class="bt-vote-top"><span class="shape">${ANSWER_SHAPES[i]}</span><span class="bt-avatar small" style=${{ '--c': singerColor(c.color) }}>${c.emoji}</span>
           <div class="ellipsis"><b class="display ellipsis">${c.name}</b><span class="ellipsis">${m.perfs[side]?.title || ''}</span></div></div>
         <div class="bt-vote-bar"><i style=${{ width: `${total ? (n / total) * 100 : 0}%` }}></i></div>
         <b class="bt-vote-num num">${n}</b>
@@ -417,7 +417,7 @@ function ResultScene({ game }) {
     <${Confetti} run=${m.id} count=${60} />
     <${TvHead} game=${game} title=${resultText(game, m)} />
     <div class="bt-result">
-      <div class="bt-winner"><span class="crown">👑</span><span class="bt-avatar" style=${{ '--c': w.color }}>${w.emoji}</span></div>
+      <div class="bt-winner"><span class="crown">👑</span><span class="bt-avatar" style=${{ '--c': singerColor(w.color) }}>${w.emoji}</span></div>
       <div class="bt-result-text">
         ${['a', 'b'].map((side) => {
           const c = who(game, sideOf(m, side));
@@ -446,7 +446,7 @@ function FinalScene({ game }) {
     <${Confetti} run=${game.id} />
     <header class="g-tv-head"><div class="bt-head"><div class="kicker">⚔️ Battle${game.finalLot ? ' · a tie, decided by lot' : ''}</div><h1 class="display">${w.name} wins the battle!</h1></div></header>
     <div class="bt-final">
-      <div class="bt-champion"><span class="crown">🏆</span><span class="bt-avatar huge" style=${{ '--c': w.color }}>${w.emoji}</span><b class="display ellipsis">${w.name}</b></div>
+      <div class="bt-champion"><span class="crown">🏆</span><span class="bt-avatar huge" style=${{ '--c': singerColor(w.color) }}>${w.emoji}</span><b class="display ellipsis">${w.name}</b></div>
       <${Standings} game=${game} highlight=${game.champion} />
     </div>
   </div>`;

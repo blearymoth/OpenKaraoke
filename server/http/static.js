@@ -198,3 +198,37 @@ export async function serveStatic(req, res, root, rel, { cacheControl = 'no-cach
   await sendFile(req, res, abs, { st, contentType: type, cacheControl, etag });
   return true;
 }
+
+const pageCache = new Lru({ max: 40, maxBytes: 4 * 1024 * 1024 });
+
+/**
+ * Serves a text file (an HTML page) from `root` after `transform(text)`. `variant` names what
+ * the transform depends on (e.g. the skin: [a-z0-9-]) and is part of the ETag, so a browser's
+ * copy is not reused after it changes. Gzipped like serveStatic. Returns false when missing.
+ */
+export async function serveTransformed(req, res, root, rel, { transform, variant = '', cacheControl = 'no-cache' }) {
+  const abs = safeJoin(root, rel);
+  if (!abs) return false;
+  let st;
+  try {
+    st = await fsp.stat(abs);
+  } catch {
+    return false;
+  }
+  if (!st.isFile()) return false;
+  const type = mimeFor(abs);
+  const etag = `W/"${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}${variant ? `-${variant}` : ''}"`;
+  if (isFresh(req, etag)) {
+    res.writeHead(304, { etag, 'cache-control': cacheControl, vary: 'Accept-Encoding' });
+    res.end();
+    return true;
+  }
+  const body = await memoPromise(pageCache, `${abs}:${etag}`, async () => Buffer.from(transform(await fsp.readFile(abs, 'utf8'))));
+  if (body.length > 1024 && acceptsGzip(req) && !req.headers.range) {
+    const gz = await memoPromise(gzCache, `${abs}:${etag}:page`, () => gzip(body, { level: 6 }));
+    sendBuffer(req, res, gz, { contentType: type, cacheControl, etag, encoding: 'gzip' });
+  } else {
+    sendBuffer(req, res, body, { contentType: type, cacheControl, etag });
+  }
+  return true;
+}

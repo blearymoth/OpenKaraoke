@@ -161,7 +161,7 @@ function Gauge({ value, live }) {
   return html`<div class=${`ap-gauge ${live ? 'live' : ''}`} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow=${Math.round(v)}>
     <svg viewBox="0 0 200 116" aria-hidden="true">
       <defs><linearGradient id="ap-grad" x1="0" x2="1" y1="0" y2="0">
-        <stop offset="0" stop-color="#45e2a6" /><stop offset="0.55" stop-color="#ffc94a" /><stop offset="1" stop-color="#ff3d8b" />
+        <stop offset="0" style="stop-color: var(--meter-lo)" /><stop offset="0.55" style="stop-color: var(--meter-mid)" /><stop offset="1" style="stop-color: var(--meter-hi)" />
       </linearGradient></defs>
       <path class="track" d="M 20 100 A 80 80 0 0 1 180 100" />
       <path class="fill" d="M 20 100 A 80 80 0 0 1 180 100" pathLength="100" stroke-dasharray="100 200" stroke-dashoffset=${100 - v} />

@@ -1,7 +1,7 @@
 // Building blocks shared by the party games' screens (TV, host, phones).
 import { html, useEffect, useRef, useState } from '../vendor/preact.js';
 import { useTick, artUrl } from '../lib/store.js';
-import { ANSWER_COLORS, ANSWER_SHAPES } from '/shared/protocol.js';
+import { ANSWER_COLORS, ANSWER_SHAPES, singerColor } from '/shared/protocol.js';
 
 const loadedCss = new Set();
 
@@ -28,7 +28,7 @@ export function Countdown({ endsAt, total, now, label }) {
   if (!endsAt) return null;
   const circ = 2 * Math.PI * 44;
   const frac = total ? Math.min(1, left / total) : 1;
-  return html`<div class=${`g-countdown ${left <= 5 ? 'hurry' : ''}`} role="timer" aria-label=${label || `${left} seconds left`}>
+  return html`<div class=${`g-countdown ${left <= 5 ? 'hurry' : ''} ${left > 99 ? 'wide' : ''}`} role="timer" aria-label=${label || `${left} seconds left`}>
     <svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44" /><circle class="arc" cx="50" cy="50" r="44" stroke-dasharray=${circ} stroke-dashoffset=${circ * (1 - frac)} /></svg>
     <b>${left}</b>
   </div>`;
@@ -57,7 +57,7 @@ export function VoteBars({ items, winner = -1 }) {
 
 export function PlayerChip({ p, big }) {
   if (!p) return null;
-  return html`<span class=${`g-player ${big ? 'big' : ''}`}><span class="avatar" style=${{ '--avatar': p.color }}>${p.emoji || '🎤'}</span><span class="ellipsis">${p.name}</span></span>`;
+  return html`<span class=${`g-player ${big ? 'big' : ''}`}><span class="avatar" style=${{ '--avatar': singerColor(p.color) }}>${p.emoji || '🎤'}</span><span class="ellipsis">${p.name}</span></span>`;
 }
 
 /** Ranked list: rows [{ name, emoji, color, score, delta?, rank? }] (tied rows share a `rank`: 1, 1, 3). */
@@ -77,7 +77,7 @@ export function Podium({ rows }) {
     if (!r) return null;
     const place = Math.min(3, r.rank || [2, 1, 3][i]);
     return html`<div class=${`step p${place}`} key=${r.id || r.name}>
-      <span class="avatar" style=${{ '--avatar': r.color }}>${r.emoji || '🎤'}</span>
+      <span class="avatar" style=${{ '--avatar': singerColor(r.color) }}>${r.emoji || '🎤'}</span>
       <b class="ellipsis">${r.name}</b>
       <span class="num">${Math.round(r.score).toLocaleString()}</span>
       <div class="block">${place}</div>
@@ -97,7 +97,7 @@ export function Confetti({ run = 0, count = 90 }) {
   useEffect(() => {
     if (!run) return undefined;
     seed.current++;
-    const colors = ['#ff3d8b', '#ffc94a', '#45e2a6', '#4cc3ff', '#b388ff', '#fff'];
+    const colors = [1, 2, 3, 4, 5, 6].map((n) => `var(--confetti-${n})`); // per skin, in base.css
     setPieces(Array.from({ length: count }, (_, i) => ({
       id: `${seed.current}-${i}`,
       left: Math.random() * 100,

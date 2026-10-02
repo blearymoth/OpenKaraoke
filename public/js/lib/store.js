@@ -1,5 +1,5 @@
 // Small shared helpers for the Preact apps: a store, hooks and formatting.
-import { useEffect, useReducer, useRef, useState } from '../vendor/preact.js';
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from '../vendor/preact.js';
 
 /** Minimal observable store: get/set/update/subscribe. */
 export function createStore(initial) {
@@ -21,11 +21,23 @@ export function createStore(initial) {
   };
 }
 
-/** Re-renders the component whenever the store changes. */
+/**
+ * Re-renders the component whenever the store changes (the useSyncExternalStore pattern).
+ * It subscribes in a layout effect, right after the render, and then compares the store with
+ * the snapshot that was rendered: an update that landed in between (e.g. a `denied` message
+ * just after the first render, or a store write from a child's effect) still re-renders.
+ */
 export function useStore(store) {
   const [, force] = useReducer((x) => x + 1, 0);
-  useEffect(() => store.subscribe(force), [store]);
-  return store.get();
+  const snapshot = store.get();
+  const rendered = useRef(snapshot);
+  rendered.current = snapshot;
+  useLayoutEffect(() => {
+    const unsubscribe = store.subscribe(force);
+    if (store.get() !== rendered.current) force();
+    return unsubscribe;
+  }, [store]);
+  return snapshot;
 }
 
 /** Calls `fn` every `ms` (null = paused). */

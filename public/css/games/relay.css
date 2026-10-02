@@ -8,7 +8,7 @@
 .rl-holder { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .rl-holder .btn { margin-left: auto; }
 .rl-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
-.rl-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.04); }
+.rl-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; padding: 6px 10px; border-radius: var(--r-md); background: rgba(255, 255, 255, 0.04); }
 .rl-list li.holder { background: var(--neon-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--neon) 50%, transparent); }
 .rl-list .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-3); }
 .rl-list .dot.on { background: var(--ok); }
@@ -18,12 +18,12 @@
   position: absolute; left: 0; right: 0; top: 50%; z-index: 7;
   display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 2vh 3.5vh;
   padding: 5vh 6vw; transform: translateY(-50%);
-  background: linear-gradient(90deg, rgba(21, 15, 38, 0), rgba(21, 15, 38, 0.95) 12%, rgba(21, 15, 38, 0.95) 88%, rgba(21, 15, 38, 0));
+  background: linear-gradient(90deg, rgba(var(--night-rgb), 0), rgba(var(--night-rgb), 0.95) 12%, rgba(var(--night-rgb), 0.95) 88%, rgba(var(--night-rgb), 0));
   border-block: 0.7vh solid var(--neon);
-  box-shadow: 0 0 10vh color-mix(in srgb, var(--neon) 45%, transparent);
+  box-shadow: var(--glow-flash);
   animation: rl-in 0.55s var(--ease) both, rl-out 0.5s ease 3.5s forwards;
 }
-.rl-flash .kick { font-size: 8vh; color: var(--bulb); text-transform: uppercase; white-space: nowrap; text-shadow: 0 0 3vh rgba(255, 201, 74, 0.45); }
+.rl-flash .kick { font-size: 8vh; color: var(--bulb); text-transform: uppercase; white-space: nowrap; text-shadow: var(--glow-text-bulb); }
 .rl-flash .arrow { font-size: 10vh; line-height: 1; color: var(--neon); animation: rl-nudge 0.5s ease-in-out infinite alternate; }
 .rl-flash .avatar { width: 17vh; height: 17vh; font-size: 10vh; box-shadow: 0 0 0 1vh color-mix(in srgb, var(--avatar, var(--neon)) 35%, transparent); animation: rl-pop 0.6s var(--ease) 0.25s both; }
 .rl-flash .name { font-size: 13vh; max-width: 42vw; animation: rl-pop 0.6s var(--ease) 0.35s both; }
@@ -74,7 +74,7 @@
 .rl-badge {
   position: absolute; right: 2.5vw; bottom: 10vh; z-index: 4; display: flex; align-items: center; gap: 1.4vh;
   max-width: 34vw; padding: 1.2vh 2.6vh 1.2vh 1.6vh; border-radius: 99vh;
-  background: rgba(21, 15, 38, 0.88); border: 0.3vh solid color-mix(in srgb, var(--neon) 60%, transparent);
+  background: rgba(var(--night-rgb), 0.88); border: 0.3vh solid color-mix(in srgb, var(--neon) 60%, transparent);
   font-size: 3vh; animation: tv-fade 0.5s var(--ease) both;
 }
 .rl-badge .avatar { width: 5.5vh; height: 5.5vh; font-size: 3.2vh; }
@@ -82,11 +82,12 @@
 /* ---- phones ------------------------------------------------------------------------------ */
 .g-guest.relay { text-align: center; }
 .rl-mine { display: grid; justify-items: center; gap: 8px; padding: 26px 16px; border-radius: 20px; background: linear-gradient(160deg, color-mix(in srgb, var(--neon) 55%, var(--stage)), var(--stage)); box-shadow: var(--glow); }
+:root:not([data-theme="party"]) .rl-mine { border-radius: var(--r-lg); } /* Studio: the cards' corners */
 .rl-mine .big { font-size: 72px; line-height: 1; animation: rl-wiggle 0.9s ease-in-out infinite alternate; }
 .rl-mine.fresh { animation: rl-pulse 0.7s ease 3; }
 @keyframes rl-wiggle { from { transform: rotate(-12deg); } to { transform: rotate(12deg) scale(1.08); } }
 @keyframes rl-pulse { 50% { transform: scale(1.04); } }
-.rl-now { display: grid; justify-items: center; gap: 10px; padding: 18px; border-radius: 18px; background: var(--stage-2); }
+.rl-now { display: grid; justify-items: center; gap: 10px; padding: 18px; border-radius: var(--r-lg); background: var(--stage-2); }
 .g-guest.relay .rl-list li { grid-template-columns: minmax(0, 1fr) auto; text-align: left; }
 /* A shrinkable column and a capped chip: a very wide name is cut short, the page never scrolls sideways. */
 .rl-now { grid-template-columns: minmax(0, 1fr); }

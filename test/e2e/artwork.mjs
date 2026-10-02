@@ -120,6 +120,9 @@ try {
   await shot(tv, 'tv-lobby-mosaic');
   const song = [...app.library.catalog.songs.values()].find((s) => s.artist === 'Pixel Parade');
   app.settings.update({ playback: { countdown: 6 } });
+  // (in Party, whose condensed display face these sizes were set for; both skins get a full card below)
+  await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'settings.update', patch: { appearance: { theme: 'party' } } });
+  check(await until(() => tv.evaluate(() => document.documentElement.dataset.theme === 'party')), 'the TV switches to Party');
   // A duet with long names: the name must keep its full width and height next to the artwork.
   await app.room.request({ role: 'host', data: {}, isLocal: true, send() {} }, { t: 'queue.add', songId: song.id, singerName: 'Maximilian', partnerName: 'Josephine' });
   await tv.waitForSelector('.intro-cover', { timeout: 10000 });
@@ -184,6 +187,59 @@ try {
   for (const c of app.hub.clients.values()) if (c.role === 'guest') c.ws.terminate();
   check(await until(async () => { const w = await coverOf(guest, shown.id); return w.length && !w.includes(48) && w.every(Boolean); }), 'after reconnecting the phone shows the change without a reload');
   await app.artwork.refresh(shown);
+
+  // TV: a full intro card (a duet, a long title over three lines, the logo, Key/Tempo chips) keeps
+  // the singers' names whole and at full height and everything on screen: counting down or waiting
+  // for the host, 16:9 and 4:3, both skins.
+  const hostClient = { role: 'host', data: {}, isLocal: true, send() {} };
+  const req = (t, m = {}) => app.room.request(hostClient, { t, ...m });
+  await req('player.stop');
+  await req('queue.clear');
+  Object.assign(song, { title: 'I Would Do Anything for Love (But I Won’t Do That) (Radio Edit)', artist: 'Pixel Parade & The Neverland Express' });
+  for (const [state, playback] of [['counting down', { countdown: 90, startPaused: false }], ['waiting', { countdown: 0, startPaused: true }]]) {
+    app.settings.update({ playback });
+    await req('queue.add', { songId: song.id, singerName: 'Maximilian', partnerName: 'Josephine' });
+    if (!['intro', 'ready'].includes(app.room.s.player.state)) await req('player.play');
+    await req('player.key', { key: 2 });
+    await req('player.tempo', { tempo: 1.1 });
+    await tv.waitForSelector('.intro .meta .chip');
+    await until(async () => !!(await tv.$('.intro .artist-logo')));
+    for (const theme of ['studio', 'party']) {
+      await req('settings.update', { patch: { appearance: { theme } } });
+      check(await until(() => tv.evaluate((t) => document.documentElement.dataset.theme === t, theme)), `the TV switches to ${theme}`);
+      for (const [width, height] of [[1280, 720], [1024, 768]]) {
+        await tv.setViewportSize({ width, height });
+        await sleep(500);
+        const fit = await tv.evaluate((waiting) => {
+          const card = document.querySelector('.intro');
+          const box = (el) => el.getBoundingClientRect();
+          const kids = [...card.children];
+          const why = [];
+          const nameEl = card.querySelector('.name');
+          const name = box(nameEl);
+          const size = parseFloat(getComputedStyle(nameEl).fontSize);
+          const full = size * 0.98 + innerHeight * 0.01; // its font size at line-height 0.98, plus 1vh padding
+          if (name.height < full - 1) why.push(`name squeezed to ${Math.round(name.height)}px of ${Math.round(full)}px`);
+          if (nameEl.scrollWidth > nameEl.clientWidth) why.push('name cut short');
+          if (size < innerHeight * 0.15 * 0.5) why.push(`name at ${Math.round(size / innerHeight * 100)}vh`);
+          kids.forEach((k, i) => { if (i && box(kids[i - 1]).bottom > box(k).top + 0.5) why.push(`${kids[i - 1].className} runs into ${k.className}`); });
+          if (box(kids[0]).top < 0 || box(kids.at(-1)).bottom > innerHeight) why.push('off screen');
+          const avatar = card.querySelector('.intro-art .avatar-big');
+          if (avatar && box(avatar).top < name.bottom - 0.5) why.push('avatar over the name');
+          const below = card.querySelector('.intro-main')?.nextElementSibling;
+          if (avatar && below && box(avatar).bottom > box(below).top + 0.5) why.push(`avatar over ${below.className}`);
+          if (card.querySelector('.song').getClientRects().length && !card.querySelector('.song b').textContent.includes('Radio Edit')) why.push('wrong title');
+          if (waiting ? !/Ready when you are/.test(card.querySelector('.status').textContent) : !card.querySelector('.countdown')) why.push(`not ${waiting ? 'waiting' : 'counting'}`);
+          return why.join(', ');
+        }, state === 'waiting');
+        check(!fit, `${theme}: full intro card ${state} at ${width}×${height}: the names are whole and keep their height, nothing overlaps or leaves the screen${fit ? ` (${fit})` : ''}`);
+        await shot(tv, `tv-intro-full-${theme}-${state.split(' ')[0]}-${width}x${height}`);
+      }
+    }
+    await req('player.stop');
+    await req('queue.clear');
+  }
+  await req('settings.update', { patch: { appearance: { theme: 'studio' } } });
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);
 } finally {

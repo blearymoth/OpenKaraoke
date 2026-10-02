@@ -8,7 +8,11 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   metadata (M5), seven party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → all green (see the table below); `npm run e2e` → 9 Playwright scripts, all green.
+- `npm test` → all green (see the table below); `npm run e2e` → 10 Playwright scripts, all green
+  (the tenth, `themes.mjs`, checks the skins).
+- **Skins** (after session 3): Settings → Appearance switches every screen between **Studio**
+  (the new default, midnight navy and teal) and **Party** (the original neon look) — see
+  "Skins" below.
 - **Nothing in session 3 could touch real hardware or the internet**: the artwork providers were
   unreachable from the sandbox (parsers are tested against fixtures built from the documented
   response shapes), and sound, microphone, TV legibility and phones need the PC. Work through
@@ -168,6 +172,62 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
    by their bytes), files live in `data/photos/`.
 9. Tests create temp folders through `tmpDir()` (removed on exit) and sparse fake CDGs — the
    sandbox disk filled up with ≈30 GB of leftovers before this was fixed.
+
+## Skins: Studio (default) and Party
+- The owner asked for a more professional look as the default while keeping today's one:
+  **Settings → Appearance** picks the skin for every screen (host, TV incl. mirrors/preview/
+  board/pairing, phones, landing page, games) and an optional accent colour ("Use the skin's
+  colour" resets it; text on the accent is dark or white, whichever reads better). Changes show
+  live everywhere (screens without a party connection — landing page, PIN and can't-join
+  screens — within 2 s; the printable songbook on its next load); guests never see the setting.
+- **Studio** (new default, "midnight"): deep navy surfaces (one step lighter per layer), one cool
+  teal accent (#2fd3c6) for everything you can press or that is live (buttons, play, progress,
+  countdowns, VS, focus), champagne gold (#e8c07a) kept for people and moments (room code,
+  "next singer", stars, winners), Figtree throughout (TV headings stay 800 for the far side of the
+  room), tracked-capital kickers on the TV ("NEXT SINGER", "UP NEXT"), smaller radii, a machined
+  1px top edge on buttons instead of glows, a thin champagne ring around the join QR, calm
+  navy/teal TV aurora, covers, artist photos and guests' photos (TV background "photos") at full
+  colour behind the TV text, dimmed (brightness 0.4, a 0.65 centre scrim) so it holds 7:1 even over
+  a white cover or photo (a guest's new photo still shows bright first, in its frame), deep
+  game-show quiz colours (wine, royal blue, ochre, emerald — white labels and artist lines 7–11:1
+  on the TV, 5.7:1 on ochre; on phones the artist line is at 85%, 4.6:1 or more; four lightness
+  steps L* 24/31/37/43 so they differ in grey too, always with the ▲◆●■ shapes) and a 12-colour
+  wheel (cobalt first, then pastels, every label 7:1 or more; no pink, the two violet pastels are
+  segments 4 and 12) ordered
+  so neighbouring segments stay apart for every kind of colour blindness
+  (worst pair CIEDE2000 9.0; `test/themes.test.js` checks ≥ 8 for every wheel size, ≥ 10 and
+  6 L* between answers, and no pink or purple in the singer colours, answers and first wheel
+  segments). Singers' colours: guests pick one of ten; Studio draws them as calm pastels and
+  cobalt (`--singer-1…10`; Party shows its neon ones, the stored value is the same). TV text is
+  never the faintest ink (`test/themes.test.js` checks the 7:1 cases, `test/e2e/themes.mjs` the
+  TV screens). Disabled buttons go neutral grey, a switch that is
+  on has a dark knob, the current bottom tab has a pill behind its icon, losing quiz answers and
+  wheel segments turn into quiet navy tiles (7:1 on the TV; the winning segment keeps its colour,
+  not lightened) instead of fading, and "TV on" is a
+  neutral chip with a green light. App icon: navy tile with a teal mic and sound arcs
+  (`public/img/icon-studio.svg`; Party keeps the pink one). Its values are the token block at the
+  top of `public/css/base.css`; the few Studio-only rules are scoped
+  `:root:not([data-theme="party"])` next to the rule they adjust (grep for it). New tokens
+  (`--tv-display-*`, `--kicker-*`, `--raise`, `--switch-knob-on`, `--announce-*`, `--art-scrim`,
+  `--photo-filter`, `--r-card`, `--singer-*`) carry Party's old values in the Party block.
+- **Party**: the original look, pixel for pixel (checked against `main` at f986733 rule by rule
+  and on 112 captured screens, the More page, phone cards, photos, pass-the-mic band, duet
+  invitation and rating dock included; `test/themes.test.js` pins the values), apart from a few
+  fixes in both skins: the TV intro card's title stops at three lines, so a full card (a duet,
+  the logo, Key/Tempo chips, the countdown) keeps the singers' names whole and at full height
+  with the status on screen (`test/e2e/artwork.mjs` checks 16:9 and 4:3, counting down and
+  waiting, in both skins; the name is fitted again after a skin switch, the two display fonts
+  differ in width), three-digit countdowns fit their ring, the phone search box has a short
+  placeholder, the host's phone player row fades at the edge where it scrolls (not while the TV
+  preview, which sits in that row, is open), and the songbook's join address wraps instead of
+  running into the QR code.
+  Existing parties switch to Studio; a custom `display.accent` became `appearance.accent`.
+- How: `settings.appearance` → `server/http/shell.js` writes `data-theme` into each served page
+  (ETag per skin, no flash) → `public/js/lib/theme.js` follows changes live. Every skin colour is
+  a token; never hard-code one (`test/themes.test.js` fails on any colour with a hue outside the
+  two skin blocks, in the CSS, the browser code and the page shells). `test/e2e/themes.mjs`
+  saves screenshots of both skins to `test-results/e2e-themes/`.
+- Owner: look at both skins on the TV from across the room and on a phone.
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

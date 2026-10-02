@@ -4,8 +4,9 @@ import { Connection } from '../lib/ws-client.js';
 import { createStore, useStore, toastStore, formatEta, formatTime, singersText, plural, useDebounced, useTick, noteArt, lastArtSeq, setMarks } from '../lib/store.js';
 import { Icon } from '../lib/icons.js';
 import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, Toasts, SongBadges } from '../lib/components.js';
-import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, GAME_LABELS, formatKey } from '/shared/protocol.js';
+import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, GAME_LABELS, formatKey, singerColor } from '/shared/protocol.js';
 import { GAME_UI } from '../games/index.js';
+import { applyAppearance, followAppearance } from '../lib/theme.js';
 
 const pathCode = (location.pathname.match(/^\/j\/([A-Za-z]{4})\/?$/) || [])[1];
 const toasts = toastStore();
@@ -29,6 +30,7 @@ conn.on('welcome', (m) => {
   noteArt(m.art);
   if (m.token) localStorage.setItem('ok.guestToken', m.token);
   localStorage.setItem('ok.lastRoom', store.get().code);
+  applyAppearance(m.state.appearance);
   setMarks(m.state);
   store.update({ state: m.state, denied: null });
 });
@@ -40,6 +42,7 @@ conn.on('state', (m) => {
   if (game && !game.ended && game.id !== lastGameId && m.state.rules?.games && GAME_UI[game.type]?.Guest) patch.tab = 'game';
   else if (!game && store.get().tab === 'game') patch.tab = 'home';
   lastGameId = game?.id || null;
+  applyAppearance(m.state.appearance);
   setMarks(m.state);
   store.update(patch);
 });
@@ -148,7 +151,7 @@ function ProfileForm({ initial, submitLabel, onDone }) {
     if (r) onDone?.(r);
   };
   return html`<form class="profile-form" onSubmit=${submit}>
-    <div class="avatar-preview" style=${{ '--c': color }}>${emoji}</div>
+    <div class="avatar-preview" style=${{ '--c': singerColor(color) }}>${emoji}</div>
     <label class="field"><span>Your name (shown on the TV)</span>
       <input class="input big" value=${name} maxlength="24" autocomplete="nickname" enterkeyhint="done" placeholder="Name or nickname"
         onInput=${(e) => setName(e.currentTarget.value)} autofocus=${!initial} />
@@ -157,7 +160,7 @@ function ProfileForm({ initial, submitLabel, onDone }) {
       <div class="emoji-grid" role="radiogroup" aria-label="Avatar">${AVATARS.map((a) => html`<button type="button" role="radio" aria-checked=${a === emoji} class=${a === emoji ? 'on' : ''} onClick=${() => setEmoji(a)}>${a}</button>`)}</div>
     </div>
     <div class="field"><span>And a colour</span>
-      <div class="color-row" role="radiogroup" aria-label="Colour">${COLORS.map((c) => html`<button type="button" role="radio" aria-checked=${c === color} aria-label=${c} class=${c === color ? 'on' : ''} style=${{ background: c }} onClick=${() => setColor(c)}></button>`)}</div>
+      <div class="color-row" role="radiogroup" aria-label="Colour">${COLORS.map((c) => html`<button type="button" role="radio" aria-checked=${c === color} aria-label=${c} class=${c === color ? 'on' : ''} style=${{ backgroundColor: singerColor(c) }} onClick=${() => setColor(c)}></button>`)}</div>
     </div>
     <button class="btn primary large block" disabled=${busy || !name.trim()}>${submitLabel}</button>
   </form>`;
@@ -535,7 +538,7 @@ function MeTab({ state }) {
     ${editing
       ? html`<section class="g-card-inline"><h2 class="g-h2">Edit your profile</h2><${ProfileForm} initial=${me.profile} submitLabel="Save" onDone=${() => { setEditing(false); toast('Saved', 'ok'); }} /></section>`
       : html`<section class="g-profile">
-          <div class="avatar-preview" style=${{ '--c': me.profile.color }}>${me.profile.emoji}</div>
+          <div class="avatar-preview" style=${{ '--c': singerColor(me.profile.color) }}>${me.profile.emoji}</div>
           <div class="grow"><h1 class="g-h1">${me.profile.name}</h1><p class="muted">${me.queued ? `${plural(me.queued, 'song')} waiting` : 'No songs waiting'}${me.left !== null ? ` · ${me.left} more allowed` : ''}</p></div>
           <button class="btn small" onClick=${() => setEditing(true)}><${Icon} name="edit" size=${16} /> Edit</button>
         </section>`}
@@ -655,14 +658,16 @@ function Tabs({ state, tab }) {
   </button>`)}</nav>`;
 }
 
+/** Screens without party state: they still follow a skin switch. */
+function Gate({ children }) {
+  useEffect(() => followAppearance(), []);
+  return children;
+}
+
 function App() {
   const s = useStore(store);
-  useEffect(() => {
-    const accent = s.state?.accent;
-    if (accent) document.documentElement.style.setProperty('--neon', accent);
-  }, [s.state?.accent]);
-  if (!s.code) return html`<${EnterCode} />`;
-  if (s.denied) return html`<${Denied} reason=${s.denied} />`;
+  if (!s.code) return html`<${Gate}><${EnterCode} /><//>`;
+  if (s.denied) return html`<${Gate}><${Denied} reason=${s.denied} /><//>`;
   const st = s.state;
   if (!st) return html`<div class="g-gate"><${Spinner} /><p class="muted">Joining the party…</p></div>`;
   if (!st.me.profile) return html`<${Join} state=${st} /><${Toasts} store=${toasts.store} />`;

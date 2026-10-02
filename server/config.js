@@ -4,6 +4,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { JsonDoc, deepMerge, isPlainObject } from './util/jsonfile.js';
+import { THEMES, DEFAULT_THEME, ACCENT_RE, normalizeAccent, normalizeAppearance } from '../shared/themes.js';
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const PUBLIC_DIR = path.join(APP_ROOT, 'public');
@@ -59,6 +60,10 @@ export const DEFAULT_SETTINGS = {
     // next song's genre/decade) or songs from a music folder.
     breakMusic: { enabled: true, source: 'library', folder: '', volume: 0.35, matchNext: true },
   },
+  appearance: {
+    theme: DEFAULT_THEME, // 'studio' | 'party' (shared/themes.js): the look of every screen
+    accent: '', // '#rrggbb' replaces the skin's accent colour; '' = the skin's own
+  },
   display: {
     background: 'art', // 'art' | 'visualizer' | 'photos' | 'plain'
     fanart: true, // artist photos (from TheAudioDB / Fanart.tv) instead of the blurred cover when there are some
@@ -72,7 +77,6 @@ export const DEFAULT_SETTINGS = {
     showUpNext: true,
     showProgress: true,
     showReactions: true,
-    accent: '#ff3d8b',
   },
   artwork: {
     enabled: true, // look up covers & metadata online (the only outgoing traffic)
@@ -163,6 +167,12 @@ export class Settings extends JsonDoc {
     super(path.join(dataDir, 'settings.json'), DEFAULT_SETTINGS, { pretty: true, debounceMs: 300 });
   }
 
+  async load() {
+    await super.load();
+    if (migrateSettings(this.data)) this.save();
+    return this.data;
+  }
+
   get(pathStr) {
     return pathStr.split('.').reduce((o, k) => (o == null ? undefined : o[k]), this.data);
   }
@@ -170,10 +180,45 @@ export class Settings extends JsonDoc {
   /** Applies a (partial) settings object, only for keys that exist in the defaults. */
   update(patch) {
     const clean = sanitize(patch, DEFAULT_SETTINGS);
+    const look = clean.appearance;
+    // An unknown skin or a malformed colour is ignored (the current one stays), never "fixed".
+    if (look?.theme !== undefined && !(typeof look.theme === 'string' && Object.hasOwn(THEMES, look.theme))) delete look.theme;
+    if (look?.accent !== undefined) {
+      if (look.accent && !ACCENT_RE.test(look.accent)) delete look.accent;
+      else look.accent = normalizeAccent(look.accent);
+    }
     deepMerge(this.data, clean);
     this.save();
     return clean;
   }
+}
+
+/** The accent colour every party had before skins existed (display.accent's old default). */
+export const LEGACY_ACCENT = '#ff3d8b';
+
+/**
+ * Brings settings saved by an older version up to date, in place. Returns true when something
+ * changed. display.accent became appearance.accent: a colour the owner picked is kept, the old
+ * default is dropped (so existing parties get the default skin with its own accent).
+ */
+export function migrateSettings(data) {
+  let changed = false;
+  if (!isPlainObject(data.appearance)) {
+    data.appearance = structuredClone(DEFAULT_SETTINGS.appearance);
+    changed = true;
+  }
+  if (isPlainObject(data.display) && Object.hasOwn(data.display, 'accent')) {
+    const legacy = normalizeAccent(data.display.accent);
+    if (legacy && legacy !== LEGACY_ACCENT && !data.appearance.accent) data.appearance.accent = legacy;
+    delete data.display.accent;
+    changed = true;
+  }
+  const look = normalizeAppearance(data.appearance);
+  if (look.theme !== data.appearance.theme || look.accent !== data.appearance.accent) {
+    Object.assign(data.appearance, look);
+    changed = true;
+  }
+  return changed;
 }
 
 function sanitize(patch, schema) {

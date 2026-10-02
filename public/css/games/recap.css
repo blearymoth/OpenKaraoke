@@ -22,7 +22,7 @@
 .rc-dots i.done { background: rgba(255, 255, 255, 0.45); }
 .rc-dots i.on { background: var(--bulb); transform: scale(1.35); }
 .rc-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 0.7vh; background: rgba(255, 255, 255, 0.06); }
-.rc-progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--neon), var(--bulb)); }
+.rc-progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--neon), var(--neon-end)); }
 
 /* totals */
 .rc-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2.5vw; width: min(100%, 170vh); }
@@ -35,11 +35,12 @@
 .rc-singers .g-podium { margin-top: 2vh; }
 .rc-sub { font-size: 3.4vh; color: var(--ink-2); }
 .rc-more { font-size: 2.8vh; color: var(--ink-3); }
+:root:not([data-theme="party"]) :is(.rc-count, .rc-more) { color: var(--ink-2); } /* Studio: small text on the TV is ink-2 (see tv.css) */
 
 /* best rated */
 .rc-rows { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.8vh; width: min(100%, 150vh); text-align: left; }
 .rc-rows li { display: grid; grid-template-columns: 6vh 11vh minmax(0, 1fr) auto; align-items: center; gap: 2.6vh; padding: 1.4vh 2.6vh; border-radius: 2vh; background: rgba(255, 255, 255, 0.05); animation: rc-pop 0.6s var(--ease) both; }
-.rc-rows li:first-child { background: var(--bulb-soft); border: 1px solid rgba(255, 201, 74, 0.35); }
+.rc-rows li:first-child { background: var(--bulb-soft); border: 1px solid rgba(var(--bulb-rgb), 0.35); }
 .rc-rows .rank { font-family: var(--font-display); font-size: 5vh; font-weight: 800; color: var(--ink-3); text-align: center; }
 .rc-rows li:first-child .rank { color: var(--bulb); }
 .rc-rows .g-art { width: 11vh; }
@@ -58,7 +59,7 @@
 .rc-bars li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) 8vh; align-items: center; gap: 3vh; font-size: 4vh; text-align: left; animation: rc-pop 0.6s var(--ease) both; }
 .rc-bars .name { font-weight: 700; }
 .rc-bars .bar { height: 5vh; border-radius: 99vh; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
-.rc-bars .bar i { display: block; height: 100%; width: var(--w); border-radius: inherit; background: linear-gradient(90deg, var(--neon), var(--bulb)); animation: rc-grow 1s var(--ease) both; }
+.rc-bars .bar i { display: block; height: 100%; width: var(--w); border-radius: inherit; background: linear-gradient(90deg, var(--neon), var(--neon-end)); animation: rc-grow 1s var(--ease) both; }
 .rc-bars b { font-family: var(--font-display); font-size: 5.4vh; color: var(--bulb); text-align: right; }
 @keyframes rc-grow { from { width: 0; } }
 
@@ -83,18 +84,18 @@
 
 /* game winners */
 .rc-trophies { display: flex; flex-wrap: wrap; justify-content: center; gap: 3vh; width: min(100%, 170vh); }
-.rc-trophy { display: grid; justify-items: center; gap: 1.4vh; flex: 0 1 50vh; min-width: 0; padding: 3.6vh 3vh; border-radius: 3vh; background: linear-gradient(160deg, var(--stage-2), var(--stage)); border: 1px solid rgba(255, 201, 74, 0.3); animation: rc-pop 0.6s var(--ease) both; }
+.rc-trophy { display: grid; justify-items: center; gap: 1.4vh; flex: 0 1 50vh; min-width: 0; padding: 3.6vh 3vh; border-radius: 3vh; background: linear-gradient(160deg, var(--stage-2), var(--stage)); border: 1px solid rgba(var(--bulb-rgb), 0.3); animation: rc-pop 0.6s var(--ease) both; }
 .rc-trophy .emoji { font-size: 9vh; line-height: 1; }
 .rc-trophy .kicker { font-size: 2.6vh; }
 .rc-trophy b { font-size: 5vh; max-width: 100%; }
 
 /* thanks / empty */
 .rc-thanks .emoji, .rc-empty .emoji { font-size: 16vh; line-height: 1; animation: rc-pop 0.8s var(--ease) both; }
-.rc-thanks h1 { font-size: 13vh; background: linear-gradient(90deg, var(--neon), var(--bulb)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.rc-thanks h1 { font-size: 13vh; background: linear-gradient(90deg, var(--neon), var(--neon-end)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .rc-thanks p, .rc-empty p { font-size: 4vh; color: var(--ink-2); }
 
 /* ---- phones -------------------------------------------------------------------------------- */
-.rc-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px; border-radius: 16px; background: linear-gradient(160deg, var(--stage-2), var(--stage)); border: 1px solid var(--line); transition: border-color 0.3s, box-shadow 0.3s; }
+.rc-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 14px; border-radius: var(--r-card); background: linear-gradient(160deg, var(--stage-2), var(--stage)); border: 1px solid var(--line); transition: border-color 0.3s, box-shadow 0.3s; }
 .rc-card.on { border-color: color-mix(in srgb, var(--bulb) 60%, transparent); box-shadow: 0 0 0 3px var(--bulb-soft); }
 .rc-card h2 { font-size: 18px; }
 .g-guest.recap .rc-card .hint, .g-guest.recap .rc-card p { text-align: left; }
@@ -107,5 +108,5 @@
 .rc-list .rank { font-family: var(--font-display); font-weight: 800; color: var(--ink-3); min-width: 1.4em; text-align: center; }
 .rc-list .what { display: grid; min-width: 0; }
 .rc-list .what small { color: var(--ink-2); }
-.rc-thanks-line { text-align: center; font-weight: 700; color: var(--ink-2); padding: 6px; border-radius: 12px; }
+.rc-thanks-line { text-align: center; font-weight: 700; color: var(--ink-2); padding: 6px; border-radius: var(--r-md); }
 .rc-thanks-line.on { color: var(--bulb); background: var(--bulb-soft); }

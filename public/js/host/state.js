@@ -2,6 +2,7 @@
 import { Connection } from '../lib/ws-client.js';
 import { createStore, toastStore, noteArt, lastArtSeq, setMarks } from '../lib/store.js';
 import { apiPost, clearFetchCache } from '../lib/components.js';
+import { applyAppearance } from '../lib/theme.js';
 
 export const toasts = toastStore();
 export const toast = toasts.show;
@@ -22,6 +23,7 @@ export const conn = new Connection({
 
 let lastLibVersion = null;
 conn.on('welcome', (m) => {
+  applyAppearance(m.state.settings?.appearance);
   noteArt(m.art);
   setMarks(m.state);
   store.update({ state: m.state, denied: null });
@@ -30,6 +32,7 @@ conn.on('state', (m) => {
   const v = m.state.library?.builtAt;
   if (lastLibVersion !== null && v !== lastLibVersion) clearFetchCache();
   lastLibVersion = v;
+  applyAppearance(m.state.settings?.appearance);
   setMarks(m.state);
   store.update({ state: m.state });
 });

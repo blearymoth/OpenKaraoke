@@ -13,6 +13,7 @@ import { Photos } from './photos.js';
 import { Settings } from './settings.js';
 import { Games } from './games.js';
 import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
+import { followAppearance } from '../lib/theme.js';
 
 // [path, icon, label, class]. Phones show a bottom bar with room for six tabs: the
 // 'desktop-only' pages are listed on the "More" page there instead.
@@ -42,12 +43,26 @@ function navBadge(path, state) {
   return n ? html`<span class="badge neon">${n}</span>` : null;
 }
 
+/** Whether a media query matches, following changes (window resized, phone rotated). */
+function useMedia(query) {
+  const [on, setOn] = useState(() => matchMedia(query).matches);
+  useEffect(() => {
+    const mq = matchMedia(query);
+    const update = () => setOn(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, [query]);
+  return on;
+}
+
 const searchStore = { q: new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '' };
 
 function TopBar({ route }) {
   const { state, status } = useStore(store);
   const [q, setQ] = useState(searchStore.q);
   const input = useRef(null);
+  const narrow = useMedia('(max-width: 900px)'); // phones: a short placeholder, no keyboard shortcut
   useEffect(() => {
     const focus = () => input.current?.focus();
     document.addEventListener('ok:focus-search', focus);
@@ -63,10 +78,10 @@ function TopBar({ route }) {
   };
   const lib = state.library;
   return html`<header class="topbar">
-    <a class="brand" href="#/"><img src="/img/icon.svg" alt="" /><span>OpenKaraoke</span></a>
+    <a class="brand" href="#/" aria-label="OpenKaraoke home"><img src="/img/icon.svg" alt="" /><span>OpenKaraoke</span></a>
     <label class="search-box">
       <${Icon} name="search" size=${18} />
-      <input ref=${input} type="search" placeholder="Search songs or artists  ( / )" value=${q} aria-label="Search songs or artists"
+      <input ref=${input} type="search" placeholder=${narrow ? 'Song or artist' : 'Search songs or artists  ( / )'} value=${q} aria-label="Search songs or artists"
         onInput=${(e) => onInput(e.currentTarget.value)} onKeyDown=${(e) => { if (e.key === 'Escape') { onInput(''); e.currentTarget.blur(); } }} />
     </label>
     <div class="top-right">
@@ -137,6 +152,7 @@ function PinScreen({ reason }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => followAppearance(), []); // no party state here to carry a skin switch
   if (reason !== 'pin_required') {
     return html`<div class="gate"><div class="gate-card">
       <img src="/img/icon.svg" alt="" width="64" height="64" />
@@ -171,10 +187,6 @@ function PinScreen({ reason }) {
 function App() {
   const s = useStore(store);
   const route = useHashRoute();
-  useEffect(() => {
-    const accent = s.state?.settings?.display?.accent;
-    if (accent) document.documentElement.style.setProperty('--neon', accent);
-  }, [s.state?.settings?.display?.accent]);
   if (s.denied) return html`<${PinScreen} reason=${s.denied} />`;
   if (!s.state) return html`<div class="gate"><${Spinner} /><p class="muted">Connecting to OpenKaraoke…</p></div>`;
   return html`<div class="app">

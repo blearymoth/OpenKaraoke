@@ -35,10 +35,209 @@
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
+/* ---- skins ----------------------------------------------------------------------
+   Every rule in the app's CSS is shared by the two skins; only the tokens below differ
+   (plus a few Studio-only rules, scoped :root:not([data-theme="party"]) and marked "Studio:",
+   next to the rule they adjust — grep for 'not([data-theme="party"])').
+   - Studio (default): :root, also without a data-theme attribute, and [data-theme="studio"].
+   - Party: [data-theme="party"] — a dim karaoke bar lit by one neon sign and marquee bulbs.
+   The server writes data-theme on <html> of every page it serves (no flash of the other skin)
+   and the apps switch it live (js/lib/theme.js, setting appearance.theme). A [data-theme]
+   element inside a page previews that skin in its subtree (Settings → Appearance).
+   Names: --neon is the accent (appearance.accent overrides it inline on <html>, with
+   --neon-ink for text on it); --bulb the second highlight (room codes, "up next", warnings);
+   --night → --stage → --stage-2 → --stage-3 surfaces from the page up; --ink, --ink-2, --ink-3
+   text; --line* borders; --*-rgb colour channels for translucent tints, used as
+   rgba(var(--night-rgb), 0.9). Both skin blocks define the same tokens, in the same order
+   (test/themes.test.js checks that, and pins Party to the values it always had).
+   Shared literals: black shadows for depth and legibility, white (slider thumbs, needles,
+   photo prints, the Wi-Fi QR code), black behind videos and lyrics. */
+
 :root {
+  --font-ui: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+:root, [data-theme="studio"] {
   color-scheme: dark;
-  /* palette: a dim karaoke bar lit by one neon sign and a row of marquee bulbs */
+  /* surfaces, lines, text: midnight navy, one step lighter per layer */
+  --night: #0a1120;
+  --night-rgb: 10, 17, 32;
+  --stage: #101a2d;
+  --stage-2: #16223a;
+  --stage-3: #22304a;
+  --line: rgba(148, 172, 214, 0.11);
+  --line-strong: rgba(148, 172, 214, 0.2);
+  --ink: #e8eef7;
+  --ink-2: #a9b6ca;
+  --ink-3: #94a3b9;
+  /* the accent (cool teal) and the second highlight (champagne gold, kept for people and moments) */
+  --neon: #2fd3c6;
+  --neon-ink: #03191b;
+  --neon-soft: color-mix(in srgb, var(--neon) 15%, transparent);
+  --neon-hover: color-mix(in srgb, var(--neon) 86%, #fff);
+  --neon-end: color-mix(in srgb, var(--neon) 55%, #74a6ef); /* where accent gradients end: teal into sky blue */
+  --bulb: #e8c07a;
+  --bulb-rgb: 232, 192, 122;
+  --bulb-soft: rgba(148, 172, 214, 0.1); /* behind gold highlights: a lighter navy, not a gold tint (gold over navy turns grey); the gold is in the border or text */
+  --bulb-ink: #241800;
+  --bulb-ink-2: #4f3a08;
+  /* status */
+  --ok: #82d67a;
+  --ok-rgb: 130, 214, 122;
+  --ok-bg: #0f3127;
+  --ok-bg-ink: #d3f6e4;
+  --bad: #f4757e;
+  --bad-rgb: 244, 117, 126;
+  --bad-bg: #3a1a26;
+  --bad-bg-ink: #ffd8dc;
+  --bad-pill-ink: #ffc4ca;
+  --bad-panel: rgba(58, 26, 38, 0.95);
+  --danger-ink: #ff9ea6;
+  --warn-bg: #332611;
+  --warn-bg-ink: #f6e2b8;
+  /* dark tints behind dialogs, sheets and TV overlays */
+  --shade-rgb: 4, 8, 16;
+  --deep-rgb: 6, 10, 19;
+  --overlay-rgb: 9, 14, 26;
+  /* type, shape, depth */
+  --font-display: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-card: 14px; /* cards on phones and in games */
+  --r-pill: 10px; /* buttons, chips, search boxes, segmented controls */
+  --tv-display-weight: 800; /* the big TV headings (.tv .display): heavy enough to read across a room */
+  --tv-display-tracking: -0.02em;
+  --kicker-case: uppercase; /* the small gold labels above TV headings ("NEXT SINGER", "UP NEXT"): */
+  --kicker-tracking: 0.08em; /* tracked capitals, like a broadcast lower third */
+  --glow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 1px 2px rgba(0, 0, 0, 0.45), 0 4px 12px -6px rgba(0, 0, 0, 0.6); /* raised accent buttons: a machined top edge, no coloured glow */
+  --raise: inset 0 1px 0 rgba(255, 255, 255, 0.05); /* the same top edge, faint, on ordinary buttons */
+  --switch-knob-on: var(--neon-ink); /* the knob of a switch that is on: dark on the light accent */
+  --halo: 0.3; /* 0–1: coloured glow around big avatars and vote cards */
+  --avatar-veil: linear-gradient(rgba(var(--night-rgb), 0.18), rgba(var(--night-rgb), 0.18)); /* tones down singers’ colours */
+  --avatar-tbd: #2a3852;
+  /* singers' colours: the guest picks one of ten (shared/protocol.js COLORS, stored as Party's
+     hex); each skin draws them its own way. Studio: the wheel's pastels and cobalt, no neon pink */
+  --singer-1: #f08f83;
+  --singer-2: #ebbc69;
+  --singer-3: #6dd5b3;
+  --singer-4: #74a6ef;
+  --singer-5: #2263b1;
+  --singer-6: #f2a26a;
+  --singer-7: #83d186;
+  --singer-8: #c2cd6f;
+  --singer-9: #4ad1d1;
+  --singer-10: #6ac5e8;
+  /* QR codes and the frame around them */
+  --paper: #ffffff;
+  --paper-ink: #0a1120;
+  --qr-dark: #0a1120;
+  --qr-light: #ffffff;
+  --marquee-bg: #ffffff;
+  --marquee-ring: 0.22; /* a thin champagne ring around the white card, like the room code beside it */
+  --marquee-frame: var(--bulb);
+  --marquee-edge: rgba(var(--bulb-rgb), 0.2);
+  --marquee-glow: 0 18px 50px -16px rgba(0, 0, 0, 0.75);
+  --marquee-bulb: transparent;
+  --marquee-bulb-halo: transparent;
+  --marquee-bulbs: none;
+  /* the app icon, drawn in place of every <img src="/img/icon.svg">; normal = that original */
+  --app-icon: url('/img/icon-studio.svg');
+  /* landing page, host, guest */
+  --landing-bg: radial-gradient(1200px 600px at 15% -10%, #15284a 0%, transparent 60%), radial-gradient(900px 500px at 110% 110%, #0b2a35 0%, transparent 55%), var(--night);
+  --landing-join-bg: linear-gradient(180deg, var(--stage-2), var(--stage));
+  --hero-bg: linear-gradient(135deg, color-mix(in srgb, var(--neon) 9%, #182844), var(--stage) 70%);
+  --guest-bg: radial-gradient(120% 50% at 50% -10%, #16284a 0%, transparent 60%), var(--night);
+  --alert-bg: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--neon) 24%, var(--night)), var(--night) 75%);
+  --glow-banner: 0 10px 24px -12px rgba(0, 0, 0, 0.75);
+  /* TV */
+  --tv-bg: #050a14;
+  --tv-rgb: 5, 10, 20;
+  --aurora-bg: radial-gradient(120vh 80vh at 50% 120%, #10243f, transparent 70%), var(--night);
+  --aurora-1: #10606a;
+  --aurora-2: #1b3768;
+  --aurora-3: #2d3f80;
+  --aurora-opacity: 0.45;
+  --aurora-3-opacity: 0.25;
+  --art-bg-filter: blur(7vh) saturate(1) brightness(0.4); /* covers at full colour. Every picture behind TV text (covers, */
+  --art-scrim: 0.65; /* artist photos, guests' photos) is dimmed to brightness 0.4, then darkened by this scrim at its */
+  --fanart-filter: brightness(0.4) saturate(0.95); /* centre (edges: 0.72), so ink-2 text keeps 7:1 (the TV's target) */
+  --photo-filter: brightness(0.4); /* even over a white patch; a guest's new photo still shows bright first, in its frame */
+  --mosaic-opacity: 0.26;
+  --mosaic-filter: saturate(0.75);
+  --corner-qr-bg: rgba(255, 255, 255, 0.96);
+  --progress-fill: linear-gradient(90deg, var(--neon), var(--neon-end));
+  --progress-glow: 0 0 1vh color-mix(in srgb, var(--neon) 40%, transparent);
+  --glow-text-bulb: none;
+  --glow-upnext: 0 1.5vh 4vh rgba(0, 0, 0, 0.5);
+  --glow-announce: 0 3vh 8vh -2vh rgba(0, 0, 0, 0.65);
+  --announce-scrim: 0.74; /* how much the screen behind an announcement is darkened (0–1), */
+  --announce-blur: blur(0.9vh); /* and blurred, so lyric lines do not peek out around the card */
+  /* games */
+  --answer-1: #78071e; /* quiz and poll answers: white text on each (the sub-label too, at 85% on phones), and */
+  --answer-2: #2e409c; /* four lightness steps, L* 24 / 31 / 43 / 37, so they also differ in grey */
+  --answer-3: #895e10;
+  --answer-4: #026448;
+  --confetti-1: var(--neon);
+  --confetti-2: var(--bulb);
+  --confetti-3: #74a6ef;
+  --confetti-4: #e8eef7;
+  --confetti-5: #b59be6;
+  --confetti-6: #f08f83;
+  --podium-gold: linear-gradient(180deg, var(--bulb), #a77a2c);
+  --meter-lo: #82d67a;
+  --meter-mid: #e8c07a;
+  --meter-hi: #f4757e;
+  --meter-gradient: linear-gradient(90deg, var(--meter-lo), var(--meter-mid) 55%, var(--meter-hi));
+  --glow-gauge: none;
+  --glow-text-gauge: none;
+  --glow-text-count: none;
+  --glow-text-vs: none;
+  --glow-bracket: 0 0 0 0.4vh var(--neon-soft);
+  --glow-badge: 0 1.5vh 4vh rgba(0, 0, 0, 0.5);
+  --glow-flash: 0 2vh 6vh rgba(0, 0, 0, 0.55);
+  --quiz-bg: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--neon) 9%, transparent), transparent 60%), var(--night);
+  --eq-helium: linear-gradient(0deg, #6ac5e8, #9d99ed);
+  --wheel-rim: #0e1729;
+  --wheel-rim-stroke: #2a3852;
+  --wheel-divider: rgba(5, 10, 20, 0.35);
+  --wheel-bulb-on: #e8eef7;
+  --wheel-bulb-odd: #7d8ca6;
+  --wheel-bulb-off: #2a3852;
+  --wheel-hub-bg: radial-gradient(circle at 35% 30%, #2c3c5c, #0e1729 70%);
+  --wheel-hub-border: #2a3852;
+  --wheel-1: #1e579e; /* cobalt, the one dark segment (white label 7.2:1): the first one meets every other on some wheel size (the last wraps round to it) */
+  --wheel-2: #4ad1d1;
+  --wheel-3: #ebbc69;
+  --wheel-4: #b59be6;
+  --wheel-5: #83d186;
+  --wheel-6: #74a6ef;
+  --wheel-7: #f08f83;
+  --wheel-8: #c2cd6f;
+  --wheel-9: #6ac5e8;
+  --wheel-10: #f2a26a;
+  --wheel-11: #6dd5b3;
+  --wheel-12: #9d99ed;
+  --wheel-ink-1: #ffffff;
+  --wheel-ink-2: #0a1120;
+  --wheel-ink-3: #0a1120;
+  --wheel-ink-4: #0a1120;
+  --wheel-ink-5: #0a1120;
+  --wheel-ink-6: #0a1120;
+  --wheel-ink-7: #0a1120;
+  --wheel-ink-8: #0a1120;
+  --wheel-ink-9: #0a1120;
+  --wheel-ink-10: #0a1120;
+  --wheel-ink-11: #0a1120;
+  --wheel-ink-12: #0a1120;
+}
+
+[data-theme="party"] {
+  color-scheme: dark;
+  /* surfaces, lines, text: night-club purple */
   --night: #150f26;
+  --night-rgb: 21, 15, 38;
   --stage: #1d1535;
   --stage-2: #271d45;
   --stage-3: #33275a;
@@ -47,22 +246,164 @@
   --ink: #f6f1ff;
   --ink-2: #b6aad8;
   --ink-3: #8174a8;
-  --neon: #ff3d8b; /* overridden by settings.display.accent */
+  /* the accent (a neon sign) and the second highlight (marquee bulbs) */
+  --neon: #ff3d8b;
   --neon-ink: #fff;
   --neon-soft: color-mix(in srgb, var(--neon) 18%, transparent);
+  --neon-hover: color-mix(in srgb, var(--neon) 88%, #fff);
+  --neon-end: var(--bulb); /* where accent gradients end: neon into marquee gold */
   --bulb: #ffc94a;
+  --bulb-rgb: 255, 201, 74;
   --bulb-soft: rgba(255, 201, 74, 0.16);
+  --bulb-ink: #2a1a00;
+  --bulb-ink-2: #5a3f00;
+  /* status */
   --ok: #45e2a6;
+  --ok-rgb: 69, 226, 166;
+  --ok-bg: #123d31;
+  --ok-bg-ink: #d4ffee;
   --bad: #ff6262;
-
+  --bad-rgb: 255, 98, 98;
+  --bad-bg: #4a1729;
+  --bad-bg-ink: #ffd9e2;
+  --bad-pill-ink: #ffc2d0;
+  --bad-panel: rgba(74, 23, 41, 0.95);
+  --danger-ink: #ff9aa8;
+  --warn-bg: #3a2412;
+  --warn-bg-ink: #ffe2b0;
+  /* dark tints behind dialogs, sheets and TV overlays */
+  --shade-rgb: 8, 5, 18;
+  --deep-rgb: 10, 6, 22;
+  --overlay-rgb: 14, 11, 22;
+  /* type, shape, depth */
   --font-display: 'Bricolage', 'Figtree', system-ui, sans-serif;
-  --font-ui: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-
   --r-sm: 8px;
   --r-md: 12px;
   --r-lg: 18px;
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --r-card: 16px;
+  --r-pill: 999px;
+  --tv-display-weight: 800;
+  --tv-display-tracking: -0.015em;
+  --kicker-case: none;
+  --kicker-tracking: normal;
   --glow: 0 0 0 1px color-mix(in srgb, var(--neon) 60%, transparent), 0 8px 28px -8px color-mix(in srgb, var(--neon) 70%, transparent);
+  --raise: none;
+  --switch-knob-on: #fff;
+  --halo: 1;
+  --avatar-veil: none;
+  --avatar-tbd: #3a2f5c;
+  --singer-1: #ff3d8b;
+  --singer-2: #ffc94a;
+  --singer-3: #45e2a6;
+  --singer-4: #4cc3ff;
+  --singer-5: #b388ff;
+  --singer-6: #ff8a3d;
+  --singer-7: #7cf05a;
+  --singer-8: #ff6262;
+  --singer-9: #3de0d0;
+  --singer-10: #f06bff;
+  /* QR codes and the marquee-light frame around them */
+  --paper: #fff8e6;
+  --paper-ink: #1b1230;
+  --qr-dark: #1b1230;
+  --qr-light: #fff8e6;
+  --marquee-bg: #fff8e6;
+  --marquee-ring: 1.6;
+  --marquee-frame: #2b1d10;
+  --marquee-edge: #4a3419;
+  --marquee-glow: 0 20px 60px -10px rgba(255, 201, 74, 0.35);
+  --marquee-bulb: var(--bulb);
+  --marquee-bulb-halo: rgba(255, 201, 74, 0.35);
+  --marquee-bulbs: block;
+  /* the app icon, drawn in place of every <img src="/img/icon.svg">; normal = that original */
+  --app-icon: normal;
+  /* landing page, host, guest */
+  --landing-bg: radial-gradient(1200px 600px at 15% -10%, #2c1c52 0%, transparent 60%), radial-gradient(900px 500px at 110% 110%, #3a1233 0%, transparent 55%), var(--night);
+  --landing-join-bg: linear-gradient(180deg, #2a1d20, var(--stage));
+  --hero-bg: linear-gradient(135deg, #2c1a52, var(--stage));
+  --guest-bg: radial-gradient(120% 50% at 50% -10%, #34185f 0%, transparent 60%), var(--night);
+  --alert-bg: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--neon) 60%, var(--night)), var(--night) 75%);
+  --glow-banner: 0 10px 30px -10px rgba(255, 201, 74, 0.6);
+  /* TV */
+  --tv-bg: #07040f;
+  --tv-rgb: 7, 4, 15;
+  --aurora-bg: radial-gradient(120vh 80vh at 50% 120%, #2b1150, transparent 70%), var(--night);
+  --aurora-1: #ff3d8b;
+  --aurora-2: #5b2bd6;
+  --aurora-3: #ffc94a;
+  --aurora-opacity: 0.55;
+  --aurora-3-opacity: 0.28;
+  --art-bg-filter: blur(7vh) saturate(1.35) brightness(0.5);
+  --art-scrim: 0.25;
+  --fanart-filter: brightness(0.62) saturate(1.1);
+  --photo-filter: brightness(0.6);
+  --mosaic-opacity: 0.38;
+  --mosaic-filter: none;
+  --corner-qr-bg: rgba(255, 248, 230, 0.96);
+  --progress-fill: linear-gradient(90deg, var(--neon), #ff8fbd);
+  --progress-glow: 0 0 1.5vh var(--neon);
+  --glow-text-bulb: 0 0 3vh rgba(255, 201, 74, 0.45);
+  --glow-upnext: 0 0 4vh rgba(255, 201, 74, 0.3);
+  --glow-announce: 0 0 8vh color-mix(in srgb, var(--neon) 55%, transparent);
+  --announce-scrim: 0.55;
+  --announce-blur: none;
+  /* games */
+  --answer-1: #e21b3c;
+  --answer-2: #1368ce;
+  --answer-3: #d89e00;
+  --answer-4: #26890c;
+  --confetti-1: #ff3d8b;
+  --confetti-2: #ffc94a;
+  --confetti-3: #45e2a6;
+  --confetti-4: #4cc3ff;
+  --confetti-5: #b388ff;
+  --confetti-6: #fff;
+  --podium-gold: linear-gradient(180deg, var(--bulb), #a1700d);
+  --meter-lo: #45e2a6;
+  --meter-mid: #ffc94a;
+  --meter-hi: #ff3d8b;
+  --meter-gradient: linear-gradient(90deg, var(--meter-lo), var(--meter-mid) 55%, var(--meter-hi));
+  --glow-gauge: drop-shadow(0 0 4px rgba(255, 61, 139, 0.45));
+  --glow-text-gauge: 0 0 4vh rgba(255, 61, 139, 0.5);
+  --glow-text-count: 0 0 6vh rgba(255, 201, 74, 0.5);
+  --glow-text-vs: 0 0 4vh var(--neon), 0 0 10vh color-mix(in srgb, var(--neon) 50%, transparent);
+  --glow-bracket: 0 0 0 0.4vh var(--neon-soft), 0 0 3vh color-mix(in srgb, var(--neon) 40%, transparent);
+  --glow-badge: 0 0 4vh color-mix(in srgb, var(--neon) 35%, transparent);
+  --glow-flash: 0 0 10vh color-mix(in srgb, var(--neon) 45%, transparent);
+  --quiz-bg: radial-gradient(120% 90% at 50% 0%, rgba(255, 61, 139, 0.14), transparent 60%), var(--night);
+  --eq-helium: linear-gradient(0deg, #4cc3ff, #b388ff);
+  --wheel-rim: #1a1030;
+  --wheel-rim-stroke: var(--bulb);
+  --wheel-divider: rgba(10, 4, 24, 0.35);
+  --wheel-bulb-on: #fff6d6;
+  --wheel-bulb-odd: var(--bulb);
+  --wheel-bulb-off: #5b4a1a;
+  --wheel-hub-bg: radial-gradient(circle at 35% 30%, #5a4790, #1d1535 70%);
+  --wheel-hub-border: var(--bulb);
+  --wheel-1: #ff3d8b;
+  --wheel-2: #ffc94a;
+  --wheel-3: #45e2a6;
+  --wheel-4: #4cc3ff;
+  --wheel-5: #b388ff;
+  --wheel-6: #ff8a3d;
+  --wheel-7: #7cf05a;
+  --wheel-8: #ff6262;
+  --wheel-9: #3de0d0;
+  --wheel-10: #f06bff;
+  --wheel-11: #ffe066;
+  --wheel-12: #5c7cff;
+  --wheel-ink-1: #fff;
+  --wheel-ink-2: #111;
+  --wheel-ink-3: #111;
+  --wheel-ink-4: #111;
+  --wheel-ink-5: #111;
+  --wheel-ink-6: #111;
+  --wheel-ink-7: #111;
+  --wheel-ink-8: #fff;
+  --wheel-ink-9: #111;
+  --wheel-ink-10: #111;
+  --wheel-ink-11: #111;
+  --wheel-ink-12: #fff;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -76,6 +417,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 img, svg, canvas, video { display: block; max-width: 100%; }
+img[src="/img/icon.svg"] { content: var(--app-icon); } /* the skin's own app icon (header, PIN, lobby, placeholders) */
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: inherit; }
 h1, h2, h3, h4 { margin: 0; font-family: var(--font-display); font-weight: 700; line-height: 1.1; letter-spacing: -0.01em; }
@@ -83,6 +425,7 @@ p { margin: 0; }
 [hidden] { display: none !important; }
 
 :focus-visible { outline: 2px solid var(--neon); outline-offset: 2px; }
+:root:not([data-theme="party"]) ::selection { background: color-mix(in srgb, var(--neon) 34%, transparent); color: var(--ink); } /* Studio: selected text in the accent, not the browser's blue */
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -101,19 +444,22 @@ p { margin: 0; }
   --btn-ink: var(--ink);
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: 40px; padding: 0 16px;
-  border: 1px solid var(--line); border-radius: 999px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
   background: var(--btn-bg); color: var(--btn-ink);
   font-weight: 650; font-size: 14px; white-space: nowrap;
   cursor: pointer; user-select: none; text-decoration: none;
+  box-shadow: var(--raise);
   transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
 }
 .btn:hover { --btn-bg: var(--stage-3); border-color: var(--line-strong); }
 .btn:active { transform: translateY(1px); }
 .btn:disabled, .btn[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; transform: none; }
 .btn.primary { --btn-bg: var(--neon); --btn-ink: var(--neon-ink); border-color: transparent; box-shadow: var(--glow); }
-.btn.primary:hover { --btn-bg: color-mix(in srgb, var(--neon) 88%, #fff); }
-.btn.bulb { --btn-bg: var(--bulb); --btn-ink: #2a1a00; border-color: transparent; }
-.btn.ghost { --btn-bg: transparent; border-color: transparent; }
+.btn.primary:hover { --btn-bg: var(--neon-hover); }
+/* Studio: a disabled accent button goes neutral (a see-through accent still looks half-enabled) */
+:root:not([data-theme="party"]) .btn:is(.primary, .bulb):is(:disabled, [aria-disabled='true']) { --btn-bg: var(--stage-3); --btn-ink: var(--ink-3); border-color: var(--line); box-shadow: none; opacity: 1; }
+.btn.bulb { --btn-bg: var(--bulb); --btn-ink: var(--bulb-ink); border-color: transparent; }
+.btn.ghost { --btn-bg: transparent; border-color: transparent; box-shadow: none; }
 .btn.ghost:hover { --btn-bg: var(--stage-2); }
 .btn.danger { --btn-ink: var(--bad); }
 .btn.small { min-height: 32px; padding: 0 12px; font-size: 13px; }
@@ -154,7 +500,7 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
 .switch span { position: absolute; inset: 0; border-radius: 99px; background: var(--stage-3); transition: background 0.15s; pointer-events: none; }
 .switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.18s var(--ease); }
 .switch input:checked + span { background: var(--neon); }
-.switch input:checked + span::after { transform: translateX(18px); }
+.switch input:checked + span::after { transform: translateX(18px); background: var(--switch-knob-on); }
 .switch input:focus-visible + span { outline: 2px solid var(--neon); outline-offset: 2px; }
 
 /* ---- small pieces ---------------------------------------------------------- */
@@ -162,7 +508,7 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
 .chip {
   display: inline-flex; align-items: center; gap: 6px;
   min-height: 32px; padding: 0 12px;
-  border: 1px solid var(--line); border-radius: 999px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
   background: var(--stage); color: var(--ink-2);
   font-size: 13px; font-weight: 600; white-space: nowrap;
   cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -177,7 +523,7 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
   font-size: 11px; font-weight: 800; line-height: 1;
 }
 .badge.neon { background: var(--neon); color: var(--neon-ink); }
-.badge.bulb { background: var(--bulb); color: #2a1a00; }
+.badge.bulb { background: var(--bulb); color: var(--bulb-ink); }
 .tag-e {
   display: inline-grid; place-items: center; width: 16px; height: 16px; flex: none;
   border-radius: 4px; background: var(--ink-3); color: var(--night);
@@ -194,7 +540,7 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
 .avatar {
   display: inline-grid; place-items: center; flex: none;
   width: 32px; height: 32px; border-radius: 50%;
-  background: var(--avatar, var(--stage-3)); font-size: 17px; line-height: 1;
+  background: var(--avatar-veil) var(--avatar, var(--stage-3)); font-size: 17px; line-height: 1;
 }
 
 .muted { color: var(--ink-2); }
@@ -231,15 +577,15 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
   box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.6);
   font-weight: 600; animation: toast-in 0.25s var(--ease);
 }
-.toast.error { background: #4a1729; color: #ffd9e2; }
-.toast.ok { background: #123d31; color: #d4ffee; }
+.toast.error { background: var(--bad-bg); color: var(--bad-bg-ink); }
+.toast.ok { background: var(--ok-bg); color: var(--ok-bg-ink); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } }
 
 /* ---- dialogs ------------------------------------------------------------------ */
 
 .scrim {
   position: fixed; inset: 0; z-index: 900;
-  background: rgba(8, 5, 18, 0.66); backdrop-filter: blur(3px);
+  background: rgba(var(--shade-rgb), 0.66); backdrop-filter: blur(3px);
   display: grid; place-items: center; padding: 20px;
   animation: fade-in 0.15s ease;
 }
@@ -272,16 +618,17 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
   --gap: 18px;
   position: relative; padding: calc(var(--bulb-size) * 2.4);
   border-radius: 22px;
-  background: #fff8e6;
-  box-shadow: 0 0 0 calc(var(--bulb-size) * 1.6) #2b1d10, 0 0 0 calc(var(--bulb-size) * 1.6 + 2px) #4a3419, 0 20px 60px -10px rgba(255, 201, 74, 0.35);
+  background: var(--marquee-bg);
+  box-shadow: 0 0 0 calc(var(--bulb-size) * var(--marquee-ring)) var(--marquee-frame), 0 0 0 calc(var(--bulb-size) * var(--marquee-ring) + 2px) var(--marquee-edge), var(--marquee-glow);
 }
 .marquee::before {
   content: '';
+  display: var(--marquee-bulbs);
   position: absolute; inset: calc(var(--bulb-size) * -1.3);
   border-radius: 28px; pointer-events: none;
   padding: 0;
   background:
-    radial-gradient(circle, var(--bulb) 0 calc(var(--bulb-size) / 2 - 1px), rgba(255, 201, 74, 0.35) calc(var(--bulb-size) / 2), transparent calc(var(--bulb-size) / 2 + 3px)) 0 0 / var(--gap) var(--gap) round;
+    radial-gradient(circle, var(--marquee-bulb) 0 calc(var(--bulb-size) / 2 - 1px), var(--marquee-bulb-halo) calc(var(--bulb-size) / 2), transparent calc(var(--bulb-size) / 2 + 3px)) 0 0 / var(--gap) var(--gap) round;
   -webkit-mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
   padding: var(--bulb-size);
@@ -297,3 +644,9 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
 /* "Sung tonight" / "In queue" marks next to song titles */
 .tag-mark { display: inline-flex; align-items: center; margin-left: 4px; padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 700; vertical-align: middle; background: var(--stage-3); color: var(--ink-2); white-space: nowrap; }
 .tag-mark.queued { background: var(--neon-soft); color: var(--ink); }
+
+/* ---- Studio: game colours on the page ------------------------------------------------
+   Studio's answer colours are deep, for white labels on the tiles; the shapes and bars that
+   vote counts draw straight on the dark page use a lighter tint of them so they stay visible. */
+:root:not([data-theme="party"]) :is(.g-votebar, .bt-split-row) .shape { color: color-mix(in srgb, var(--answer) 55%, #fff); }
+:root:not([data-theme="party"]) :is(.g-votebar, .bt-split-row) .bar i { background: color-mix(in srgb, var(--answer) 65%, #fff); }

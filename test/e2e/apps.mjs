@@ -215,6 +215,26 @@ try {
   const historyFit = await fits();
   check(historyFit.wide <= 0 && historyFit.buttons > 0 && historyFit.onScreen, `History page fits a 360 px phone (${JSON.stringify(historyFit)})`);
   await shot(hostPhone, 'host-phone-history');
+
+  // a denial that arrives right after the first render is still shown (useStore used to
+  // subscribe after paint and miss it, leaving the page on "Connecting…")
+  const denials = [
+    ['host', '/host', 'pin_required', '.pin-input'],
+    ['guest', `/j/${code}`, 'banned', '.g-gate h1'],
+    ['tv', '/tv?fullscreen=0', 'rate_limited', '.denied h2'],
+  ];
+  const shown = await Promise.all([...denials, ...denials].map(async ([name, url, reason, sel]) => {
+    const page = watch(await browser.newPage({ viewport: { width: 390, height: 844 } }), `denied-${name}`);
+    await page.routeWebSocket(/\/ws$/, (ws) => ws.onMessage((m) => {
+      if (JSON.parse(String(m)).t === 'hello') ws.send(JSON.stringify({ t: 'denied', reason }));
+    }));
+    await page.goto(`${base}${url}`);
+    const ok = await page.waitForSelector(sel, { timeout: 5000 }).then(() => true, () => false);
+    await page.close();
+    return ok ? null : name;
+  }));
+  const missed = shown.filter(Boolean);
+  check(missed.length === 0, `an immediate denial is shown by host, guest and TV${missed.length ? ` (missed: ${missed.join(', ')})` : ''}`);
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);
 } finally {

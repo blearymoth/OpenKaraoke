@@ -5,6 +5,7 @@ import { useStore, formatTime, artStore } from '../lib/store.js';
 import { Modal, Cover, Spinner, Stepper, useFetch, apiGet, copyText, SongBadges, go, clearFetchCache } from '../lib/components.js';
 import { store, act, closeDialog, openDialog, toast } from './state.js';
 import { PreviewButton, PreviewOutput } from './preview.js';
+import { qrSrc } from '../lib/theme.js';
 import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 
 function versionLabel(v) {
@@ -277,7 +278,7 @@ export function EditDialog({ entryId }) {
 export function InviteDialog() {
   const { state } = useStore(store);
   const info = state.info;
-  const qr = `/api/qr.svg?margin=0&dark=%231b1230&light=%23fff8e6&text=${encodeURIComponent(info.joinUrl)}`;
+  const qr = qrSrc(info.joinUrl);
   const wifi = state.settings.party.wifi;
   const printCard = () => {
     const w = window.open('', 'openkaraoke-card', 'width=800,height=1000');

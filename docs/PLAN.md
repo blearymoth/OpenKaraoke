@@ -157,6 +157,7 @@ server/
     router.js           ✅ tiny router: routes with :params, json/text helpers, body reader (size limit)
     static.js           ✅ static files (ETag, gzip for text, no path traversal), sendFile with Range
     api.js              ✅ JSON endpoints (§8)
+    shell.js            ✅ the current skin written into every HTML page (data-theme, theme-color)
     media.js            ✅ /media/:trackId/(audio|cdg|video), zip entries, content types, gzip CDG
   ws/hub.js             ✅ WebSocket transport (vendored ws), heartbeat, per-client send, rate limits
   room/
@@ -179,13 +180,14 @@ shared/
   text.js               ✅ normalisation, ids, distances
   cdg.js                ✅ isomorphic CDG decoder (browser renderer + server "lyrics frame" picker)
   protocol.js           ✅ shared constants shared by server and clients
+  themes.js             ✅ skins (Studio, Party): ids, names, appearance validation
   quiz.js wheel.js applause.js   ✅ game rules shared by the server and the TV/phones
 public/
   index.html            ✅ landing: links to Host / TV / Join + QR
   host.html tv.html guest.html   ✅ app shells (import maps not needed; import /js/... directly)
-  css/                  ✅ base.css (tokens, dark theme), host.css, tv.css, guest.css
+  css/                  ✅ base.css (skin tokens: Studio + Party), host.css, tv.css, guest.css
   js/vendor/            ✅ preact.js (Preact+hooks+htm), signalsmith-stretch.mjs
-  js/lib/               ✅ ws-client.js, store.js, components.js, icons.js, audio-engine.js, cdg-canvas.js
+  js/lib/               ✅ ws-client.js, store.js, components.js, icons.js, audio-engine.js, cdg-canvas.js, theme.js
   js/host/ js/tv/ js/guest/   ✅ views/components per app
   js/games/             ✅ one module per game: host Setup/Control, TV scene/overlay, phone view
   fonts/ img/           ✅ bundled OFL fonts (Bricolage Grotesque + Figtree), app icon
@@ -367,7 +369,7 @@ turn invitations off (`duet.invites`). Bans, singer removal and the song startin
 
 ```
 GET  /                         landing          GET /host  /tv  /j/:code  (/guest)  app shells
-GET  /api/info                 { name, roomCode, joinUrl, lanUrls, version, library status }
+GET  /api/info                 { name, roomCode, joinUrl, lanUrls, version, library status, appearance }
 GET  /api/search?q&limit&offset&tag&letter      { total, fuzzy, items: SongSummary[] }
 GET  /api/songs/:id            song detail (versions, meta, plays)
 GET  /api/artists?letter&q&limit&offset&sort    GET /api/artists/:key  { artist, songs }
@@ -534,6 +536,24 @@ Phones auto-join when they send an answer/vote; the host controls start/next/end
 ## 14. Settings reference
 The single source of truth is `DEFAULT_SETTINGS` in `server/config.js`; `Settings.update()`
 drops unknown keys and coerces types. Host UI renders forms for every group there.
+
+**Skins** — `appearance: { theme: 'studio' | 'party', accent: '' | '#rrggbb' }`, Settings →
+Appearance. Studio (default) is midnight navy with one cool teal accent (#2fd3c6) for anything
+pressable or live and champagne gold (#e8c07a) for people and moments — Figtree, small radii, no
+coloured glows, tracked-capital TV kickers, deep colour-blind-safe game colours, calm singer
+colours (a singer stores one of `COLORS`; `singerColor()` draws it as the skin's `--singer-N`);
+Party is the original neon look. `accent` overrides the skin's accent (`--neon`) in either skin; text on it (`--neon-ink`)
+is near-black or white, whichever has the higher WCAG contrast (a skin's own accent keeps its own
+`--neon-ink`). Unknown skin ids in an update are ignored. The server writes `data-theme`
+(+ the accent) into every HTML page it serves, so the first paint is right and a page cached
+under another skin is never reused (the skin is part of the ETag); host, TV and phones follow
+changes live through their state (`appearance`), screens without party state (landing page, PIN
+and can't-join screens) check `/api/info` every 2 s. All colours
+are CSS tokens per skin in `public/css/base.css` (`:root` = Studio, `[data-theme="party"]`);
+JS that needs a colour (QR codes) reads the token. The app icon follows the skin too: every
+`<img src="/img/icon.svg">` shows `--app-icon` (Studio: `img/icon-studio.svg`; Party: the
+original), and the favicon links and `/favicon.ico` point at the skin's icon. Settings saved before skins existed: a custom
+`display.accent` became `appearance.accent`, the old default pink was dropped.
 
 ## 15. Persistence (`data/`, git-ignored)
 `settings.json`, `secret.json`, `library.json` (catalog cache), `state.json` (party state),

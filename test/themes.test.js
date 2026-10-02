@@ -408,6 +408,7 @@ test('base.css: Party keeps its exact old values; Studio is readable', () => {
     assert.equal(party.get(`--wheel-ink-${i + 1}`), contrastText(c), `Party wheel label ${i + 1} as before`);
   });
   ['#e21b3c', '#1368ce', '#d89e00', '#26890c'].forEach((c, i) => assert.equal(party.get(`--answer-${i + 1}`), c, `Party answer ${i + 1}`));
+  assert.equal(party.get('--photo-filter'), 'brightness(0.6)', 'Party dims guests’ photos as main does');
   ['#ff3d8b', '#ffc94a', '#45e2a6', '#4cc3ff', '#b388ff', '#fff'].forEach((c, i) => assert.equal(party.get(`--confetti-${i + 1}`), c, `Party confetti ${i + 1}`));
   COLORS.forEach((c, i) => assert.equal(party.get(`--singer-${i + 1}`), c, `Party draws singer colour ${i + 1} as it is stored`));
 
@@ -422,7 +423,7 @@ test('base.css: Party keeps its exact old values; Studio is readable', () => {
   assert.ok(contrast(studio.get('--bulb-ink'), studio.get('--bulb')) >= 4.5, 'Studio text on the highlight');
   for (let i = 1; i <= 12; i++) {
     const c = studio.get(`--wheel-${i}`);
-    assert.ok(contrast(studio.get(`--wheel-ink-${i}`), c) >= 4.5, `Studio wheel label ${i} on ${c}`);
+    assert.ok(contrast(studio.get(`--wheel-ink-${i}`), c) >= 4.5, `Studio wheel label ${i} on ${c}`); // (7:1, below)
   }
   for (let i = 1; i <= 4; i++) {
     const c = studio.get(`--answer-${i}`);
@@ -431,13 +432,14 @@ test('base.css: Party keeps its exact old values; Studio is readable', () => {
   }
 });
 
-test('base.css: Studio TV text holds 7:1 (read across a room), even over a white cover or artist photo', () => {
+test('base.css: Studio TV text holds 7:1 (read across a room), even over a white cover or photo', async () => {
   const studio = skins.studio;
-  // The intro card and the lyrics sit on the song's cover (blurred) or the artist's photos, dimmed
-  // by the skin's filter, then darkened by the scrim (--art-scrim at the centre, 0.72 at the edges).
+  // The intro card and the lyrics sit on the song's cover (blurred) or the artist's photos, and with
+  // the TV background "photos" the lobby and the intro sit on guests' photos: each dimmed by the
+  // skin's filter, then darkened by the scrim (--art-scrim at the centre, 0.72 at the edges).
   const shade = studio.get('--shade-rgb').split(',').map(Number);
   const scrim = Number(studio.get('--art-scrim'));
-  for (const filter of ['--art-bg-filter', '--fanart-filter']) {
+  for (const filter of ['--art-bg-filter', '--fanart-filter', '--photo-filter']) {
     const brightness = Number(/brightness\(([\d.]+)\)/.exec(studio.get(filter))?.[1] ?? 1);
     const white = `#${shade.map((v) => Math.round(255 * brightness * (1 - scrim) + v * scrim).toString(16).padStart(2, '0')).join('')}`;
     for (const ink of ['--ink', '--ink-2', '--bulb']) {
@@ -453,6 +455,20 @@ test('base.css: Studio TV text holds 7:1 (read across a room), even over a white
     assert.ok(r >= (i === 3 ? 5.7 : 7), `Studio white on answer ${i} on the TV: ${r.toFixed(2)}`);
   }
   assert.ok(contrast(studio.get('--ink-2'), studio.get('--stage-2')) >= 7, 'Studio losing answers on the TV');
+  // The roulette wheel's labels (song titles, names, dares) on every segment, and after the spin:
+  // the winner keeps its colour (not lightened), the others turn into navy tiles (games/wheel.css).
+  for (let i = 1; i <= 12; i++) {
+    const r = contrast(studio.get(`--wheel-ink-${i}`), studio.get(`--wheel-${i}`));
+    assert.ok(r >= 7, `Studio wheel label ${i} on ${studio.get(`--wheel-${i}`)}: ${r.toFixed(2)}`);
+  }
+  const wheelCss = await fs.readFile(path.join(PUBLIC_DIR, 'css', 'games', 'wheel.css'), 'utf8');
+  const studioRule = (sel) => new RegExp(`^:root:not\\(\\[data-theme="party"\\]\\) ${sel.replace(/[.()[\]]/g, '\\$&')} \\{([^}]*)\\}`, 'm').exec(wheelCss)?.[1] ?? '';
+  const fillOf = (sel) => /fill: var\((--[\w-]+)\)/.exec(studioRule(sel))?.[1];
+  const loserTile = fillOf('.wheel.has-result .wheel-seg:not(.win) path');
+  const loserInk = fillOf('.wheel.has-result .wheel-seg:not(.win) text');
+  assert.ok(loserTile && loserInk, 'Studio draws the losing segments with skin tokens');
+  assert.ok(contrast(studio.get(loserInk), studio.get(loserTile)) >= 7, `Studio losing wheel labels (${loserInk} on ${loserTile}): ${contrast(studio.get(loserInk), studio.get(loserTile)).toFixed(2)}`);
+  assert.match(studioRule('.wheel.has-result .wheel-seg.win path'), /filter: none/, 'Studio does not lighten the winning segment');
 });
 
 test('singers’ colours: stored as one of COLORS, drawn by the skin', () => {

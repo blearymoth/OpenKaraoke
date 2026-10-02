@@ -14,9 +14,11 @@
 .wheel.has-result .wheel-seg:not(.win) path { opacity: 0.45; filter: saturate(0.6); }
 .wheel.has-result .wheel-seg:not(.win) text { opacity: 0.6; }
 .wheel.has-result .wheel-seg.win path { filter: brightness(1.12); }
-/* Studio: the other segments turn navy with light labels, rather than faded and unreadable */
+/* Studio: the other segments turn navy with light labels, rather than faded and unreadable, and the
+   winner keeps its own colour (lightened, cobalt's white label would drop below the TV's 7:1) */
 :root:not([data-theme="party"]) .wheel.has-result .wheel-seg:not(.win) path { opacity: 1; filter: none; fill: var(--stage-3); transition: fill 0.5s; }
-:root:not([data-theme="party"]) .wheel.has-result .wheel-seg:not(.win) text { opacity: 1; fill: var(--ink-2); }
+:root:not([data-theme="party"]) .wheel.has-result .wheel-seg:not(.win) text { opacity: 1; fill: var(--ink); }
+:root:not([data-theme="party"]) .wheel.has-result .wheel-seg.win path { filter: none; }
 .wheel-bulb { fill: var(--wheel-bulb-on); }
 .wheel-bulb.odd { fill: var(--wheel-bulb-odd); }
 .wheel.is-spinning .wheel-bulb { animation: wheel-bulbs 0.3s steps(1) infinite; }

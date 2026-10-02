@@ -220,7 +220,7 @@ body.preview .conn-lost, body.preview .corner-qr { display: none; }
 .break-now { position: absolute; right: 5vw; bottom: 3vh; font-size: 2.2vh; color: var(--ink-3); animation: tv-fade 1s var(--ease) both; }
 
 /* ---- guests' photos ---------------------------------------------------------------------- */
-.photo-bg { position: absolute; inset: 0; background-size: cover; background-position: center; filter: brightness(0.6); animation: kenburns 14s ease-in-out both, fanart-in 1.4s ease both; }
+.photo-bg { position: absolute; inset: 0; background-size: cover; background-position: center; filter: var(--photo-filter); animation: kenburns 14s ease-in-out both, fanart-in 1.4s ease both; }
 .photo-flash { position: absolute; left: 50%; top: 50%; z-index: 6; margin: 0; padding: 1.6vh 1.6vh 1vh; background: #fff; border-radius: 1vh; box-shadow: 0 3vh 8vh rgba(0, 0, 0, 0.7); transform: translate(-50%, -50%) rotate(-3deg); animation: photo-in 0.7s var(--ease) both, photo-out 0.6s ease 6.3s forwards; }
 .photo-flash img { max-width: 60vw; max-height: 62vh; object-fit: contain; border-radius: 0.4vh; }
 .photo-flash figcaption { margin-top: 1vh; text-align: center; font-size: 3vh; font-weight: 700; color: var(--paper-ink); }

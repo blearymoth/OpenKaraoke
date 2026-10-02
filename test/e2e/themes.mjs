@@ -68,10 +68,34 @@ const iconOf = (page, sel) => page.$eval(sel, (img) => {
 });
 const favicon = (page) => page.$eval('link[rel="icon"]', (l) => l.getAttribute('href'));
 const noSideways = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
-/** Visible text drawn in the given colour (Studio keeps TV text at ink-2 or brighter, to read across a room). */
+/** Visible text drawn in the given colour (Studio keeps TV text at ink-2 or brighter, to read across a room); SVG text by its fill. */
 const textIn = (page, color) => page.evaluate((c) => [...document.querySelectorAll('body *')]
-  .filter((el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && el.getBoundingClientRect().width > 0 && getComputedStyle(el).color === c)
-  .map((el) => `${el.className || el.tagName}: ${el.textContent.trim().slice(0, 24)}`), color);
+  .filter((el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && el.getBoundingClientRect().width > 0
+    && (el instanceof SVGElement ? getComputedStyle(el).fill : getComputedStyle(el).color) === c)
+  .map((el) => `${(el.className?.baseVal ?? el.className) || el.tagName}: ${el.textContent.trim().slice(0, 24)}`), color);
+/** WCAG contrast of two computed rgb() colours. */
+const contrastOf = (a, b) => {
+  const lum = (rgb) => {
+    const [r, g, bl] = rgb.match(/[\d.]+/g).slice(0, 3).map((v) => {
+      const x = Number(v) / 255;
+      return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+/** Studio: every label on the TV's wheel reads at 7:1 on its segment, drawn as is (no fading, no lightening). */
+const wheelLabels = async (page, what) => {
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || !(a instanceof CSSTransition)), null, { timeout: 3000 }).catch(() => {});
+  const segs = await page.$$eval('.wheel-tv .wheel-seg', (gs) => gs.map((g) => {
+    const p = getComputedStyle(g.querySelector('path'));
+    const t = getComputedStyle(g.querySelector('text'));
+    return { text: g.textContent.trim(), seg: p.fill, ink: t.fill, plain: p.filter === 'none' && p.opacity === '1' && t.opacity === '1' };
+  }));
+  const low = segs.filter((s) => !s.plain || contrastOf(s.ink, s.seg) < 7).map((s) => `${s.text} ${s.ink} on ${s.seg} ${contrastOf(s.ink, s.seg).toFixed(2)}${s.plain ? '' : ' (filtered)'}`);
+  check(segs.length > 0 && low.length === 0, `studio: ${what}: every wheel label at 7:1 or more${low.length ? `: ${low.join(' | ')}` : ''}`);
+};
 const faintTvText = async (page, what) => {
   const faint = await textIn(page, rgbOf(studioToken('--ink-3')));
   check(faint.length === 0, `studio: ${what} has no text in the faintest ink${faint.length ? `: ${faint.join(' | ')}` : ''}`);
@@ -295,6 +319,15 @@ try {
     if (skin === 'studio') await faintTvText(tv, 'TV intro');
     else check(await tv.$eval('.year-probe .year', (e) => getComputedStyle(e).color) === 'rgb(129, 116, 168)', 'party: the intro’s year keeps Party’s faint ink');
     await tv.evaluate(() => document.querySelector('.year-probe').remove());
+    // guests' photos as the TV background: dimmed like covers in Studio (7:1 for the lobby and intro text), as before in Party
+    const photoFilter = await tv.evaluate(() => {
+      const el = document.body.appendChild(Object.assign(document.createElement('div'), { className: 'photo-bg' }));
+      el.style.cssText = 'animation: none; visibility: hidden';
+      const f = getComputedStyle(el).filter;
+      el.remove();
+      return f;
+    });
+    check(photoFilter === (skin === 'party' ? 'brightness(0.6)' : studioToken('--photo-filter')), `${skin}: guests’ photos behind the TV text dimmed by the skin (${photoFilter})`);
   }
   await hostReq('player.play').catch(() => hostReq('player.resume'));
   await tv.waitForSelector('#cdg.show', { timeout: 15000 });
@@ -316,14 +349,26 @@ try {
   for (const skin of ['studio', 'party']) {
     await setSkin(skin, all());
     check(await segFill() === (skin === 'party' ? 'rgb(255, 61, 139)' : rgbOf(studioToken('--wheel-1'))), `${skin}: wheel segments use the skin’s palette`);
+    if (skin === 'studio') {
+      await wheelLabels(tv, 'TV wheel');
+      await faintTvText(tv, 'TV wheel');
+    }
     await shot(tv, `${skin}-tv-wheel`);
     await shot(guest, `${skin}-guest-wheel`);
     scrollChecks.push([`${skin}: guest wheel`, await noSideways(guest)]);
   }
   await hostReq('game.action', { action: 'spin' });
   await tv.waitForSelector('.wheel-reveal', { timeout: 15000 });
+  const winFilter = () => tv.$eval('.wheel-tv .wheel-seg.win path', (p) => getComputedStyle(p).filter);
   for (const skin of ['studio', 'party']) {
     await setSkin(skin, all());
+    if (skin === 'studio') {
+      await wheelLabels(tv, 'TV wheel result (winner and the navy segments)');
+      await faintTvText(tv, 'TV wheel result');
+    } else {
+      await tv.waitForFunction(() => getComputedStyle(document.querySelector('.wheel-tv .wheel-seg.win path')).filter === 'brightness(1.12)', null, { timeout: 3000 }).catch(() => {});
+      check(await winFilter() === 'brightness(1.12)', 'party: the winning segment lights up as before');
+    }
     await shot(tv, `${skin}-tv-wheel-result`);
   }
   await hostReq('game.end');

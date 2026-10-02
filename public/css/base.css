@@ -160,9 +160,10 @@
   --aurora-3: #2d3f80;
   --aurora-opacity: 0.45;
   --aurora-3-opacity: 0.25;
-  --art-bg-filter: blur(7vh) saturate(1) brightness(0.4); /* covers at full colour; brightness 0.4 here and for artist photos, */
-  --art-scrim: 0.65; /* with this darkening at the centre of the picture (edges: 0.72), keeps ink-2 text at 7:1 (the TV's */
-  --fanart-filter: brightness(0.4) saturate(0.95); /* target) even over a white cover or a white patch of an artist photo */
+  --art-bg-filter: blur(7vh) saturate(1) brightness(0.4); /* covers at full colour. Every picture behind TV text (covers, */
+  --art-scrim: 0.65; /* artist photos, guests' photos) is dimmed to brightness 0.4, then darkened by this scrim at its */
+  --fanart-filter: brightness(0.4) saturate(0.95); /* centre (edges: 0.72), so ink-2 text keeps 7:1 (the TV's target) */
+  --photo-filter: brightness(0.4); /* even over a white patch; a guest's new photo still shows bright first, in its frame */
   --mosaic-opacity: 0.26;
   --mosaic-filter: saturate(0.75);
   --corner-qr-bg: rgba(255, 255, 255, 0.96);
@@ -206,7 +207,7 @@
   --wheel-bulb-off: #2a3852;
   --wheel-hub-bg: radial-gradient(circle at 35% 30%, #2c3c5c, #0e1729 70%);
   --wheel-hub-border: #2a3852;
-  --wheel-1: #2263b1; /* cobalt, the one dark segment: the first one meets every other on some wheel size (the last wraps round to it) */
+  --wheel-1: #1e579e; /* cobalt, the one dark segment (white label 7.2:1): the first one meets every other on some wheel size (the last wraps round to it) */
   --wheel-2: #4ad1d1;
   --wheel-3: #ebbc69;
   --wheel-4: #b59be6;
@@ -335,6 +336,7 @@
   --art-bg-filter: blur(7vh) saturate(1.35) brightness(0.5);
   --art-scrim: 0.25;
   --fanart-filter: brightness(0.62) saturate(1.1);
+  --photo-filter: brightness(0.6);
   --mosaic-opacity: 0.38;
   --mosaic-filter: none;
   --corner-qr-bg: rgba(255, 248, 230, 0.96);

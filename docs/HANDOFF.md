@@ -186,12 +186,14 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   "next singer", stars, winners), Figtree throughout (TV headings stay 800 for the far side of the
   room), tracked-capital kickers on the TV ("NEXT SINGER", "UP NEXT"), smaller radii, a machined
   1px top edge on buttons instead of glows, a thin champagne ring around the join QR, calm
-  navy/teal TV aurora, covers and artist photos at full colour behind the intro, dimmed (brightness
-  0.4, a 0.65 centre scrim) so the TV's text holds 7:1 even over a white cover or photo, deep
+  navy/teal TV aurora, covers, artist photos and guests' photos (TV background "photos") at full
+  colour behind the TV text, dimmed (brightness 0.4, a 0.65 centre scrim) so it holds 7:1 even over
+  a white cover or photo (a guest's new photo still shows bright first, in its frame), deep
   game-show quiz colours (wine, royal blue, ochre, emerald — white labels and artist lines 7–11:1
   on the TV, 5.7:1 on ochre; on phones the artist line is at 85%, 4.6:1 or more; four lightness
   steps L* 24/31/37/43 so they differ in grey too, always with the ▲◆●■ shapes) and a 12-colour
-  wheel (cobalt first, then pastels; no pink, the two violet pastels are segments 4 and 12) ordered
+  wheel (cobalt first, then pastels, every label 7:1 or more; no pink, the two violet pastels are
+  segments 4 and 12) ordered
   so neighbouring segments stay apart for every kind of colour blindness
   (worst pair CIEDE2000 9.0; `test/themes.test.js` checks ≥ 8 for every wheel size, ≥ 10 and
   6 L* between answers, and no pink or purple in the singer colours, answers and first wheel
@@ -200,13 +202,14 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   never the faintest ink (`test/themes.test.js` checks the 7:1 cases, `test/e2e/themes.mjs` the
   TV screens). Disabled buttons go neutral grey, a switch that is
   on has a dark knob, the current bottom tab has a pill behind its icon, losing quiz answers and
-  wheel segments turn into quiet navy tiles (still readable) instead of fading, and "TV on" is a
+  wheel segments turn into quiet navy tiles (7:1 on the TV; the winning segment keeps its colour,
+  not lightened) instead of fading, and "TV on" is a
   neutral chip with a green light. App icon: navy tile with a teal mic and sound arcs
   (`public/img/icon-studio.svg`; Party keeps the pink one). Its values are the token block at the
   top of `public/css/base.css`; the few Studio-only rules are scoped
   `:root:not([data-theme="party"])` next to the rule they adjust (grep for it). New tokens
   (`--tv-display-*`, `--kicker-*`, `--raise`, `--switch-knob-on`, `--announce-*`, `--art-scrim`,
-  `--r-card`, `--singer-*`) carry Party's old values in the Party block.
+  `--photo-filter`, `--r-card`, `--singer-*`) carry Party's old values in the Party block.
 - **Party**: the original look, pixel for pixel (checked against `main` at f986733 rule by rule
   and on 112 captured screens, the More page, phone cards, photos, pass-the-mic band, duet
   invitation and rating dock included; `test/themes.test.js` pins the values), apart from a few

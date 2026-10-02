@@ -169,6 +169,8 @@ try {
   await host.click('tr:has-text("Cara") button:has-text("Remove") >> nth=-1');
   await cara.waitForSelector('text=Can\'t join', { timeout: 5000 });
   check(true, 'removed guest sees that they can’t join');
+  const cols = await host.$eval('.table', (t) => ({ th: [...t.querySelectorAll('thead th')].map((x) => x.textContent), td: t.querySelector('tbody tr').children.length }));
+  check(cols.th.length === cols.td && cols.th.includes('Rating'), `Singers table: one header per column (${cols.th.filter(Boolean).join(', ')})`);
   await shot(host, 'host-singers');
 
   // phone-sized host
@@ -192,12 +194,27 @@ try {
   await hostPhone.click('.nav a[href="#/more"]');
   await hostPhone.waitForSelector('.more-list');
   await shot(hostPhone, 'host-phone-more');
-  const more =await hostPhone.$$eval('.more-list a', (l) => l.map((a) => a.textContent.trim()));
+  const more = await hostPhone.$$eval('.more-list a', (l) => l.map((a) => a.textContent.trim()));
   check(['Singers', 'Settings', 'History', 'Photos', 'Playlists'].every((p) => more.includes(p)), `the More page reaches the other pages (${more.join(', ')})`);
   await hostPhone.click('.more-list a[href="#/singers"]');
   await hostPhone.waitForSelector('.table');
   check(await hostPhone.$eval('.nav a[href="#/more"]', (a) => a.classList.contains('on')), 'More stays highlighted on those pages');
   await shot(hostPhone, 'host-phone-singers');
+  // The pages behind More hold tables: on a phone they must not scroll sideways (the main
+  // area scrolls, not the document), and every row's buttons must be on screen.
+  const fits = () => hostPhone.evaluate(() => {
+    const main = document.querySelector('.main');
+    const btns = [...document.querySelectorAll('.table td.actions button')];
+    return { wide: main.scrollWidth - main.clientWidth, buttons: btns.length, onScreen: btns.every((b) => { const r = b.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; }) };
+  });
+  const singersFit = await fits();
+  check(singersFit.wide <= 0 && singersFit.buttons > 0 && singersFit.onScreen, `Singers page fits a 360 px phone with its edit/remove/co-host buttons on screen (${JSON.stringify(singersFit)})`);
+  await hostPhone.click('.nav a[href="#/more"]');
+  await hostPhone.click('.more-list a[href="#/history"]');
+  await hostPhone.waitForSelector('.table');
+  const historyFit = await fits();
+  check(historyFit.wide <= 0 && historyFit.buttons > 0 && historyFit.onScreen, `History page fits a 360 px phone (${JSON.stringify(historyFit)})`);
+  await shot(hostPhone, 'host-phone-history');
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);
 } finally {

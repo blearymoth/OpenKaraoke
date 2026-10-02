@@ -110,6 +110,7 @@ export function parseArgs(argv) {
     else if (a === '--pin') out.pin = next();
     else if (a === '--log') out.log = next();
     else if (a === '--no-scan') out.noScan = true;
+    else if (a === '--setup') out.setup = true;
     else if (a === '--help' || a === '-h') out.help = true;
     else if (!a.startsWith('-')) out.library.push(a);
   }
@@ -121,15 +122,35 @@ export const HELP = `OpenKaraoke - self-hosted karaoke party server
 Usage: node server/index.js [options] [library folder ...]
 
 Options:
-  -l, --library <dir>   add a karaoke folder (can be repeated)
+  -l, --library <dir>   karaoke folder (can be repeated); replaces the folders kept in
+                        Settings, and is kept there for the next start
   -p, --port <n>        HTTP port (default 8080)
       --host <addr>     bind address (default 0.0.0.0 = whole network)
       --data <dir>      where settings, the library index and art cache live
-      --pin <pin>       set the host PIN
+      --pin <pin>       set the host PIN (kept in Settings for the next start)
       --no-scan         don't rescan the library on start
       --log <level>     debug | info | warn | error
+      --setup           only keep --library/--pin in the settings, check that the port
+                        is free, print "<port> <address>" and exit (bin/install-service.sh)
 
 Environment: OPENKARAOKE_DATA, PORT, LOG_LEVEL`;
+
+/**
+ * Keeps --library / --pin in the settings. They are one-off changes, like the same change
+ * made in Settings: a service must not pass them on every start (that would undo later
+ * changes made in Settings), so bin/install-service.sh applies them once with --setup.
+ */
+export function applyArgs(settings, args) {
+  if (args.library?.length) settings.update({ library: { paths: [...new Set(args.library.map((p) => path.resolve(p)))] } });
+  if (args.pin !== undefined) settings.update({ party: { adminPin: String(args.pin) } });
+}
+
+/** Where the server listens: --port / --host, then $PORT, then the settings. */
+export function listenAddress(args, settings, env = process.env) {
+  const port = Number.isInteger(args.port) && args.port > 0 ? args.port : Number(env.PORT) || settings.get('server.port');
+  const host = args.host || settings.get('server.host');
+  return { port, host };
+}
 
 export function resolveDataDir(args) {
   const dir = args.data || process.env.OPENKARAOKE_DATA || path.join(APP_ROOT, 'data');

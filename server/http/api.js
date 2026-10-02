@@ -9,6 +9,7 @@ import { sendFile } from './static.js';
 import { qrSvg } from '../util/qr.js';
 import { placeholderSvg } from '../artwork/placeholder.js';
 import { hash32 } from '../../shared/text.js';
+import { MAX_LIST_SONGS } from '../../shared/protocol.js';
 import { songbookRoutes } from './songbook.js';
 import { RateLimiter } from '../util/ratelimit.js';
 import { Lru } from '../util/lru.js';
@@ -100,8 +101,9 @@ export function apiRoutes(router, app) {
     return out;
   });
 
+  // A whole playlist or favourites list in one call.
   router.get('/api/songs', (ctx) => {
-    const ids = (ctx.query.get('ids') || '').split(',').filter(Boolean).slice(0, 300);
+    const ids = (ctx.query.get('ids') || '').split(',').filter(Boolean).slice(0, MAX_LIST_SONGS);
     return { items: summaries(ids.map((id) => cat().song(id)).filter(Boolean)) };
   });
 

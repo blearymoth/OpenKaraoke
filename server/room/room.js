@@ -10,7 +10,7 @@ import { RateLimiter } from '../util/ratelimit.js';
 import { wifiPayload } from '../util/qr.js';
 import { mediaUrls } from '../http/media.js';
 import { insertIndex, etas, leadOf, shuffled } from './rotation.js';
-import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, RATING_SECONDS, clampKey, clampTempo } from '../../shared/protocol.js';
+import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, RATING_SECONDS, MAX_LIST_SONGS, clampKey, clampTempo } from '../../shared/protocol.js';
 import { createGame } from '../games/index.js';
 import { BreakMusic } from './breakmusic.js';
 import { Photos } from './photos.js';
@@ -61,7 +61,7 @@ const COHOST_ACTIONS = new Set([
   'player.key', 'player.tempo', 'player.volume', 'queue.move', 'queue.approve', 'queue.reject', 'announce',
 ]);
 const MAX_PLAYLISTS = 100;
-const MAX_PLAYLIST_SONGS = 500;
+const MAX_PLAYLIST_SONGS = MAX_LIST_SONGS;
 const MASK = '••••••';
 const MAX_PROFILES = 1000;
 // What a /tv page asks to be (hello `display`): a plain TV ('main', may play the sound), a muted
@@ -155,7 +155,8 @@ export class Room {
     this.doc.save();
   }
 
-  async close() {
+  /** @param {{ save?: boolean }} [opts] save: false leaves state.json as it is on disk */
+  async close({ save = true } = {}) {
     clearTimeout(this.introTimer);
     clearTimeout(this.flushTimer);
     clearTimeout(this.announceTimer);
@@ -164,7 +165,8 @@ export class Room {
     this.closeRating();
     this.breakMusic.close();
     this.photos.close();
-    await this.doc.flush();
+    if (save) await this.doc.flush();
+    else this.doc.discard();
   }
 
   // ---- sessions ("tonight") ---------------------------------------------------------
@@ -1190,7 +1192,7 @@ export class Room {
     const i = list.indexOf(songId);
     if (i >= 0) list.splice(i, 1);
     else list.unshift(songId);
-    if (list.length > 500) list.length = 500;
+    if (list.length > MAX_LIST_SONGS) list.length = MAX_LIST_SONGS;
     return { favorite: i < 0 };
   }
 

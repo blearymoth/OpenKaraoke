@@ -6,7 +6,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
-import { loadPlaywright, startParty, check, results, sleep } from './lib.mjs';
+import { loadPlaywright, startParty, check, results, sleep, WsClient } from './lib.mjs';
 import { pngImage } from '../fake-art.js';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
@@ -15,7 +15,8 @@ await fs.mkdir(out, { recursive: true });
 
 const { chromium } = loadPlaywright();
 const { app, base } = await startParty();
-const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+// Fake microphone and sound outputs; permission prompts are accepted (preview on headphones).
+const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
 const errors = [];
 let expect429 = false; // a refused search is simulated below; Chrome logs the 429 itself
 const watch = (page, name) => {
@@ -104,10 +105,14 @@ try {
   await host.click('.versions .btn:has-text("Stop")');
   check(await host.waitForSelector('.versions .btn:has-text("Stop")', { state: 'detached', timeout: 5000 }).then(() => true, () => false), 'preview stops');
   // Headphones: the browser names its sound outputs once asked; the choice is kept.
+  const plainHint = await host.$eval('.preview-output', (el) => el.textContent);
+  check(!/like the TV/.test(plainHint), 'with no TV on this computer the hint doesn’t say the TV shares the output');
   check(!!(await host.$(pickButton)) && !(await host.$('.preview-output select')), 'outputs without names: “Choose headphones…” instead of a list');
   await host.click(pickButton);
-  const noMic = await host.waitForSelector('.preview-output .hint:has-text("has none")', { timeout: 5000 }).then(() => true, () => false);
-  check(noMic && (await media()).asked === 1 && !(await host.$('.preview-output select')), 'without a microphone the host is told to change the default output instead');
+  const noMicText = await host.waitForSelector('.preview-output .hint:has-text("no microphone")', { timeout: 5000 }).then((el) => el.textContent(), () => '');
+  check(/Microphone: Allow/.test(noMicText) && (await media()).asked === 1 && !(await host.$('.preview-output select')),
+    'without a microphone the host learns how to allow it in the site settings');
+  check(!/Make the headphones the default|default output in the system/i.test(noMicText), 'and is never told to move the system’s default output');
   await host.evaluate(() => { window.__media.mic = true; });
   await host.click(pickButton);
   const listed = await host.waitForSelector('.preview-output select', { timeout: 5000 }).then(() => true, () => false);
@@ -131,7 +136,82 @@ try {
   check(JSON.stringify(sinks) === JSON.stringify(['hp', '']) && await host.evaluate(() => localStorage.getItem('ok.previewSink')) === 'hp',
     `the preview falls back to the default output and keeps the choice (${JSON.stringify(sinks)})`);
   await host.click('.versions .btn:has-text("Stop")');
+  // Choosing the default output again forgets the headphones.
+  await host.click(pickButton).catch(() => {});
+  await host.evaluate(() => { window.__media.mic = true; });
+  await host.click(pickButton).catch(() => {});
+  if (await host.waitForSelector('.preview-output select', { timeout: 5000 }).then(() => true, () => false)) {
+    await host.selectOption('.preview-output select', '');
+    check(await host.evaluate(() => localStorage.getItem('ok.previewSink')) === null, 'choosing the default output again forgets the headphones');
+  } else {
+    check(false, 'the output list comes back once allowed again');
+  }
   await host.keyboard.press('Escape');
+  await host.waitForSelector('table.versions', { state: 'detached' });
+
+  // A computer without a microphone (Chrome then won't name its outputs), alone and then with
+  // the TV on it: the host learns how to allow it in the site settings, and is never told to
+  // move the system's default output (the TV plays there). Once allowed, the outputs appear.
+  const noMic = watch(await browser.newPage({ viewport: { width: 1440, height: 900 } }), 'host-no-mic');
+  await noMic.addInitScript(() => {
+    let allowed = false;
+    const perm = new EventTarget();
+    Object.defineProperty(perm, 'state', { get: () => (allowed ? 'granted' : 'prompt') });
+    const md = navigator.mediaDevices;
+    md.getUserMedia = () => Promise.reject(new DOMException('Requested device not found', 'NotFoundError'));
+    md.enumerateDevices = async () => [{ kind: 'audiooutput', deviceId: allowed ? 'usb-headphones' : '', label: allowed ? 'USB headphones' : '', groupId: '' }];
+    const query = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = (d) => (d?.name === 'microphone' ? Promise.resolve(perm) : query(d));
+    window.allowMicrophone = () => {
+      allowed = true;
+      perm.dispatchEvent(new Event('change'));
+    };
+  });
+  await noMic.goto(`${base}/host#/search?q=neon`);
+  await noMic.fill('.search-box input', 'neon heart');
+  await noMic.click('.song-row');
+  await noMic.click('.preview-output button:has-text("Choose headphones")');
+  const aloneNote = await noMic.waitForSelector('.preview-output .hint:has-text("no microphone")', { timeout: 5000 }).then((el) => el.textContent(), () => '');
+  check(/Microphone: Allow/.test(aloneNote) && !/default output/i.test(aloneNote), `no microphone, no TV here: the note never mentions the system's default output (${aloneNote})`);
+  const tvHere = new WsClient(`${base.replace('http', 'ws')}/ws`);
+  await tvHere.open({ role: 'tv' });
+  await noMic.waitForSelector('.preview-output .hint:has-text("like the TV")', { timeout: 5000 }).catch(() => {});
+  const tvHint = await noMic.textContent('.preview-output .hint');
+  check(/like the TV/.test(tvHint), `with the TV on this computer the hint says the party hears previews (${tvHint.trim()})`);
+  await noMic.click('.preview-output button:has-text("Choose headphones")');
+  const noMicNote = await noMic.waitForSelector('.preview-output .hint:has-text("the TV plays on it")', { timeout: 5000 }).then((el) => el.textContent(), () => '');
+  check(/Site settings/.test(noMicNote) && /Microphone: Allow/.test(noMicNote), `no microphone: the note says how to allow it (${noMicNote})`);
+  check(!/Make the headphones the default|default output in the system/i.test(noMicNote) && /Don’t change the system’s default output/.test(noMicNote), 'no microphone: the note never says to move the default output, which the TV uses');
+  await shot(noMic, 'host-preview-no-mic');
+  await noMic.evaluate(() => window.allowMicrophone());
+  const allowedOutputs = await noMic.waitForSelector('.preview-output select', { timeout: 5000 })
+    .then(() => noMic.$$eval('.preview-output option', (l) => l.map((o) => o.textContent)), () => []);
+  check(allowedOutputs.includes('USB headphones'), `once the microphone is allowed in the site settings the outputs appear (${allowedOutputs.join(', ')})`);
+  check(!(await noMic.$('.preview-output .hint:has-text("no microphone")')), 'and the note goes away');
+  check(allowedOutputs[0] === 'This computer’s default output (the TV’s)', `the default output is marked as the TV’s (${allowedOutputs[0]})`);
+  await noMic.close();
+  tvHere.close();
+  await sleep(200);
+
+  // A preview stopped while it is still loading (the dialog closed) leaves no error behind.
+  await host.route('**/media/*/audio', async (route) => {
+    await sleep(1500);
+    await route.continue().catch(() => {});
+  });
+  await host.click('.song-row');
+  await host.click('.versions .btn:has-text("Preview") >> nth=0');
+  await sleep(300);
+  await host.keyboard.press('Escape');
+  await host.waitForSelector('table.versions', { state: 'detached' });
+  await sleep(1800);
+  await host.unroute('**/media/*/audio');
+  await host.click('.song-row');
+  await host.waitForSelector('.preview-output');
+  const staleError = await host.$eval('.preview-output', (el) => el.querySelector('.warn-text')?.textContent || '');
+  check(!staleError, `a preview stopped while loading shows no error afterwards${staleError ? ` (${staleError})` : ''}`);
+  check(!(await host.$('.versions .btn:has-text("Stop")')), 'and it did not start playing after the dialog closed');
+  await host.keyboard.press('Escape');
+  await host.waitForSelector('table.versions', { state: 'detached' });
 
   // Queue it: search shows "In queue"; after it is sung: "Sung tonight" + "Most sung here".
   const song = app.library.catalog.search('neon heart').items[0];
@@ -174,6 +254,43 @@ try {
   await sleep(400);
   check(app.room.s.queue.length === before + 1, 'playlist queued in one go');
   await shot(host, 'host-playlist');
+  // A double-click (or two quick clicks) queues it once, and pressing Enter twice makes one
+  // playlist: on this computer the answer comes back before the second click.
+  await sleep(1700); // the button rests a moment after queuing
+  let n = app.room.s.queue.length;
+  await host.dblclick('.playlist-queue .btn.primary');
+  await sleep(400);
+  check(app.room.s.queue.length === n + 1, `a double-click on “Queue all” queues the playlist once (+${app.room.s.queue.length - n})`);
+  await sleep(1700);
+  n = app.room.s.queue.length;
+  await host.$eval('.playlist-queue .btn.primary', (b) => { b.click(); b.click(); });
+  await sleep(400);
+  check(app.room.s.queue.length === n + 1, `two quick clicks on “Queue all” queue it once (+${app.room.s.queue.length - n})`);
+  // A song that left the library is named, and can be dropped from the playlist.
+  pl.songIds.push('gone-song-id');
+  app.room.markDirty();
+  await host.waitForSelector('.page p.hint:has-text("no longer in the library")');
+  await shot(host, 'host-playlist-missing');
+  await host.click('.page p.hint button:has-text("Remove it")');
+  await host.waitForSelector('.page p.hint:has-text("no longer in the library")', { state: 'detached' });
+  check(app.room.s.playlists.find((p) => p.id === pl.id).songIds.length === 1, 'a song no longer in the library can be removed from the playlist');
+  // A failed load says so and can be tried again (it used to spin for good).
+  const mark = errors.length;
+  const songsCall = (url) => url.pathname === '/api/songs';
+  await host.route(songsCall, (route) => route.abort('failed'));
+  await host.reload();
+  check(await host.waitForSelector('.empty h3:has-text("Couldn’t load the songs")', { timeout: 5000 }).then(() => true, () => false), 'a playlist that fails to load says so');
+  await shot(host, 'host-playlist-error');
+  await host.unroute(songsCall);
+  await host.click('.empty button:has-text("Try again")');
+  check(await host.waitForSelector('.song-list .song-row', { timeout: 5000 }).then(() => true, () => false), '“Try again” loads it');
+  errors.splice(mark, Infinity, ...errors.slice(mark).filter((x) => !/Failed to load resource/.test(x)));
+  await host.goto(`${base}/host#/playlists`);
+  await host.fill('.page-actions .inline-form input', 'Encore');
+  await host.$eval('.page-actions .inline-form', (f) => { f.requestSubmit(); f.requestSubmit(); });
+  await host.waitForSelector('h1:has-text("Encore")');
+  await sleep(300);
+  check(app.room.s.playlists.filter((p) => p.name === 'Encore').length === 1, 'submitting “Create” twice makes one playlist');
 
   // Duet invitation between two phones, then a co-host.
   const code = app.settings.get('party.roomCode');
@@ -434,6 +551,33 @@ try {
   await shot(host, 'host-tv-preview-refused');
   app.hub.onHello = hello;
   await host.click('.tv-preview .icon-btn');
+
+  // On a phone the preview stays clear of the player, and taps go through it.
+  const previewPhone = watch(await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }), 'host-phone');
+  await previewPhone.goto(`${base}/host#/`);
+  await previewPhone.waitForSelector('.player');
+  await previewPhone.click('.player button[title="Live preview of the TV"]');
+  await previewPhone.waitForSelector('.tv-preview iframe');
+  const clear = await previewPhone.evaluate(() => {
+    const prev = document.querySelector('.tv-preview').getBoundingClientRect();
+    const player = document.querySelector('.player').getBoundingClientRect();
+    const reachable = (sel) => {
+      const r = document.querySelector(sel).getBoundingClientRect();
+      return !!document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest(sel);
+    };
+    const under = document.elementFromPoint(prev.left + 10, prev.bottom - 10);
+    return {
+      overlaps: prev.bottom > player.top,
+      controls: ['.play-btn', '.player button[aria-label="Next singer"]', '.player button[aria-label="Restart song"]', '.player .seek'].every(reachable),
+      through: !!under && !under.closest('.tv-preview'),
+    };
+  });
+  check(!clear.overlaps && clear.controls, `phone: the TV preview leaves the player's buttons free (${JSON.stringify(clear)})`);
+  check(clear.through, 'phone: taps on the page under the TV preview go through it');
+  await shot(previewPhone, 'host-phone-tv-preview');
+  await previewPhone.tap('.tv-preview .icon-btn');
+  check(await previewPhone.waitForSelector('.tv-preview', { state: 'detached', timeout: 3000 }).then(() => true, () => false), 'phone: the TV preview closes from its ✕');
+  await previewPhone.close();
 
   // Printable songbook from Settings → Library.
   await host.goto(`${base}/host#/settings/library`);

@@ -294,7 +294,8 @@ export class ArtworkService extends EventEmitter {
     this.evict();
   }
 
-  async close() {
+  /** @param {{ save?: boolean }} [opts] save: false leaves meta.json as it is on disk */
+  async close({ save = true } = {}) {
     this.closed = true;
     for (const t of Object.values(this.timers)) clearTimeout(t);
     clearTimeout(this.crawl.timer);
@@ -302,7 +303,7 @@ export class ArtworkService extends EventEmitter {
     for (const qs of Object.values(this.queues)) for (const q of qs) q.length = 0;
     for (const q of this.imageQueues) for (const d of q.splice(0)) this.dropImage(d, unavailable('closed'));
     for (const t of [...Object.values(this.throttles), this.imageThrottle]) t.cancel();
-    if (this.dirty) this.save();
+    if (this.dirty && save) this.save();
     await this.saving?.catch((e) => log.error('could not save meta.json', e));
   }
 

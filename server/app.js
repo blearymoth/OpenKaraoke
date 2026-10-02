@@ -2,7 +2,7 @@
 // `createApp()` is used by server/index.js and by the tests (listen on port 0).
 import http from 'node:http';
 import path from 'node:path';
-import { Settings, makeRoomCode, VERSION, PUBLIC_DIR, SHARED_DIR } from './config.js';
+import { Settings, applyArgs, makeRoomCode, VERSION, PUBLIC_DIR, SHARED_DIR } from './config.js';
 import { LibraryService } from './library/service.js';
 import { Auth } from './room/auth.js';
 import { Router, json, sendError, sendText } from './http/router.js';
@@ -29,8 +29,7 @@ import { HttpError } from './util/errors.js';
 export async function createApp({ dataDir, args = {}, scan, watch = true, fetch = globalThis.fetch, crawl = true } = {}) {
   const settings = new Settings(dataDir);
   await settings.load();
-  if (args.library?.length) settings.update({ library: { paths: [...new Set(args.library.map((p) => path.resolve(p)))] } });
-  if (args.pin !== undefined) settings.update({ party: { adminPin: String(args.pin) } });
+  applyArgs(settings, args);
   if (!/^[A-Z]{4}$/.test(settings.get('party.roomCode') || '')) settings.update({ party: { roomCode: makeRoomCode() } });
 
   const auth = new Auth({ dataDir, settings });
@@ -91,8 +90,8 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   hub.onRequest = (client, msg) => room.request(client, msg);
   hub.on('join', (client) => room.onJoin(client));
   hub.on('leave', (client) => room.onLeave(client));
-  app.closers.push(() => room.close());
-  app.closers.push(() => artwork.close());
+  app.closers.push((opts) => room.close(opts));
+  app.closers.push((opts) => artwork.close(opts));
 
   library.on('changed', () => room.onLibraryChanged());
   library.on('status', () => room.markDirty());
@@ -120,15 +119,20 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
     server.listen(port, host);
   });
 
-  app.close = async () => {
+  /**
+   * @param {{ save?: boolean }} [opts] save: false when the server could not start (its port
+   *   is taken, maybe by another OpenKaraoke on the same data folder): nothing is written.
+   */
+  app.close = async ({ save = true } = {}) => {
     library.stop();
     hub.close();
-    for (const fn of app.closers) await fn();
+    for (const fn of app.closers) await fn({ save });
     await new Promise((resolve) => {
       server.close(() => resolve());
       server.closeAllConnections?.();
     });
-    await settings.flush();
+    if (save) await settings.flush();
+    else settings.discard();
     await library.saving;
   };
 

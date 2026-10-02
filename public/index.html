@@ -32,8 +32,6 @@
     footer { color: var(--ink-3); font-size: 14px; }
     footer strong { color: var(--ink-2); font-weight: 650; }
     .warn { color: var(--bulb); }
-    .tool { margin-left: 8px; color: var(--ink-3); }
-    .tool:hover { color: var(--ink); }
     @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -68,7 +66,7 @@
       </div>
     </section>
 
-    <footer><span id="lib">Loading library…</span> <a class="tool" href="/mictest">Mic latency test</a></footer>
+    <footer id="lib">Loading library…</footer>
   </main>
 
   <script type="module">

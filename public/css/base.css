@@ -160,9 +160,9 @@
   --aurora-3: #2d3f80;
   --aurora-opacity: 0.45;
   --aurora-3-opacity: 0.25;
-  --art-bg-filter: blur(7vh) saturate(1) brightness(0.4); /* covers at full colour, dark enough for text */
-  --art-scrim: 0.38; /* the darkening at the centre of the cover background (edges: 0.72), so text holds 4.5:1 over a white cover */
-  --fanart-filter: brightness(0.56) saturate(0.95);
+  --art-bg-filter: blur(7vh) saturate(1) brightness(0.4); /* covers at full colour; brightness 0.4 here and for artist photos, */
+  --art-scrim: 0.65; /* with this darkening at the centre of the picture (edges: 0.72), keeps ink-2 text at 7:1 (the TV's */
+  --fanart-filter: brightness(0.4) saturate(0.95); /* target) even over a white cover or a white patch of an artist photo */
   --mosaic-opacity: 0.26;
   --mosaic-filter: saturate(0.75);
   --corner-qr-bg: rgba(255, 255, 255, 0.96);
@@ -174,7 +174,7 @@
   --announce-scrim: 0.74; /* how much the screen behind an announcement is darkened (0–1), */
   --announce-blur: blur(0.9vh); /* and blurred, so lyric lines do not peek out around the card */
   /* games */
-  --answer-1: #78071e; /* quiz and poll answers: white text on each (the 85% sub-label too), and */
+  --answer-1: #78071e; /* quiz and poll answers: white text on each (the sub-label too, at 85% on phones), and */
   --answer-2: #2e409c; /* four lightness steps, L* 24 / 31 / 43 / 37, so they also differ in grey */
   --answer-3: #895e10;
   --answer-4: #026448;

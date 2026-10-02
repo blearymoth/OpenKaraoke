@@ -68,6 +68,14 @@ const iconOf = (page, sel) => page.$eval(sel, (img) => {
 });
 const favicon = (page) => page.$eval('link[rel="icon"]', (l) => l.getAttribute('href'));
 const noSideways = (page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+/** Visible text drawn in the given colour (Studio keeps TV text at ink-2 or brighter, to read across a room). */
+const textIn = (page, color) => page.evaluate((c) => [...document.querySelectorAll('body *')]
+  .filter((el) => [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && el.getBoundingClientRect().width > 0 && getComputedStyle(el).color === c)
+  .map((el) => `${el.className || el.tagName}: ${el.textContent.trim().slice(0, 24)}`), color);
+const faintTvText = async (page, what) => {
+  const faint = await textIn(page, rgbOf(studioToken('--ink-3')));
+  check(faint.length === 0, `studio: ${what} has no text in the faintest ink${faint.length ? `: ${faint.join(' | ')}` : ''}`);
+};
 
 async function setSkin(theme, open) {
   await hostReq('settings.update', { patch: { appearance: { theme } } });
@@ -269,6 +277,7 @@ try {
     await tv.waitForSelector('.lobby .upnext-item');
     await sleep(500);
     await shot(tv, `${skin}-tv-lobby`);
+    if (skin === 'studio') await faintTvText(tv, 'TV lobby');
   }
   await screens('party');
   await screens('studio');
@@ -281,6 +290,11 @@ try {
     await setSkin(skin, all());
     await tv.waitForFunction(() => /Ready when you are/.test(document.querySelector('.intro .status')?.textContent || ''), null, { timeout: 15000 }).catch(() => {});
     await shot(tv, `${skin}-tv-intro`);
+    // the song's year (shown when the artwork lookup knows it; a stand-in, so the check never depends on the song)
+    await tv.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<div class="intro year-probe" style="position: fixed; left: -100vw; top: 0"><span class="year">(1999)</span></div>'));
+    if (skin === 'studio') await faintTvText(tv, 'TV intro');
+    else check(await tv.$eval('.year-probe .year', (e) => getComputedStyle(e).color) === 'rgb(129, 116, 168)', 'party: the intro’s year keeps Party’s faint ink');
+    await tv.evaluate(() => document.querySelector('.year-probe').remove());
   }
   await hostReq('player.play').catch(() => hostReq('player.resume'));
   await tv.waitForSelector('#cdg.show', { timeout: 15000 });
@@ -324,6 +338,9 @@ try {
     await setSkin(skin, all());
     check(await answerBg() === (skin === 'party' ? 'rgb(226, 27, 60)' : rgbOf(studioToken('--answer-1'))), `${skin}: answer colours come from the skin`);
     await shot(tv, `${skin}-tv-poll`);
+    // the artist line on the TV's answers: full strength in Studio (7:1), Party's 85% as before
+    check(await tv.$eval('.g-tv .g-answer .text small', (e) => getComputedStyle(e).opacity).catch(() => '') === (skin === 'party' ? '0.85' : '1'), `${skin}: TV answers' artist line at ${skin === 'party' ? '85 %' : 'full strength'}`);
+    if (skin === 'studio') await faintTvText(tv, 'TV poll');
     await shot(guest, `${skin}-guest-poll`);
     scrollChecks.push([`${skin}: guest poll`, await noSideways(guest)]);
   }
@@ -337,6 +354,8 @@ try {
   await board.waitForSelector('.board');
   check(await themeOf(board) === 'studio' && await firstTheme(board) === 'studio', 'board: Studio from the first paint');
   await shot(board, 'studio-tv-board');
+  check(await board.$$eval('.board-list .pos', (els) => els.length) > 0, 'board: the queue is listed');
+  await faintTvText(board, 'queue board');
   check(await setSkin('party', [...all(), board]), 'board: switches to Party live');
   await shot(board, 'party-tv-board');
 

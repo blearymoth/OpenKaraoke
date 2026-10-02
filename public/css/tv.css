@@ -260,7 +260,7 @@ body:has(#video:not([hidden])) .photo-flash.corner figcaption { width: auto; min
 .board-list span { font-size: 2.6vh; color: var(--ink-2); }
 .board-list .eta { font-size: 2.8vh; color: var(--bulb); font-weight: 700; white-space: nowrap; }
 .board-more { font-size: 2.6vh; color: var(--ink-3); text-align: center; }
-:root:not([data-theme="party"]) :is(.mirror-badge, .break-now, .board-more) { color: var(--ink-2); } /* Studio: small text on the TV is ink-2, never the faintest ink, to read across a room */
+:root:not([data-theme="party"]) :is(.intro .year, .mirror-badge, .break-now, .board-list .pos, .board-more) { color: var(--ink-2); } /* Studio: TV text is never fainter than ink-2 (the faintest ink, ink-3, is for the host and phones), to read across a room */
 .board-join { display: flex; align-items: center; gap: 2vh; font-size: 2.6vh; color: var(--ink-2); }
 .board-join img { width: 11vh; height: 11vh; background: var(--paper); padding: 0.8vh; border-radius: 1vh; }
 .board-join b { display: block; font-size: 3.4vh; color: var(--ink); }

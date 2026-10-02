@@ -427,8 +427,32 @@ test('base.css: Party keeps its exact old values; Studio is readable', () => {
   for (let i = 1; i <= 4; i++) {
     const c = studio.get(`--answer-${i}`);
     assert.ok(contrast('#ffffff', c) >= 4.5, `Studio white on answer ${i}`);
-    assert.ok(contrast(blend('#ffffff', c, 0.85), c) >= 4.5, `Studio sub-label (white at 85%) on answer ${i}: ${contrast(blend('#ffffff', c, 0.85), c).toFixed(2)}`);
+    assert.ok(contrast(blend('#ffffff', c, 0.85), c) >= 4.5, `Studio sub-label on phones (white at 85%) on answer ${i}: ${contrast(blend('#ffffff', c, 0.85), c).toFixed(2)}`);
   }
+});
+
+test('base.css: Studio TV text holds 7:1 (read across a room), even over a white cover or artist photo', () => {
+  const studio = skins.studio;
+  // The intro card and the lyrics sit on the song's cover (blurred) or the artist's photos, dimmed
+  // by the skin's filter, then darkened by the scrim (--art-scrim at the centre, 0.72 at the edges).
+  const shade = studio.get('--shade-rgb').split(',').map(Number);
+  const scrim = Number(studio.get('--art-scrim'));
+  for (const filter of ['--art-bg-filter', '--fanart-filter']) {
+    const brightness = Number(/brightness\(([\d.]+)\)/.exec(studio.get(filter))?.[1] ?? 1);
+    const white = `#${shade.map((v) => Math.round(255 * brightness * (1 - scrim) + v * scrim).toString(16).padStart(2, '0')).join('')}`;
+    for (const ink of ['--ink', '--ink-2', '--bulb']) {
+      const r = contrast(studio.get(ink), white);
+      assert.ok(r >= 7, `Studio ${ink} over a white picture (${filter}): ${r.toFixed(2)}`);
+    }
+  }
+  // Quiz and poll answers on the TV: white labels, the artist line at full strength in Studio (games.css),
+  // and losing answers turn into navy tiles with ink-2 text. The ochre tile stays lighter (5.7:1, still
+  // AA) to keep the four answers apart in lightness.
+  for (let i = 1; i <= 4; i++) {
+    const r = contrast('#ffffff', studio.get(`--answer-${i}`));
+    assert.ok(r >= (i === 3 ? 5.7 : 7), `Studio white on answer ${i} on the TV: ${r.toFixed(2)}`);
+  }
+  assert.ok(contrast(studio.get('--ink-2'), studio.get('--stage-2')) >= 7, 'Studio losing answers on the TV');
 });
 
 test('singers’ colours: stored as one of COLORS, drawn by the skin', () => {

@@ -8,9 +8,10 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
   metadata (M5), seven party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 385/385; `npm run e2e` → 10 Playwright scripts, all green (the tenth,
-  `themes.mjs`, checks the skins); `npm --prefix desktop test` → 28/28 (the desktop app, also
-  against the built installer). Every milestone also went through an independent review
+- `npm test` → 433/433; `npm run e2e` → 14 Playwright scripts, all green (`themes.mjs` checks
+  the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `admin.mjs` and
+  `versions.mjs` the admin panel and version votes); `npm --prefix desktop test` → 46/46 (the
+  desktop app, also against the built installer). Every milestone also went through an independent review
   whose confirmed findings were fixed and re-verified (table below).
 - **Skins** (after session 3): Settings → Appearance switches every screen between **Studio**
   (the new default, midnight navy and teal) and **Party** (the original neon look) — see

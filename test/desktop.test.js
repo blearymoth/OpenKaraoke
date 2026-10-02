@@ -406,9 +406,13 @@ test('Updater: offline, refusals, unsafe redirects', async () => {
 });
 
 test('packaging: every module the desktop app imports is in the installer (electron-builder files)', async () => {
-  const { createRequire } = await import('node:module');
-  const config = createRequire(import.meta.url)('../desktop/electron-builder.config.cjs');
-  const files = config.files.filter((f) => !f.startsWith('!'));
+  // Read from its source: loading the config needs desktop/node_modules (Electron), which CI
+  // installs only after the tests.
+  const src0 = await fs.readFile(path.join(import.meta.dirname, '..', 'desktop', 'electron-builder.config.cjs'), 'utf8');
+  const list = src0.match(/\n {2}files: \[([\s\S]*?)\n {2}\]/)?.[1] || '';
+  const files = [...list.matchAll(/'([^']+)'/g)].map((m) => m[1]).filter((f) => !f.startsWith('!'));
+  const main = src0.match(/\bmain: '([^']+)'/)?.[1];
+  assert.ok(files.length > 5 && main, 'the files list and main are found in the config');
   const shipped = (p) => files.some((f) => f === p || (f.endsWith('/**/*') && p.startsWith(f.slice(0, -4))));
   const seen = new Set();
   const walk = async (file) => {
@@ -421,7 +425,7 @@ test('packaging: every module the desktop app imports is in the installer (elect
       await walk(path.posix.normalize(path.posix.join(path.posix.dirname(file), rel)));
     }
   };
-  await walk(config.extraMetadata?.main || 'desktop/main.mjs');
+  await walk(main);
   await walk('desktop/preload.cjs');
   assert.ok(seen.has('desktop/graphics.mjs'));
 });

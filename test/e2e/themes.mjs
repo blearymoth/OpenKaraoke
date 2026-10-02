@@ -612,7 +612,10 @@ try {
   await sleep(1800); // the photo fades in
   await tvTextOver(tv, 'TV lobby over a white guest photo');
   await tvTextOver(board, 'queue board over a white guest photo');
-  await hostReq('player.play'); // the first song's intro (it waits for "play")
+  // The first song's intro: it waits for "play", then counts down — long enough here that the
+  // song can't start (and the title card slide in) while the checks below measure the intro.
+  await hostReq('settings.update', { patch: { playback: { countdown: 120 } } });
+  await hostReq('player.play');
   await tv.waitForSelector('.intro');
   await board.waitForSelector('.board-now b');
   await sleep(1800);
@@ -623,7 +626,9 @@ try {
   await board.waitForSelector('#bg .aurora');
   await tvTextOver(tv, 'TV intro over the aurora', { sweep: true });
   await tvTextOver(board, 'queue board over the aurora', { sweep: true });
+  check(app.room.s.player.state === 'intro', `the intro stayed on screen for its checks (${app.room.s.player.state})`);
   await hostReq('player.stop');
+  await hostReq('settings.update', { patch: { playback: { countdown: 3 } } });
   await tv.waitForSelector('.lobby .upnext-item');
   await sleep(600);
   await tvTextOver(tv, 'TV lobby over the aurora', { sweep: true });

@@ -9,7 +9,7 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
 - `npm test` → 385/385; `npm run e2e` → 10 Playwright scripts, all green (the tenth,
-  `themes.mjs`, checks the skins); `npm --prefix desktop test` → 27/27 (the desktop app, also
+  `themes.mjs`, checks the skins); `npm --prefix desktop test` → 28/28 (the desktop app, also
   against the built installer). Every milestone also went through an independent review
   whose confirmed findings were fixed and re-verified (table below).
 - **Skins** (after session 3): Settings → Appearance switches every screen between **Studio**

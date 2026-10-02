@@ -1,30 +1,11 @@
 // Right-hand panel: now singing, the queue (drag to reorder), requests and tonight's history.
-import { html, useEffect, useRef, useState } from '../vendor/preact.js';
+import { html, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore, formatEta, formatTime, singersText } from '../lib/store.js';
 import { Avatar, Cover, Empty } from '../lib/components.js';
 import { store, act, openDialog } from './state.js';
+import { Menu } from './menu.js';
 import { formatKey, formatTempo } from '/shared/protocol.js';
-
-function Menu({ items, onClose }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    const off = (e) => { if (!ref.current?.contains(e.target)) onClose(); };
-    const esc = (e) => { if (e.key === 'Escape') onClose(); };
-    setTimeout(() => document.addEventListener('mousedown', off));
-    document.addEventListener('keydown', esc);
-    ref.current?.querySelector('button')?.focus();
-    return () => {
-      document.removeEventListener('mousedown', off);
-      document.removeEventListener('keydown', esc);
-    };
-  }, []);
-  return html`<div class="menu" ref=${ref} role="menu">
-    ${items.filter(Boolean).map((it) => html`<button role="menuitem" class=${it.danger ? 'danger' : ''} onClick=${() => { onClose(); it.run(); }}>
-      <${Icon} name=${it.icon} size=${16} /> ${it.label}
-    </button>`)}
-  </div>`;
-}
 
 function EntryBadges({ e }) {
   return html`${e.key ? html`<span class="pill">Key ${formatKey(e.key)}</span>` : null}${e.tempo && e.tempo !== 1 ? html`<span class="pill">${formatTempo(e.tempo)}</span>` : null}${e.mystery ? html`<span class="pill bulb">Mystery</span>` : null}`;

@@ -2,7 +2,7 @@
 import { html, render, useEffect, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore } from '../lib/store.js';
-import { useHashRoute, go, Toasts, Spinner } from '../lib/components.js';
+import { useHashRoute, go, Toasts, Spinner, useMedia } from '../lib/components.js';
 import { store, conn, toasts, toast, act, loginWithPin, livePosition } from './state.js';
 import { PlayerBar, openInvite } from './player.js';
 import { QueuePanel } from './queue.js';
@@ -46,19 +46,6 @@ function navBadge(path, state) {
     : path === '/photos' || path === '/more' ? pendingPhotos()
     : 0;
   return n ? html`<span class="badge neon">${n}</span>` : null;
-}
-
-/** Whether a media query matches, following changes (window resized, phone rotated). */
-function useMedia(query) {
-  const [on, setOn] = useState(() => matchMedia(query).matches);
-  useEffect(() => {
-    const mq = matchMedia(query);
-    const update = () => setOn(mq.matches);
-    update();
-    mq.addEventListener('change', update);
-    return () => mq.removeEventListener('change', update);
-  }, [query]);
-  return on;
 }
 
 const searchStore = { q: new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '' };

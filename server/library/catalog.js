@@ -604,19 +604,21 @@ export class Catalog {
   /** A song's versions, best first (the brand order, no variant, karaoke rather than vocal mixes). */
   rankTracks(song, brandPrefs = []) {
     const ts = song.trackIds.map((id) => this.tracks.get(id)).filter(Boolean);
-    const score = (t) => {
-      let sc = 0;
-      const bi = brandPrefs.indexOf(t.p.brand);
-      if (bi >= 0) sc += 100 - bi * 5;
-      if (!t.p.variant.length) sc += 30;
-      if (t.p.flags.vocals) sc -= 25;
-      if (t.p.flags.mpx) sc -= 10;
-      if (t.kind === 'video') sc += 5;
-      const br = this.brandRank?.get(t.p.brand);
-      if (br !== undefined) sc += Math.max(0, 12 - br);
-      return sc;
-    };
-    return ts.sort((a, b) => score(b) - score(a));
+    return ts.sort((a, b) => this.trackScore(b, brandPrefs) - this.trackScore(a, brandPrefs));
+  }
+
+  /** How good a version is by its label alone (higher is better). */
+  trackScore(t, brandPrefs = []) {
+    let sc = 0;
+    const bi = brandPrefs.indexOf(t.p.brand);
+    if (bi >= 0) sc += 100 - bi * 5;
+    if (!t.p.variant.length) sc += 30;
+    if (t.p.flags.vocals) sc -= 25;
+    if (t.p.flags.mpx) sc -= 10;
+    if (t.kind === 'video') sc += 5;
+    const br = this.brandRank?.get(t.p.brand);
+    if (br !== undefined) sc += Math.max(0, 12 - br);
+    return sc;
   }
 
   // ---- serialisation -------------------------------------------------------

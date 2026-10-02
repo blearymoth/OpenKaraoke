@@ -4,6 +4,18 @@ import { createStore, toastStore, noteArt, lastArtSeq, setMarks } from '../lib/s
 import { apiPost, clearFetchCache } from '../lib/components.js';
 import { applyAppearance } from '../lib/theme.js';
 
+export const PANEL_TABS = ['queue', 'playback', 'devices'];
+
+function readPanelTab() {
+  try {
+    localStorage.removeItem('ok.tvPreview'); // the old player-bar preview's switch
+    const t = localStorage.getItem('ok.panelTab');
+    return PANEL_TABS.includes(t) ? t : 'queue';
+  } catch {
+    return 'queue';
+  }
+}
+
 export const toasts = toastStore();
 export const toast = toasts.show;
 
@@ -16,6 +28,8 @@ export const store = createStore({
   artwork: null, // artwork crawler / provider status (Settings → Artwork)
   dialog: null,
   local: false, // this page runs on the computer running OpenKaraoke
+  panelTab: readPanelTab(), // the admin panel's tab: queue | playback | devices
+  clientId: null, // this page's connection (the Devices tab marks "This device")
 });
 
 export const conn = new Connection({
@@ -27,7 +41,7 @@ conn.on('welcome', (m) => {
   applyAppearance(m.state.settings?.appearance);
   noteArt(m.art);
   setMarks(m.state);
-  store.update({ state: m.state, denied: null, local: !!m.local });
+  store.update({ state: m.state, denied: null, local: !!m.local, clientId: m.clientId || null });
 });
 conn.on('state', (m) => {
   const v = m.state.library?.builtAt;
@@ -70,6 +84,53 @@ export async function loginWithPin(pin) {
   conn.stopped = false;
   conn.attempt = 0;
   conn.open();
+}
+
+/** Shows a tab of the admin panel (remembered). */
+export function setPanelTab(t) {
+  if (!PANEL_TABS.includes(t)) return;
+  if (store.get().panelTab !== t) store.update({ panelTab: t });
+  try { localStorage.setItem('ok.panelTab', t); } catch { /* private window */ }
+}
+
+/**
+ * Opens a tab of the admin panel (a page of its own on phones), scrolled to a section
+ * (`#pb-<anchor>`). Only ever called by something the host pressed.
+ */
+export function openPanel(tab, anchor) {
+  setPanelTab(tab);
+  if (matchMedia('(max-width: 900px)').matches) location.hash = `#/panel/${tab}`;
+  if (anchor) requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById(`pb-${anchor}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })));
+}
+
+/** Whether the Playback tab shows the live TV preview (off by default on phones). */
+export function previewPref(narrow) {
+  try {
+    const v = localStorage.getItem('ok.preview');
+    if (v === '1' || v === '0') return v === '1';
+  } catch { /* private window */ }
+  return !narrow;
+}
+
+export function setPreviewPref(on) {
+  try { localStorage.setItem('ok.preview', on ? '1' : '0'); } catch { /* private window */ }
+}
+
+/** { a: { b: value } } for 'a.b'. */
+export function patchFor(path, value) {
+  const keys = path.split('.');
+  const patch = {};
+  let o = patch;
+  keys.slice(0, -1).forEach((k) => { o = o[k] = {}; });
+  o[keys.at(-1)] = value;
+  return patch;
+}
+
+/** Saves one setting ("Saved" unless quiet); the result, or null on failure. */
+export async function saveSetting(path, value, { quiet = false } = {}) {
+  const r = await act('settings.update', { patch: patchFor(path, value) });
+  if (r && !quiet) toast('Saved', 'ok', 1200);
+  return r;
 }
 
 export function openDialog(dialog) {

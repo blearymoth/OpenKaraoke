@@ -3,7 +3,7 @@ import { html, useEffect, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore, plural } from '../lib/store.js';
 import { Switch } from '../lib/components.js';
-import { store, act, openDialog, toast, chooseFolder } from './state.js';
+import { store, act, openDialog, toast, chooseFolder, saveSetting } from './state.js';
 import { CHANNEL_MODES, CHANNEL_LABELS } from '/shared/protocol.js';
 import { THEMES, THEME_IDS, DEFAULT_THEME, accentInk } from '/shared/themes.js';
 import { UpdatesBlock } from './updates.js';
@@ -55,7 +55,7 @@ const SECTIONS = [
       { path: 'playback.normalize', label: 'Even out loudness between songs', type: 'bool' },
       { path: 'playback.defaultChannelMode', label: 'Default channel mode', type: 'select', options: CHANNEL_MODES.map((m) => [m, CHANNEL_LABELS[m]]), help: 'Changes you make during a song are remembered for that track. Multiplex songs have the guide singer level instead.' },
       { path: 'playback.leadVocal', label: 'Guide singer at the start of a song', type: 'select', options: [[0, 'Off'], [50, 'Quiet'], [100, 'Full']], help: 'On multiplex songs only. A singer’s own choice (when queueing, or last time) comes first.' },
-      { path: 'playback.findGuideVocal', label: 'Find multiplex songs by their sound', type: 'bool', help: 'The TV checks each song’s two channels when it loads it. Songs named “Multiplex” are always recognised; others only when the TV is sure.' },
+      { path: 'playback.findGuideVocal', label: 'Suggest multiplex songs found by their sound', type: 'bool', help: 'The TV checks each song’s two channels when it loads it. Songs named “Multiplex” are always recognised; for others the Vocals button lights up and you decide.' },
       { path: 'playback.lyricOffsetMs', label: 'Lyrics timing (milliseconds)', type: 'number', min: -2000, max: 2000, step: 10, help: 'Raise it if the lyrics run behind the music (for example with Bluetooth speakers).' },
       { path: 'playback.ratingAfterSong', label: 'Guests rate each performance', type: 'bool', help: 'After a song, phones can give it 1–5 stars for about 40 seconds.' },
       { path: 'playback.breakMusic.enabled', label: 'Break music between singers', type: 'bool', help: 'Quiet music on the TV while nobody sings; it fades out when the next song starts.' },
@@ -89,19 +89,7 @@ const SECTIONS = [
 
 const get = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
 
-function patchFor(path, value) {
-  const keys = path.split('.');
-  const patch = {};
-  let o = patch;
-  keys.slice(0, -1).forEach((k) => { o = o[k] = {}; });
-  o[keys.at(-1)] = value;
-  return patch;
-}
-
-async function save(path, value) {
-  const r = await act('settings.update', { patch: patchFor(path, value) });
-  if (r) toast('Saved', 'ok', 1200);
-}
+const save = (path, value) => saveSetting(path, value);
 
 const MASK = '••••••'; // the server never sends saved passwords back
 

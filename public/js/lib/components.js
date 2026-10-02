@@ -4,13 +4,25 @@ import { Icon } from './icons.js';
 import { artUrl, artistArtUrl, artStore, marksStore, formatTime, useStore } from './store.js';
 import { singerColor } from '/shared/protocol.js';
 
-/** JSON fetch helper; adds the host token when there is one. */
+let guestToken = false;
+/** The guest app's GETs carry its guest token (its own votes; never the host's view of a song). */
+export function sendGuestToken() {
+  guestToken = true;
+}
+
+/** JSON fetch helper; adds the host token when there is one (and the guest's, see above). */
 export async function apiGet(path, params) {
   const url = new URL(path, location.origin);
   if (params) for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
   const headers = {};
   const token = localStorage.getItem('ok.hostToken');
   if (token) headers.authorization = `Bearer ${token}`;
+  if (guestToken) {
+    try {
+      const g = localStorage.getItem('ok.guestToken');
+      if (g) headers['x-guest-token'] = g;
+    } catch { /* private window */ }
+  }
   const res = await fetch(url, { headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || `Request failed (${res.status})`), { status: res.status, code: data.code });
@@ -241,4 +253,17 @@ export function copyText(text) {
   document.execCommand('copy');
   ta.remove();
   return Promise.resolve();
+}
+
+/** Whether a media query matches, following changes (window resized, phone rotated). */
+export function useMedia(query) {
+  const [on, setOn] = useState(() => matchMedia(query).matches);
+  useEffect(() => {
+    const mq = matchMedia(query);
+    const update = () => setOn(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, [query]);
+  return on;
 }

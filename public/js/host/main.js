@@ -225,6 +225,7 @@ function App() {
 // ---- keyboard shortcuts ---------------------------------------------------------------------
 
 document.addEventListener('keydown', (e) => {
+  if (e.defaultPrevented) return; // already handled (e.g. arrow keys moving between the panel's tabs)
   const el = document.activeElement;
   const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
   if (typing || e.ctrlKey || e.metaKey || e.altKey || store.get().dialog) return;

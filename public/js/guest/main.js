@@ -677,7 +677,7 @@ function SongSheet({ songId, state }) {
                 <label><input type="radio" name="version" checked=${trackId === v.id} onChange=${() => setTrackId(v.id)} />
                   <span class="grow"><span class="ellipsis">${versionName(v)} ${v.id === defId ? html`<span class="pill neon">Default</span>` : ''}${v.status === 'avoided' ? html` <span class="pill bad">Avoided</span>` : ''}</span>
                   <span class="faint">${formatTime(v.dur)} · ${v.plays ? `sung ${v.plays}×` : 'not sung here yet'}</span></span></label>
-                ${state.rules.versionVotes && html`<${VersionVote} v=${v} label=${`Votes for ${versionName(v)}`} disabled=${!v.heard} onVote=${(x) => vote(v, x)} />`}
+                ${state.rules.versionVotes && html`<${VersionVote} v=${v} label=${`Votes for ${versionName(v)}`} disabled=${!v.heard && !v.mine} onVote=${(x) => vote(v, x)} />`}
               </div>`)}
             </div>
             <p class="hint">${state.rules.versionVotes ? 'You can vote on a version once it’s been played tonight. The most-liked version is picked when you leave it on Best.' : 'Leave it on Best to get the usual version.'}</p>

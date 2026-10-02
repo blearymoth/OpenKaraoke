@@ -102,6 +102,12 @@ try {
 
   // ---- Playback: sound ------------------------------------------------------------------------
   check(await until(() => room.s.current), 'a song is on');
+  const seekBefore = room.s.player.seek?.seq;
+  await host.focus('#ptab-queue');
+  await host.keyboard.press('ArrowRight');
+  await host.keyboard.press('ArrowLeft');
+  await sleep(300);
+  check(room.s.player.seek?.seq === seekBefore, 'arrow keys on the tabs only move between tabs (no seeking)');
   await tab(host, 'Playback');
   await host.click('#pb-sound .stepper >> nth=0 >> button[aria-label="Key up"]');
   await host.click('#pb-sound .stepper >> nth=1 >> button[aria-label="Tempo up"]');
@@ -184,6 +190,8 @@ try {
   await host.click('.display-row:has-text("Mirror 1") .btn:has-text("Make main")');
   check(await seen(host, '.toast:has-text("Main display changed")'), 'Make main');
   check(await until(() => app.hub.list((c) => c.role === 'tv' && c.data.display === 'main')[0]?.data.kind === 'mirror'), 'the mirror plays the sound now');
+  check(await until(async () => (await host.$$eval('.display-row .grow b', (l) => l.map((b) => b.textContent).join())) === 'Mirror 1,Main TV,Queue board 1'
+    && (await host.$('.display-row:has-text("Mirror 1") .btn:has-text("Make main")'))), 'the names follow (the TV page is “Mirror 1” now)');
   await host.click('.display-row:has-text("Mirror 1") .btn:has-text("Make main")'); // and back
   check(await until(() => app.hub.list((c) => c.role === 'tv' && c.data.display === 'main')[0]?.data.kind === 'main'), 'and back to the TV');
   await tab(host, 'Queue');
@@ -208,6 +216,17 @@ try {
   expectKick = false;
   await ben.close();
 
+  // ---- no TV at all: the Playback tab says so, no preview page ------------------------------------
+  await tab(host, 'Playback');
+  await tv.close();
+  await mirror.close();
+  await board.close();
+  check(await seen(host, '.preview-empty:has-text("No TV display is connected.")') && !(await host.$('.preview-frame iframe')), 'every TV closed: “No TV display is connected.”, no preview');
+  check(await until(() => previews() === 0), 'and no preview page');
+  const tvAgain = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'tv-again');
+  await tvAgain.goto(`${base}/tv`);
+  check(await seen(host, '.preview-frame iframe', 8000), 'a TV again: the preview comes back');
+
   // ---- both skins: screenshots of each tab ------------------------------------------------------
   for (const skin of ['studio', 'party']) {
     await hostReq('settings.update', { patch: { appearance: { theme: skin } } });
@@ -220,40 +239,47 @@ try {
   }
   await hostReq('settings.update', { patch: { appearance: { theme: 'studio' } } });
 
-  // ---- phones: the Control pages and the mini player -------------------------------------------
-  for (const [w, h] of [[390, 844], [360, 760]]) {
-    const p = await phone(`host-phone-${w}`, w, h);
+  // ---- phones: the Control pages and the mini player, both skins -------------------------------
+  await hostReq('queue.add', { songId: neon.id, singerName: 'Ann', position: 'now' });
+  await until(() => room.s.current);
+  for (const [skin, w, h] of [['studio', 390, 844], ['studio', 360, 760], ['party', 390, 844], ['party', 360, 760]]) {
+    await hostReq('settings.update', { patch: { appearance: { theme: skin } } });
+    if (!room.s.current) await hostReq('queue.add', { songId: neon.id, singerName: 'Ann', position: 'now' });
+    const p = await phone(`host-phone-${skin}-${w}`, w, h);
     await p.goto(`${base}/host#/queue`);
-    check(await until(async () => (await p.evaluate(() => location.hash)) === '#/panel/queue'), `${w}px: #/queue → #/panel/queue`);
+    check(await until(async () => (await p.evaluate(() => location.hash)) === '#/panel/queue'), `${skin} ${w}px: #/queue → #/panel/queue`);
     const nav = await p.$$eval('.nav a', (l) => l.filter((a) => a.offsetParent).map((a) => a.textContent.trim()));
-    check(nav.length <= 6 && nav.some((n) => /^Control/.test(n)), `${w}px: the bottom bar has Control (${nav.join(', ')})`);
-    check(await seen(p, '.player.mini .play-btn') && !!(await p.$('.player.mini button[aria-label="Next singer"]')) && !(await p.$('.player .seek')) && !(await p.$('.player .stepper')), `${w}px: the mini player`);
-    check(await noSideways(p), `${w}px: Queue page fits`);
-    await shot(p, `phone-${w}-queue`);
+    check(nav.length <= 6 && nav.some((n) => /^Control/.test(n)), `${skin} ${w}px: the bottom bar has Control (${nav.join(', ')})`);
+    check(await seen(p, '.player.mini .play-btn') && !!(await p.$('.player.mini button[aria-label="Next singer"]')) && !(await p.$('.player .seek')) && !(await p.$('.player .stepper')), `${skin} ${w}px: the mini player`);
+    check(await noSideways(p), `${skin} ${w}px: Queue page fits`);
+    await shot(p, `${skin}-phone-${w}-queue`);
     await p.tap('.now.mini');
-    check(await until(async () => (await p.evaluate(() => location.hash)) === '#/panel/playback' && !(await p.$('.player'))), `${w}px: the mini player opens Playback (no bar there)`);
+    check(await until(async () => (await p.evaluate(() => location.hash)) === '#/panel/playback' && !(await p.$('.player'))), `${skin} ${w}px: the mini player opens Playback (no bar there)`);
     await p.waitForSelector('#pb-now .play-btn');
     for (const sel of ['button[aria-label="Restart song"]', 'button[aria-label="Next singer"]', 'button[aria-label="Stop and return the song to the queue"]', '.seek input', 'input[aria-label="Volume"]']) {
-      check(!!(await p.$(`#pb-now ${sel}`)), `${w}px: Playback page has ${sel}`);
+      check(!!(await p.$(`#pb-now ${sel}`)), `${skin} ${w}px: Playback page has ${sel}`);
     }
     if (room.s.player.state !== 'playing') await hostReq('player.resume');
-    await until(() => room.s.player.state === 'playing', 15000);
+    const playing = await until(() => room.s.player.state === 'playing', 20000);
+    // (the button follows the state the page has been told: wait for it to offer Pause)
+    await p.waitForSelector('#pb-now .play-btn[aria-label="Pause"]', { timeout: 5000 }).catch(() => {});
     await p.tap('#pb-now .play-btn');
-    check(await until(() => room.s.player.state === 'paused'), `${w}px: pause from the Playback page`);
-    check(!(await p.$('.preview-frame')) && !!(await p.$('.preview-off')), `${w}px: the preview waits to be asked for`);
+    check(playing && await until(() => room.s.player.state === 'paused'), `${skin} ${w}px: pause from the Playback page (${room.s.player.state}, TV ready ${room.s.player.tvReady})`);
+    check(!(await p.$('.preview-frame')) && !!(await p.$('.preview-off')), `${skin} ${w}px: the preview waits to be asked for`);
     await p.tap('.preview-off');
     await p.waitForSelector('.preview-frame');
-    check(await p.evaluate(() => document.querySelector('.preview-frame').getBoundingClientRect().width <= innerWidth), `${w}px: the preview fits`);
-    check(await noSideways(p), `${w}px: Playback page fits`);
-    await shot(p, `phone-${w}-playback`);
+    check(await p.evaluate(() => document.querySelector('.preview-frame').getBoundingClientRect().width <= innerWidth), `${skin} ${w}px: the preview fits`);
+    check(await noSideways(p), `${skin} ${w}px: Playback page fits`);
+    await shot(p, `${skin}-phone-${w}-playback`);
     await p.goto(`${base}/host#/panel/devices`);
     await p.waitForSelector('.display-row');
     const inside = await p.evaluate(() => [...document.querySelectorAll('.dev-actions button')].every((b) => { const r = b.getBoundingClientRect(); return r.right <= innerWidth && r.left >= 0; }));
-    check(inside, `${w}px: the Devices buttons are on screen`);
-    check(await noSideways(p), `${w}px: Devices page fits`);
-    await shot(p, `phone-${w}-devices`);
+    check(inside, `${skin} ${w}px: the Devices buttons are on screen`);
+    check(await noSideways(p), `${skin} ${w}px: Devices page fits`);
+    await shot(p, `${skin}-phone-${w}-devices`);
     await p.close();
   }
+  await hostReq('settings.update', { patch: { appearance: { theme: 'studio' } } });
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);
 } finally {

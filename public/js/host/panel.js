@@ -19,7 +19,7 @@ function TabExtra({ tab, state }) {
   }
   if (tab === 'playback') {
     return html`${p.state === 'playing' && html`<span class="live-dot" role="img" aria-label="Playing"></span>`}
-      ${(p.error || (!p.hasDisplay && (state.current || state.queue.length))) && html`<span class="tab-dot" role="img" aria-label="Needs attention"></span>`}`;
+      ${!!(p.error || (!p.hasDisplay && (state.current || state.queue.length > 0))) && html`<span class="tab-dot" role="img" aria-label="Needs attention"></span>`}`;
   }
   const n = state.pairings?.length || 0;
   if (n) return html`<span class="badge bulb" aria-label=${`${n} screens waiting to pair`}>${n}</span>`;

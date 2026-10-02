@@ -39,7 +39,7 @@ export function VocalsControl({ p, idle }) {
   }
   return html`<div class="channel" title="Speakers: which channels play (for a multiplex track that wasn’t recognised, the side without the guide singer)">
     <${Icon} name="headphones" size=${18} />
-    <select class="select" value=${p.channel} onChange=${(e) => act('player.channel', { mode: e.currentTarget.value })} aria-label="Channel mode">
+    <select class="select" value=${p.channel} disabled=${idle} onChange=${(e) => act('player.channel', { mode: e.currentTarget.value })} aria-label="Channel mode">
       ${CHANNEL_MODES.map((m) => html`<option value=${m}>${CHANNEL_LABELS[m]}</option>`)}
     </select>
     ${more}

@@ -133,6 +133,8 @@ function PreviewFrame({ state, narrow }) {
     wasTheatre.current = theatre;
   }, [theatre]);
   const main = state.displays.find((d) => d.display === 'main');
+  // The TV went away: no big view waiting to pop up again by itself when one connects.
+  useEffect(() => { if (!main && theatre) setTheatre(false); }, [!!main]);
   const lan = state.info.lanUrls?.[0] || state.info.baseUrl;
   const show = (v) => {
     setOn(v);
@@ -188,7 +190,9 @@ function TvWindowControls() {
     }
   };
   return html`<div class="tv-window">
-    <p>${!st.open ? 'TV window: closed' : st.fullscreen && screen ? `TV window: full screen on ${screen.name} (${screen.size})` : 'TV window: open on this screen (not full screen)'}</p>
+    <p>${!st.open ? 'TV window: closed'
+      : st.fullscreen ? (screen ? `TV window: full screen on ${screen.name} (${screen.size})` : 'TV window: full screen')
+        : st.placeable === false ? 'TV window: open (not full screen)' : 'TV window: open on this screen (not full screen)'}</p>
     <div class="btn-row">
       ${st.open
         ? html`<button class="btn small" onClick=${() => run(tv.close())}>Close</button>

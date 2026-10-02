@@ -67,12 +67,15 @@ try {
   check(room().game.votes.size === 2, 'two votes counted');
   await shot(tv, 'tv-poll');
   await shot(ann, 'ann-poll');
-  await host.click('.game-live .btn:has-text("Close voting")');
+  await host.dblclick('.game-live .btn:has-text("Close voting")'); // a double click closes it once
   await tv.waitForSelector('.poll-winner');
   check(room().s.queue[0]?.source === 'game:poll', 'winner queued next');
+  await sleep(300);
+  check(room().game.phase === 'result' && room().s.queue.filter((e) => e.source === 'game:poll').length === 1, 'a double click on "Close voting now" doesn’t skip the result');
+  check(/everybody sing/.test(await tv.textContent('.poll-winner .next')), 'TV: up next, everybody sing');
   await shot(tv, 'tv-poll-winner');
-  await host.click('.game-live .btn:has-text("End game")').catch(() => {});
   host.once('dialog', (d) => d.accept());
+  await host.click('.game-live .btn:has-text("End game")').catch(() => {});
   await host.waitForSelector('.game-live .btn:has-text("Close")', { timeout: 15000 });
   await host.click('.game-live .btn:has-text("Close")');
   check(await tv.waitForSelector('.intro, .lobby', { timeout: 10000 }).then(() => true, () => false), 'after the game the TV goes back to karaoke');
@@ -107,6 +110,30 @@ try {
   }
   const overflow = await ann.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(overflow <= 0, 'phone fits without sideways scrolling');
+
+  // A poll the host ends during the vote: nothing is queued, and no screen says otherwise.
+  if (room().s.current) room().stop();
+  room().queueClear();
+  room().closeRating();
+  room().flush();
+  await host.click('.game-card:has-text("poll") .btn');
+  await host.waitForSelector('.game-card.open .g-setup');
+  await host.selectOption('.game-card.open select >> nth=1', 'nobody');
+  await host.click('.game-card.open .btn.primary');
+  await tv.waitForSelector('.poll-grid .poll-card');
+  await ann.waitForSelector('.game-tab .g-answer');
+  await ann.click('.g-answer >> nth=0');
+  host.once('dialog', (d) => d.accept());
+  await host.click('.game-live .btn:has-text("End game")');
+  check(await tv.waitForSelector('h1:has-text("Poll cancelled")', { timeout: 5000 }).then(() => true, () => false), 'TV: the poll was cancelled (no winner announced)');
+  await ann.waitForSelector('.g-h1:has-text("cancelled")', { timeout: 5000 });
+  const annText = await ann.textContent('.game-tab');
+  check(/Nothing was queued/.test(annText) && !/next in the queue/.test(annText), 'phones: cancelled, nothing queued');
+  check(/nothing was queued/.test(await host.textContent('.game-live')), 'host: nothing was queued');
+  check(room().s.queue.length === 0, 'nothing was queued');
+  await shot(tv, 'tv-poll-cancelled');
+  await shot(ann, 'ann-poll-cancelled');
+  await host.click('.game-live .btn:has-text("Close")');
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);
   for (const p of browser.contexts().flatMap((c) => c.pages())) await p.screenshot({ path: path.join(out, `failure-${Math.random().toString(36).slice(2, 6)}.png`) }).catch(() => {});

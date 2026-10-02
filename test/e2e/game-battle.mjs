@@ -8,7 +8,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
-import { loadPlaywright, startParty, check, results, sleep } from './lib.mjs';
+import { loadPlaywright, startParty, check, results, sleep, doubleClick } from './lib.mjs';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
 const out = path.resolve(process.argv[2] || 'test-results/e2e-battle');
@@ -83,6 +83,15 @@ try {
   check(!(await card.locator('.btn:has-text("Coming soon")').count()), 'Battle is available on the Games page');
   await card.locator('.btn:has-text("Set up")').click();
   await host.waitForSelector('.game-card.open .battle-setup');
+  // A guest who calls themself Everyone is a contestant chip; the sing-along singer is not.
+  const singAlong = room().findOrCreateSinger('Everyone');
+  const eve = room().createSinger({ name: 'Everyone', deviceId: 'e2e-eve-phone' });
+  room().markDirty();
+  await host.waitForSelector('.bt-chips .chip:has-text("Everyone")', { timeout: 5000 }).catch(() => {});
+  check(await host.locator('.bt-chips .chip', { hasText: 'Everyone' }).count() === 1, 'a guest called Everyone is a contestant chip (the sing-along is not)');
+  for (const x of [singAlong, eve]) room().s.singers.splice(room().s.singers.indexOf(x), 1);
+  room().markDirty();
+  await host.waitForSelector('.bt-chips .chip:has-text("Everyone")', { state: 'detached', timeout: 5000 });
   await host.click('.bt-chips .chip:has-text("Ann")');
   await host.click('.bt-chips .chip:has-text("Bob")');
   await host.fill('.bt-add input', 'Dee');
@@ -153,8 +162,17 @@ try {
       await shot(tv, 'tv-3-vote');
       await shot(host, 'host-vote');
     }
-    await host.click('.game-live .btn:has-text("Close voting now")');
-    await tv.waitForSelector('.bt-result', { timeout: 10000 });
+    if (rounds === 1) {
+      // A double click closes the vote once: by the second click "Continue" is in the button's
+      // place, and it must not skip the result screen.
+      const under = await doubleClick(host, '.game-live .btn:has-text("Close voting now")');
+      await tv.waitForSelector('.bt-result', { timeout: 10000 });
+      await sleep(700);
+      check(game().phase === 'result' && !!(await tv.$('.bt-result')) && /disabled/.test(under), `a double click on "Close voting now" keeps the result on the TV (the second click hit ${under})`);
+    } else {
+      await host.click('.game-live .btn:has-text("Close voting now")');
+      await tv.waitForSelector('.bt-result', { timeout: 10000 });
+    }
     const winner = game().contestants[game().match().winner].name;
     const judged = game().match().points;
     check((await tv.textContent('.g-tv-head h1')).includes(winner), `result on the TV: ${winner} wins (${judged.a}–${judged.b})`);

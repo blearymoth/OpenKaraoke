@@ -4,6 +4,7 @@ import { html, useEffect, useState } from '../vendor/preact.js';
 import { useStore, useDebounced } from '../lib/store.js';
 import { useFetch, Switch } from '../lib/components.js';
 import { Countdown, AnswerTile, SongArt, SelectField, FilterFields, Confetti, ensureCss } from './common.js';
+import { usePhaseControl } from './phase-control.js';
 import { ANSWER_COLORS, ANSWER_SHAPES } from '/shared/protocol.js';
 
 ensureCss('/css/games/battle.css');
@@ -60,7 +61,8 @@ function useHostStore() {
 
 function SingerChips({ store, picked, onToggle }) {
   const { state } = useStore(store);
-  const singers = (state?.singers || []).filter((s) => s.name && s.name !== 'Everyone');
+  // Not the sing-along singer (no phone); a guest who calls themself Everyone has a phone.
+  const singers = (state?.singers || []).filter((s) => s.name && (s.deviceId || s.name.toLowerCase() !== 'everyone'));
   if (!singers.length) return html`<p class="hint">No singers yet — type names below.</p>`;
   return html`<div class="bt-chips">${singers.map((s) => {
     const on = picked.some((p) => p.singerId === s.id);
@@ -203,7 +205,7 @@ function phaseText(game) {
     case 'vote': return 'Phones are voting for the better performance';
     case 'result': return resultText(game, game.match);
     case 'final':
-    case 'done': return game.champion >= 0 ? `${who(game, game.champion).name} wins the battle!` : 'The battle was ended early.';
+    case 'done': return game.champion >= 0 ? `${who(game, game.champion).name} wins the battle!` : game.ranking ? 'Nobody sang — no winner this time.' : 'The battle was ended early.';
     default: return '';
   }
 }
@@ -211,6 +213,9 @@ function phaseText(game) {
 export function Control({ game, act, now }) {
   const ph = game.phase;
   const m = game.match;
+  // A double click on "Close voting now" must not also press "Continue" (skipping the result).
+  const [busy, go] = usePhaseControl(game, act);
+  const run = (action) => go({ action });
   const lock = (p) => p.status === 'pending' && (game.songMode !== 'same' || lineup(game).every((x) => x.status === 'pending'));
   const canSong = (p) => !game.ended && lock(p) && (game.format !== 'showcase' || p.id === game.perf?.id || (ph === 'vs' && p.id === game.next?.id));
   const canJudge = (p) => game.judges && !game.ended && (p.status === 'done' || p.status === 'singing') && !m?.decided && !game.ranking;
@@ -223,11 +228,11 @@ export function Control({ game, act, now }) {
     </div>
     ${game.error && html`<p class="warn-text">${game.error}</p>`}
     ${!game.ended && html`<div class="btn-row">
-      ${(ph === 'vs' || ph === 'waiting') && html`<button class="btn primary" onClick=${() => act('game.action', { action: 'start' })}>▶ Start performance</button>`}
-      ${game.stalled && html`<button class="btn primary" onClick=${() => act('game.action', { action: 'start' })}>▶ Sing it again</button>`}
-      ${(ph === 'vs' || ph === 'waiting' || ph === 'singing') && html`<button class="btn" onClick=${() => confirm('Skip this performance? It gets no votes.') && act('game.action', { action: 'skip' })}>Skip performance</button>`}
-      ${(ph === 'vote' || ph === 'score') && html`<button class="btn" onClick=${() => act('game.action', { action: 'close' })}>Close voting now</button>`}
-      ${(ph === 'result' || ph === 'final') && html`<button class="btn" onClick=${() => act('game.action', { action: 'next' })}>Continue</button>`}
+      ${(ph === 'vs' || ph === 'waiting') && html`<button class="btn primary" disabled=${busy} onClick=${() => run('start')}>▶ Start performance</button>`}
+      ${game.stalled && html`<button class="btn primary" disabled=${busy} onClick=${() => run('start')}>▶ Sing it again</button>`}
+      ${(ph === 'vs' || ph === 'waiting' || ph === 'singing') && html`<button class="btn" disabled=${busy} onClick=${() => confirm('Skip this performance? It gets no votes.') && act('game.action', { action: 'skip' })}>Skip performance</button>`}
+      ${(ph === 'vote' || ph === 'score') && html`<button class="btn" disabled=${busy} onClick=${() => run('close')}>Close voting now</button>`}
+      ${(ph === 'result' || ph === 'final') && html`<button class="btn" disabled=${busy} onClick=${() => run('next')}>Continue</button>`}
     </div>`}
     ${ph === 'singing' && !game.stalled && html`<p class="hint">Next on the player bar ends the performance early (voting still happens).</p>`}
     ${m && ph === 'vote' && m.votes && html`<${VoteSplit} game=${game} m=${m} />`}

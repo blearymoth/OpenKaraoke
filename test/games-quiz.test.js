@@ -6,6 +6,7 @@ import { setupRoom, SONGS, MORE_SONGS } from './room-harness.js';
 import { Quiz, QUIZ_TIMING, decadeChoices } from '../server/games/quiz.js';
 import { QUIZ_ROUNDS, QUIZ_ROUND_INFO, QUIZ_STREAK_BONUS, quizPoints } from '../shared/quiz.js';
 import { fold } from '../shared/text.js';
+import { GAME_SETTLE_MS } from '../shared/protocol.js';
 import { writeTree } from './helpers.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -538,4 +539,161 @@ test('quiz: distractors prefer the same decade and genre when metadata is known'
   }
   // 18 songs: 6–7 per decade, so random picks would share the decade ~1/3 of the time.
   assert.ok(same / total > 0.55, `same decade ${same}/${total}`);
+});
+
+test('quiz: an answer still on its way when the countdown hits 0 counts (grace window), later ones don’t', async () => {
+  const { req, connect, guest, room, view } = await quizRoom();
+  const host = await connect('host');
+  const ana = await guest('Ana');
+  const ben = await guest('Ben');
+  await guest('Cy'); // never answers, so the question doesn't close early
+  await req(host, 'game.start', { type: 'quiz', config: { questions: 5, seconds: 10 } });
+  const saved = QUIZ_TIMING.graceMs;
+  QUIZ_TIMING.graceMs = 800; // (wider than the real 400 ms: room for a busy test machine)
+  try {
+    const g = room.game;
+    g.config.seconds = 0.2; // a 200 ms question (the real minimum is 10 s)
+    g.ask(); // no TV: opens at once
+    assert.equal(g.opened, true);
+    assert.ok(view(ana).game.endsAt <= Date.now() + 200, 'the countdown still shows the real deadline');
+    await sleep(260); // past the countdown, inside the grace window
+    assert.equal(g.phase, 'question', 'still open for answers in flight');
+    await req(ana, 'game.input', { q: 0, choice: songChoice(g) });
+    await sleep(1000);
+    assert.equal(g.phase, 'reveal', 'the timer closes it after the grace window');
+    await assert.rejects(req(ben, 'game.input', { q: 0, choice: songChoice(g) }), /closed/);
+    assert.deepEqual(view(ana).game.me.result, { correct: true, answered: true, points: 500, bonus: 0 }, 'late but right: the minimum points');
+  } finally {
+    QUIZ_TIMING.graceMs = saved;
+  }
+  await req(host, 'game.close');
+});
+
+test('quiz: ties share the win, nobody wins with 0 points — TV, phones and recap agree', async () => {
+  const { req, connect, guest, room, view, s } = await quizRoom();
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const ana = await guest('Ana');
+  const ben = await guest('Ben');
+  const cy = await guest('Cy');
+  await req(host, 'game.start', { type: 'quiz', config: { questions: 5 } });
+  const g = room.game;
+  // Everyone answers wrong: no champion.
+  await openQuestion(room, req, tv);
+  for (const c of [ana, ben]) await req(c, 'game.input', { q: 0, choice: wrongChoice(g) });
+  g.close();
+  g.final();
+  assert.deepEqual(view(tv).game.winners, []);
+  assert.equal(view(ana).game.me.rank, 1);
+  assert.equal(view(ana).game.me.tied, true);
+  assert.equal(g.summary(), null);
+  await req(host, 'game.close');
+
+  // Ana and Ben tie at the top, Cy is third.
+  await req(host, 'game.start', { type: 'quiz', config: { questions: 5 } });
+  const q = room.game;
+  await openQuestion(room, req, tv);
+  for (const c of [ana, ben]) {
+    await req(c, 'game.input', { q: 0, choice: songChoice(q) });
+    q.answers.get(c.data.deviceId).ms = 0;
+  }
+  await req(cy, 'game.input', { q: 0, choice: wrongChoice(q) });
+  q.close();
+  q.final();
+  assert.deepEqual(view(tv).game.winners, ['Ana', 'Ben']);
+  assert.deepEqual(view(ben).game.winners, ['Ana', 'Ben']);
+  assert.equal(view(ana).game.me.rank, 1);
+  assert.equal(view(ben).game.me.rank, 1);
+  assert.equal(view(ben).game.me.tied, true);
+  assert.equal(view(cy).game.me.rank, 3);
+  assert.equal(view(cy).game.me.tied, false);
+  assert.deepEqual(view(tv).game.leaderboard.map((r) => r.rank), [1, 1, 3], 'the leaderboard shows the shared place');
+  q.end();
+  assert.deepEqual(s().tonight.games.at(-1).winners, ['Ana', 'Ben'], 'both are in the recap');
+  assert.equal(s().tonight.games.at(-1).title, 'Quiz champions');
+  assert.deepEqual(view(tv).game.winners, ['Ana', 'Ben'], 'still shown after the end');
+});
+
+test('quiz: a banned guest leaves the leaderboard, the podium and the recap (and comes back after an unban)', async () => {
+  const { req, connect, guest, room, view, s } = await quizRoom();
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const ana = await guest('Ana');
+  const troll = await guest('OffensiveName');
+  await req(host, 'game.start', { type: 'quiz', config: { questions: 5 } });
+  const g = room.game;
+  await openQuestion(room, req, tv);
+  await req(troll, 'game.input', { q: 0, choice: songChoice(g) });
+  await req(ana, 'game.input', { q: 0, choice: wrongChoice(g) });
+  const trollId = troll.data.deviceId;
+  await req(host, 'guest.ban', { deviceId: trollId });
+  assert.equal(view(tv).game.answered, 1, 'their answer is not counted');
+  g.close();
+  assert.equal(view(tv).game.reveal.rightCount, 0, 'nobody (still here) got it right');
+  assert.equal(view(tv).game.reveal.counts.reduce((a, b) => a + b, 0), 1);
+  g.final();
+  const names = view(tv).game.leaderboard.map((r) => r.name);
+  assert.deepEqual(names, ['Ana']);
+  assert.equal(view(tv).game.players, 1);
+  assert.deepEqual(view(tv).game.winners, []);
+  assert.equal(JSON.stringify(view(host).game).includes('OffensiveName'), false);
+  g.end();
+  assert.deepEqual(s().tonight.games, [], 'no champion for the recap');
+  await req(host, 'guest.unban', { deviceId: trollId });
+  assert.deepEqual(view(tv).game.leaderboard.map((r) => [r.name, r.score]).sort(), [['Ana', 0], ['OffensiveName', 0]], 'unbanned: listed again (0 points for the question they were banned in)');
+});
+
+test('quiz: a double click on the host control moves on once (the answer reveal is never skipped)', async () => {
+  const { req, connect, guest, room, view } = await quizRoom();
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const ana = await guest('Ana');
+  await req(host, 'game.start', { type: 'quiz', config: { questions: 5 } });
+  const g = room.game;
+  let later = 0; // the game's clock runs this far ahead of the real one
+  g.now = () => Date.now() + later;
+  const press = () => req(host, 'game.action', { action: 'next', step: view(host).game.step });
+  const twice = async () => {
+    const step = view(host).game.step;
+    return Promise.all([0, 1].map(() => req(host, 'game.action', { action: 'next', step })));
+  };
+  // Both clicks sent before the new state arrived: the second names the old step.
+  // "Start the question now" (get-ready → question; the TV hasn't reported the clip yet).
+  let [a, b] = await twice();
+  assert.equal(a.phase, 'question');
+  assert.equal(b.stale, true);
+  assert.equal(g.opened, false, 'the answer timer waits for the clip, not for the second click');
+  await req(tv, 'tv.game', { event: 'clip', q: 0 });
+  await req(ana, 'game.input', { q: 0, choice: songChoice(g) });
+  later += GAME_SETTLE_MS; // the question is open for a while
+  // "Close the question" → reveal, and stays there.
+  [a, b] = await twice();
+  assert.equal(a.phase, 'reveal');
+  assert.equal(b.stale, true);
+  assert.equal(g.phase, 'reveal');
+  assert.equal(view(ana).game.me.result.correct, true, 'the phones get their result');
+  // A click drawn for an older step (it crossed a timer) does nothing either.
+  const old = view(host).game.step;
+  later += GAME_SETTLE_MS;
+  g.afterReveal();
+  assert.equal((await req(host, 'game.action', { action: 'next', step: old })).stale, true);
+  assert.equal(g.phase, 'get-ready');
+  assert.equal(g.qi, 1);
+  // A human double click on "Start the question now": by the second click the host shows
+  // "Close the question" in its place (the new step). It does nothing, so the answers still
+  // wait for the TV's clip…
+  assert.equal((await press()).phase, 'question');
+  await sleep(100);
+  assert.equal((await press()).stale, true, 'the second click of the double click');
+  assert.equal(g.opened, false, 'the answer timer waits for the clip');
+  // … and when the TV reported the clip in between (the question is open: a newer step), the
+  // second click doesn't close the question it just started.
+  await req(tv, 'tv.game', { event: 'clip', q: 1 });
+  assert.equal(g.opened, true);
+  assert.equal((await press()).stale, true);
+  assert.equal(g.phase, 'question');
+  later += GAME_SETTLE_MS; // a deliberate click once the buttons have settled does close it
+  assert.equal((await press()).phase, 'reveal');
+  assert.equal(g.qi, 1);
+  await req(host, 'game.close');
 });

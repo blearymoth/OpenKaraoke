@@ -12,6 +12,7 @@ import { useFetch } from '../lib/components.js';
 import { CdgRenderer } from '../lib/cdg-canvas.js';
 import { findLyricsFrame } from '/shared/cdg.js';
 import { QUIZ_ROUNDS, QUIZ_ROUND_INFO } from '/shared/quiz.js';
+import { usePhaseControl } from './phase-control.js';
 
 ensureCss('/css/games/quiz.css');
 
@@ -25,6 +26,8 @@ const ordinal = (n) => {
   const v = n % 100;
   return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
 };
+/** "Ana", "Ana & Ben", "Ana, Ben & Cy" — or "4 players" when the list gets long. */
+const names = (list) => (list.length > 3 ? `${list.length} players` : list.length > 1 ? `${list.slice(0, -1).join(', ')} & ${list.at(-1)}` : list[0] || '');
 
 // ---- host ------------------------------------------------------------------------------------
 
@@ -83,6 +86,9 @@ export function Control({ game, act, now }) {
   const r = game.round;
   const rv = game.reveal;
   const over = game.phase === 'final' || game.ended;
+  // A double click never also presses the next phase's button (skipping the reveal, or opening
+  // the answers before the TV has played the clip).
+  const [busy, run] = usePhaseControl(game, act);
   return html`<div class="g-control quiz-control">
     <div class="qz-host-status">
       <${Countdown} endsAt=${game.endsAt} total=${game.phaseSeconds || game.seconds} now=${now} />
@@ -98,8 +104,8 @@ export function Control({ game, act, now }) {
       ? html`<${Leaderboard} rows=${game.leaderboard} />`
       : html`<p class="hint">Scores show up here once guests answer on their phones.</p>`}
     ${!game.ended && html`<div class="qz-host-actions">
-      <button class="btn" onClick=${() => act('game.action', { action: 'next' })}>${NEXT_LABEL[game.phase] || 'Next'}</button>
-      ${game.phase !== 'final' && html`<button class="btn ghost" onClick=${() => act('game.action', { action: 'final' })}>Show final results</button>`}
+      <button class="btn" disabled=${busy} onClick=${() => run({ action: 'next' })}>${NEXT_LABEL[game.phase] || 'Next'}</button>
+      ${game.phase !== 'final' && html`<button class="btn ghost" disabled=${busy} onClick=${() => run({ action: 'final' })}>Show final results</button>`}
     </div>`}
   </div>`;
 }
@@ -443,14 +449,18 @@ function TvBoard({ game, now, st }) {
 function TvFinal({ game }) {
   const rows = game.leaderboard || [];
   const rest = rows.slice(3, 8);
+  const winners = game.winners || []; // everyone tied for the top score; none when nobody scored
+  const title = winners.length > 1 ? `${names(winners)} share the crown!`
+    : winners.length ? `${winners[0]} is the quiz champion!`
+      : rows.length ? 'Nobody scored — thanks for playing!' : 'Thanks for playing!';
   return html`<div class="scene g-tv quiz qz-final">
-    <${Confetti} run=${rows.length ? 1 : 0} />
+    <${Confetti} run=${winners.length ? 1 : 0} />
     <header class="qz-final-head">
       <div class="kicker">${icon} Music quiz · final results</div>
-      <h1 class="display">${rows[0] ? `${rows[0].name} is the quiz champion!` : 'Thanks for playing!'}</h1>
+      <h1 class="display">${title}</h1>
     </header>
-    ${rows.length ? html`<${Podium} rows=${rows} />` : html`<p class="qz-empty">Nobody answered this time.</p>`}
-    ${rest.length > 0 && html`<p class="g-tv-foot qz-rest">${rest.map((r, i) => html`<span key=${r.id}>${i + 4}. ${r.name} <b class="num">${fmt(r.score)}</b></span>`)}</p>`}
+    ${winners.length ? html`<${Podium} rows=${rows} />` : html`<p class="qz-empty">${rows.length ? 'Not a single right answer this time.' : 'Nobody answered this time.'}</p>`}
+    ${winners.length > 0 && rest.length > 0 && html`<p class="g-tv-foot qz-rest">${rest.map((r, i) => html`<span key=${r.id}>${r.rank || i + 4}. ${r.name} <b class="num">${fmt(r.score)}</b></span>`)}</p>`}
   </div>`;
 }
 
@@ -527,9 +537,15 @@ export function Guest({ game, send, now }) {
 
   // final / done
   const rows = game.leaderboard || [];
+  const winners = game.winners || [];
+  let title = 'Thanks for playing!';
+  if (me.rank === 1 && winners.length) title = me.tied ? '🏆 You share the win!' : '🏆 You won the quiz!';
+  else if (me.rank && winners.length) title = `You finished ${me.tied ? 'joint ' : ''}${ordinal(me.rank)}!`;
+  else if (winners.length) title = `${names(winners)} ${winners.length > 1 ? 'share the win' : 'wins'}!`;
+  else if (rows.length) title = 'Nobody scored — thanks for playing!';
   return html`<div class="g-guest quiz">
     ${head}
-    <h1 class="g-h1">${me.rank === 1 ? '🏆 You won the quiz!' : me.rank ? `You finished ${ordinal(me.rank)}!` : rows[0] ? `${rows[0].name} wins!` : 'Thanks for playing!'}</h1>
+    <h1 class="g-h1">${title}</h1>
     <${MyScore} me=${me} big />
     <${Leaderboard} rows=${rows} max=${10} highlight=${me.id} />
   </div>`;

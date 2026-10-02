@@ -418,7 +418,7 @@ export class Battle extends Game {
     const { a, b } = this.sides(m);
     if (this.config.voting === 'score') return { a: this.perfScore(a), b: this.perfScore(b) };
     const out = { a: 0, b: 0 };
-    for (const side of m.votes.values()) out[side]++;
+    for (const side of this.liveVotes(m.votes)) out[side]++; // (banned guests' votes don't count)
     const judged = this.judgeSide(a, b);
     if (judged) out[judged] += this.config.judgeWeight;
     return out;
@@ -434,7 +434,7 @@ export class Battle extends Game {
     if (!p || p.status === 'skipped') return 0;
     let sum = 0;
     let n = 0;
-    for (const v of p.votes.values()) {
+    for (const v of this.liveVotes(p.votes)) {
       sum += v;
       n++;
     }
@@ -472,12 +472,26 @@ export class Battle extends Game {
     return w;
   }
 
+  /** Every match (or performance) that decides the battle is over: only the podium is left. */
+  decidedOverall() {
+    const cfg = this.config;
+    if (cfg.format === 'showcase') return this.perfs.every((p) => p.closed);
+    const m = this.match();
+    if (!m?.decided) return false;
+    if (cfg.format === 'knockout') return m.round >= this.roundCount - 1;
+    const need = Math.floor(cfg.rounds / 2) + 1;
+    return this.matches.length >= cfg.rounds || this.wins().some((w) => w >= need);
+  }
+
+  /** Did anybody actually sing? (A battle where every performance was skipped has no winner.) */
+  anySung() {
+    return this.perfs.some((p) => p.status === 'done');
+  }
+
   nextMatch() {
     const cfg = this.config;
     if (cfg.format === 'duel') {
-      const wins = this.wins();
-      const need = Math.floor(cfg.rounds / 2) + 1;
-      if (this.matches.length >= cfg.rounds || wins.some((w) => w >= need)) return this.finalize();
+      if (this.decidedOverall()) return this.finalize();
       this.addDuelRound();
     } else {
       this.propagate(this.match());
@@ -529,11 +543,16 @@ export class Battle extends Game {
     return { rows, lot };
   }
 
-  finalize() {
+  /** The final standings and the champion (none when nobody sang). */
+  settle() {
     const { rows, lot } = this.rank();
     this.ranking = rows;
-    this.finalLot = lot;
-    this.champion = rows[0].c;
+    this.champion = this.anySung() ? rows[0].c : -1;
+    this.finalLot = this.champion >= 0 && lot;
+  }
+
+  finalize() {
+    this.settle();
     this.perfIdx = -1;
     this.setPhase('final', FINAL_SECONDS, () => this.end());
     return { champion: this.champion };
@@ -541,12 +560,16 @@ export class Battle extends Game {
 
   end() {
     if (this.ended) return;
-    if (this.perfs) this.dropStaleEntries();
+    if (this.perfs) {
+      this.dropStaleEntries();
+      // Ended on the deciding match's result screen: the winner is known, keep it (podium, recap).
+      if (!this.ranking && this.decidedOverall()) this.settle();
+    }
     super.end();
   }
 
   summary() {
-    const c = this.champion >= 0 ? this.cView(this.champion) : null;
+    const c = this.champion >= 0 && this.anySung() ? this.cView(this.champion) : null;
     return c ? { title: 'Battle winner', winners: [c.name] } : null;
   }
 
@@ -556,7 +579,9 @@ export class Battle extends Game {
     switch (m.action) {
       case 'start': return this.hostStart();
       case 'skip': return this.skip();
-      case 'close':
+      case 'close': // "Close voting now": only ever closes a vote (never skips the result screen)
+        if (this.phase !== 'vote' && this.phase !== 'score') fail('Nothing to move on from right now.', 'bad_state');
+        return this.hostNext();
       case 'next': return this.hostNext();
       case 'song': return this.chooseSong(m);
       case 'judge': return this.judge(m);
@@ -683,7 +708,7 @@ export class Battle extends Game {
     const open = p.closed || role === 'host';
     const out = {
       id: p.id, c: p.c, side: p.side, status: p.status, songId: song?.id || null,
-      title: song?.title || '', artist: song?.artist || '', votes: p.votes.size, reactions: p.reactions,
+      title: song?.title || '', artist: song?.artist || '', votes: this.liveVotes(p.votes).length, reactions: p.reactions,
     };
     if (this.config.voting === 'score' && open) out.score = this.perfScore(p);
     if (this.config.judges && open) out.judge = p.judge || 0;
@@ -700,11 +725,12 @@ export class Battle extends Game {
     out.order = m.perfs.map((i) => this.perfs[i].side);
     out.perfs = { a: this.perfView(a, role), b: this.perfView(b, role) };
     if (this.config.voting === 'ab') {
-      out.voters = m.votes.size;
+      const votes = this.liveVotes(m.votes);
+      out.voters = votes.length;
       // Live A/B bars on the TV (and the host); phones only see their own vote until the result.
       if (role !== 'guest' || m.decided) {
         out.votes = { a: 0, b: 0 };
-        for (const side of m.votes.values()) out.votes[side]++;
+        for (const side of votes) out.votes[side]++;
       }
       if (role === 'host' || m.decided) out.judged = this.judgeSide(a, b);
     }

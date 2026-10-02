@@ -30,6 +30,29 @@ export const check = (ok, what) => {
 };
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * A human double click: two clicks on the same spot, `gap` ms apart. (Playwright's dblclick()
+ * sends both at once, before the page re-renders, so it never hits the button the first click
+ * brings up in the same place.) Resolves to what the second click landed on, e.g.
+ * 'BUTTON "Continue" disabled'.
+ */
+export async function doubleClick(page, selector, gap = 150) {
+  const el = await page.waitForSelector(selector);
+  await el.scrollIntoViewIfNeeded();
+  const box = await el.boundingBox();
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.click(x, y);
+  await sleep(gap);
+  const under = await page.evaluate(([px, py]) => {
+    const hit = document.elementFromPoint(px, py);
+    const target = hit?.closest('button, a, input, select') || hit;
+    return target ? `${target.tagName} "${target.textContent.trim().slice(0, 40)}"${target.disabled ? ' disabled' : ''}` : 'nothing';
+  }, [x, y]);
+  await page.mouse.click(x, y);
+  return under;
+}
+
 export class WsClient {
   constructor(url) {
     this.url = url;

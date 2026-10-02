@@ -71,3 +71,9 @@ export const ANSWER_SHAPES = ['▲', '◆', '●', '■'];
 
 /** Seconds guests have to rate a performance after it ends. */
 export const RATING_SECONDS = 40;
+
+/**
+ * How long the next phase's host controls stay inert after a control moved a game on (PLAN §7):
+ * the second click of a double click lands on the button drawn for the new phase.
+ */
+export const GAME_SETTLE_MS = 600;

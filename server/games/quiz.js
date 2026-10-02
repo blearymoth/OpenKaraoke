@@ -343,7 +343,10 @@ export class Quiz extends Game {
     if (this.phase !== 'question' || this.opened) return;
     this.opened = true;
     this.openedAt = this.now();
-    this.setPhase('question', this.config.seconds, () => this.close());
+    // The countdown shows `seconds`; the question closes a moment later, so answers that were
+    // still on their way when the countdown hit 0 count (input() checks the same limit).
+    this.setPhase('question', this.config.seconds);
+    this.later(this.config.seconds * 1000 + QUIZ_TIMING.graceMs, () => this.close());
   }
 
   /** Scores the question and shows the answer. */
@@ -353,6 +356,7 @@ export class Quiz extends Game {
     const T = this.config.seconds;
     const counts = q.choices.map(() => 0);
     for (const [deviceId, p] of this.players) {
+      if (this.banned(deviceId)) continue; // removed by the host: off the board, answers don't count
       const a = this.answers.get(deviceId);
       if (!a) {
         p.streak = 0;
@@ -463,22 +467,31 @@ export class Quiz extends Game {
 
   // ---- results ---------------------------------------------------------------------------------
 
-  /** Players by score (ties: whoever joined first). */
+  /** Players by score (ties: whoever joined first). Banned guests are left out. */
   ranking() {
     const rows = [];
     for (const [deviceId, p] of this.players) {
       const prof = this.room.profileOf(deviceId);
+      if (prof?.banned) continue;
       rows.push({
         deviceId, id: p.pid, name: prof?.name || 'Player', emoji: prof?.emoji || '🎤', color: prof?.color || '',
         score: p.score, delta: p.last?.q === this.qi ? p.last.points : 0, correct: p.correct, streak: p.streak, best: p.best, order: p.order,
       });
     }
-    return rows.sort((a, b) => b.score - a.score || a.order - b.order);
+    rows.sort((a, b) => b.score - a.score || a.order - b.order);
+    rows.forEach((r, i) => { r.rank = i && rows[i - 1].score === r.score ? rows[i - 1].rank : i + 1; }); // ties share a place (1, 1, 3)
+    return rows;
+  }
+
+  /** The players who share the top score — nobody when nobody scored. */
+  winners(rows = this.ranking()) {
+    const top = rows[0]?.score || 0;
+    return top > 0 ? rows.filter((r) => r.score === top) : [];
   }
 
   summary() {
-    const top = this.ranking()[0];
-    return top && top.score > 0 ? { title: 'Quiz champion', winners: [top.name] } : null;
+    const names = this.winners().map((r) => r.name);
+    return names.length ? { title: names.length > 1 ? 'Quiz champions' : 'Quiz champion', winners: names } : null;
   }
 
   // ---- views -------------------------------------------------------------------------------------
@@ -495,9 +508,9 @@ export class Quiz extends Game {
     v.total = this.questions.length;
     v.index = this.qi;
     v.open = phase === 'question' && this.opened;
-    v.answered = this.answers.size;
+    v.answered = [...this.answers.keys()].filter((id) => !this.banned(id)).length;
     v.expected = this.expected().size;
-    v.players = this.players.size;
+    v.players = rows.length;
     if (q && phase !== 'final' && phase !== 'done') {
       const info = QUIZ_ROUND_INFO[q.type];
       v.round = { type: q.type, label: info.label, icon: info.icon, prompt: info.prompt, ask: info.ask };
@@ -521,6 +534,7 @@ export class Quiz extends Game {
     if (phase === 'leaderboard' || phase === 'final' || phase === 'done' || ctx.role === 'host') {
       v.leaderboard = rows.slice(0, 10).map(pub);
     }
+    if (phase === 'final' || phase === 'done') v.winners = this.winners(rows).map((r) => r.name); // ties share the win
     if (ctx.role === 'tv' && q && !this.ended) {
       if (['get-ready', 'question', 'reveal'].includes(phase)) v.clip = { q: this.qi, ...q.clip };
       const next = this.questions[this.qi + 1];
@@ -533,12 +547,14 @@ export class Quiz extends Game {
     if (ctx.role === 'guest') {
       const p = this.players.get(ctx.deviceId);
       const mine = this.answers.get(ctx.deviceId);
-      const rank = p ? 1 + rows.filter((r) => r.score > p.score).length : 0;
+      const row = rows.find((r) => r.deviceId === ctx.deviceId);
+      const rank = row?.rank || 0;
       v.me = {
         id: p?.pid || null,
         choice: mine ? mine.choice : -1,
         score: p?.score || 0,
-        rank,
+        rank, // shared by tied players (see `tied`)
+        tied: !!row && rows.filter((r) => r.score === row.score).length > 1,
         streak: p?.streak || 0,
         correct: p?.correct || 0,
         // This question's result, only once it is revealed.

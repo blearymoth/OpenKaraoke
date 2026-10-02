@@ -84,6 +84,9 @@ const num = (v, min, max, def) => {
 const fail = (message, code) => {
   throw new UserError(message, { code });
 };
+/** A singer name for matching: folded, or as typed when it has no letters or digits ("🦄🦄"). */
+const nameKey = (name) => fold(name) || String(name || '').trim().toLowerCase();
+const EVERYONE = 'everyone'; // the sing-along singer's name key
 
 export class Room {
   constructor(app) {
@@ -405,7 +408,7 @@ export class Room {
       'photo.remove': [H, (c, m) => this.photos.remove(str(m.id, 40))],
       'photo.clear': [H, () => this.photos.removeAll()],
       'game.start': [H, (c, m) => this.gameStart(m)],
-      'game.action': [H, (c, m) => this.activeGame().action(c, m)],
+      'game.action': [H, (c, m) => this.gameAction(c, m)],
       'game.input': [[GUEST], (c, m) => this.gameInput(c, m)],
       'game.end': [H, () => this.gameEnd()],
       'game.close': [H, () => this.gameClose()],
@@ -455,6 +458,8 @@ export class Room {
     const deviceId = isGuest ? client.data.deviceId : null;
     const profile = deviceId ? this.profileOf(deviceId) : null;
     const noExplicit = isGuest && this.settings.get('queue.explicitFilter');
+    // "Play now" can't start while a game owns the TV: refuse before anything changes.
+    if (!isGuest && m.position === 'now' && this.gameBlocks()) fail('A game is using the TV — end it first.', 'busy');
 
     if (isGuest) {
       const rules = this.settings.data.queue;
@@ -529,7 +534,12 @@ export class Room {
     }
     if (!isGuest && m.position === 'now') {
       this.s.queue.unshift(entry);
-      this.play({ entryId: entry.id });
+      try {
+        this.play({ entryId: entry.id });
+      } catch (e) {
+        this.s.queue = this.s.queue.filter((x) => x !== entry); // refused: not queued either
+        throw e;
+      }
       return { pending: false, index: 0, started: true, eta: 0, entry: this.entryView(entry) };
     }
     const wasEmpty = !this.s.queue.length;
@@ -732,7 +742,8 @@ export class Room {
   play(m = {}) {
     const q = this.s.queue;
     let entry = null;
-    if (this.gameBlocks() && !this.s.current) fail('A game is using the TV — end it first.', 'busy');
+    // An exclusive game owns the TV: no other song may start (its own current song may resume).
+    if (this.gameBlocks() && (m.entryId ? this.s.current?.id !== m.entryId : !this.s.current)) fail('A game is using the TV — end it first.', 'busy');
     if (m.entryId) {
       const i = q.findIndex((e) => e.id === m.entryId);
       if (i < 0) {
@@ -1035,9 +1046,31 @@ export class Room {
     return singer;
   }
 
+  /**
+   * The singer called `name` (or a new one). "Everyone" is always the sing-along singer — never a
+   * guest who calls themself that. A host re-adding a name marks that singer as here tonight.
+   */
   findOrCreateSinger(name) {
-    const f = fold(name);
-    return this.s.singers.find((x) => fold(x.name) === f) || this.createSinger({ name });
+    const singer = this.singerNamed(name) || this.createSinger({ name });
+    singer.seenAt = Date.now();
+    return singer;
+  }
+
+  singerNamed(name) {
+    const key = nameKey(name);
+    if (key === EVERYONE) return this.singAlongSinger();
+    return this.s.singers.find((x) => !x.singAlong && nameKey(x.name) === key) || null;
+  }
+
+  /** "Everyone" (poll winners, wheel results, autoplay, the host's sing-alongs): no phone, no guest. */
+  singAlongSinger() {
+    let singer = this.s.singers.find((x) => x.singAlong);
+    if (!singer) {
+      // One made before the flag existed, or a new one.
+      singer = this.s.singers.find((x) => !x.deviceId && nameKey(x.name) === EVERYONE) || this.createSinger({ name: 'Everyone' });
+      singer.singAlong = true;
+    }
+    return singer;
   }
 
   singerForProfile(deviceId) {
@@ -1053,9 +1086,10 @@ export class Room {
   singerAdd(m) {
     const name = str(m.name, 40);
     if (!name) fail('Give the singer a name.', 'bad_request');
-    const existing = this.s.singers.find((x) => fold(x.name) === fold(name));
-    if (existing) return { singer: existing };
-    return { singer: this.createSinger({ name, emoji: str(m.emoji, 16) || undefined, color: validColor(m.color) }) };
+    const existing = this.singerNamed(name);
+    const singer = existing || this.createSinger({ name, emoji: str(m.emoji, 16) || undefined, color: validColor(m.color) });
+    singer.seenAt = Date.now(); // here tonight (the wheel's "everyone singing tonight")
+    return { singer };
   }
 
   singerUpdate(m) {
@@ -1481,6 +1515,11 @@ export class Room {
     return this.game;
   }
 
+  /** Host controls (a phase control that is stale or part of a double click does nothing: Game.control). */
+  gameAction(client, m) {
+    return this.activeGame().control(client, m);
+  }
+
   gameInput(client, m) {
     const game = this.activeGame();
     if (!this.settings.get('guests.games')) fail('The host has turned off games on phones.', 'closed');
@@ -1529,9 +1568,18 @@ export class Room {
     }
   }
 
-  /** Queues a song for a game (poll winner, wheel result…): host rules, no guest limits. */
+  /**
+   * Queues a song for a game (poll winner, wheel result, autoplay…): host rules, no guest limits —
+   * but with the explicit filter on, only a clean version (like gameSing; none → an error).
+   */
   gameQueue(song, { singerName = '', singerIds, position = 'next', source = 'game:x' } = {}) {
-    return this.queueAdd({ role: HOST, data: {} }, { songId: song.id, singerName, singerId: singerIds?.[0], partners: singerIds?.slice(1), position, source });
+    let trackId;
+    if (this.settings.get('queue.explicitFilter')) {
+      const clean = this.pickTrack(song, { noExplicit: true });
+      if (!clean) fail('Explicit songs are turned off for this party.', 'explicit');
+      trackId = clean.id;
+    }
+    return this.queueAdd({ role: HOST, data: {} }, { songId: song.id, trackId, singerName, singerId: singerIds?.[0], partners: singerIds?.slice(1), position, source });
   }
 
   /**
@@ -1549,7 +1597,16 @@ export class Room {
       dur: Math.round(track.duration || song.duration || 0), source, game: gameId || source,
     };
     if (clipEnd > 0) entry.clipEnd = Math.max(15, Math.round(clipEnd));
-    if (this.s.current) this.finish('skipped', { advance: false });
+    const cur = this.s.current;
+    if (cur && !cur.game) {
+      // Not a game's song (play() refuses those while a game owns the TV — but never lose one):
+      // back to the top of the queue, like Stop.
+      this.s.current = null;
+      this.resetPlayer();
+      this.s.queue.unshift(cur);
+    } else if (cur) {
+      this.finish('skipped', { advance: false });
+    }
     this.s.player.hold = false;
     this.startEntry(entry);
     this.markDirty();
@@ -1558,8 +1615,11 @@ export class Room {
 
   /** Sends a message to one guest's phones (device id from their signed token). */
   notifyDevice(deviceId, msg) {
-    if (!deviceId) return;
-    this.hub.broadcast(msg, (c) => c.role === GUEST && c.data.deviceId === deviceId);
+    if (!deviceId) return 0;
+    const to = (c) => c.role === GUEST && c.data.deviceId === deviceId;
+    const n = this.hub.list(to).length; // phones connected right now (nothing is kept for later)
+    if (n) this.hub.broadcast(msg, to);
+    return n;
   }
 
   // ---- performance ratings (PLAN §13.7) ----------------------------------------------------------------

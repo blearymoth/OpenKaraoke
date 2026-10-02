@@ -404,3 +404,24 @@ test('Updater: offline, refusals, unsafe redirects', async () => {
     assert.match(s.error, error);
   }
 });
+
+test('packaging: every module the desktop app imports is in the installer (electron-builder files)', async () => {
+  const { createRequire } = await import('node:module');
+  const config = createRequire(import.meta.url)('../desktop/electron-builder.config.cjs');
+  const files = config.files.filter((f) => !f.startsWith('!'));
+  const shipped = (p) => files.some((f) => f === p || (f.endsWith('/**/*') && p.startsWith(f.slice(0, -4))));
+  const seen = new Set();
+  const walk = async (file) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    assert.ok(shipped(file), `${file} is imported by the desktop app but not in the installer's files`);
+    const src = await fs.readFile(path.join(import.meta.dirname, '..', file), 'utf8');
+    for (const [, rel] of src.matchAll(/(?:^import [^'"]*|require\()['"](\.{1,2}\/[^'"]+)['"]/gm)) {
+      if (rel.startsWith('../server/') || rel.startsWith('../shared/')) continue; // shipped whole
+      await walk(path.posix.normalize(path.posix.join(path.posix.dirname(file), rel)));
+    }
+  };
+  await walk(config.extraMetadata?.main || 'desktop/main.mjs');
+  await walk('desktop/preload.cjs');
+  assert.ok(seen.has('desktop/graphics.mjs'));
+});

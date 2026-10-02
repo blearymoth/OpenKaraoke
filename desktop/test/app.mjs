@@ -132,7 +132,8 @@ try {
   await host.waitForSelector('.hero-card button:has-text("Choose folder")', { timeout: 20_000 });
   await shot(host, 'host-first-start');
   await host.click('.hero-card button:has-text("Choose folder")');
-  const songs = await host.waitForFunction(async () => (await (await fetch('/api/info')).json()).library.songs, null, { timeout: 30_000, polling: 300 }).then((h) => h.jsonValue(), () => 0);
+  // (Asked from here, not inside the page: a page reloading meanwhile would end a poll in it.)
+  const songs = (await poll(async () => (await (await fetch(`http://127.0.0.1:${port}/api/info`)).json()).library.songs || null, 30_000)) || 0;
   check(songs >= 5, `choosing the folder scans it (${songs} songs)`);
 
   // The TV window: on the second screen, full screen, sound allowed without a click.

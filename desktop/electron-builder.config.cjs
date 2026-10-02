@@ -42,6 +42,7 @@ module.exports = {
     'shared/**/*',
     'desktop/main.mjs',
     'desktop/displays.mjs',
+    'desktop/graphics.mjs',
     'desktop/preload.cjs',
     'desktop/update-logic.mjs',
     'desktop/updater.mjs',

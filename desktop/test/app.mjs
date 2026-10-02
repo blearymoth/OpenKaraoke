@@ -227,6 +227,31 @@ try {
   });
   check(moved.bounds.x < 1280 && !moved.full, `the menu moves it to the next screen: the host's, as a window (${JSON.stringify(moved.bounds)})`);
 
+  // The host's Playback tab runs the TV window through okDesktop.tv.
+  const tvApi = (what, value) => host.evaluate(([w, v]) => window.okDesktop.tv[w](v).then((s) => ({ ok: true, s }), (e) => ({ ok: false, e: e.message })), [what, value]);
+  let st = (await tvApi('get')).s;
+  check(st?.open === true && st.screens.length === SCREENS.length && st.screens.every((x, i) => x.name === `Screen ${i + 1}` && /^\d+ × \d+$/.test(x.size)) && st.placeable === true,
+    `okDesktop.tv: the window and the screens (${JSON.stringify(st)})`);
+  await host.evaluate(() => { window.__tvStates = []; window.okDesktop.tv.onChange((s) => window.__tvStates.push(s)); });
+  const tvScreen = SCREENS[1].id;
+  st = (await tvApi('place', tvScreen)).s;
+  check(!!(await poll(async () => (await host.evaluate(() => window.__tvStates.some((x) => x.fullscreen))) || null, 5000)), 'place(): the window goes full screen on the TV, and the page hears of it');
+  st = (await tvApi('get')).s;
+  check(st.screenId === tvScreen && st.fullscreen, `it is on the second screen (${JSON.stringify(st)})`);
+  st = (await tvApi('fullscreen', false)).s;
+  check(await poll(async () => ((await tvApi('get')).s.fullscreen === false ? true : null), 5000), 'fullscreen(false)');
+  check(!(await tvApi('place', 9999)).ok && !(await tvApi('place', 'x')).ok, 'an unknown screen is refused');
+  await host.click('.admin-panel [role=tab]:has-text("Playback")');
+  check(!!(await host.waitForSelector('.tv-window:has-text("TV window:")', { timeout: 5000 }).catch(() => null)), 'the Playback tab shows the TV window and its buttons');
+  await shot(host, 'host-playback-tv-window');
+  await tvApi('close');
+  check(await poll(async () => ((await tvApi('get')).s.open === false ? true : null), 5000), 'close()');
+  const closedPlace = await tvApi('place', tvScreen);
+  check(!closedPlace.ok && /Open the TV window first/.test(closedPlace.e), `place() with the window closed: "${closedPlace.e}"`);
+  await tvApi('open');
+  check(await poll(async () => ((await tvApi('get')).s.open ? true : null), 5000), 'open() again');
+  await host.click('.admin-panel [role=tab]:has-text("Queue")');
+
   // Links to other sites open in the normal browser, never inside the app.
   const before = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
   await host.evaluate(() => window.open('https://example.com/', '_blank'));

@@ -1,11 +1,12 @@
-// Bottom player bar: what's on, transport, seek, key/tempo, channel mode, volume, TV status.
+// The player: the desktop bar (what's on, transport, seek, volume, TV status — key, tempo and the
+// rest are in the admin panel's Playback tab), the phones' mini player, and their pieces.
 import { html, useEffect, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore, formatTime, singersText, useTick } from '../lib/store.js';
-import { Cover, Stepper } from '../lib/components.js';
-import { store, act, livePosition, toast, openDialog, conn } from './state.js';
-import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
-import { VocalsControl } from './vocals.js';
+import { Cover } from '../lib/components.js';
+import { store, act, livePosition, toast, openDialog, openPanel, conn } from './state.js';
+import { formatKey, formatTempo } from '/shared/protocol.js';
+import { LOOPBACK } from './preview.js';
 
 /** Opens the TV page, on the second screen when the browser lets us place windows. */
 export async function openTvWindow() {
@@ -40,7 +41,7 @@ export async function openTvWindow() {
   else toast('Your browser blocked the pop-up. Open /tv on the TV instead.', 'error', 7000);
 }
 
-function SeekBar({ dur, disabled, playing }) {
+export function SeekBar({ dur, disabled, playing }) {
   const input = useRef(null);
   const label = useRef(null);
   const [drag, setDrag] = useState(null);
@@ -72,7 +73,7 @@ function SeekBar({ dur, disabled, playing }) {
   </div>`;
 }
 
-function IntroStatus({ p }) {
+export function IntroStatus({ p }) {
   useTick(250);
   const left = Math.max(0, Math.ceil((p.introEndsAt - conn.serverNow()) / 1000));
   if (p.state === 'ready') return html`<span class="bulb-text">Ready — press play</span>`;
@@ -82,6 +83,43 @@ function IntroStatus({ p }) {
   return html`<span>Starting in ${left}…</span>`;
 }
 
+/** The four transport buttons (restart, play/pause, next singer, stop). `big`: the phone page. */
+export function TransportButtons({ state, big = false }) {
+  const p = state.player;
+  const cur = state.current;
+  const hasQueue = state.queue.length > 0;
+  const idle = !cur;
+  const playing = p.state === 'playing';
+  const togglePlay = () => {
+    if (idle) act('player.play');
+    else if (playing) act('player.pause');
+    else act('player.resume');
+  };
+  return html`<div class=${`buttons ${big ? 'big' : ''}`}>
+    <button class="icon-btn" onClick=${() => act('player.restart')} disabled=${idle} aria-label="Restart song" title="Restart"><${Icon} name="restart" /></button>
+    <button class="play-btn" onClick=${togglePlay} disabled=${idle && !hasQueue} aria-label=${playing ? 'Pause' : 'Play'} title=${playing ? 'Pause (space)' : 'Play (space)'}>
+      <${Icon} name=${playing ? 'pause' : 'play'} size=${big ? 30 : 26} />
+    </button>
+    <button class="icon-btn" onClick=${() => act('player.next')} disabled=${idle && !hasQueue} aria-label="Next singer" title="Next singer (N)"><${Icon} name="next" /></button>
+    <button class="icon-btn" onClick=${() => act('player.stop')} disabled=${idle} aria-label="Stop and return the song to the queue" title="Stop (song goes back to the queue)"><${Icon} name="stop" size=${18} /></button>
+  </div>`;
+}
+
+export function VolumeControl({ p }) {
+  return html`<label class="volume" title="Volume">
+    <${Icon} name=${p.volume > 0 ? 'volume' : 'mute'} size=${18} />
+    <input type="range" min="0" max="1" step="0.01" value=${p.volume} style=${{ '--p': `${p.volume * 100}%` }} aria-label="Volume"
+      onInput=${(e) => e.currentTarget.style.setProperty('--p', `${e.currentTarget.value * 100}%`)}
+      onChange=${(e) => act('player.volume', { v: Number(e.currentTarget.value) })} />
+  </label>`;
+}
+
+/** This page can open a TV window on this computer (the desktop app, or a browser on it). */
+export function canOpenTv() {
+  return !!window.okDesktop?.openTv || LOOPBACK.has(location.hostname);
+}
+
+/** Desktop: what is on, transport and seek, volume and the TV chip (the rest is in the panel). */
 export function PlayerBar() {
   const { state } = useStore(store);
   if (!state) return null;
@@ -89,21 +127,16 @@ export function PlayerBar() {
   const cur = state.current;
   const hasQueue = state.queue.length > 0;
   const idle = !cur;
-  const playing = p.state === 'playing';
   const tvCount = state.displays.filter((d) => d.display === 'main').length;
-  const [previewOpen, setPreviewOpen] = useState(() => localStorage.getItem('ok.tvPreview') === '1');
-  useEffect(() => { localStorage.setItem('ok.tvPreview', previewOpen ? '1' : '0'); }, [previewOpen]);
-  const togglePlay = () => {
-    if (idle) act('player.play');
-    else if (playing) act('player.pause');
-    else act('player.resume');
-  };
-  return html`<footer class="player">
+  const tune = cur && (p.key !== 0 || p.tempo !== 1) && html`<button class="pill tune-pill" onClick=${() => openPanel('playback', 'sound')}
+    aria-label=${`Key ${formatKey(p.key)}, tempo ${formatTempo(p.tempo)}. Open the Sound controls`} title="Key and tempo — open the Sound controls">
+    ${[p.key ? `Key ${formatKey(p.key)}` : '', p.tempo !== 1 ? formatTempo(p.tempo) : ''].filter(Boolean).join(' · ')}</button>`;
+  return html`<footer class="player" aria-label="Player">
     <div class="now">
       ${cur ? html`<${Cover} songId=${cur.songId} size=${54} />` : html`<div class="cover empty-cover" style="width:54px"><${Icon} name="mic" /></div>`}
       <div class="now-text">
         ${cur
-          ? html`<div class="ellipsis now-title">${cur.title}</div>
+          ? html`<div class="now-line"><span class="ellipsis now-title">${cur.title}</span>${tune}</div>
                 <div class="ellipsis now-sub">${cur.artist}${cur.singers.length ? html` · <span class="singer-name">${singersText(cur.singers)}</span>` : ''}</div>`
           : html`<div class="now-title muted">Nothing playing</div><div class="now-sub ellipsis">${state.breakMusic
             ? html`<span title="Break music on the TV">♪ ${state.breakMusic.title} · ${state.breakMusic.artist}</span> <button class="link" onClick=${() => act('break.skip')}>Skip</button>`
@@ -114,46 +147,64 @@ export function PlayerBar() {
     </div>
 
     <div class="transport">
-      <div class="buttons">
-        <button class="icon-btn" onClick=${() => act('player.restart')} disabled=${idle} aria-label="Restart song" title="Restart"><${Icon} name="restart" /></button>
-        <button class="play-btn" onClick=${togglePlay} disabled=${idle && !hasQueue} aria-label=${playing ? 'Pause' : 'Play'} title=${playing ? 'Pause (space)' : 'Play (space)'}>
-          <${Icon} name=${playing ? 'pause' : 'play'} size=${26} />
-        </button>
-        <button class="icon-btn" onClick=${() => act('player.next')} disabled=${idle && !hasQueue} aria-label="Next singer" title="Next singer (N)"><${Icon} name="next" /></button>
-        <button class="icon-btn" onClick=${() => act('player.stop')} disabled=${idle} aria-label="Stop and return the song to the queue" title="Stop (song goes back to the queue)"><${Icon} name="stop" size=${18} /></button>
-      </div>
+      <${TransportButtons} state=${state} />
       <${SeekBar} dur=${cur ? p.dur || cur.dur : 0} disabled=${idle || p.state === 'intro'} playing=${p.state === 'playing'} />
     </div>
 
     <div class="controls">
-      <${Stepper} label="Key" value=${p.key} display=${formatKey(p.key)} min=${KEY_MIN} max=${KEY_MAX} step=${1} disabled=${idle}
-        onChange=${(v) => act('player.key', { semitones: v })} onReset=${() => act('player.key', { semitones: 0 })} />
-      <${Stepper} label="Tempo" value=${p.tempo} display=${formatTempo(p.tempo)} min=${TEMPO_MIN} max=${TEMPO_MAX} step=${TEMPO_STEP} disabled=${idle}
-        onChange=${(v) => act('player.tempo', { rate: v })} onReset=${() => act('player.tempo', { rate: 1 })} />
-      <${VocalsControl} p=${p} idle=${idle} />
-      <label class="volume" title="Volume">
-        <${Icon} name=${p.volume > 0 ? 'volume' : 'mute'} size=${18} />
-        <input type="range" min="0" max="1" step="0.01" value=${p.volume} style=${{ '--p': `${p.volume * 100}%` }} aria-label="Volume"
-          onInput=${(e) => e.currentTarget.style.setProperty('--p', `${e.currentTarget.value * 100}%`)}
-          onChange=${(e) => act('player.volume', { v: Number(e.currentTarget.value) })} />
-      </label>
-      <button class=${`tv-status ${tvCount ? 'on' : 'off'}`} onClick=${openTvWindow} title=${tvCount ? 'TV display connected — click to open another' : 'No TV display — click to open one'}>
-        <${Icon} name="tv" size=${18} /><span>${tvCount ? 'TV on' : 'Open TV'}</span>
-      </button>
-      <button class=${`icon-btn ${previewOpen ? 'active' : ''}`} onClick=${() => setPreviewOpen(!previewOpen)} aria-pressed=${previewOpen} title="Live preview of the TV">
-        <${Icon} name="eye" size=${18} />
-      </button>
-      ${previewOpen && html`<${TvPreview} onClose=${() => setPreviewOpen(false)} />`}
+      <${VolumeControl} p=${p} />
+      ${tvCount
+        ? html`<button class="tv-status on" onClick=${() => openPanel('playback', 'video')} title="TV display connected — show the TV controls"><${Icon} name="tv" size=${18} /><span>TV on</span></button>`
+        : html`<button class="tv-status off" onClick=${() => (canOpenTv() ? openTvWindow() : openPanel('devices'))} title="No TV display — open one"><${Icon} name="tv" size=${18} /><span>Open TV</span></button>`}
     </div>
   </footer>`;
 }
 
-/** A small live copy of the TV screen (a muted mirror that doesn't count as a display). */
-function TvPreview({ onClose }) {
-  return html`<div class="tv-preview" role="dialog" aria-label="TV preview">
-    <iframe src="/tv?display=preview&fullscreen=0" title="TV preview" tabindex="-1"></iframe>
-    <button class="icon-btn small" onClick=${onClose} aria-label="Close the preview"><${Icon} name="x" size=${16} /></button>
-  </div>`;
+/** Phones: a slim player (what is on, play/pause, next); tapping it opens the Playback page. */
+export function MiniPlayer() {
+  const { state } = useStore(store);
+  const bar = useRef(null);
+  const p = state?.player;
+  const cur = state?.current;
+  const dur = cur ? p.dur || cur.dur : 0;
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      if (p?.state === 'playing') raf = requestAnimationFrame(tick);
+      if (bar.current) bar.current.style.width = `${dur ? Math.min(100, (livePosition() / dur) * 100) : 0}%`;
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
+  });
+  if (!state) return null;
+  const hasQueue = state.queue.length > 0;
+  const idle = !cur;
+  const playing = p.state === 'playing';
+  const togglePlay = () => {
+    if (idle) act('player.play');
+    else if (playing) act('player.pause');
+    else act('player.resume');
+  };
+  let status = null;
+  if (cur && (p.state === 'intro' || p.state === 'ready')) status = html`<${IntroStatus} p=${p} />`;
+  else if (cur && p.error) status = html`<span class="warn-text ellipsis">${p.error}</span>`;
+  else if (cur && (p.key !== 0 || p.tempo !== 1)) status = html`<span class="faint">${[p.key ? `Key ${formatKey(p.key)}` : '', p.tempo !== 1 ? formatTempo(p.tempo) : ''].filter(Boolean).join(' · ')}</span>`;
+  return html`<footer class="player mini" aria-label="Player">
+    <button class="now mini" onClick=${() => openPanel('playback')} aria-label=${cur ? `Playback controls: ${cur.title}` : 'Playback controls'}>
+      <span class="now-text">
+        <span class="ellipsis now-title">${cur ? cur.title : 'Nothing playing'}</span>
+        <span class="ellipsis now-sub">${cur
+          ? [singersText(cur.singers), cur.artist].filter(Boolean).join(' · ')
+          : state.breakMusic ? `♪ ${state.breakMusic.title} · ${state.breakMusic.artist}` : hasQueue ? 'Press play to start the queue' : 'Add a song to get started'}</span>
+        ${status && html`<span class="now-status">${status}</span>`}
+      </span>
+    </button>
+    <div class="buttons">
+      <button class="play-btn" onClick=${togglePlay} disabled=${idle && !hasQueue} aria-label=${playing ? 'Pause' : 'Play'}><${Icon} name=${playing ? 'pause' : 'play'} size=${24} /></button>
+      <button class="icon-btn" onClick=${() => act('player.next')} disabled=${idle && !hasQueue} aria-label="Next singer"><${Icon} name="next" /></button>
+    </div>
+    <div class="mini-progress" aria-hidden="true"><i ref=${bar}></i></div>
+  </footer>`;
 }
 
 export function openInvite() {

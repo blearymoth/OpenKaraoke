@@ -468,7 +468,7 @@ try {
   check(await host.waitForSelector('.section-title:has-text("Not shown (2)")', { timeout: 5000 }).then(() => true, () => false)
     && (await host.$$('.photo-tile.pending')).length === 0 && app.room.photos.counts().approved === 1, 'the host turns down every waiting photo at once (the approved one stays)');
 
-  // A screen on another computer: pairing code on the TV, approval in Settings → Displays.
+  // A screen on another computer: pairing code on the TV, approval in Settings → Displays (or the Devices tab).
   // (Everything runs on this machine here, so TV connections are marked as remote.)
   const hello = app.hub.onHello;
   app.hub.onHello = (client, msg) => {
@@ -509,14 +509,14 @@ try {
   await remote.waitForSelector('.scene, .lobby, .intro');
   check(!(await remote.$('.mirror-badge')) && !(await boardPage.$('.start')), 'the TV is not a muted mirror; the board still needs no click');
 
-  // Settings → Displays: what each screen is, and the host picks the main display.
+  // Settings → Displays (the same rows as the Devices tab): what each screen is, and the host picks the main display.
   await host.goto(`${base}/host#/settings/displays`);
   await host.waitForSelector('.display-row');
-  const labels = await host.$$eval('.display-row b', (l) => l.map((x) => x.textContent).sort());
-  check(labels.join('|') === 'Main TV — plays the sound|Mirror — muted|Queue board — muted', `displays are labelled (${labels.join(', ')})`);
-  check((await host.$$('.display-row .btn')).length === 1, 'only the mirror can be made the main display');
+  const labels = await host.$$eval('.display-row .grow b', (l) => l.map((x) => x.textContent).sort());
+  check(labels.join('|') === 'Main TV|Mirror 1|Queue board 1', `displays are named (${labels.join(', ')})`);
+  check((await host.$$('.display-row .btn:has-text("Make main")')).length === 1, 'only the mirror can be made the main display');
   await shot(host, 'host-displays');
-  await host.click('.display-row:has-text("Mirror — muted") .btn:has-text("Make main")');
+  await host.click('.display-row:has-text("Mirror 1") .btn:has-text("Make main")');
   check(await until(() => mains()[0]?.data.kind === 'mirror', 5000), 'the host made the mirror the main display');
   check(await remote.waitForSelector('.mirror-badge', { timeout: 5000 }).then(() => true, () => false), 'the TV page is muted now');
   const hostPhone = watch(await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }), 'host-phone');
@@ -579,52 +579,43 @@ try {
   await extra.close();
   await lossy.close();
 
-  // Live preview of the TV in the host.
-  await host.click('.player button[title="Live preview of the TV"]');
-  const frame = await (await host.waitForSelector('.tv-preview iframe')).contentFrame();
-  check(await frame.waitForSelector('.scene, .lobby', { timeout: 10000 }).then(() => true, () => false), 'host shows a live preview of the TV');
+  // Live preview of the TV in the host's Playback tab (a TV page plays the sound again).
+  const mainTv = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'main-tv');
+  await mainTv.goto(`${base}/tv`);
+  await mainTv.waitForSelector('.scene, .lobby, .intro');
+  await host.goto(`${base}/host#/`);
+  await host.click('.admin-panel [role=tab]:has-text("Playback")');
+  const frame = await (await host.waitForSelector('.preview-frame iframe')).contentFrame();
+  check(await frame.waitForSelector('.scene, .lobby, .intro', { timeout: 10000 }).then(() => true, () => false), 'host shows a live preview of the TV');
   const tvs = app.hub.list((c) => c.role === 'tv').length;
   check(app.room.hostView().displays.length === tvs - 1, 'the preview is not listed as a display');
   await shot(host, 'host-tv-preview');
-  await host.click('.tv-preview .icon-btn');
+  await host.click('.preview-frame button[aria-label="Hide the preview"]');
   // A refused preview never asks to be paired (no stray pairing request from the host's device).
   const waiting = app.room.waitingPairings().length;
   app.hub.onHello = (client, msg) => (msg.display === 'preview' ? { ok: false, reason: 'pairing_required' } : hello(client, msg));
-  await host.click('.player button[title="Live preview of the TV"]');
-  const refused = await (await host.waitForSelector('.tv-preview iframe')).contentFrame();
+  await host.click('.preview-off');
+  const refused = await (await host.waitForSelector('.preview-frame iframe')).contentFrame();
   check(await refused.waitForSelector('.denied:has-text("No preview")', { timeout: 10000 }).then(() => true, () => false), 'a refused preview says so');
   await sleep(1000);
   check(!(await refused.$('.pair-code')) && app.room.waitingPairings().length === waiting, 'and shows no pairing code');
   await shot(host, 'host-tv-preview-refused');
   app.hub.onHello = hello;
-  await host.click('.tv-preview .icon-btn');
+  await host.click('.admin-panel [role=tab]:has-text("Queue")');
+  check(await until(() => !app.hub.list((c) => c.role === 'tv' && c.data.preview).length, 4000), 'leaving the Playback tab closes the preview');
 
-  // On a phone the preview stays clear of the player, and taps go through it.
+  // On a phone the preview is on the Playback page, off until asked for, as wide as the page.
   const previewPhone = watch(await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }), 'host-phone');
-  await previewPhone.goto(`${base}/host#/`);
-  await previewPhone.waitForSelector('.player');
-  await previewPhone.click('.player button[title="Live preview of the TV"]');
-  await previewPhone.waitForSelector('.tv-preview iframe');
-  const clear = await previewPhone.evaluate(() => {
-    const prev = document.querySelector('.tv-preview').getBoundingClientRect();
-    const player = document.querySelector('.player').getBoundingClientRect();
-    const reachable = (sel) => {
-      const r = document.querySelector(sel).getBoundingClientRect();
-      return !!document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.closest(sel);
-    };
-    const under = document.elementFromPoint(prev.left + 10, prev.bottom - 10);
-    return {
-      overlaps: prev.bottom > player.top,
-      controls: ['.play-btn', '.player button[aria-label="Next singer"]', '.player button[aria-label="Restart song"]', '.player .seek'].every(reachable),
-      through: !!under && !under.closest('.tv-preview'),
-    };
-  });
-  check(!clear.overlaps && clear.controls, `phone: the TV preview leaves the player's buttons free (${JSON.stringify(clear)})`);
-  check(clear.through, 'phone: taps on the page under the TV preview go through it');
+  await previewPhone.goto(`${base}/host#/panel/playback`);
+  await previewPhone.waitForSelector('#pb-video');
+  check(!(await previewPhone.$('.preview-frame')) && !(await previewPhone.$('.player')), 'phone: the preview waits to be asked for; no player bar on the Playback page');
+  await previewPhone.tap('.preview-off');
+  await previewPhone.waitForSelector('.preview-frame iframe');
+  const fit = await previewPhone.evaluate(() => document.querySelector('.preview-frame').getBoundingClientRect().width <= innerWidth && document.documentElement.scrollWidth <= innerWidth);
+  check(fit, 'phone: the preview fits the width');
   await shot(previewPhone, 'host-phone-tv-preview');
-  await previewPhone.tap('.tv-preview .icon-btn');
-  check(await previewPhone.waitForSelector('.tv-preview', { state: 'detached', timeout: 3000 }).then(() => true, () => false), 'phone: the TV preview closes from its ✕');
   await previewPhone.close();
+  await mainTv.close();
 
   // Printable songbook from Settings → Library.
   await host.goto(`${base}/host#/settings/library`);

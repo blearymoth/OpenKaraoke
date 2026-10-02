@@ -343,6 +343,7 @@ queue.approve {entryId}  queue.reject {entryId}  queue.clear  queue.shuffle
 player.play {entryId?}  player.pause  player.resume  player.next  player.restart  player.stop
 player.seek {pos}  player.key {semitones}  player.tempo {rate}  player.channel {mode}  player.volume {v}
 player.lead {level}  player.layout {layout}  player.version {trackId}   (vocals, §21)
+version.vote {trackId, vote: 1|-1|0}   display.identify {id}   (§22)
 singer.add/update/remove/merge     guest.update(me) guest.kick guest.ban guest.cohost
 favorite.toggle {songId}  playlist.save/delete/queue   settings.update {patch}   library.rescan
 announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve/reject/rejectWaiting
@@ -389,7 +390,8 @@ turn invitations off (`duet.invites`). Bans, singer removal and the song startin
 GET  /                         landing          GET /host  /tv  /j/:code  (/guest)  app shells
 GET  /api/info                 { name, roomCode, joinUrl, lanUrls, version, library status, appearance }
 GET  /api/search?q&limit&offset&tag&letter      { total, fuzzy, items: SongSummary[] }
-GET  /api/songs/:id            song detail (versions, meta, plays)
+GET  /api/songs/:id            song detail (versions, meta, plays; per version plays, up, down, mine,
+                               heard tonight, status; default first + defaultTrackId, defaultWhy — §22)
 GET  /api/artists?letter&q&limit&offset&sort    GET /api/artists/:key  { artist, songs }
 GET  /api/browse/popular?limit&offset&tag&genre&decade
 GET  /api/browse/facets        { genres, decades, tags }
@@ -407,6 +409,8 @@ GET  /api/history?limit        (host only)   GET /api/export/songbook?format=htm
 GET  /print/qr                 printable A4 QR card
 ```
 Host-only endpoints check the host token (header `Authorization: Bearer`, or cookie) or localhost trust.
+`/api/songs/:id` with a valid guest token (`x-guest-token`, sent by the guest app) gives the guest's
+view even from this computer: their own vote, no file paths, no explicit versions under the filter.
 
 ## 9. TV display & playback
 
@@ -463,7 +467,9 @@ mosaic / visualiser, "Up next" if queue has entries, library size.
 
 ## 10. Host app (`/host`)
 Layout: top bar (logo, party name, room code chip → invite modal, TV status, search box),
-left nav, main view, right queue panel (tabs Queue / Requests / History), bottom player bar.
+left nav, main view, right **admin panel** (tabs Queue / Playback / Devices — §22), bottom player
+bar (what's on, transport, seek, volume, TV chip). Phones (≤ 900 px): the panel is the "Control"
+page (`#/panel/queue|playback|devices`) and a mini player (play/pause, next; tap → Playback).
 Views: Home (now playing, quick actions, popular carousel, tags), Search, Artists A–Z → Artist
 page (header with fanart/logo), Collections (tags), Genres/Decades (when metadata exists),
 Favourites, Playlists, History, Singers, Games, Photos (moderation), Settings (Library,
@@ -474,7 +480,9 @@ versions table (label, variant, duration, file) with "Queue this version" and "P
 Join (name, emoji, colour) → bottom tabs: **Home** (now singing, my next turn + ETA, reactions),
 **Search** (instant search, chips: Popular, Artists, Duets, Christmas, languages…),
 **Queue** (upcoming, mine highlighted, remove mine), **Me** (my requests, favourites, history,
-edit profile). Song sheet: cover, versions, key −3…+3, duet partner, mystery toggle → "Sing it!".
+edit profile). Song sheet: cover, versions (a Version picker with thumbs, §22), key −3…+3, guide
+singer, backing vocals, duet partner, mystery toggle → "Sing it!". Home: the version on now with
+thumbs up / down.
 Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safari 16+ / Android Chrome.
 
 ## 12. Artwork & metadata
@@ -576,7 +584,7 @@ original), and the favicon links and `/favicon.ico` point at the skin's icon. Se
 ## 15. Persistence (`data/`, git-ignored)
 `settings.json`, `secret.json`, `library.json` (catalog cache), `state.json` (party state),
 `history.jsonl`, `meta.json` (artwork/metadata), `vocals.json` (what the TV found in each
-track's channels, §21), `art/` (images), `photos/` (guest uploads),
+track's channels, §21), `versions.json` (plays and votes per version, never reset — §22), `art/` (images), `photos/` (guest uploads),
 `server.json` (while running: pid, port — one server per data folder). The desktop app's data
 folder is `~/.config/OpenKaraoke/data`.
 
@@ -974,7 +982,7 @@ without backing vocals — falling back to the usual version. Guests' `lead` is 
 `player.version {trackId}` (host) switches the song on to another version of the same song: it
 starts again (intro), remembered as the song's version.
 
-**UI.** Host player bar: "Lead off/quiet/full" instead of the channel mode on an adjustable track,
+**UI.** Host (admin panel → Playback → Sound): "Lead off/quiet/full" instead of the channel mode on an adjustable track,
 plus a Vocals button (highlighted when the host is asked or a guide was suggested) → the Vocals
 dialog: level slider + presets, which side (correction), backing-vocal and multiplex versions to
 switch to. Add/Edit dialogs: Lead vocal (Automatic / Off / Quiet / Full) on songs that have one;
@@ -982,4 +990,53 @@ version lists say what each version allows. Guest song sheet: a Guide singer swi
 on the phone) and Backing vocals As recorded / With / Without (when such versions exist); during
 their song a "Guide singer: on/off" button. TV intro: "Guide singer on/quiet" chip. Break music
 skips multiplex tracks.
+
+## 22. Admin panel, devices, version play counts and votes
+
+**Admin panel** (`public/js/host/panel.js`). The right-hand column has three tabs (remembered,
+WAI-ARIA tabs with arrow/Home/End keys); on phones it is the Control page.
+- **Queue** (`queue.js`): segments Up next (now-singing card → Playback, drag list, Shuffle,
+  Clear) / Requests / Tonight.
+- **Playback** (`playback.js`): *Now playing* (singer, song, key/tempo/video pills, status:
+  countdown, error + Try again, no TV, sound blocked, a game using the TV; idle: "Start the
+  queue", break music + Skip), the **version row** (label, "Sung N times here", Your pick /
+  Guests like it / Avoided, thumbs, All versions); on the phone page also the transport, seek and
+  volume. *Sound*: Key and Tempo steppers, the channel mode or (multiplex, §21) the Lead control.
+  *Video*: the **live preview** (a muted `/tv?display=preview` iframe — only while the tab is
+  shown, the page is visible, a main TV is connected and it isn't hidden; "Bigger" moves the same
+  element into an overlay, nothing reloads; off by default on phones), which screen plays the
+  sound (+ Change → Devices), the desktop app's TV window controls (`okDesktop.tv`: open/close,
+  full screen, which screen — native Wayland: the person moves it), and "On the TV" quick settings
+  (background, lyrics timing ±2 s, corner QR, announce) saved without a toast.
+- **Devices** (`devices.js`): a plain-words summary; screens waiting to pair (Approve/Deny);
+  **TV screens** "Main TV" / "Mirror N" / "Queue board N" with where, device, paired, since,
+  "Sound blocked", stand-in, **Make main** and **Identify** (`display.identify`: the name big on
+  that screen for 6 s); **Host devices** (this computer / phone at IP, browser, "This device");
+  **Guests** online (avatar, co-host, songs waiting, browser; menu: co-host, disconnect, remove,
+  let back in), offline ones folded. Settings → Displays and the Singers page reuse these rows and
+  buttons.
+- The preview page is light (`body.preview`): no audio context, 30 fps, no animations or blur; a
+  host device other than this computer gets `&video=0` (a cover instead of the music video).
+- Device names come from the User-Agent (`server/util/useragent.js`, a fixed list: "Chrome ·
+  Android", "LG TV", "OpenKaraoke app"…), computed once per connection, host view only.
+
+**Version play counts and votes** (`server/room/versions.js`, `data/versions.json`
+`{ version, backfilled, tracks: { <trackId>: { p, v: { '@host' | deviceId: 1 | -1 } } } }`).
+- A completed song (same rule as the song count) adds a play to its version. The first start
+  counts the history (`history.jsonl`, streamed; tried again next start when unreadable).
+- `version.vote` — guests: a name, not banned, `guests.versionVotes` on, not an explicit version
+  under the filter, **heard tonight** (on now or in tonight's history, skipped too — a broken
+  version can be voted down), 20 a minute per guest and 120 per 10 min per address; taking one's
+  own vote back is always allowed. The host (every host device shares `@host`) votes on anything.
+  A co-host votes as a guest. A ban removes that guest's votes. At most 100 guest voters per
+  version.
+- **Status**: the host's vote settles it (up → liked, down → avoided); otherwise guests' net ≥ +2
+  → liked, ≤ −2 → avoided. **The default version** (`bestVersion`, used by every automatic pick:
+  requests without a version, playlists, break music, games): liked first, then neither, avoided
+  last; within a tier the host's vote, the guests' net (a lone ±1 never changes anything), the
+  version used last time, then the label score (`catalog.trackScore`: brand priority, plain, no
+  vocal mix…). So a version guests like beats the preferred labels; the host's thumbs down undoes
+  it. A picked version and songs already queued are never changed.
+- Views: host `current.version` `{ label, count, plays, up, down, mine, host, status }`, guests
+  `{ label, count, plays, up, down }` + `me.versionVote`, `rules.versionVotes`; the TV none.
 

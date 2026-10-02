@@ -202,11 +202,11 @@ async function tvTextOver(page, what, { sweep = false } = {}) {
   }, [shots, runs]);
   check(runs.length > 0 && low.length === 0, `studio: ${what}: every text on the TV at 7:1 or more over what is behind it (${runs.length} lines${blobs ? ', aurora swept' : ''})${low.length ? `: ${low.join(' | ')}` : ''}`);
 }
-/** Host → Queue → History: the time each song was sung has a column of its own, clear of the singer's name. */
+/** Host → Queue → Tonight: the time each song was sung has a column of its own, clear of the singer's name. */
 async function historyTimes(page, what) {
-  await page.click('.queue-panel .tabs button:has-text("History")');
-  await page.waitForSelector('.queue-panel .q-item .q-singer');
-  const rows = await page.$$eval('.queue-panel .q-item', (items) => items.map((li) => {
+  await page.click('.admin-panel .segmented button:has-text("Tonight")');
+  await page.waitForSelector('.admin-panel .q-item .q-singer');
+  const rows = await page.$$eval('.admin-panel .q-item', (items) => items.map((li) => {
     const box = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect(); };
     const el = li.querySelector('.q-text').previousElementSibling; // the time, before the singer and the song
     const time = box(el);
@@ -361,9 +361,22 @@ try {
     await host.waitForSelector('.song-row');
     await sleep(400);
     await shot(host, `${skin}-host-search`);
-    await hostPhone.goto(`${base}/host#/queue`);
+    await hostPhone.goto(`${base}/host#/panel/queue`);
     await hostPhone.waitForSelector('.q-item');
     await shot(hostPhone, `${skin}-host-phone-queue`);
+    for (const tab of ['playback', 'devices']) {
+      await hostPhone.goto(`${base}/host#/panel/${tab}`);
+      await hostPhone.waitForSelector(tab === 'playback' ? '#pb-sound' : '.dev-summary');
+      await sleep(300);
+      await shot(hostPhone, `${skin}-host-phone-${tab}`);
+      scrollChecks.push([`${skin}: host phone ${tab}`, await noSideways(hostPhone)]);
+    }
+    for (const tab of ['Playback', 'Devices']) {
+      await host.click(`.admin-panel [role=tab]:has-text("${tab}")`);
+      await sleep(400);
+      await shot(host, `${skin}-host-${tab.toLowerCase()}`);
+    }
+    await host.click('.admin-panel [role=tab]:has-text("Queue")');
     await hostPhone.goto(`${base}/host#/settings/appearance`);
     await hostPhone.waitForSelector('.skin-card');
     await shot(hostPhone, `${skin}-host-phone-appearance`);
@@ -387,7 +400,7 @@ try {
       check(cut.length === 0, `${skin}: host phone at ${width}px: whole tab labels${cut.length ? ` (cut: ${cut.join(', ')})` : ''}`);
       scrollChecks.push([`${skin}: host phone at ${width}px`, await noSideways(hostPhone)]);
       const home = await tabsAt('#/');
-      check(home === 'Home* Search Artists Games Queue More', `${skin}: host phone at ${width}px: six tabs, Home current on Home (${home})`);
+      check(home === 'Home* Search Artists Games Control More', `${skin}: host phone at ${width}px: six tabs, Home current on Home (${home})`);
       const appearance = await tabsAt('#/settings/appearance');
       check(appearance.endsWith('More*') && appearance.split('*').length === 2, `${skin}: host phone at ${width}px: Settings → Appearance marks More as current (${appearance})`);
     }
@@ -516,10 +529,10 @@ try {
     await setSkin(skin, all());
     await historyTimes(host, `${skin}: host`);
     await shot(host, `${skin}-host-history`);
-    await host.click('.queue-panel .tabs button:has-text("Queue")');
+    await host.click('.admin-panel .segmented button:has-text("Up next")');
     await hostPhone.setViewportSize({ width: 360, height: 760 });
-    await hostPhone.goto(`${base}/host#/queue`);
-    await hostPhone.waitForSelector('.queue-panel .tabs');
+    await hostPhone.goto(`${base}/host#/panel/queue`);
+    await hostPhone.waitForSelector('.admin-panel .tabs');
     await historyTimes(hostPhone, `${skin}: host phone at 360px`);
     await shot(hostPhone, `${skin}-host-phone-history`);
     scrollChecks.push([`${skin}: host phone History at 360px`, await noSideways(hostPhone)]);

@@ -32,6 +32,13 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
   turns the original singer off, quiet or full while the music stays as it is; the TV finds
   which channel has the singer by itself. Backing vocals change by switching to a version with
   or without them. See "Lead and backing vocals" below.
+- **Admin panel** (after the vocals): the right-hand queue panel is now an admin panel with three
+  tabs — **Queue** (up next, requests, tonight), **Playback** (what's on, key/tempo/channels or
+  the guide singer, a live TV preview, which screen plays, a few TV settings) and **Devices**
+  (TV screens with "Identify" and "Make main", host devices, guests' phones). Phones get a
+  "Control" page and a mini player. Each **version** of a song now shows how often it was sung
+  here, and guests (on what they heard tonight) and the host vote it up or down: the votes choose
+  the default version. See "Admin panel and version votes" below.
 - **Nothing in session 3 could touch real hardware or the internet**: the artwork providers were
   unreachable from the sandbox (parsers are tested against fixtures built from the documented
   response shapes), and sound, microphone, TV legibility and phones need the PC. Work through
@@ -98,7 +105,7 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
   (Settings → Displays lists them and can forget them all, which revokes their tokens). The
   same page shows which screen plays the sound and lets the host make another one the main
   display; queue boards and mirrors never take the sound by themselves.
-- **Live TV preview** in the host player bar (a muted mini mirror).
+- **Live TV preview** (now in the admin panel's Playback tab, a muted light copy of the TV).
 - **Preview on headphones**: play a song on the host computer's second audio output.
 - **Printable songbook** (Settings → Library: HTML to print to PDF, or CSV; letter/tag/genre/
   decade/popular filters) — `server/http/songbook.js`.
@@ -179,13 +186,18 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
 14. **Party hotspot**: the checklist at the end of "Party hotspot (M5b)" below.
 15. **Lead vocals on real multiplex tracks** (see "Lead and backing vocals" below): play 2–3
     tracks whose names say "Multiplex"/"MPX" from different brands. While the intro runs, the
-    player bar should switch from the channel mode to **Lead off**: you hear the music only.
+    Playback tab's Sound section should switch from the channel mode to **Lead off**: you hear
+    the music only.
     Pick Quiet and Full — only the singer should come up, the music level should not change. If
     the singer comes up on the wrong side or the music drops, open the Vocals dialog (⋯ next to
     Lead) → "Wrong side…" and fix it (kept for that track), and note the track for the next
     session (`data/vocals.json` has what the TV measured: `l`, `s`, `a`, `c`). Also try one
     ordinary track: it must keep its channel mode (no Lead control unless the dialog suggests a
     guide singer, which is only offered, never used by itself).
+16. **Admin panel**: on the party PC, the Playback tab's live preview — is the host window still
+    smooth with it on (Graphics in Settings → About)? If not, hide it (remembered). Devices →
+    Identify on each screen; a phone's host page (PIN) → Control. Vote a version down from a
+    phone after it plays and check the next request of that song gets the other version.
 
 ## How it fits together (new in session 3)
 - `server/app.js` wires `ArtworkService` (`server/artwork/service.js`) next to the library;
@@ -511,7 +523,8 @@ music stays as it is (the old way was the channel mode "Right only", which still
 other tracks). Backing vocals are in the music on both channels, so they change only by
 picking **another version** (named "with/no backing vocals"); the Vocals dialog and the
 guests' song sheet offer those versions.
-- **Host**: the player bar's speaker control becomes **Lead off / quiet / full** on such a track,
+- **Host**: the speaker control (admin panel → Playback → Sound) becomes **Lead off / quiet /
+  full** on such a track,
   with a ⋯ button → the **Vocals** dialog (slider, which side, versions to switch to; it lights up
   when the host is asked which side a track named "Multiplex" uses, or when the TV thinks an
   unnamed track is one — only the host can turn that into a Lead control). Add/Edit dialogs have Lead vocal (Automatic / Off / Quiet / Full).
@@ -540,6 +553,44 @@ guests' song sheet offer those versions.
    level is remembered for them only (a guide is a personal need, like the key).
 4. "Quiet" is −12 dB (the volume slider's square law), the guest's only "on" level; host and
    co-hosts can set any level. Battle rounds are judged: no guide singer there.
+
+## Admin panel and version votes (after the vocals)
+**What** (PLAN §22): the queue panel became an admin panel — Queue / Playback / Devices — and the
+player bar is slimmer (what's on, transport, seek, volume, the TV chip; a "Key +1 · 105%" pill
+opens the Sound controls). On phones the panel is the **Control** page in the bottom bar and the
+player is a mini player (tap it for the full Playback page).
+- **Playback**: the live preview is now a part of the tab (no floating box): it runs only while
+  the tab is shown and a main TV is connected, "Bigger" shows it large without reloading, Hide is
+  remembered; it is a light page (no sound engine, 30 fps, no animations) and a phone or tablet
+  gets a cover instead of a music video. "On the TV" has the background, lyrics timing and the
+  corner QR at hand. In the desktop app: the TV window's state and buttons (open, full screen,
+  which screen; on native Wayland it says how to move it).
+- **Devices**: each screen named ("Main TV", "Mirror 1", "Queue board 1") with where it is, its
+  browser, since when, whether its sound is blocked; **Identify** shows the name big on that
+  screen; **Make main** as before. Host devices ("This device"), guests' phones with their
+  browser and a menu (co-host, disconnect, remove). A screen waiting to pair shows here first
+  (the top-bar pill opens it).
+- **Versions**: every finished song counts a play for its version (`data/versions.json`, kept
+  across parties; the history was counted once at the first start). Song details list Sung and
+  Votes per version and which one plays by default and why. Guests vote on the version on now
+  (Home) and in the song sheet (only versions heard tonight), and can pick a version there.
+- **The default-version rule** (decision): a version guests like (two more thumbs up than down)
+  plays first — **even over the preferred labels** in Settings → Library; one two votes behind
+  plays only when there is no other. **The host's own vote settles it** either way (and every
+  host device shares that vote). One guest alone never changes anything. Requests with a chosen
+  version and songs already in the queue are never changed. Settings → Queue & guests: "Guests
+  can vote on song versions" (on).
+- Decisions: the spec (built from a design panel) dropped pinning/resetting versions and a
+  "which version?" card; taking one's own vote back is allowed even when the song was not heard
+  tonight (it can only remove a vote); the vocals controls sit in the Sound section (the Lead
+  control replaces the channel mode on multiplex tracks), not as two "lead/backing" sliders —
+  backing vocals change only by version (see above).
+- Not in this change: moving votes along when a file is renamed (a new track id starts over);
+  live updates of other guests' counts in an open song sheet.
+- Code: `public/js/host/panel.js`, `playback.js`, `devices.js`, `menu.js`, `public/js/lib/versions.js`,
+  `server/room/versions.js`, `server/util/useragent.js`, room.js (`displayList`, `versionVote`,
+  `decorateVersions`, views), the desktop's `okDesktop.tv`. Tests: `test/versions.test.js`,
+  `test/version-votes.test.js`, `test/devices.test.js`, `test/e2e/admin.mjs`, `test/e2e/versions.mjs`.
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

@@ -57,8 +57,9 @@ try {
   const host = watch(await browser.newPage({ viewport: { width: 1440, height: 900 } }), 'host');
   await host.goto(`${base}/host`);
   await host.waitForSelector('.player');
-  check(await seen(host, '.player select[aria-label="Channel mode"]'), 'nothing playing: the player bar has the channel mode');
-  check(!(await host.$('.player select[aria-label="Lead vocal"]')), 'nothing playing: no Lead control');
+  await host.click('.admin-panel [role=tab]:has-text("Playback")'); // the sound controls
+  check(await seen(host, '.admin-panel select[aria-label="Channel mode"]'), 'nothing playing: the Sound controls have the channel mode');
+  check(!(await host.$('.admin-panel select[aria-label="Lead vocal"]')), 'nothing playing: no Lead control');
 
   // ---- a guest asks for the multiplex song -------------------------------------------------
   // A long countdown keeps the song's intro on screen for the checks below.
@@ -107,9 +108,9 @@ try {
   check(!(await tv.$('.intro .chip:has-text("Guide singer")')), 'TV intro: no guide chip while it is off');
 
   // ---- host: the Lead control --------------------------------------------------------------
-  const leadSelect = '.player select[aria-label="Lead vocal"]';
-  check(await seen(host, leadSelect), 'host: the player bar has the Lead control');
-  check(!(await host.$('.player select[aria-label="Channel mode"]')), 'host: the channel mode gives way to it');
+  const leadSelect = '.admin-panel select[aria-label="Lead vocal"]';
+  check(await seen(host, leadSelect), 'host: the Sound controls have the Lead control');
+  check(!(await host.$('.admin-panel select[aria-label="Channel mode"]')), 'host: the channel mode gives way to it');
   await host.selectOption(leadSelect, '100');
   check(await until(() => room.s.player.lead === 100), 'host: Lead full');
   const full = await gains(tv);
@@ -132,7 +133,7 @@ try {
   check(await until(() => room.s.player.lead === 0), 'TV: V again turns it off');
 
   // ---- host: the Vocals dialog ------------------------------------------------------------
-  await host.click('.player .vocals-more');
+  await host.click('.admin-panel .vocals-more');
   check(await seen(host, '.dialog:has-text("Lead vocal (the original singer)")'), 'host: the Vocals dialog opens');
   check(await seen(host, '.dialog .hint:has-text("left")'), 'the dialog says which side the singer is on');
   await host.click('.dialog .btn-row .btn:has-text("Full")');
@@ -146,7 +147,7 @@ try {
   await host.click('.dialog details.vocals-layout summary');
   await host.click('.dialog details.vocals-layout .btn:has-text("Ordinary stereo")');
   check(await until(() => room.s.player.vocals && !room.s.player.vocals.adjustable), 'dialog: marked as ordinary stereo');
-  check(await seen(host, '.player select[aria-label="Channel mode"]'), 'host: the channel mode is back');
+  check(await seen(host, '.admin-panel select[aria-label="Channel mode"]'), 'host: the channel mode is back');
   check(near(await gains(tv), [1, 0, 0, 1]), 'ordinary stereo: the TV plays both channels as they are');
   check(await seen(host, '.dialog .hint:has-text("No lead vocal")'), 'dialog: no lead vocal now');
   await host.click('.dialog details.vocals-layout:not([open]) summary').catch(() => {});

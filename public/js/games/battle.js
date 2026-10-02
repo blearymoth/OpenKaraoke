@@ -234,7 +234,7 @@ export function Control({ game, act, now }) {
       ${(ph === 'vote' || ph === 'score') && html`<button class="btn" disabled=${busy} onClick=${() => run('close')}>Close voting now</button>`}
       ${(ph === 'result' || ph === 'final') && html`<button class="btn" disabled=${busy} onClick=${() => run('next')}>Continue</button>`}
     </div>`}
-    ${ph === 'singing' && !game.stalled && html`<p class="hint">Next on the player bar ends the performance early (voting still happens).</p>`}
+    ${ph === 'singing' && !game.stalled && html`<p class="hint">“Next singer” ends the performance early (voting still happens).</p>`}
     ${m && ph === 'vote' && m.votes && html`<${VoteSplit} game=${game} m=${m} />`}
     ${ph === 'result' && m?.points && html`<p class="bt-points"><b>${pointsText(game, m)}</b>${m.lot ? ' — a tie, decided by lot' : ''}${m.judged ? ` · judges picked ${who(game, sideOf(m, m.judged)).name} (+${game.judgeWeight})` : ''}</p>`}
     ${perfs.length > 0 && !game.ranking && html`<div class="bt-perfs">${perfs.map((p) => html`<${PerfRow} key=${p.id} game=${game} p=${p} act=${act}

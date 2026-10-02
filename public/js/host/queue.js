@@ -1,9 +1,9 @@
-// Right-hand panel: now singing, the queue (drag to reorder), requests and tonight's history.
+// Admin panel → Queue: now singing, up next (drag to reorder), requests and tonight's history.
 import { html, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
-import { useStore, formatEta, formatTime, singersText } from '../lib/store.js';
+import { formatEta, formatTime, singersText } from '../lib/store.js';
 import { Avatar, Cover, Empty } from '../lib/components.js';
-import { store, act, openDialog } from './state.js';
+import { act, openDialog, openPanel } from './state.js';
 import { Menu } from './menu.js';
 import { formatKey, formatTempo } from '/shared/protocol.js';
 
@@ -59,17 +59,17 @@ function useDrag(queue) {
 
 function NowCard({ cur, p }) {
   const label = { intro: 'Getting ready', ready: 'Ready to start', playing: 'Singing now', paused: 'Paused' }[p.state] || '';
-  return html`<div class="now-card">
+  return html`<button class="now-card" onClick=${() => openPanel('playback')} aria-label=${`Now playing: ${cur.title} — open Playback`}>
     <${Cover} songId=${cur.songId} size=${64} />
     <div class="now-card-text">
       <div class="now-card-label">${label}</div>
       <div class="now-card-singer ellipsis">${cur.singers.length ? html`${cur.singers[0].emoji} ${singersText(cur.singers)}` : 'Sing along'}</div>
       <div class="ellipsis muted">${cur.title} · ${cur.artist}</div>
     </div>
-  </div>`;
+  </button>`;
 }
 
-function QueueTab({ state }) {
+function UpNext({ state }) {
   const [menu, setMenu] = useState(null);
   const drag = useDrag(state.queue);
   const q = state.queue;
@@ -105,7 +105,7 @@ function RequestsTab({ state }) {
     </li>`)}</ol>`;
 }
 
-function HistoryTab({ state }) {
+function TonightList({ state }) {
   const items = state.tonight.history;
   if (!items.length) return html`<${Empty} icon="🕘" title="Nothing sung yet tonight">Finished songs show up here so you can queue them again.</${Empty}>`;
   return html`<ol class="q-list">${items.map((h) => html`<li class="q-item" key=${h.at}>
@@ -119,21 +119,34 @@ function HistoryTab({ state }) {
   </li>`)}</ol>`;
 }
 
-export function QueuePanel() {
-  const { state } = useStore(store);
-  const [tab, setTab] = useState('queue');
-  if (!state) return null;
+const SEGMENTS = ['next', 'requests', 'tonight'];
+
+function readSeg() {
+  try {
+    const v = localStorage.getItem('ok.queueSeg');
+    return SEGMENTS.includes(v) ? v : 'next';
+  } catch {
+    return 'next';
+  }
+}
+
+/** The Queue tab: up next, requests and tonight, one at a time (remembered). */
+export function QueueTab({ state }) {
+  const [seg, setSegState] = useState(readSeg);
+  const setSeg = (v) => {
+    setSegState(v);
+    try { localStorage.setItem('ok.queueSeg', v); } catch { /* private window */ }
+  };
   const pendingCount = state.pending.length;
-  return html`<aside class="queue-panel" aria-label="Queue">
-    <div class="tabs" role="tablist">
-      <button role="tab" aria-selected=${tab === 'queue'} class=${tab === 'queue' ? 'on' : ''} onClick=${() => setTab('queue')}>Queue <span class="badge">${state.queue.length}</span></button>
-      <button role="tab" aria-selected=${tab === 'requests'} class=${tab === 'requests' ? 'on' : ''} onClick=${() => setTab('requests')}>Requests ${pendingCount ? html`<span class="badge neon">${pendingCount}</span>` : null}</button>
-      <button role="tab" aria-selected=${tab === 'history'} class=${tab === 'history' ? 'on' : ''} onClick=${() => setTab('history')}>History</button>
+  const btn = (id, label, extra) => html`<button class=${seg === id ? 'on' : ''} aria-pressed=${seg === id} onClick=${() => setSeg(id)}>${label}${extra}</button>`;
+  return html`
+    <div class="segmented" role="group" aria-label="Queue lists">
+      ${btn('next', 'Up next', html` <span class="badge">${state.queue.length}</span>`)}
+      ${btn('requests', 'Requests', pendingCount ? html` <span class="badge neon">${pendingCount}</span>` : null)}
+      ${btn('tonight', 'Tonight', null)}
     </div>
-    <div class="panel-body">
-      ${tab === 'queue' && html`<${QueueTab} state=${state} />`}
-      ${tab === 'requests' && html`<${RequestsTab} state=${state} />`}
-      ${tab === 'history' && html`<${HistoryTab} state=${state} />`}
-    </div>
-  </aside>`;
+    ${seg === 'next' && html`<${UpNext} state=${state} />`}
+    ${seg === 'requests' && html`<${RequestsTab} state=${state} />`}
+    ${seg === 'tonight' && html`<${TonightList} state=${state} />`}
+  `;
 }

@@ -66,7 +66,8 @@ Server (`server/`)
   current skin into every HTML page: `<html data-theme>`, theme-color; part of the ETag).
 - `room/` — `room.js` (party state machine, all WebSocket actions, role views), `rotation.js`
   (fair rotation + ETA, pure), `auth.js` (localhost trust, PIN → host token, device tokens,
-  Host/Origin trust), `vocals.js` (`data/vocals.json`: what the TV found in each track's channels).
+  Host/Origin trust), `vocals.js` (`data/vocals.json`: what the TV found in each track's channels),
+  `versions.js` (`data/versions.json`: plays and up/down votes per version, the default version).
 - `ws/hub.js` — hello handshake, heartbeat, `rid` request/response, broadcasts.
 - `net/` — the party hotspot (PLAN §20): `nmcli.js` (the only place programs are started:
   `nmcli`/`firewall-cmd` through `execFile`, parsers, validation, `connection add` arguments),
@@ -74,7 +75,8 @@ Server (`server/`)
   nmcli unless given a runner; `start.js` passes the real one. Tests use
   `scripts/fake-nmcli.mjs` (`OPENKARAOKE_FAKE_NMCLI=<scenario>` to try the UI by hand).
 - `artwork/placeholder.js` — gradient + initials SVG (real artwork comes in M5).
-- `util/` — log (+ `setLogSink` for the desktop log file), jsonfile (`JsonDoc`), net (LAN
+- `util/` — log (+ `setLogSink` for the desktop log file), useragent (device names for the host's
+  Devices list), jsonfile (`JsonDoc`), net (LAN
   addresses, trusted Host/Origin, free ports), datalock, qr, lru, ratelimit, errors
   (`UserError` = message safe to show).
 
@@ -90,10 +92,14 @@ Browser (`public/`, plain ES modules, Preact + htm)
 - `js/lib/audio-engine.js` — Signalsmith buffer mode (key/tempo) + element mode; channel
   matrix, loudness, fades. `js/lib/cdg-canvas.js` — CDG renderer.
 - `host.html` + `js/host/` — `main.js` (shell, routes, PIN screen, shortcuts), `state.js`,
-  `player.js`, `queue.js`, `views.js`, `dialogs.js`, `settings.js`, `hotspot.js` (party
-  hotspot block + banner), `vocals.js` (Lead control + Vocals dialog), `graphics.js` (Settings → About → Graphics, desktop app).
+  `player.js` (slim bar, phones' mini player), `panel.js` (the admin panel: Queue / Playback /
+  Devices tabs; the phones' Control page), `queue.js`, `playback.js` (now playing + version vote,
+  sound, live preview, TV window), `devices.js` (screens, host devices, guests), `menu.js`,
+  `views.js`, `dialogs.js`, `settings.js`, `hotspot.js` (party hotspot block + banner),
+  `vocals.js` (Lead control + Vocals dialog), `graphics.js` (Settings → About → Graphics, desktop app).
 - `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts.
-- `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`,
+- `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`, `versions.js`
+  (version names/labels, thumbs up/down),
   `components.js`, `icons.js`, `theme.js` (follows the skin live, `token()` for code that needs
   a colour). CSS: `css/base.css` (the two skins' tokens + components), `host.css`, `tv.css`, `guest.css`.
 
@@ -101,7 +107,7 @@ Desktop app (`desktop/`, Electron; see docs/HANDOFF.md "Desktop app")
 - `main.mjs` — runs `startServer()` in-process, host window, TV window (full screen on another
   screen, autoplay + microphone allowed for our own pages only), menu, single instance, saving
   on quit, native Wayland (TV moved by the person, full screen on the move) or an XWayland
-  restart when chosen. `displays.mjs` (pure placement), `graphics.mjs` (display system, GPU
+  restart when chosen; `okDesktop.tv` state for the host's Playback tab. `displays.mjs` (pure placement), `graphics.mjs` (display system, GPU
   verdict, lighter effects), `preload.cjs` (`window.okDesktop`: openTv, pickFolder, updates,
   graphics, onNotice — the host page checks for it), `updater.mjs` + `update-logic.mjs`
   (GitHub releases; the token only ever goes to the API, redirects are followed by hand),

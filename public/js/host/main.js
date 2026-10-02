@@ -1,11 +1,13 @@
-// Host app (/host): KaraFun-style layout — top bar, navigation, main view, queue panel, player bar.
+// Host app (/host): KaraFun-style layout — top bar, navigation, main view, the admin panel (queue,
+// playback, devices) and the player bar; on phones the panel is a "Control" page and the player
+// a mini player.
 import { html, render, useEffect, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore } from '../lib/store.js';
 import { useHashRoute, go, Toasts, Spinner, useMedia } from '../lib/components.js';
-import { store, conn, toasts, toast, act, loginWithPin, livePosition } from './state.js';
-import { PlayerBar, openInvite } from './player.js';
-import { QueuePanel } from './queue.js';
+import { store, conn, toasts, toast, act, loginWithPin, livePosition, PANEL_TABS, setPanelTab, openPanel } from './state.js';
+import { PlayerBar, MiniPlayer, openInvite } from './player.js';
+import { AdminPanel } from './panel.js';
 import { Dialogs } from './dialogs.js';
 import { Home, Search, Artists, Artist, Collections, Tag, Browse, Favorites, Singers, History } from './views.js';
 import { Playlists } from './playlists.js';
@@ -34,15 +36,19 @@ const NAV = [
   ['/photos', 'eye', 'Photos', 'desktop-only'],
   ['/history', 'history', 'History', 'desktop-only'],
   ['/settings', 'settings', 'Settings', 'desktop-only'],
-  ['/queue', 'list', 'Queue', 'mobile-only'],
+  ['/panel', 'gauge', 'Control', 'mobile-only'],
   ['/more', 'more', 'More', 'mobile-only'],
 ];
 const MORE = NAV.filter((n) => n[3] === 'desktop-only');
 
 function navBadge(path, state) {
   const pendingPhotos = () => state.photos?.filter((p) => p.status === 'pending').length || 0;
-  const n = path === '/queue' ? state.queue.length
-    : path === '/games' ? (state.game && !state.game.ended ? 'live' : 0)
+  if (path === '/panel') {
+    const waiting = state.pending.length + (state.pairings?.length || 0);
+    if (waiting) return html`<span class="badge bulb">${waiting}</span>`;
+    return state.queue.length ? html`<span class="badge neon">${state.queue.length}</span>` : null;
+  }
+  const n = path === '/games' ? (state.game && !state.game.ended ? 'live' : 0)
     : path === '/photos' || path === '/more' ? pendingPhotos()
     : 0;
   return n ? html`<span class="badge neon">${n}</span>` : null;
@@ -82,7 +88,7 @@ function TopBar({ route }) {
       ${status !== 'open' && html`<span class="pill bad">Reconnecting…</span>`}
       ${state.hotspot?.state === 'on' && html`<a class="pill live" href="#/settings/party" title=${`Party hotspot “${state.hotspot.ssid}” is on`}><${Icon} name="wifi" size=${14} /> <span class="label">Party Wi-Fi</span></a>`}
       ${state.hotspot?.state === 'starting' && html`<a class="pill" href="#/settings/party"><span class="spinner tiny"></span> <span class="label">Hotspot</span></a>`}
-      ${state.pairings?.length > 0 && html`<a class="pill bulb" href="#/settings/displays"><${Icon} name="tv" size=${14} /> Screen waiting: ${state.pairings[0].code}</a>`}
+      ${state.pairings?.length > 0 && html`<button class="pill bulb" onClick=${() => openPanel('devices')}><${Icon} name="tv" size=${14} /> Screen waiting: ${state.pairings[0].code}</button>`}
       <${UpdatePill} />
       <button class="code-chip" onClick=${openInvite} title="Invite guests"><${Icon} name="qr" size=${16} /> <span class="label">Room</span> <b>${state.info.roomCode}</b></button>
     </div>
@@ -91,7 +97,7 @@ function TopBar({ route }) {
 
 function Nav({ route }) {
   const { state } = useStore(store);
-  const section = { artist: 'artists', tag: 'tags', genre: 'tags', decade: 'tags' }[route.parts[0]] || route.parts[0] || '';
+  const section = { artist: 'artists', tag: 'tags', genre: 'tags', decade: 'tags', queue: 'panel' }[route.parts[0]] || route.parts[0] || '';
   const active = `/${section}`;
   const on = (path) => active === path || (path === '/more' && MORE.some((n) => n[0] === active));
   return html`<nav class="nav" aria-label="Main">
@@ -113,7 +119,22 @@ function More() {
   </div>`;
 }
 
-function Main({ route }) {
+/** Replaces the address (no history entry, no render loop: it runs after rendering). */
+function Redirect({ to }) {
+  useEffect(() => { location.replace(`#${to}`); }, [to]);
+  return null;
+}
+
+/** On a computer the panel is always there: a link to it picks the tab and shows Home. */
+function PanelRedirect({ tab }) {
+  useEffect(() => {
+    if (PANEL_TABS.includes(tab)) setPanelTab(tab);
+    location.replace('#/');
+  }, [tab]);
+  return null;
+}
+
+function Main({ route, narrow }) {
   const [q, setQ] = useState(searchStore.q);
   useEffect(() => {
     const on = (e) => setQ(e.detail);
@@ -137,7 +158,10 @@ function Main({ route }) {
     case 'photos': return html`<${Photos} />`;
     case 'history': return html`<${History} />`;
     case 'settings': return html`<${Settings} section=${b} />`;
-    case 'queue': return html`<div class="page queue-page"><${QueuePanel} /></div>`;
+    case 'panel': return narrow
+      ? html`<div class="panel-page"><${AdminPanel} page=${true} tab=${PANEL_TABS.includes(b) ? b : store.get().panelTab} /></div>`
+      : html`<${PanelRedirect} tab=${b} />`;
+    case 'queue': return narrow ? html`<${Redirect} to="/panel/queue" />` : html`<${PanelRedirect} tab="queue" />`;
     case 'more': return html`<${More} />`;
     default: return html`<div class="page"><p>Page not found. <a href="#/">Go home</a></p></div>`;
   }
@@ -182,14 +206,17 @@ function PinScreen({ reason }) {
 function App() {
   const s = useStore(store);
   const route = useHashRoute();
+  const narrow = useMedia('(max-width: 900px)');
   if (s.denied) return html`<${PinScreen} reason=${s.denied} />`;
   if (!s.state) return html`<div class="gate"><${Spinner} /><p class="muted">Connecting to OpenKaraoke…</p></div>`;
-  return html`<div class="app">
+  // Phones: the Playback page has the full controls, so no player bar under it.
+  const fullPlayer = narrow && route.parts[0] === 'panel' && (PANEL_TABS.includes(route.parts[1]) ? route.parts[1] : s.panelTab) === 'playback';
+  return html`<div class=${`app${fullPlayer ? ' full-player' : ''}`}>
     <${TopBar} route=${route} />
     <${Nav} route=${route} />
-    <main class="main" id="main"><${HotspotBanner} /><${Main} route=${route} /></main>
-    <${QueuePanel} />
-    <${PlayerBar} />
+    <main class="main" id="main"><${HotspotBanner} /><${Main} route=${route} narrow=${narrow} /></main>
+    ${!narrow && html`<${AdminPanel} />`}
+    ${narrow ? !fullPlayer && html`<${MiniPlayer} />` : html`<${PlayerBar} />`}
     <${Dialogs} />
     <${Toasts} store=${toasts.store} />
   </div>`;

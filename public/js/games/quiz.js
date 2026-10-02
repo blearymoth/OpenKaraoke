@@ -172,6 +172,7 @@ class QuizPlayer {
 
   /** Decodes the question's track once and keeps only the slices it needs. */
   prepare(gameId, clip) {
+    if (!this.engine.ctx) return Promise.resolve({ main: null, reveal: null, gainDb: 0 }); // no audio here (the host's preview)
     const k = `${gameId}:${clip.q}`;
     if (this.prepared.has(k)) return this.prepared.get(k);
     const p = (async () => {

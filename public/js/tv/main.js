@@ -11,7 +11,7 @@ import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo, sin
 import { formatLead, LEAD_PRESETS } from '/shared/vocals.js';
 
 const params = new URLSearchParams(location.search);
-const store = createStore({ status: 'connecting', state: null, display: 'main', denied: null, unlocked: false, help: false, reactions: [], toast: null });
+const store = createStore({ status: 'connecting', state: null, display: 'main', denied: null, unlocked: false, help: false, reactions: [], toast: null, identify: null });
 
 const preview = params.get('display') === 'preview'; // the host's small live preview
 const board = params.get('layout') === 'board'; // a queue board for a second screen (muted)
@@ -38,11 +38,14 @@ const conn = new Connection({
 /** This screen's role: what the server says, but a board or a preview is always a muted mirror. */
 const roleOf = (display) => (muted ? 'mirror' : display);
 const now = () => conn.serverNow();
+// The preview on a host device other than this computer: no music video (a cover instead).
+const noVideo = preview && params.get('video') === '0';
 const controller = new TvController({
   conn,
   canvas: document.getElementById('cdg'),
   video: document.getElementById('video'),
   audio: document.getElementById('audio'),
+  noVideo,
 });
 
 conn.on('welcome', (m) => {
@@ -83,6 +86,15 @@ conn.on('denied', (m) => {
   conn.outbox.length = 0; // reports about a song this screen no longer plays
 });
 conn.on('reaction', (m) => addReaction(m));
+// "Identify" from the host's Devices list: this screen's name, big, for a few seconds.
+let identifyTimer = null;
+conn.on('identify', (m) => {
+  if (preview) return;
+  const seconds = Math.min(15, Math.max(1, Number(m.seconds) || 6));
+  clearTimeout(identifyTimer);
+  store.update({ identify: { name: String(m.name || '').slice(0, 40), where: String(m.where || '').slice(0, 60) } });
+  identifyTimer = setTimeout(() => store.update({ identify: null }), seconds * 1000);
+});
 conn.on('art', (m) => noteArt(m));
 controller.addEventListener('change', () => {
   store.update({ unlocked: controller.unlocked });
@@ -177,23 +189,29 @@ document.addEventListener('mousemove', () => {
 });
 
 // Try to start audio straight away: works when Chrome runs with --autoplay-policy=no-user-gesture-required.
-controller.engine.init().then(() => {
-  if (controller.engine.running) store.update({ unlocked: true });
-  controller.engine.ctx.addEventListener('statechange', () => {
-    store.update({ unlocked: controller.unlocked });
-    applyBreak(store.get().state);
+// The host's preview never plays sound: no audio context at all (lighter on the host's computer).
+if (!preview) {
+  controller.engine.init().then(() => {
+    if (controller.engine.running) store.update({ unlocked: true });
+    controller.engine.ctx.addEventListener('statechange', () => {
+      store.update({ unlocked: controller.unlocked });
+      applyBreak(store.get().state);
+      controller.reportAudio();
+      controller.sendReady();
+    });
     controller.reportAudio();
-    controller.sendReady();
   });
-  controller.reportAudio();
-});
+}
 
 // ---- animation loop: lyrics, progress bar, visualiser level ------------------------------
 
 const canvas = document.getElementById('cdg');
 const stageEl = document.getElementById('stage');
-function loop() {
+let lastFrame = 0;
+function loop(t) {
   requestAnimationFrame(loop);
+  if (preview && t - lastFrame < 33) return; // the preview: 30 frames a second are plenty
+  lastFrame = t;
   controller.frame();
   const st = store.get().state;
   const showCdg = !!(st?.current && controller.cdg.loaded && ['playing', 'paused'].includes(st.player.state));
@@ -300,6 +318,8 @@ function App() {
     ${s.display === 'mirror' && !muted && html`<div class="mirror-badge">Mirror display (muted)</div>`}
     ${s.toast && html`<div class="conn-lost" style="background:var(--stage-3);color:var(--ink)">${s.toast}</div>`}
     ${s.help && html`<${Help} />`}
+    ${s.identify && html`<div class="identify" aria-hidden="true"><div class="identify-card"><b>${s.identify.name}</b><span>${s.identify.where}</span><small>This name is shown in the host’s Devices list</small></div></div>`}
+    ${noVideo && st.current?.media?.kind === 'video' && html`<div class="preview-poster"><img src=${artUrl(st.current.songId, 500)} alt="" /><b>Music video on the TV</b><span>${st.current.title} · ${st.current.artist}</span></div>`}
     ${!s.unlocked && s.display === 'main' && html`<${StartOverlay} />`}
     ${placeHint && html`<${PlaceHint} />`}
   `;
@@ -327,7 +347,7 @@ function StartOverlay() {
 
 /**
  * A screen on another computer: show a pairing code until the host approves it
- * (Settings → Displays), then keep the token and connect as a TV display.
+ * (the Devices tab or Settings → Displays), then keep the token and connect as a TV display.
  */
 function Pairing() {
   const [pair, setPair] = useState(null); // { id, code } | { error }
@@ -366,7 +386,7 @@ function Pairing() {
     <div style="font-size:10vh">📺</div>
     <h2>Connect this screen to the party</h2>
     ${pair?.code && html`<div class="pair-code">${pair.code.split('').map((d) => html`<b>${d}</b>`)}</div>
-      <p>On the computer running OpenKaraoke, open the host page → <b>Settings → Displays</b> and approve the screen with this code.</p>`}
+      <p>On the computer running OpenKaraoke, open the host page → <b>Devices</b> (or <b>Settings → Displays</b>) and approve the screen with this code.</p>`}
     ${pair?.error && html`<p>${pair.error}</p><button class="btn primary large" onClick=${request}>Try again</button>`}
     ${status === 'denied' && html`<p>The host did not approve this screen.</p><button class="btn primary large" onClick=${request}>Ask again</button>`}
     ${status === 'expired' && html`<p>The code expired.</p><button class="btn primary large" onClick=${request}>Show a new code</button>`}

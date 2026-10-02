@@ -6,6 +6,7 @@ import { useStore, plural, singersText, useDebounced, artistArtUrl, artStore } f
 import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, go, ArtistImage } from '../lib/components.js';
 import { store, act, openDialog, toast, chooseFolder } from './state.js';
 import { openTvWindow, openInvite } from './player.js';
+import { GuestButtons } from './devices.js';
 import { AVATARS } from '/shared/protocol.js';
 
 /** Queue + favourite buttons at the end of a song row. */
@@ -310,11 +311,7 @@ export function Singers() {
           <td class="lead"><div class="who"><${Avatar} singer=${g} size=${30} /> <b>${g.name}</b></div></td>
           <td>${g.banned ? html`<span class="pill bad">Removed</span>` : html`<span class=${`dot ${g.online ? 'on' : ''}`}></span> ${g.online ? 'Connected' : 'Offline'}`}</td>
           <td class="num" data-label="Songs waiting">${g.queued}</td>
-          <td class="actions">${!g.banned && html`<button class=${`btn small ${g.coHost ? 'on' : 'ghost'}`} title="A co-host can run the player and approve requests from their phone"
-              onClick=${() => act('guest.cohost', { deviceId: g.deviceId, on: !g.coHost }).then((r) => r && toast(r.coHost ? `${g.name} is now a co-host` : `${g.name} is no longer a co-host`, 'ok'))}>${g.coHost ? '★ Co-host' : 'Make co-host'}</button>`}
-            ${g.banned
-            ? html`<button class="btn small ghost" onClick=${() => act('guest.unban', { deviceId: g.deviceId })}>Let back in</button>`
-            : html`<button class="btn small ghost danger" onClick=${() => confirm(`Remove ${g.name} from the party? Their queued songs are removed too.`) && act('guest.ban', { deviceId: g.deviceId })}>Remove</button>`}</td>
+          <td class="actions"><${GuestButtons} g=${g} /></td>
         </tr>`)}</tbody></table>`
       : html`<p class="muted">No guests have joined yet. <button class="link" onClick=${openInvite}>Show the invite code</button></p>`}
   </div>`;
@@ -336,7 +333,7 @@ export function History() {
         ${list.map((h) => html`<tr>
           <td class="num faint">${new Date(h.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
           <td>${h.singers.join(' & ') || html`<span class="faint">—</span>`}</td>
-          <td class="lead"><b>${h.title}</b> <span class="faint">${h.artist}</span></td>
+          <td class="lead"><button class="link" onClick=${() => openDialog({ type: 'song', songId: h.songId })}><b>${h.title}</b></button> <span class="faint">${h.artist}</span></td>
           <td>${h.skipped ? html`<span class="pill">Skipped</span>` : ''}${h.key ? html` <span class="pill">Key ${h.key > 0 ? '+' : ''}${h.key}</span>` : ''}${h.rating ? html` <span class="pill bulb" title=${`${h.rating.n} ${h.rating.n === 1 ? 'vote' : 'votes'}`}>★ ${h.rating.avg.toFixed(1)}</span>` : ''}${h.game ? html` <span class="pill">${h.game}</span>` : ''}</td>
           <td class="actions"><button class="btn small" onClick=${() => openDialog({ type: 'add', songId: h.songId, singerName: h.singers[0] || '' })}>Queue again</button></td>
         </tr>`)}</tbody></table>`

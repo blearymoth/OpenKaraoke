@@ -66,6 +66,19 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .lite-fx #cdg { filter: none; }
 .lite-fx #stage:has(#cdg.show)::before { content: ''; position: absolute; inset: 0; z-index: -1; background: radial-gradient(ellipse 62% 58% at center, rgba(var(--shade-rgb), 0.6), rgba(var(--shade-rgb), 0) 72%); }
 .plain-bg { position: absolute; inset: 0; }
+/* The host's live preview (Playback tab): the same scene, kept light — still backgrounds, no blur. */
+body.preview :is(.aurora i, .fanart-bg, .mosaic, .photo-bg, .start .big-btn) { animation: none; }
+body.preview :is(.announce, .start, .scrim) { -webkit-backdrop-filter: none; backdrop-filter: none; }
+.preview-poster { position: fixed; inset: 0; z-index: 5; display: grid; place-content: center; justify-items: center; gap: 2vh; background: var(--night); text-align: center; }
+.preview-poster img { height: 40vh; aspect-ratio: 1; object-fit: cover; border-radius: 2vh; }
+.preview-poster b { font-family: var(--font-display); font-size: 6vh; color: var(--ink); }
+.preview-poster span { font-size: 4vh; color: var(--ink-2); }
+/* "Identify" from the host's Devices list: this screen's name, readable across the room. */
+.identify { position: fixed; inset: 0; z-index: 100; display: grid; place-content: center; justify-items: center; pointer-events: none; animation: tv-fade 0.3s ease both; }
+.identify-card { display: grid; justify-items: center; gap: 2vh; padding: 4vh 6vw; border-radius: var(--r-lg); background: var(--stage); border: 3px solid var(--neon); text-align: center; }
+.identify-card b { font-family: var(--font-display); font-size: clamp(56px, 9vw, 150px); line-height: 1; color: var(--ink); }
+.identify-card span { font-size: clamp(24px, 3vw, 48px); color: var(--ink); }
+.identify-card small { font-size: clamp(18px, 2vw, 32px); color: var(--ink-2); }
 
 /* ---- shared ------------------------------------------------------------------------- */
 

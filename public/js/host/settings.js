@@ -9,6 +9,7 @@ import { THEMES, THEME_IDS, DEFAULT_THEME, accentInk } from '/shared/themes.js';
 import { UpdatesBlock } from './updates.js';
 import { HotspotBlock } from './hotspot.js';
 import { GraphicsBlock } from './graphics.js';
+import { DisplayRow, PairingRow } from './devices.js';
 
 const SECTIONS = [
   {
@@ -39,6 +40,7 @@ const SECTIONS = [
       { path: 'queue.guestCanRemoveOwn', label: 'Guests can remove their own songs', type: 'bool' },
       { path: 'queue.guestsSeeQueue', label: 'Guests see the whole queue', type: 'bool', help: 'When off, guests only see their own songs.' },
       { path: 'queue.guestKeyChange', label: 'Guests can choose a key', type: 'bool' },
+      { path: 'guests.versionVotes', label: 'Guests can vote on song versions', type: 'bool', help: 'Thumbs up or down on versions played tonight. A version two votes ahead plays by default (even over your preferred labels); one two votes behind only when there is no other. Your own vote always settles it.' },
       { path: 'queue.guestVocals', label: 'Guests can ask for a guide singer', type: 'bool', help: 'On multiplex songs (the original singer on a channel of its own), and versions with or without backing vocals. Singers can switch the guide on or off during their own song.' },
       { path: 'guests.reactions', label: 'Guests can send reactions to the TV', type: 'bool' },
       { path: 'guests.photos', label: 'Guests can send photos to the TV', type: 'bool' },
@@ -331,26 +333,14 @@ function DisplaysSection({ state }) {
     <div class="setting column">
       <div class="setting-text"><b>Connected displays</b><p class="hint">The main display plays the music; the others are muted. When the main TV disconnects, another TV page plays until it is back — mirrors and queue boards stay muted.</p></div>
       ${state.displays.length
-        ? html`<div class="folders">${state.displays.map((d) => html`<div class="folder-row display-row">
-            <span class=${`dot ${d.display === 'main' ? 'on' : ''}`}></span>
-            <div class="grow">
-              <b>${d.display === 'main' ? 'Main TV — plays the sound' : d.kind === 'board' ? 'Queue board — muted' : 'Mirror — muted'}</b>
-              <div class="hint">${d.local ? 'On this computer' : `Paired screen at ${d.ip}`}${d.standIn ? ' · standing in for the TV that disconnected' : ''}</div>
-            </div>
-            ${d.kind !== 'board' && (d.display !== 'main' || d.standIn) && html`<button class="btn small" onClick=${() => act('display.main', { id: d.id }).then((r) => r && toast('Main display changed', 'ok'))}>${d.standIn ? 'Keep as main' : 'Make main'}</button>`}
-          </div>`)}</div>`
-        : html`<p class="muted">No display is connected. Use “Open TV” in the player bar.</p>`}
+        ? html`<div class="folders">${state.displays.map((d) => html`<${DisplayRow} key=${d.id} d=${d} />`)}</div>`
+        : html`<p class="muted">No display is connected. Use “Open TV display” on the Home page, or open <code>${lan}/tv</code> on the TV.</p>`}
     </div>
     <div class="setting column">
       <div class="setting-text"><b>Screens waiting to be paired</b>
         <p class="hint">To use a TV or projector attached to another computer (or a smart TV browser), open <code>${lan}/tv</code> on it. It shows a four-digit code: approve it here if the code matches. For a big list of who sings next (by the bar or the stage) open <code>${lan}/tv?layout=board</code> instead.${state.info.mode === 'hotspot' && state.info.baseUrl !== lan ? html` A screen on the party hotspot’s Wi-Fi uses <code>${state.info.baseUrl}/tv</code>.` : ''}</p></div>
       ${state.pairings.length
-        ? html`<div class="folders">${state.pairings.map((p) => html`<div class="folder-row pairing-row">
-            <div class="pair-code-small">${p.code}</div>
-            <div class="grow"><b>Screen at ${p.ip}</b><div class="hint">Asked ${new Date(p.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div></div>
-            <button class="btn small primary" onClick=${() => act('display.approve', { id: p.id }).then((r) => r && toast('Screen paired', 'ok'))}>Approve</button>
-            <button class="btn small ghost danger" onClick=${() => act('display.deny', { id: p.id })}>Deny</button>
-          </div>`)}</div>
+        ? html`<div class="folders">${state.pairings.map((p) => html`<${PairingRow} key=${p.id} p=${p} />`)}</div>
           ${state.pairings.length > 1 && html`<div class="btn-row"><button class="btn small ghost danger" onClick=${() => act('display.deny', { all: true })}>Deny all</button></div>`}`
         : html`<p class="muted">None right now.</p>`}
     </div>
@@ -371,8 +361,8 @@ function About({ state }) {
     <div class="kbd-grid">${shortcuts.map(([k, v]) => html`<kbd>${k}</kbd><span>${v}</span>`)}</div>
     <h3 class="section-title">TV on a second screen</h3>
     ${window.okDesktop
-      ? html`<p class="muted">Use <b>Open TV display</b> on the home page or the TV button in the player bar: the TV window opens full screen on your second screen (connect the TV first — or later, the window moves there by itself). <kbd>F11</kbd> switches full screen on and off; the OpenKaraoke menu (<kbd>Alt</kbd>) can move it to another screen. On native Wayland (see Graphics) move it yourself: <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd> or drag it to the TV, and it goes full screen there — or, with the mouse on the TV, <kbd>Ctrl</kbd>+<kbd>T</kbd> opens it right there (then <kbd>F11</kbd>).</p>`
-      : html`<p class="muted">Use <b>Open TV display</b> in the player bar, or run <code>bin/open-tv.sh</code> to start Chrome/Chromium in full screen on the second screen with sound allowed straight away.</p>`}
+      ? html`<p class="muted">Use <b>Open TV display</b> on the home page or <b>Open TV window</b> under Devices: the TV window opens full screen on your second screen (connect the TV first — or later, the window moves there by itself). <kbd>F11</kbd> switches full screen on and off; the OpenKaraoke menu (<kbd>Alt</kbd>) can move it to another screen. On native Wayland (see Graphics) move it yourself: <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>→</kbd> or drag it to the TV, and it goes full screen there — or, with the mouse on the TV, <kbd>Ctrl</kbd>+<kbd>T</kbd> opens it right there (then <kbd>F11</kbd>).</p>`
+      : html`<p class="muted">Use <b>Open TV display</b> on the home page, or run <code>bin/open-tv.sh</code> to start Chrome/Chromium in full screen on the second screen with sound allowed straight away.</p>`}
   </div>`;
 }
 

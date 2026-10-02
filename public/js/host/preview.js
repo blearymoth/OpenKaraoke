@@ -5,7 +5,7 @@ import { Icon } from '../lib/icons.js';
 import { createStore, useStore } from '../lib/store.js';
 
 const SINK_KEY = 'ok.previewSink';
-const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+export const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 const audio = typeof Audio !== 'undefined' ? new Audio() : null;
 export const previewStore = createStore({ trackId: null, playing: false, error: null });
 

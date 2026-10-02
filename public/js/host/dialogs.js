@@ -6,16 +6,10 @@ import { Modal, Cover, Spinner, Stepper, useFetch, apiGet, copyText, SongBadges,
 import { store, act, closeDialog, openDialog, toast } from './state.js';
 import { PreviewButton, PreviewOutput } from './preview.js';
 import { qrSrc } from '../lib/theme.js';
-import { VocalsDialog, vocalsNote } from './vocals.js';
+import { VocalsDialog } from './vocals.js';
+import { versionLabel, versionName, VersionVote } from '../lib/versions.js';
 import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 
-function versionLabel(v) {
-  const parts = [v.brandName || v.brand || 'Unknown label'];
-  if (v.variant) parts.push(v.variant);
-  const note = vocalsNote(v);
-  if (note) parts.push(note);
-  return `${parts.join(' · ')} (${formatTime(v.dur)})`;
-}
 
 /** Guide singer when queueing (only for songs with a version where it can be turned up or down). */
 function LeadField({ value, onChange }) {
@@ -88,8 +82,8 @@ export function AddDialog({ songId, trackId: initialTrack, singerName = '' }) {
         </div>
         ${song.versions.length > 1 && html`<label class="field"><span>Version</span>
           <select class="select" value=${trackId} onChange=${(e) => setTrackId(e.currentTarget.value)}>
-            <option value="">Best available</option>
-            ${song.versions.map((v) => html`<option value=${v.id}>${versionLabel(v)}</option>`)}
+            <option value="">${(() => { const def = song.versions.find((v) => v.id === song.defaultTrackId); return def ? `Best available — ${versionName(def)}` : 'Best available'; })()}</option>
+            ${song.versions.map((v) => html`<option value=${v.id}>${versionLabel(v, { stats: true })}</option>`)}
           </select></label>`}
       </div>
       ${song.vocalOptions?.lead && html`<${LeadField} value=${lead} onChange=${setLead} />`}
@@ -126,19 +120,49 @@ export function SongDialog({ songId }) {
         </div>
       </div>
       <h4 class="section-title">Versions (${song.versions.length})</h4>
-      <table class="versions">
-        <thead><tr><th>Label</th><th>Version</th><th class="num">Length</th><th>File</th><th></th></tr></thead>
-        <tbody>${song.versions.map((v) => html`<tr>
-          <td><b>${v.brand || '—'}</b>${v.brandName && v.brandName !== v.brand ? html` <span class="faint">${v.brandName}</span>` : ''}</td>
-          <td>${v.variant || html`<span class="faint">Standard</span>`}${v.vocals?.lead === 'adjustable' ? html` <span class="pill" title="The original singer is on a channel of its own: off, quiet or full">Lead vocal adjustable</span>` : v.flags?.mpx ? html` <span class="pill">Multiplex</span>` : ''}${v.vocals?.lead === 'mixed' ? html` <span class="pill">Original singer mixed in</span>` : ''}${v.vocals?.bgv === 'without' ? html` <span class="pill">No backing vocals</span>` : v.vocals?.bgv === 'with' ? html` <span class="pill">Backing vocals</span>` : ''}</td>
-          <td class="num">${formatTime(v.dur)}</td>
-          <td class="file ellipsis" title=${v.file}>${v.file}</td>
-          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
-        </tr>`)}</tbody>
-      </table>
+      <${VersionsTable} song=${song} songId=${songId} />
       <${PreviewOutput} displays=${state.displays} />
     `}
   </${Modal}>`;
+}
+
+const WHY = {
+  host: ['Your pick', 'you voted it up'],
+  guests: ['Guests’ favourite', 'guests voted it up'],
+  last: ['Default', 'used last time (you changed its key or tempo)'],
+  label: ['Default', 'best match for your preferred labels'],
+};
+
+/** The versions of a song: what each is, how often it was sung here, the votes on it. */
+function VersionsTable({ song, songId }) {
+  const [over, setOver] = useState({}); // id → fields from a vote's answer (the pills move at once)
+  const [latest, setLatest] = useState(null); // { id, why }: the default after the last vote
+  const many = song.versions.length > 1;
+  const def = latest ? latest.id : song.defaultTrackId;
+  const why = latest ? latest.why : song.defaultWhy;
+  const vote = async (v, value) => {
+    const r = await act('version.vote', { trackId: v.id, vote: value });
+    if (!r) return;
+    setOver((o) => ({ ...o, [v.id]: { up: r.up, down: r.down, mine: r.mine, host: r.host, status: r.status || null } }));
+    setLatest({ id: r.defaultTrackId, why: r.defaultWhy });
+    clearFetchCache();
+  };
+  return html`<table class="versions table stack">
+      <thead><tr><th>Label</th><th>Version</th><th class="num">Length</th>${many && html`<th class="num">Sung</th><th>Votes</th>`}<th class="file">File</th><th></th></tr></thead>
+      <tbody>${song.versions.map((v0) => {
+        const v = { ...v0, ...(over[v0.id] || {}) };
+        return html`<tr key=${v.id} data-track=${v.id}>
+          <td class="lead"><b>${v.brand || '—'}</b>${v.brandName && v.brandName !== v.brand ? html` <span class="faint">${v.brandName}</span>` : ''}${many && v.id === def ? html` <span class="pill neon" title=${`Plays by default: ${WHY[why]?.[1] || 'best match'}`}>${WHY[why]?.[0] || 'Default'}</span>` : ''}</td>
+          <td data-label="Version">${v.variant || html`<span class="faint">Standard</span>`}${v.vocals?.lead === 'adjustable' ? html` <span class="pill" title="The original singer is on a channel of its own: off, quiet or full">Lead vocal adjustable</span>` : v.flags?.mpx ? html` <span class="pill">Multiplex</span>` : ''}${v.vocals?.lead === 'mixed' ? html` <span class="pill">Original singer mixed in</span>` : ''}${v.vocals?.bgv === 'without' ? html` <span class="pill">No backing vocals</span>` : v.vocals?.bgv === 'with' ? html` <span class="pill">Backing vocals</span>` : ''}${v.status === 'avoided' ? html` <span class="pill bad" title="Plays only when there is no other version">${v.host === -1 ? 'Avoided by you' : 'Avoided'}</span>` : ''}${v.heard ? html` <span class="pill">Played tonight</span>` : ''}</td>
+          <td class="num" data-label="Length">${formatTime(v.dur)}</td>
+          ${many && html`<td class="num" data-label="Sung">${v.plays ? `${v.plays}×` : html`<span class="faint">—</span>`}</td>
+            <td><${VersionVote} v=${v} label=${`Votes for ${versionName(v)}`} onVote=${(x) => vote(v, x)} /></td>`}
+          <td class="file ellipsis" title=${v.file}>${v.file}</td>
+          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
+        </tr>`;
+      })}</tbody>
+    </table>
+    ${many && html`<p class="hint">Votes choose the default (“Best available”): a version with two more thumbs up than down from guests plays first — even over your preferred labels — and one with two more thumbs down only when there is no other. Your own vote settles it either way. Guests can vote once a version has been played tonight.</p>`}`;
 }
 
 /** "Add to playlist ▾" for the song details (creates a playlist when there is none). */
@@ -285,7 +309,7 @@ export function EditDialog({ entryId }) {
     </div>
     ${song?.versions?.length > 1 && html`<label class="field"><span>Version</span>
       <select class="select" value=${trackId} onChange=${(e) => setTrackId(e.currentTarget.value)}>
-        ${song.versions.map((v) => html`<option value=${v.id}>${versionLabel(v)}</option>`)}
+        ${song.versions.map((v) => html`<option value=${v.id}>${versionLabel(v, { stats: true })}</option>`)}
       </select></label>`}
     ${song?.vocalOptions?.lead && html`<${LeadField} value=${lead} onChange=${setLead} />`}
     <label class="toggle-row"><span><b>Mystery song</b><br /><span class="hint">Guests and the TV see “Surprise!” until it starts.</span></span>

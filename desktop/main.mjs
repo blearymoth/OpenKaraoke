@@ -101,7 +101,7 @@ function run() {
     clearTimeout(stateTimer);
     stateTimer = setTimeout(() => fsp.writeFile(stateFile, JSON.stringify(next)).catch(() => {}), 400);
   };
-  const displays = () => (FAKE_DISPLAYS || screen.getAllDisplays().map((d) => ({ id: d.id, bounds: d.bounds, workArea: d.workArea })));
+  const displays = () => (FAKE_DISPLAYS ? FAKE_DISPLAYS.map((d) => ({ ...d, label: d.label || '' })) : screen.getAllDisplays().map((d) => ({ id: d.id, label: d.label || '', bounds: d.bounds, workArea: d.workArea })));
   const primaryId = () => (FAKE_DISPLAYS ? FAKE_DISPLAYS[0].id : screen.getPrimaryDisplay().id);
   const hostDisplay = () => displayFor(displays(), hostWin && !hostWin.isDestroyed() ? hostWin.getBounds() : displays()[0].bounds);
   const themeColor = () => (THEMES[server?.app.settings.get('appearance.theme')] || THEMES[DEFAULT_THEME]).themeColor;
@@ -480,11 +480,34 @@ function run() {
     };
     tvWin.on('moved', remember);
     tvWin.on('enter-full-screen', remember);
-    tvWin.on('closed', () => { tvWin = null; });
+    for (const ev of ['moved', 'enter-full-screen', 'leave-full-screen', 'show']) tvWin.on(ev, emitTv);
+    tvWin.on('closed', () => {
+      tvWin = null;
+      emitTv();
+    });
     if (WAYLAND) watchTvMove(tvWin);
     // Its own origin: zooming the host window (Ctrl +/−, kept per origin) never zooms the TV.
     tvWin.loadURL(`${tvBase}/tv${WAYLAND ? '?place=wayland' : ''}`);
+    emitTv();
     return { already: false, second: !!target, fullscreen: !!target, wayland: WAYLAND };
+  }
+
+  /** The TV window for the host's Playback tab (okDesktop.tv). */
+  function tvState() {
+    const all = displays();
+    const host = hostDisplay();
+    return {
+      open: !!tvWin,
+      fullscreen: !!tvWin?.isFullScreen(),
+      // Native Wayland: the app doesn't know where its windows are, nor can it move them.
+      screenId: tvWin && !WAYLAND ? displayFor(all, tvWin.getBounds())?.id ?? null : null,
+      placeable: !WAYLAND,
+      screens: all.map((d, i) => ({ id: d.id, name: d.label || `Screen ${i + 1}`, size: `${d.bounds.width} × ${d.bounds.height}`, primary: d.id === primaryId(), host: d.id === host?.id })),
+    };
+  }
+
+  function emitTv() {
+    if (hostWin && !hostWin.isDestroyed()) hostWin.webContents.send('okd:tv-state', tvState());
   }
 
   /** Takes the TV window and any other window but the host's away now (closing, quitting). */
@@ -510,6 +533,8 @@ function run() {
   // A TV plugged in while the TV window waits on the host's screen: it moves there by itself.
   // The TV's screen unplugged: the window comes back as a normal window next to the host.
   function watchDisplays() {
+    screen.on('display-added', () => emitTv());
+    screen.on('display-removed', () => emitTv());
     if (WAYLAND) return; // the compositor moves windows off a screen that goes away by itself
     screen.on('display-added', (e, added) => {
       if (!tvWin || FAKE_DISPLAYS) return;
@@ -636,6 +661,25 @@ function run() {
     ipcMain.handle('okd:open-tv', (event) => {
       if (!fromUs(event)) throw new Error('Not allowed');
       return openTv();
+    });
+    ipcMain.handle('okd:tv', (event, what, value) => {
+      if (!fromUs(event)) throw new Error('Not allowed');
+      if (what === 'get') { /* just the state */ }
+      else if (what === 'open') openTv();
+      else if (what === 'close') tvWin?.close();
+      else if (what === 'fullscreen') {
+        if (typeof value !== 'boolean') throw new Error('Not allowed');
+        tvWin?.setFullScreen(value);
+      } else if (what === 'place') {
+        const d = Number.isSafeInteger(value) ? displays().find((x) => x.id === value) : null;
+        if (!d) throw new Error('Not allowed');
+        if (!tvWin) throw new Error('Open the TV window first.');
+        if (WAYLAND) throw new Error('On Wayland, move the TV window yourself: Super+Shift+→ or drag it there.');
+        placeTv(d);
+      } else {
+        throw new Error('Not allowed');
+      }
+      return tvState();
     });
     ipcMain.handle('okd:pick-folder', async (event) => {
       if (!fromUs(event)) throw new Error('Not allowed');

@@ -96,13 +96,13 @@ try {
   check(app.settings.get('queue.requireApproval') === true, 'settings toggle saves (approval mode on)');
   const r5 = await guestRequest(cara, 'kitchen', 'Singing In The Kitchen');
   check(r5.ok && /Request sent/.test(r5.text), 'guest request now waits for approval');
-  await host.click('.tabs button:has-text("Requests")');
+  await host.click('.admin-panel .segmented button:has-text("Requests")');
   await host.waitForSelector('.q-item .icon-btn.ok');
   await shot(host, 'host-requests');
   await host.click('.q-item .icon-btn.ok');
   await sleep(400);
   check(room().pending.length === 0 && room().queue.some((e) => e.title === 'Singing In The Kitchen'), 'host approved the request');
-  await host.click('.tabs button:has-text("Queue")');
+  await host.click('.admin-panel .segmented button:has-text("Up next")');
 
   // ---- the TV starts the party ------------------------------------------------------------------------
   const tv = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'tv');
@@ -117,10 +117,11 @@ try {
   check(true, 'Ben is told he is up next');
   await shot(ben, 'ben-upnext');
 
-  // host controls from the player bar
-  await host.click('.stepper >> nth=0 >> button[aria-label="Key up"]');
+  // host controls: key in the panel's Playback tab, play/pause in the bar
+  await host.click('.admin-panel [role=tab]:has-text("Playback")');
+  await host.click('.admin-panel .stepper >> nth=0 >> button[aria-label="Key up"]');
   await sleep(300);
-  check(room().player.key === 1, 'key up from the player bar');
+  check(room().player.key === 1, 'key up from the Playback tab');
   await host.click('.play-btn');
   await sleep(300);
   check(room().player.state === 'paused', 'pause from the player bar');
@@ -176,7 +177,8 @@ try {
   // phone-sized host
   const hostPhone = await phone('host-phone');
   await hostPhone.goto(`${base}/host#/queue`);
-  await hostPhone.waitForSelector('.player');
+  await hostPhone.waitForSelector('.player.mini');
+  check(await hostPhone.evaluate(() => location.hash) === '#/panel/queue', 'phone: #/queue opens the Control page’s Queue');
   const overflow = await hostPhone.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(overflow <= 0, 'host fits a phone screen without sideways scrolling');
   const gOverflow = await ben.evaluate(() => document.documentElement.scrollWidth - innerWidth);
@@ -190,7 +192,7 @@ try {
     return { fits: nav.scrollWidth <= nav.clientWidth, right: Math.max(...tabs.map((a) => a.getBoundingClientRect().right)), labels: tabs.map((a) => a.textContent.trim()) };
   });
   check(bar.fits && bar.right <= 360 && bar.labels.length <= 6, `host bottom bar fits a 360 px phone (${bar.labels.join(', ')})`);
-  check(bar.labels.some((l) => /^Games/.test(l)) && bar.labels.some((l) => /^Queue/.test(l)), 'Games and Queue are in the phone bar');
+  check(bar.labels.some((l) => /^Games/.test(l)) && bar.labels.some((l) => /^Control/.test(l)), 'Games and Control are in the phone bar');
   await hostPhone.click('.nav a[href="#/more"]');
   await hostPhone.waitForSelector('.more-list');
   await shot(hostPhone, 'host-phone-more');

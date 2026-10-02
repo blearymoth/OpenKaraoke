@@ -6,6 +6,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const update = (what, value) => ipcRenderer.invoke('okd:update', what, value);
 const graphics = (what, value) => ipcRenderer.invoke('okd:graphics', what, value);
+const tv = (what, value) => ipcRenderer.invoke('okd:tv', what, value);
 
 // The menu's "Check for updates…" shows Settings → About.
 ipcRenderer.on('okd:show', (_event, hash) => {
@@ -15,6 +16,24 @@ ipcRenderer.on('okd:show', (_event, hash) => {
 contextBridge.exposeInMainWorld('okDesktop', Object.freeze({
   /** Opens (or brings back) the TV window: { already, second, fullscreen, wayland }. */
   openTv: () => ipcRenderer.invoke('okd:open-tv'),
+  /**
+   * The TV window (the host's Playback tab). Each call resolves to its state: { open, fullscreen,
+   * screenId, placeable (false on native Wayland: the person moves it), screens: [{ id, name,
+   * size, primary, host }] }; place() needs it open.
+   */
+  tv: Object.freeze({
+    get: () => tv('get'),
+    open: () => tv('open'),
+    close: () => tv('close'),
+    fullscreen: (on) => tv('fullscreen', !!on),
+    place: (id) => tv('place', Number(id)),
+    /** Calls fn(state) on every change; returns the function that stops it. */
+    onChange: (fn) => {
+      const listener = (_event, state) => fn(state);
+      ipcRenderer.on('okd:tv-state', listener);
+      return () => ipcRenderer.removeListener('okd:tv-state', listener);
+    },
+  }),
   /** The system's folder dialog: the chosen folder, or null. */
   pickFolder: () => ipcRenderer.invoke('okd:pick-folder'),
   /**

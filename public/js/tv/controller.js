@@ -5,9 +5,10 @@ import { AudioEngine } from '../lib/audio-engine.js';
 import { CdgRenderer } from '../lib/cdg-canvas.js';
 
 export class TvController extends EventTarget {
-  constructor({ conn, canvas, video, audio }) {
+  constructor({ conn, canvas, video, audio, noVideo = false }) {
     super();
     this.conn = conn;
+    this.noVideo = noVideo; // the host's preview on another device: a poster instead of the music video
     this.engine = new AudioEngine();
     this.cdg = new CdgRenderer(canvas);
     this.video = video;
@@ -154,7 +155,9 @@ export class TvController extends EventTarget {
     try {
       const media = cur.media;
       if (!media) throw new Error('This song is not in the library any more');
-      if (media.kind === 'video') {
+      if (media.kind === 'video' && this.display !== 'main' && this.noVideo) {
+        // nothing to load: the page shows the song's cover
+      } else if (media.kind === 'video') {
         this.video.hidden = false;
         this.video.muted = this.display !== 'main';
         if (this.display === 'main') await this.engine.loadElement(cur.trackId, this.video, media.video);
@@ -205,7 +208,7 @@ export class TvController extends EventTarget {
 
   sync(p) {
     if (this.display !== 'main') {
-      if (this.kind === 'video') {
+      if (this.kind === 'video' && !this.noVideo) {
         if (p.state === 'playing' && this.video.paused) this.video.play().catch(() => {});
         if (p.state !== 'playing' && !this.video.paused) this.video.pause();
       }
@@ -224,7 +227,7 @@ export class TvController extends EventTarget {
   onTime(msg) {
     if (msg.entryId !== this.entryId) return;
     this.mirror = { pos: msg.pos, at: performance.now(), playing: msg.playing };
-    if (this.display !== 'main' && this.kind === 'video' && Math.abs(this.video.currentTime - msg.pos) > 0.4) this.video.currentTime = msg.pos;
+    if (this.display !== 'main' && this.kind === 'video' && !this.noVideo && Math.abs(this.video.currentTime - msg.pos) > 0.4) this.video.currentTime = msg.pos;
   }
 
   /** Current song position in seconds (the media clock on the main display, an estimate on mirrors). */

@@ -3,10 +3,13 @@ import { html, render, useEffect, useMemo, useRef, useState } from '../vendor/pr
 import { Connection } from '../lib/ws-client.js';
 import { createStore, useStore, toastStore, formatEta, formatTime, singersText, plural, useDebounced, useTick, noteArt, lastArtSeq, setMarks } from '../lib/store.js';
 import { Icon } from '../lib/icons.js';
-import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, Toasts, SongBadges } from '../lib/components.js';
+import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, Toasts, SongBadges, sendGuestToken, clearFetchCache } from '../lib/components.js';
+import { VersionVote, versionName } from '../lib/versions.js';
 import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, GAME_LABELS, formatKey, singerColor } from '/shared/protocol.js';
 import { GAME_UI } from '../games/index.js';
 import { applyAppearance, followAppearance } from '../lib/theme.js';
+
+sendGuestToken(); // song details come with this guest's own votes (never the host's view)
 
 const pathCode = (location.pathname.match(/^\/j\/([A-Za-z]{4})\/?$/) || [])[1];
 const toasts = toastStore();
@@ -205,6 +208,11 @@ function NowSinging({ state }) {
       <div class="ellipsis singer">${cur.singers[0]?.emoji || '🎤'} ${singersText(cur.singers) || 'Sing along'}</div>
       <div class="ellipsis muted">${cur.title} · ${cur.artist}</div>
       <div class="bar"><i style=${{ width: `${pct}%` }}></i></div>
+      ${cur.version && state.rules.versionVotes && state.me.versionVote !== null && html`<div class="g-now-version">
+        <span class="ellipsis faint">Version: ${cur.version.label}</span>
+        <${VersionVote} v=${{ up: cur.version.up, down: cur.version.down, mine: state.me.versionVote }} label="Votes for this version"
+          onVote=${async (x) => { if (await ask('version.vote', { trackId: cur.trackId, vote: x })) buzz(15); }} />
+      </div>`}
     </div>
   </section>`;
 }
@@ -580,6 +588,9 @@ function SongSheet({ songId, state }) {
   const [bgv, setBgv] = useState(null); // 'with' | 'without' | null (the usual version)
   const [mystery, setMystery] = useState(false);
   const [partner, setPartner] = useState('');
+  const [trackId, setTrackId] = useState(''); // a version picked by hand ('' = the best one)
+  const [over, setOver] = useState({}); // version id → counts after this guest's vote
+  const [defaultId, setDefaultId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
   const [err, setErr] = useState(null);
@@ -600,6 +611,7 @@ function SongSheet({ songId, state }) {
       if (state.rules.guestVocals && song?.vocalOptions?.bgv && bgv) body.bgv = bgv;
       if (mystery) body.mystery = true;
       if (partner) body.partners = [partner];
+      if (trackId) body.trackId = trackId;
       const r = await conn.request('queue.add', body);
       setDone(r);
       buzz(30);
@@ -644,6 +656,33 @@ function SongSheet({ songId, state }) {
           </div>
           <p class="hint">Picks a version of the song with or without backing singers.</p>
         </div>`}
+        ${(() => {
+          const versions = (song.versions || []).filter((v) => !(state.rules.explicitFilter && v.flags?.explicit)).map((v) => ({ ...v, ...(over[v.id] || {}) }));
+          if (versions.length < 2) return null;
+          const defId = defaultId || song.defaultTrackId;
+          const def = versions.find((v) => v.id === defId) || versions[0];
+          const chosen = versions.find((v) => v.id === trackId);
+          const vote = async (v, value) => {
+            const r = await ask('version.vote', { trackId: v.id, vote: value });
+            if (!r) return;
+            setOver((o) => ({ ...o, [v.id]: { up: r.up, down: r.down, mine: r.mine, status: r.status || undefined } }));
+            setDefaultId(r.defaultTrackId);
+            clearFetchCache();
+          };
+          return html`<details class="g-versions">
+            <summary><span>Version</span><span class="ellipsis grow">${chosen ? versionName(chosen) : `Best — ${versionName(def)}`}</span><span class="faint">${versions.length} versions</span></summary>
+            <div role="radiogroup" aria-label="Version">
+              <div class="g-version"><label><input type="radio" name="version" checked=${!trackId} onChange=${() => setTrackId('')} /> <span class="grow"><span>Best available</span><span class="faint ellipsis">${versionName(def)}</span></span></label></div>
+              ${versions.map((v) => html`<div class="g-version" key=${v.id} data-track=${v.id}>
+                <label><input type="radio" name="version" checked=${trackId === v.id} onChange=${() => setTrackId(v.id)} />
+                  <span class="grow"><span class="ellipsis">${versionName(v)} ${v.id === defId ? html`<span class="pill neon">Default</span>` : ''}${v.status === 'avoided' ? html` <span class="pill bad">Avoided</span>` : ''}</span>
+                  <span class="faint">${formatTime(v.dur)} · ${v.plays ? `sung ${v.plays}×` : 'not sung here yet'}</span></span></label>
+                ${state.rules.versionVotes && html`<${VersionVote} v=${v} label=${`Votes for ${versionName(v)}`} disabled=${!v.heard} onVote=${(x) => vote(v, x)} />`}
+              </div>`)}
+            </div>
+            <p class="hint">${state.rules.versionVotes ? 'You can vote on a version once it’s been played tonight. The most-liked version is picked when you leave it on Best.' : 'Leave it on Best to get the usual version.'}</p>
+          </details>`;
+        })()}
         ${state.partners?.length > 0 && html`<label class="field"><span>Sing it with… <span class="hint">(they get asked on their phone)</span></span>
           <select class="select" value=${partner} onChange=${(e) => setPartner(e.currentTarget.value)}>
             <option value="">Just me</option>

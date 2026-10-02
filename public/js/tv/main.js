@@ -16,6 +16,10 @@ const board = params.get('layout') === 'board'; // a queue board for a second sc
 const muted = preview || board; // never plays sound, whatever the server says
 if (board) document.body.classList.add('board-layout');
 if (preview) document.body.classList.add('preview');
+// The key the server gave this page's last connection: reconnecting with it after a Wi-Fi drop
+// (while the server still holds the dead connection) keeps this screen the main display.
+// In memory only, so another tab or window never passes for this one.
+let resume;
 const conn = new Connection({
   hello: () => ({
     role: 'tv',
@@ -23,6 +27,7 @@ const conn = new Connection({
     token: localStorage.getItem('ok.tvToken') || undefined, // a screen paired by the host
     hostToken: preview ? localStorage.getItem('ok.hostToken') || undefined : undefined,
     artSeq: lastArtSeq(),
+    resume,
   }),
 });
 /** This screen's role: what the server says, but a board or a preview is always a muted mirror. */
@@ -37,6 +42,7 @@ const controller = new TvController({
 
 conn.on('welcome', (m) => {
   noteArt(m.art);
+  resume = typeof m.resume === 'string' ? m.resume : undefined;
   store.update({ state: m.state, display: roleOf(m.display), denied: null });
   controller.setDisplay(roleOf(m.display));
   controller.apply(m.state);

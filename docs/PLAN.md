@@ -290,8 +290,10 @@ settings subset, game public state) + per-device `me` block.
 ## 7. WebSocket protocol & auth
 
 Endpoint `/ws`. Client first sends
-`{ t:'hello', role:'host'|'tv'|'guest', token?, deviceId, name?, room?, display?:'main'|'mirror'|'board'|'preview', artSeq? }`.
-Server replies `{ t:'welcome', clientId, role, token?, serverTime, state, art }` or `{ t:'denied', reason }`.
+`{ t:'hello', role:'host'|'tv'|'guest', token?, deviceId, name?, room?, display?:'main'|'mirror'|'board'|'preview', artSeq?, resume? }`.
+Server replies `{ t:'welcome', clientId, role, token?, serverTime, state, art }` (a TV also gets `display`
+and a secret per-connection `resume` key, kept in memory and sent back when it reconnects) or
+`{ t:'denied', reason }`.
 `art` = `{ seq }` plus the artwork changes after the hello's `artSeq` (`songs`, `artists`), or
 `all: true` when the server can't tell any more (restart, long offline).
 
@@ -307,9 +309,10 @@ Auth rules:
   `/tv` stands in and hands the sound back to the next plain `/tv` that connects; mirrors
   (`display=mirror`), queue boards (`layout=board`) and previews never take it by themselves
   (playback pauses instead). The host can pick any non-board display (`display.main {id}`).
-  A paired screen (same TV token) that reconnects while its old socket still looks open (Wi-Fi
-  drop, caught only by the heartbeat) replaces that socket as main display, and stands in only
-  if the old one did.
+  A screen that reconnects while its old socket still looks open (Wi-Fi drop, caught only by
+  the heartbeat) replaces that socket as main display, and stands in only if the old one did:
+  the same page (its `resume` key matches the main display's connection) or the same paired
+  screen (same TV token), asking for the same kind of display.
 - **guest**: `room` must match `party.roomCode`; `deviceId` (random, stored in localStorage) must not be banned.
 - Tokens = HMAC-SHA256(secret, role + ':' + pinVersion + ':' + id), secret in `data/secret.json`.
 

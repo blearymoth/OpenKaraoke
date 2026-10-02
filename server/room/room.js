@@ -221,14 +221,19 @@ export class Room {
       client.data.screen = paired?.id || ''; // the paired device (every tab of its browser shares it)
       // A plain TV becomes the main display unless one is already on; it takes the sound back
       // from a screen that only stood in while the main TV was away (a reload, a Wi-Fi blip).
-      // The same paired screen coming back before its old connection timed out (after a Wi-Fi
-      // drop the server only notices at the next heartbeat) takes that connection's place: it
-      // stays the main display, and a stand-in only if the old connection was one.
+      // The same screen coming back before its old connection timed out (after a Wi-Fi drop the
+      // server only notices at the next heartbeat) takes that connection's place: it stays the
+      // main display, and a stand-in only if the old connection was one. "The same screen" is
+      // the page that held that connection (it reconnects with the secret `resume` key its
+      // welcome gave it; works for this computer's screens too) or the same paired device.
       const main = this.mainDisplay();
-      const again = !!(main && client.data.screen && main.data.screen === client.data.screen && main.data.kind === kind);
+      const resumed = typeof msg.resume === 'string' && msg.resume.length >= 12 && main?.data.resume === msg.resume;
+      const samePaired = !!(client.data.screen && main?.data.screen === client.data.screen);
+      const again = !!main && main.data.kind === kind && (resumed || samePaired);
       client.data.display = again || (kind === 'main' && (!main || main.data.standIn)) ? 'main' : 'mirror';
       client.data.standIn = again && !!main.data.standIn;
-      return { ok: true, role, welcome: { display: client.data.display, state: this.tvView() } };
+      client.data.resume = newId(12);
+      return { ok: true, role, welcome: { display: client.data.display, resume: client.data.resume, state: this.tvView() } };
     }
     if (role === GUEST) {
       if (String(msg.room || '').toUpperCase() !== this.settings.get('party.roomCode')) return { ok: false, reason: 'bad_room' };

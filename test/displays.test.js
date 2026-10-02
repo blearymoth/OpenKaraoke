@@ -242,3 +242,71 @@ test('displays: a paired stand-in reconnecting is still only standing in', async
   assert.equal(back.welcome.display, 'main', 'the real TV still takes the sound back');
   assert.equal(otherNew.data.display, 'mirror');
 });
+
+test('displays: a TV on this computer reconnecting before its old connection closed stays the main TV', async () => {
+  const env = await setupRoom();
+  const { room, connect, leave, req, view, s } = env;
+  const tv = await connect('tv');
+  const board = await connect('tv', { display: 'board' });
+  const { host, entry } = await playing(env);
+  await req(tv, 'tv.ready', { entryId: entry.id, dur: 200 });
+  assert.equal(typeof tv.welcome.resume, 'string');
+  assert.ok(tv.welcome.resume.length >= 12);
+  assert.equal(board.welcome.resume === tv.welcome.resume, false, 'every connection gets its own key');
+  assert.equal(view(host).displays.some((d) => 'resume' in d), false, 'the key is never shown to anyone else');
+
+  // The page reconnects (network change) with the key of its old connection, still "open" here.
+  const tvNew = await connect('tv', { resume: tv.welcome.resume });
+  assert.equal(tvNew.welcome.display, 'main', 'the TV keeps the sound');
+  assert.equal(tvNew.data.standIn, false);
+  assert.notEqual(tvNew.welcome.resume, tv.welcome.resume, 'a fresh key for the new connection');
+  assert.equal(tv.data.display, 'mirror');
+  assert.equal(board.data.display, 'mirror');
+  leave(tv); // the heartbeat drops the dead connection
+  assert.equal(tvNew.data.display, 'main');
+  assert.equal(tvNew.data.standIn, false, 'not "standing in" for itself');
+  assert.equal(got(tvNew, 'main'), false, 'no second "main" message');
+  assert.equal(s().player.displayLost, false);
+  assert.deepEqual(view(host).displays.map((d) => [d.id, d.display, d.standIn]), [[board.id, 'mirror', false], [tvNew.id, 'main', false]]);
+  // So "Open TV" on the PC or bin/open-tv.sh run again is only a mirror.
+  const another = await connect('tv');
+  assert.equal(another.welcome.display, 'mirror');
+  assert.equal(room.mainDisplay(), tvNew);
+
+  // A key that is used up, made up, of another kind of page, or not the main display's: a mirror.
+  for (const hello of [
+    { resume: tv.welcome.resume },
+    { resume: 'x'.repeat(16) },
+    { resume: '' },
+    { resume: { toString: () => tvNew.welcome.resume } },
+    { resume: another.welcome.resume },
+    { resume: tvNew.welcome.resume, display: 'board' },
+    { resume: tvNew.welcome.resume, display: 'mirror' },
+  ]) {
+    const c = await connect('tv', hello);
+    assert.equal(c.welcome.display, 'mirror', JSON.stringify(hello));
+    assert.equal(room.mainDisplay(), tvNew);
+  }
+
+  // A TV that only stood in is still only standing in after such a reconnect.
+  leave(tvNew);
+  assert.equal(another.data.display, 'main');
+  assert.equal(another.data.standIn, true);
+  const anotherNew = await connect('tv', { resume: another.welcome.resume });
+  assert.equal(anotherNew.welcome.display, 'main');
+  assert.equal(anotherNew.data.standIn, true, 'it keeps standing in');
+  leave(another);
+  assert.equal(anotherNew.data.standIn, true);
+  const back = await connect('tv');
+  assert.equal(back.welcome.display, 'main', 'the real TV still takes the sound back');
+  assert.equal(anotherNew.data.display, 'mirror');
+
+  // The host's pick (a mirror page) survives its own reconnect too.
+  const mirror = await connect('tv', { display: 'mirror' });
+  await req(host, 'display.main', { id: mirror.id });
+  const mirrorNew = await connect('tv', { display: 'mirror', resume: mirror.welcome.resume });
+  assert.equal(mirrorNew.welcome.display, 'main');
+  leave(mirror);
+  assert.equal(room.mainDisplay(), mirrorNew);
+  assert.equal(mirrorNew.data.standIn, false);
+});

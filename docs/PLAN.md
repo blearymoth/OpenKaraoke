@@ -311,7 +311,7 @@ player.play {entryId?}  player.pause  player.resume  player.next  player.restart
 player.seek {pos}  player.key {semitones}  player.tempo {rate}  player.channel {mode}  player.volume {v}
 singer.add/update/remove/merge     guest.update(me) guest.kick guest.ban guest.cohost
 favorite.toggle {songId}  playlist.save/delete/queue   settings.update {patch}   library.rescan
-announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve/reject
+announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve/reject/rejectWaiting
 game.start {type, config}  game.action {...}  game.answer {...}  game.vote {...}  game.end
 display.approve {code}   tv.status / tv.ended / tv.error / tv.ready   ping {c}
 ```
@@ -325,8 +325,13 @@ upload at a time per phone, 2 per address, 8 in all. An upload is cut off after 
 data or 20 s in all, and when all 8 slots are taken a newcomer replaces the slowest upload that
 is under 64 KB/s after 2 s or still arriving after 8 s (so uploads that stall or trickle can't
 keep guests out: holding every slot would take a new upload, and photo token, per second). At most 5
-photos per phone and 50 in all wait for the host; 300 approved/rejected are kept (rejected, then
-the oldest approved, go first — waiting photos never push out approved ones).
+photos per phone, 10 per address and 50 in all wait for the host. When the list (or the address's
+share) is full, a new photo replaces the oldest one from the busiest address (its busiest phone)
+if that has more waiting than the sender's address, else from the busiest phone at the sender's
+address if that has more than the sender — so a phone with nothing waiting always gets a place
+and a flood (many guest names, several addresses) pushes out its own photos first. The host can
+turn down every waiting photo at once (`photo.rejectWaiting`). 300 approved/rejected are kept
+(rejected, then the oldest approved, go first — waiting photos never push out approved ones).
 
 ## 8. HTTP API
 

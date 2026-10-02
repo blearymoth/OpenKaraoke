@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import { setupRoom } from './room-harness.js';
 import { pngImage } from './fake-art.js';
-import { imageType, MAX_PHOTO_BYTES, MAX_KEPT, MAX_PENDING, MAX_PENDING_EACH, MAX_UPLOADS, MIN_UPLOAD_RATE } from '../server/room/photos.js';
+import { imageType, MAX_PHOTO_BYTES, MAX_KEPT, MAX_PENDING, MAX_PENDING_PER_IP, MAX_PENDING_EACH, MAX_UPLOADS, MIN_UPLOAD_RATE } from '../server/room/photos.js';
 import { RateLimiter } from '../server/util/ratelimit.js';
 
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(2000, 7)]);
@@ -36,6 +36,21 @@ function slowUpload(base, token, sent = 64 * 1024) {
   });
   req.write(Buffer.concat([JPEG.subarray(0, 4), Buffer.alloc(sent - 4, 7)]));
   return { req, response, finish: () => req.end(Buffer.alloc(MAX_PHOTO_BYTES - sent, 7)) };
+}
+
+/** Uploads `body` from local address `from` (each 127.x.y.z is another guest address). */
+function uploadFrom(base, token, from, body = JPEG) {
+  return new Promise((resolve, reject) => {
+    const headers = { 'content-type': 'image/jpeg', 'content-length': body.length, 'x-guest-token': token };
+    const req = http.request(`${base}/api/photos`, { method: 'POST', localAddress: from, headers }, (res) => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (d) => (text += d));
+      res.on('end', () => resolve({ status: res.statusCode, body: text && JSON.parse(text) }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
 }
 
 /** The server's answer, or `{ waiting: true }` if there is none after `ms`. */
@@ -372,13 +387,16 @@ test('photos: a flood of waiting photos never pushes out approved ones; the host
     const t0 = Date.now() - 3600_000;
     for (let i = 1; i < MAX_KEPT; i++) photos.list.unshift({ id: `old${i}`, ext: 'jpg', deviceId: 'x', name: 'Old', status: 'approved', createdAt: t0 - i, decidedAt: t0 - i, size: 1 });
     assert.equal(photos.approved(MAX_KEPT + 10).length, MAX_KEPT);
-    // Junk from many phones stays in the waiting list, which is capped (per phone and in all).
+    // Junk from many phones (each on its own address) stays in the waiting list, which is
+    // capped (per phone and in all).
     const spammers = await guests(r, MAX_PENDING / MAX_PENDING_EACH + 1, 'Spam');
+    const ip = (i) => `10.0.0.${i}`;
     photos.limit = new RateLimiter({ capacity: 1000, perMs: 60_000 });
-    for (let i = 0; i < MAX_PENDING_EACH; i++) await photos.add(spammers[0].data.deviceId, JPEG);
-    await assert.rejects(photos.add(spammers[0].data.deviceId, JPEG), (e) => e.status === 429 && e.code === 'too_many');
-    for (const g of spammers.slice(1, -1)) for (let i = 0; i < MAX_PENDING_EACH; i++) await photos.add(g.data.deviceId, JPEG);
-    await assert.rejects(photos.add(spammers.at(-1).data.deviceId, JPEG), (e) => e.status === 429 && e.code === 'too_many');
+    for (let i = 0; i < MAX_PENDING_EACH; i++) await photos.add(spammers[0].data.deviceId, JPEG, ip(0));
+    await assert.rejects(photos.add(spammers[0].data.deviceId, JPEG, ip(0)), (e) => e.status === 429 && e.code === 'too_many');
+    for (let n = 1; n < spammers.length - 1; n++) for (let i = 0; i < MAX_PENDING_EACH; i++) await photos.add(spammers[n].data.deviceId, JPEG, ip(n));
+    // The list is full: one more takes the place of the oldest junk, so the list stays capped.
+    await photos.add(spammers.at(-1).data.deviceId, JPEG, ip(spammers.length - 1));
     assert.equal(photos.counts().pending, MAX_PENDING);
     assert.equal(photos.approved(MAX_KEPT + 10).length, MAX_KEPT, 'no approved photo was pushed out');
     await fs.stat(keepFile);
@@ -410,6 +428,137 @@ test('photos: a flood of waiting photos never pushes out approved ones; the host
     assert.equal(photos.list.filter((p) => p.deviceId === banned).length, 0);
     await sleep(50);
     for (const f of files) await assert.rejects(fs.stat(f));
+  } finally {
+    await app.close();
+  }
+});
+
+test('photos: one guest can’t keep everyone else’s photos out of the waiting list (many names, several addresses)', async () => {
+  const r = await party();
+  const { app, room, guest, connect, req, view, base } = r;
+  try {
+    const host = await connect('host');
+    const photos = room.photos;
+    // Ten names on one phone (as many as the per-address identity limit allows), 5 photos each.
+    const spam = [];
+    for (let i = 0; i < 10; i++) spam.push(await guest(`Spam${i}`));
+    const ann = await guest('Ann');
+    assert.ok([...spam, ann].every((g) => g.welcome?.token), 'all within the real identity limit');
+    const spamIds = new Set(spam.map((g) => g.data.deviceId));
+    const waitingFrom = (ids) => photos.list.filter((p) => p.status === 'pending' && ids.has(p.deviceId));
+    const filesMatch = async () => assert.equal((await fs.readdir(photos.dir)).length, photos.list.length, 'dropped photos’ files are deleted');
+    let refused = 0;
+    for (const g of spam) {
+      for (let i = 0; i < MAX_PENDING_EACH; i++) {
+        const res = await uploadFrom(base, g.welcome.token, '127.0.0.2');
+        if (res.status !== 200) refused++;
+        assert.ok(res.status === 200 || (res.status === 429 && res.body.code === 'too_many'), JSON.stringify(res));
+      }
+    }
+    assert.ok(refused > 0, 'once every name there has as many waiting, the address gets no more');
+    assert.equal(waitingFrom(spamIds).length, MAX_PENDING_PER_IP, 'one address gets its share of the list, not all of it');
+    assert.equal(photos.counts().pending, MAX_PENDING_PER_IP);
+    await filesMatch();
+    assert.equal((await uploadFrom(base, ann.welcome.token, '127.0.0.9')).status, 200, 'a guest elsewhere still gets in');
+    // A guest behind the same address (a NAT'ing extender) with nothing waiting gets in too: in
+    // place of the oldest photo from the name there with the most waiting.
+    room.limits.identity = new RateLimiter({ capacity: 1000, perMs: 60_000 });
+    const cy = await guest('Cy');
+    assert.equal((await uploadFrom(base, cy.welcome.token, '127.0.0.2')).status, 200);
+    assert.equal(waitingFrom(spamIds).length, MAX_PENDING_PER_IP - 1);
+    assert.equal(photos.counts().pending, MAX_PENDING_PER_IP + 1, 'the address still has its share (and Ann her photo)');
+    await filesMatch();
+
+    // The host can turn every waiting photo down at once (and keep the photo wall).
+    await req(host, 'photo.approve', { id: photos.list.find((p) => p.deviceId === ann.data.deviceId).id });
+    const res = await req(host, 'photo.rejectWaiting');
+    assert.equal(res.count, MAX_PENDING_PER_IP);
+    assert.deepEqual(view(host).photoCounts, { total: MAX_PENDING_PER_IP + 1, pending: 0, approved: 1, rejected: MAX_PENDING_PER_IP });
+    assert.ok(photos.list.every((p) => !('ip' in p)), 'an address is only kept while its photo waits');
+
+    // Five addresses, two names each, fill the whole list…
+    photos.limit = new RateLimiter({ capacity: 1000, perMs: 60_000 });
+    const addr = (i) => `127.0.0.${10 + (i >> 1)}`;
+    for (let i = 0; i < spam.length; i++) {
+      for (let k = 0; k < MAX_PENDING_EACH; k++) assert.equal((await uploadFrom(base, spam[i].welcome.token, addr(i))).status, 200);
+    }
+    assert.equal(photos.counts().pending, MAX_PENDING);
+    // …and the host approves one while Ann's photo is being saved: the photo she was to replace
+    // is kept (there's room now).
+    const firstOf = (g) => photos.list.find((p) => p.status === 'pending' && p.deviceId === g.data.deviceId);
+    const meanwhile = firstOf(spam[0]);
+    const saving = photos.store(ann.data.deviceId, JPEG, '127.0.0.9');
+    photos.approve(meanwhile.id);
+    const annPhoto = await saving;
+    assert.equal(photos.find(meanwhile.id)?.status, 'approved', 'a photo approved meanwhile is never dropped');
+    assert.equal(photos.counts().pending, MAX_PENDING);
+    // The list is full again: a guest with nothing waiting gets in, in place of the oldest photo
+    // from the busiest address (the busiest name there).
+    const dropped = firstOf(spam[2]);
+    const bo = await guest('Bo');
+    assert.equal((await uploadFrom(base, bo.welcome.token, '127.0.0.8')).status, 200);
+    assert.equal(photos.find(dropped.id), null);
+    assert.equal(photos.counts().pending, MAX_PENDING);
+    await filesMatch();
+    // More names on a new address only push out the flood, never Ann's or Bo's photo, and only
+    // until that address has as many waiting as the busiest one (8 each: 50 - Ann's - Bo's).
+    const more = await guests(r, 2, 'More');
+    refused = 0;
+    for (const g of more) {
+      for (let i = 0; i < MAX_PENDING_EACH; i++) {
+        await photos.add(g.data.deviceId, JPEG, '127.0.0.20').catch((e) => {
+          assert.equal(e.code, 'too_many');
+          refused++;
+        });
+      }
+    }
+    assert.ok(refused > 0, 'some were refused');
+    assert.equal(photos.list.filter((p) => p.status === 'pending' && p.ip === '127.0.0.20').length, 8);
+    assert.equal(photos.counts().pending, MAX_PENDING);
+    assert.equal(photos.find(annPhoto.id)?.status, 'pending');
+    assert.equal(waitingFrom(new Set([bo.data.deviceId])).length, 1);
+    await filesMatch();
+  } finally {
+    await app.close();
+  }
+});
+
+test('photos: a phone with nothing waiting always gets a place in the waiting list; the caps hold', async () => {
+  const { app, room } = await setupRoom();
+  try {
+    const photos = room.photos;
+    const list = photos.list;
+    let seed = 7;
+    const rand = (n) => (seed = (seed * 48271) % 2147483647) % n;
+    let n = 0;
+    // What store() does with the place waitingSpot() finds.
+    const place = (deviceId, ip) => {
+      const drop = photos.waitingSpot(deviceId, ip);
+      if (drop) list.splice(list.indexOf(drop), 1);
+      list.push({ id: `p${n}`, ext: 'jpg', deviceId, ip, name: deviceId, status: 'pending', createdAt: n++, size: 1 });
+    };
+    const tally = (key) => {
+      const m = new Map();
+      for (const p of list) m.set(key(p), (m.get(key(p)) || 0) + 1);
+      return Math.max(0, ...m.values());
+    };
+    for (let round = 0; round < 300; round++) {
+      list.length = 0;
+      // A few addresses (some busy, like a flood or a NAT'ing extender), many phones on each.
+      const addresses = 1 + rand(8);
+      for (let i = 0; i < 40 + rand(120); i++) {
+        const a = rand(addresses) && rand(addresses);
+        try {
+          place(`d${a}.${rand(a ? 3 : 14)}`, `10.0.0.${a}`);
+        } catch (e) {
+          assert.equal(e.code, 'too_many');
+        }
+      }
+      assert.ok(list.length <= MAX_PENDING && tally((p) => p.ip) <= MAX_PENDING_PER_IP && tally((p) => p.deviceId) <= MAX_PENDING_EACH, 'caps');
+      const a = rand(addresses + 1); // an address with photos waiting, or a new one
+      place(`fresh${round}`, `10.0.0.${a}`); // never refused
+      assert.ok(list.length <= MAX_PENDING && tally((p) => p.ip) <= MAX_PENDING_PER_IP, 'caps');
+    }
   } finally {
     await app.close();
   }

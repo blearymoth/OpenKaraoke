@@ -12,6 +12,7 @@ const log = logger('photos');
 export const MAX_PHOTO_BYTES = 4 * 1024 * 1024;
 export const MAX_KEPT = 300; // approved + rejected photos kept (the oldest go first)
 export const MAX_PENDING = 50; // photos waiting for the host, from everyone…
+export const MAX_PENDING_PER_IP = 10; // …from one address (one phone can be many guests)…
 export const MAX_PENDING_EACH = 5; // …and from one phone
 export const MAX_UPLOADS = 8; // uploads arriving at the same time (each held in memory until complete)
 const MAX_UPLOADS_PER_IP = 2;
@@ -24,6 +25,34 @@ const fail = (message, code = 'bad_request', status = 400) => {
 };
 const decided = (p) => p.decidedAt || p.createdAt;
 const byDecision = (a, b) => decided(a) - decided(b);
+const phoneOf = (p) => p.deviceId;
+const addressOf = (p) => p.ip || '';
+/** The host's decision on a photo (its sender's address was only needed while it waited). */
+function decide(p, status) {
+  p.status = status;
+  p.decidedAt = Date.now();
+  delete p.ip;
+}
+const tooMany = () => fail('The host has lots of photos to look at — try again later.', 'too_many', 429);
+
+/**
+ * Of `photos` (in upload order), those of the `key` (phone, address) with the most, if that's
+ * more than `than`; between equals, the one whose oldest photo is oldest. Null if none.
+ */
+function crowded(photos, key, than) {
+  const groups = new Map();
+  for (const p of photos) {
+    const k = key(p);
+    const g = groups.get(k);
+    if (g) g.push(p);
+    else groups.set(k, [p]);
+  }
+  let out = null;
+  for (const g of groups.values()) {
+    if (g.length > (out ? out.length : than) || (out && g.length === out.length && g[0].createdAt < out[0].createdAt)) out = g;
+  }
+  return out;
+}
 // (Not 408: browsers quietly send a request again when that comes back on a reused connection.)
 const tooSlow = () => new UserError('Your photo took too long to arrive — try again.', { code: 'timeout', status: 400 });
 
@@ -62,26 +91,40 @@ export class Photos {
 
   /**
    * What every upload needs: photos on, a named guest who isn't banned and, while the host
-   * approves photos, room in the waiting list. Checked before the bytes arrive and again after.
+   * approves photos, a place in the waiting list (see waitingSpot()). Checked before the bytes
+   * arrive and again after. Returns the guest's profile and the waiting photo the new one
+   * replaces (`drop`, or null).
    */
-  check(deviceId) {
+  check(deviceId, ip = '') {
     const room = this.room;
     if (!room.settings.get('guests.photos')) fail('The host has turned photos off.', 'closed', 403);
     const profile = room.profileOf(deviceId);
     if (!profile?.name) fail('Choose a name first.', 'no_profile', 403);
     if (profile.banned) fail('The host has removed you from this party.', 'banned', 403);
-    if (room.settings.get('guests.photoApproval')) {
-      let waiting = 0;
-      let mine = 0;
-      for (const p of this.list) {
-        if (p.status !== 'pending') continue;
-        waiting++;
-        if (p.deviceId === deviceId) mine++;
-      }
-      if (mine >= MAX_PENDING_EACH) fail('The host hasn’t looked at your last photos yet — send more once they have.', 'too_many', 429);
-      if (waiting >= MAX_PENDING) fail('The host has lots of photos to look at — try again later.', 'too_many', 429);
-    }
-    return profile;
+    const drop = room.settings.get('guests.photoApproval') ? this.waitingSpot(deviceId, ip) : null;
+    return { profile, drop };
+  }
+
+  /**
+   * The waiting list holds MAX_PENDING photos: at most MAX_PENDING_EACH from one phone and
+   * MAX_PENDING_PER_IP from one address. To the server one guest can be many phones (each new
+   * name is one) on a few addresses, so when the list, or the address's share of it, is full,
+   * the new photo takes the place of the oldest one from whoever has the most waiting: the
+   * busiest address if it has more than the sender's (and the busiest phone there), else the
+   * busiest phone at the sender's address if it has more than the sender. So a phone with
+   * nothing waiting always gets a place, and whoever floods the list loses their own photos
+   * first. Returns the waiting photo to drop for the new one (null: there's room) or refuses.
+   */
+  waitingSpot(deviceId, ip) {
+    const waiting = this.list.filter((p) => p.status === 'pending');
+    const mine = (photos) => photos.filter((p) => p.deviceId === deviceId).length;
+    if (mine(waiting) >= MAX_PENDING_EACH) fail('The host hasn’t looked at your last photos yet — send more once they have.', 'too_many', 429);
+    const here = waiting.filter((p) => addressOf(p) === ip);
+    const shareFull = here.length >= MAX_PENDING_PER_IP;
+    if (!shareFull && waiting.length < MAX_PENDING) return null;
+    const from = (!shareFull && crowded(waiting, addressOf, here.length)) || crowded(here, phoneOf, mine(here));
+    if (!from) tooMany();
+    return crowded(from, phoneOf, 0)[0];
   }
 
   /**
@@ -94,7 +137,8 @@ export class Photos {
    * receive() and call `release()` when done.
    */
   admit(deviceId, ip = '') {
-    this.check(deviceId);
+    ip = String(ip || '');
+    this.check(deviceId, ip);
     let fromIp = 0;
     for (const u of this.uploads) {
       if (u.deviceId === deviceId) fail('Your last photo is still on its way.', 'busy', 429);
@@ -176,20 +220,40 @@ export class Photos {
     });
   }
 
-  /** Stores an admitted upload from `deviceId`; returns its public view. */
-  async store(deviceId, buf) {
+  /**
+   * Stores an admitted upload from `deviceId` (sent from address `ip`); returns its public view.
+   * The address is kept while the photo waits for the host (see waitingSpot()).
+   */
+  async store(deviceId, buf, ip = '') {
     const room = this.room;
-    const profile = this.check(deviceId); // the host may have changed something meanwhile
+    ip = String(ip || '');
+    this.check(deviceId, ip); // the host may have changed something meanwhile
     const ext = imageType(buf);
     if (!ext) fail('Send a JPEG, PNG or WebP picture.', 'bad_type', 415);
     await fsp.mkdir(this.dir, { recursive: true });
     const id = crypto.randomBytes(9).toString('base64url');
     const file = path.join(this.dir, `${id}.${ext}`);
     await fsp.writeFile(file, buf);
+    // Once more with nothing awaited before the list changes: the photo to make way for must
+    // still be waiting (not approved meanwhile, nor taken by another upload).
+    let checked;
+    try {
+      checked = this.check(deviceId, ip);
+    } catch (e) {
+      await fsp.unlink(file).catch(() => {});
+      throw e;
+    }
+    const { profile, drop } = checked;
     const approve = !room.settings.get('guests.photoApproval');
     const now = Date.now();
     const photo = { id, ext, deviceId, name: profile.name, status: approve ? 'approved' : 'pending', createdAt: now, size: buf.length };
     if (approve) photo.decidedAt = now;
+    else photo.ip = ip;
+    if (drop) {
+      this.list.splice(this.list.indexOf(drop), 1);
+      fsp.unlink(this.file(drop)).catch(() => {});
+      log.info(`the waiting list is full: dropped the oldest photo from ${drop.name}`);
+    }
     this.list.push(photo);
     await this.prune();
     if (approve) this.show(photo);
@@ -203,7 +267,7 @@ export class Photos {
   async add(deviceId, buf, ip = '') {
     const upload = this.admit(deviceId, ip);
     try {
-      return await this.store(deviceId, buf);
+      return await this.store(deviceId, buf, ip);
     } finally {
       upload.release();
     }
@@ -251,8 +315,7 @@ export class Photos {
     const p = this.find(id);
     if (!p) fail('Photo not found.', 'not_found', 404);
     if (p.status !== 'approved') {
-      p.status = 'approved';
-      p.decidedAt = Date.now();
+      decide(p, 'approved');
       this.show(p);
       this.room.notifyDevice(p.deviceId, { t: 'notify', kind: 'photo', status: 'approved' });
       await this.prune();
@@ -264,12 +327,23 @@ export class Photos {
     const p = this.find(id);
     if (!p) fail('Photo not found.', 'not_found', 404);
     if (p.status !== 'rejected') {
-      p.status = 'rejected';
-      p.decidedAt = Date.now();
+      decide(p, 'rejected');
       if (this.flash?.id === id) this.flash = null;
       await this.prune();
     }
     return { ok: true };
+  }
+
+  /** "Don't show" for every photo waiting for the host (they stay under "Not shown"). */
+  async rejectWaiting() {
+    let n = 0;
+    for (const p of this.list) {
+      if (p.status !== 'pending') continue;
+      decide(p, 'rejected');
+      n++;
+    }
+    if (n) await this.prune();
+    return { ok: true, count: n };
   }
 
   async remove(id) {

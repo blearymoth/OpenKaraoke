@@ -272,7 +272,7 @@ export function apiRoutes(router, app) {
         ctx.res.setHeader('connection', 'close'); // cut off: answer now, not after the rest arrives
         throw e;
       });
-      return { photo: await photos.store(deviceId, body) };
+      return { photo: await photos.store(deviceId, body, ctx.ip) };
     } finally {
       upload.release();
     }

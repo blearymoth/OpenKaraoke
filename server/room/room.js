@@ -310,6 +310,7 @@ export class Room {
       'break.skip': [PLAYER, () => this.breakMusic.skip()],
       'photo.approve': [H, (c, m) => this.photos.approve(str(m.id, 40))],
       'photo.reject': [H, (c, m) => this.photos.reject(str(m.id, 40))],
+      'photo.rejectWaiting': [H, () => this.photos.rejectWaiting()],
       'photo.remove': [H, (c, m) => this.photos.remove(str(m.id, 40))],
       'photo.clear': [H, () => this.photos.removeAll()],
       'game.start': [H, (c, m) => this.gameStart(m)],

@@ -6,6 +6,7 @@ import { Switch } from '../lib/components.js';
 import { store, act, openDialog, toast, chooseFolder } from './state.js';
 import { CHANNEL_MODES, CHANNEL_LABELS } from '/shared/protocol.js';
 import { THEMES, THEME_IDS, DEFAULT_THEME, accentInk } from '/shared/themes.js';
+import { UpdatesBlock } from './updates.js';
 
 const SECTIONS = [
   {
@@ -370,6 +371,7 @@ function About({ state }) {
   return html`<div class="about">
     <p><b>OpenKaraoke ${state.info.version}</b> — your own karaoke party server. ${plural(state.library.songs, 'song')} from ${plural(state.library.tracks, 'track')}.</p>
     <p class="hint">Addresses of this computer: ${state.info.lanUrls.join(', ') || 'none found'}.</p>
+    <${UpdatesBlock} />
     <h3 class="section-title">Keyboard shortcuts</h3>
     <div class="kbd-grid">${shortcuts.map(([k, v]) => html`<kbd>${k}</kbd><span>${v}</span>`)}</div>
     <h3 class="section-title">TV on a second screen</h3>

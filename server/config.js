@@ -17,7 +17,7 @@ export const VERSION = JSON.parse(fs.readFileSync(path.join(APP_ROOT, 'package.j
  * the settings (server/start.js), so the join address and printed QR codes stay the same.
  */
 export const DEFAULT_PORT = 6527;
-/** The default port before 0.2: a stored 8080 is moved to DEFAULT_PORT. */
+/** The default port until the desktop app came: a stored 8080 is moved to DEFAULT_PORT. */
 export const LEGACY_PORT = 8080;
 
 /** Every user-editable setting with its default. */

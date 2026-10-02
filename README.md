@@ -15,7 +15,9 @@ library (built for a ~90,000-track USB collection) with:
 - **Two skins**: a calm, professional **Studio** look (the default) and the original neon
   **Party** look — switch every screen at once in Settings → Appearance
 
-Everything runs on your PC — no cloud, no accounts, no runtime npm dependencies.
+Everything runs on your PC — no cloud, no accounts, no runtime npm dependencies. Install it
+as a **desktop app** (the TV display is a window of its own on the second screen) or run the
+server from the source code.
 
 ## Status
 
@@ -25,7 +27,31 @@ photos, remote displays, songbook, systemd service and the two skins. What still
 real PC, drive, TV and phones is listed in the owner checklist in
 [`docs/HANDOFF.md`](docs/HANDOFF.md).
 
-## Quick start
+## Install the desktop app
+
+Download the newest version for your Linux from the
+[Releases](https://github.com/blearymoth/OpenKaraoke/releases/latest) page:
+
+| Linux | File | Install |
+| --- | --- | --- |
+| Any (no installation) | `OpenKaraoke-<version>.AppImage` | make it executable (`chmod +x OpenKaraoke-*.AppImage`), then double-click or run it |
+| Fedora, openSUSE | `openkaraoke-<version>.x86_64.rpm` | `sudo dnf install ./openkaraoke-*.rpm` (or double-click it) |
+| Ubuntu, Debian, Mint | `openkaraoke_<version>_amd64.deb` | `sudo apt install ./openkaraoke_*.deb` (or double-click it) |
+
+Start **OpenKaraoke** from the applications menu and choose your karaoke folder. **Open TV
+display** opens the TV window full screen on the second screen (the TV), with sound and the
+microphone (applause meter) allowed — connect the TV first, or later: the window moves there
+by itself. Guests scan the QR code on the TV with their phones (same Wi-Fi).
+
+The app keeps itself up to date: it looks for a new release now and then (Settings → About,
+or Help › Check for updates…) and installs it when you say so — the AppImage replaces itself,
+the .rpm/.deb asks for your password — then **Restart now**.
+
+On Ubuntu 24.04 the AppImage needs `--no-sandbox` (Ubuntu restricts the sandbox AppImages
+use); the .deb has no such problem. Settings, the library index and the party are kept in
+`~/.config/OpenKaraoke` (your songs stay where they are).
+
+## Run from the source code
 
 Requires Node.js ≥ 18.17 and Chrome or Chromium for the TV display. No `npm install` needed.
 
@@ -37,7 +63,9 @@ bin/openkaraoke.sh --library "/run/media/$USER/DRIVE/Karaoke"   # or: npm start 
 
 Then, on the same computer:
 
-1. Open **http://localhost:8080/host** — the host controls (search, queue, key/tempo, settings).
+1. Open **http://localhost:6527/host** — the host controls (search, queue, key/tempo, settings).
+   (6527 spells OKAR on a phone keypad. When another program already uses it, OpenKaraoke
+   takes the next free port, keeps it for next time and says which one it is.)
 2. Click **Open TV display**, or run `bin/open-tv.sh` to open the TV page full screen on the
    second monitor with sound allowed (and the PC's microphone, for the applause meter game,
    without a permission prompt).
@@ -62,6 +90,10 @@ node scripts/scan-report.js "/path/to/your/karaoke/folder" --search "someone lik
 - `npm run e2e` — end-to-end tests in Chromium (needs Playwright: `npm i -D playwright-core`)
 - `npm run demo` — build the demo library
 - `npm run vendor` — rebuild vendored browser/server libraries (after `npm install`)
+- The desktop app: `npm --prefix desktop install`, then `npm --prefix desktop start` (runs it),
+  `npm --prefix desktop test` (end to end, under a virtual screen) and
+  `npm --prefix desktop run dist` (AppImage, .rpm and .deb in `desktop/dist/`). Every change to
+  the app on `main` is released by [`.github/workflows/desktop.yml`](.github/workflows/desktop.yml).
 - Docs: [`CLAUDE.md`](CLAUDE.md) (contributor/agent guide), [`docs/PLAN.md`](docs/PLAN.md),
   [`docs/RESEARCH.md`](docs/RESEARCH.md), [`docs/LIBRARY.md`](docs/LIBRARY.md)
 

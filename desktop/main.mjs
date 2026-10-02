@@ -2,7 +2,8 @@
 // the same code as `node server/index.js`), the host controls are the main window and the TV
 // display is a window of its own: full screen on the second screen when there is one, with
 // sound and the PC's microphone (applause meter) allowed straight away. Guests' phones still
-// join over the network with the QR code on the TV.
+// join over the network with the QR code on the TV. Updates come from the repository's releases
+// (desktop/updater.mjs).
 import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, screen, session, shell } from 'electron';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -14,16 +15,20 @@ import { VERSION } from '../server/config.js';
 import { logger, setLogSink } from '../server/util/log.js';
 import { THEMES, DEFAULT_THEME } from '../shared/themes.js';
 import { centredBounds, displayFor, nextDisplay, tvDisplay, visibleBounds } from './displays.mjs';
+import { Updater } from './updater.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ICON = path.join(HERE, 'build', 'icons', '512x512.png');
 const PRELOAD = path.join(HERE, 'preload.cjs');
-const REPO = 'https://github.com/blearymoth/OpenKaraoke';
+const REPO_NAME = 'blearymoth/OpenKaraoke';
+const REPO = `https://github.com/${REPO_NAME}`;
 
 // Test hooks (desktop/test/app.mjs): a separate profile, a folder instead of the folder dialog,
-// and a pretend set of screens (a virtual X server can't show two monitors).
+// a pretend set of screens (a virtual X server can't show two monitors) and a stand-in for
+// GitHub's API.
 const TEST_FOLDER = process.env.OPENKARAOKE_TEST_FOLDER || '';
 const FAKE_DISPLAYS = process.env.OPENKARAOKE_FAKE_DISPLAYS ? JSON.parse(process.env.OPENKARAOKE_FAKE_DISPLAYS) : null;
+const UPDATE_API = process.env.OPENKARAOKE_UPDATE_API || undefined;
 
 app.setName('OpenKaraoke');
 app.setPath('userData', process.env.OPENKARAOKE_USER_DATA || path.join(app.getPath('appData'), 'OpenKaraoke'));
@@ -53,6 +58,7 @@ function run() {
   let base = '';
   let hostWin = null;
   let tvWin = null;
+  let updater = null;
   let quitting = false;
   let stopped = false;
   let logFile = '';
@@ -280,6 +286,57 @@ function run() {
     });
   }
 
+  // ---- updates ------------------------------------------------------------------------------
+  function startUpdater() {
+    updater = new Updater({
+      repo: REPO_NAME,
+      version: VERSION,
+      packaged: app.isPackaged,
+      configFile: path.join(app.getPath('userData'), 'updates.json'),
+      downloadDir: app.getPath('downloads'),
+      // Node's fetch, not Electron's net.fetch: net.fetch would send a private repository's
+      // token on to GitHub's file storage when a download is redirected there.
+      fetch: globalThis.fetch,
+      api: UPDATE_API,
+      log: logger('updates'),
+      openPath: (file) => shell.openPath(file),
+    });
+    updater.on('state', (state) => {
+      if (hostWin && !hostWin.isDestroyed()) hostWin.webContents.send('okd:update-state', state);
+    });
+    updater.start();
+  }
+
+  /** After an update: the new version starts as soon as this one has saved the party and quit. */
+  function restartForUpdate() {
+    if (updater?.state.status !== 'ready') return false;
+    if (server?.app.room?.s.current) {
+      const choice = dialog.showMessageBoxSync(hostWin, {
+        type: 'question',
+        buttons: ['Restart', 'Not now'],
+        defaultId: 1,
+        cancelId: 1,
+        title: 'Restart OpenKaraoke?',
+        message: 'Restart OpenKaraoke now?',
+        detail: 'A song is on: restarting stops it. The queue and the singers stay.',
+      });
+      if (choice !== 0) return false;
+    }
+    // The same command line (e.g. --no-sandbox), with the new AppImage or the updated package.
+    app.relaunch({ execPath: process.env.APPIMAGE || process.execPath, args: process.argv.slice(1) });
+    quitting = true;
+    app.quit();
+    return true;
+  }
+
+  function showUpdates() {
+    if (!hostWin) return;
+    if (hostWin.isMinimized()) hostWin.restore();
+    hostWin.show();
+    hostWin.webContents.send('okd:show', '#/settings/about');
+    updater?.check();
+  }
+
   // ---- menu ---------------------------------------------------------------------------------
   function buildMenu() {
     const about = () => dialog.showMessageBox(hostWin, {
@@ -322,6 +379,7 @@ function run() {
           { label: 'Open the data folder', click: () => shell.openPath(dataDir) },
           { label: 'Open the log file', click: () => shell.openPath(logFile) },
           { label: 'OpenKaraoke on GitHub', click: () => shell.openExternal(REPO) },
+          { label: 'Check for updates…', click: showUpdates },
           { type: 'separator' },
           { label: 'About OpenKaraoke', click: about },
         ],
@@ -350,6 +408,21 @@ function run() {
       });
       return r.canceled ? null : r.filePaths[0] || null;
     });
+    ipcMain.handle('okd:update', async (event, what, value) => {
+      if (!fromUs(event)) throw new Error('Not allowed');
+      if (!updater) return { ok: false, error: 'Updates aren’t ready yet.' };
+      try {
+        if (what === 'get') return { ok: true, state: updater.publicState() };
+        if (what === 'check') return { ok: true, state: await updater.check() };
+        if (what === 'install') return { ok: true, state: await updater.install() };
+        if (what === 'auto') return { ok: true, state: await updater.setAutoCheck(value === true) };
+        if (what === 'token') return { ok: true, state: await updater.setToken(typeof value === 'string' ? value : '') };
+        if (what === 'restart') return { ok: restartForUpdate(), state: updater.publicState() };
+        return { ok: false, error: 'Unknown request' };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    });
   }
 
   // ---- start and stop -----------------------------------------------------------------------
@@ -362,6 +435,7 @@ function run() {
 
   app.on('before-quit', (e) => {
     quitting = true;
+    updater?.stop();
     if (stopped || !server) return;
     e.preventDefault();
     stopped = true;
@@ -394,6 +468,7 @@ function run() {
     buildMenu();
     createHostWindow();
     watchDisplays();
+    startUpdater();
   }).catch((e) => {
     log.error('desktop start failed', e);
     app.exit(1);

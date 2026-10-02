@@ -16,12 +16,14 @@ and artwork-API facts; `docs/LIBRARY.md` describes the owner's karaoke collectio
 
 ## Hard rules
 
-- **Zero runtime npm dependencies.** Everything needed at runtime is vendored:
+- **Zero runtime npm dependencies** (the server and the pages). Everything needed at runtime is vendored:
   `server/vendor/ws.mjs` (WebSocket server), `server/vendor/qrcode.mjs`,
   `public/js/vendor/preact.js` (Preact + hooks + htm), `public/js/vendor/signalsmith-stretch.mjs`
   (key/tempo). Rebuild them with `npm install && npm run vendor` (devDependencies only).
   Never add native modules (no better-sqlite3, sharp, etc.) — the app must run with a plain
-  `node server/index.js` on any Linux box with Node ≥ 18.17.
+  `node server/index.js` on any Linux box with Node ≥ 18.17. The one exception is the desktop
+  app: `desktop/package.json` has Electron and electron-builder as its own dev dependencies;
+  nothing outside `desktop/` may import them, and `desktop/` only wraps the same server.
 - **No front-end build step.** Browser code is plain ES modules served as-is.
   UI uses Preact + `htm` tagged templates: `import { html, render, useState } from '/js/vendor/preact.js'`.
 - **ESM everywhere** (`"type": "module"`). Node built-ins only (`node:fs`, `node:http`, …).
@@ -35,19 +37,26 @@ and artwork-API facts; `docs/LIBRARY.md` describes the owner's karaoke collectio
 ```bash
 npm test                                   # unit + integration tests (node:test), must stay green
 npm run e2e                                # browser end-to-end (Playwright + Chromium; not in npm test)
-npm start -- --library "<karaoke folder>"  # server on :8080 (bin/openkaraoke.sh does the same + Node check)
+npm start -- --library "<karaoke folder>"  # server on :6527, or the next free port (bin/openkaraoke.sh does the same + Node check)
 npm run demo                               # demo library in ./demo-library (synth MP3 + CDG lyrics)
 node scripts/scan-report.js "<karaoke folder>" [--search "text"]   # validate parser/catalog on a real library
 bin/open-tv.sh                             # TV page in Chrome kiosk mode on the 2nd screen, sound allowed
 npm run vendor                             # rebuild vendored libs after `npm install`
+npm --prefix desktop install               # the desktop app's Electron + electron-builder (once)
+npm --prefix desktop start                 # run the desktop app from the source
+npm --prefix desktop test                  # desktop app end to end (Playwright + Xvfb); APP=<built exe> tests a build
+npm --prefix desktop run dist              # AppImage, .rpm, .deb in desktop/dist/ (OPENKARAOKE_VERSION=x.y.z)
 ```
 
 ## Code map
 
 Server (`server/`)
-- `index.js` CLI entry (banner, signals) → `app.js` `createApp()`: settings, auth, library,
-  router (API + media + pages), WebSocket hub, Room. Tests start it on port 0.
-- `config.js` — `DEFAULT_SETTINGS` (every setting + default), `Settings` (sanitised updates), CLI args.
+- `index.js` CLI entry (banner, signals) → `start.js` `startServer()` (data-folder lock
+  `data/server.json`, the port: `--port`/`$PORT` fixed, else the saved one or the next free one,
+  kept) → `app.js` `createApp()`: settings, auth, library, router (API + media + pages),
+  WebSocket hub, Room. Tests start it on port 0.
+- `config.js` — `DEFAULT_SETTINGS` (every setting + default), `Settings` (sanitised updates), CLI
+  args, `DEFAULT_PORT` (6527; a saved 8080 is migrated).
 - `library/` — `parse.js` (file names → artist/title/brand/flags/tags), `scanner.js` (CDG+audio
   pairs, video, zips; duration = CDG bytes / 7200), `zip.js`, `catalog.js` (grouping, typo
   clustering, search, browse, cache), `service.js` (cache load/save, background rescans,
@@ -60,8 +69,9 @@ Server (`server/`)
   Host/Origin trust).
 - `ws/hub.js` — hello handshake, heartbeat, `rid` request/response, broadcasts.
 - `artwork/placeholder.js` — gradient + initials SVG (real artwork comes in M5).
-- `util/` — log, jsonfile (`JsonDoc`), net (LAN addresses, trusted Host/Origin), qr, lru,
-  ratelimit, errors (`UserError` = message safe to show).
+- `util/` — log (+ `setLogSink` for the desktop log file), jsonfile (`JsonDoc`), net (LAN
+  addresses, trusted Host/Origin, free ports), datalock, qr, lru, ratelimit, errors
+  (`UserError` = message safe to show).
 
 Shared (`shared/`, imported by server and browser): `text.js`, `cdg.js` (CD+G decoder,
 Scale2x, RGBA), `protocol.js` (constants: channel modes, key/tempo ranges, reactions,
@@ -78,6 +88,15 @@ Browser (`public/`, plain ES modules, Preact + htm)
 - `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`,
   `components.js`, `icons.js`, `theme.js` (follows the skin live, `token()` for code that needs
   a colour). CSS: `css/base.css` (the two skins' tokens + components), `host.css`, `tv.css`, `guest.css`.
+
+Desktop app (`desktop/`, Electron; see docs/HANDOFF.md "Desktop app")
+- `main.mjs` — runs `startServer()` in-process, host window, TV window (full screen on another
+  screen, autoplay + microphone allowed for our own pages only), menu, single instance, saving
+  on quit, XWayland relaunch. `displays.mjs` (pure placement), `preload.cjs` (`window.okDesktop`:
+  openTv, pickFolder, updates — the host page checks for it), `updater.mjs` + `update-logic.mjs`
+  (GitHub releases; the token only ever goes to the API, redirects are followed by hand),
+  `electron-builder.config.cjs` (installers), `test/app.mjs` (end to end).
+- `.github/workflows/desktop.yml` releases `v<major.minor>.<run>` for every app change on main.
 
 Tests (`test/`): node:test suites + helpers; `test/e2e/` Playwright scripts. Dev tooling:
 `scripts/lib/cdg-writer.js` (+ `cdg-font.js`) writes synthetic CDGs for tests and the demo.

@@ -4,6 +4,7 @@
 //   APP=<path to a packaged executable> also tests a build (e.g. dist/linux-unpacked/openkaraoke).
 // A virtual X server can't show two monitors, so the app is told about two pretend screens side
 // by side on one wide one (OPENKARAOKE_FAKE_DISPLAYS): the host's on the left, the TV's right.
+// Updates come from a stand-in for GitHub (OPENKARAOKE_UPDATE_API) into a pretend AppImage.
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
@@ -13,13 +14,15 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { loadPlaywright, check, results, sleep, WsClient } from '../../test/e2e/lib.mjs';
 import { makeDemoLibrary } from '../../scripts/make-demo-library.js';
+import { fakeGitHub } from '../../test/fake-github.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DESKTOP = path.resolve(HERE, '..');
 const ROOT = path.resolve(DESKTOP, '..');
 const out = path.join(ROOT, 'test-results', 'e2e-desktop');
 await fs.mkdir(out, { recursive: true });
-const executable = process.env.APP ? path.resolve(process.env.APP) : createRequire(import.meta.url)(path.join(DESKTOP, 'node_modules/electron'));
+// APP is relative to where the command was typed (npm runs the script in desktop/).
+const executable = process.env.APP ? path.resolve(process.env.INIT_CWD || process.cwd(), process.env.APP) : createRequire(import.meta.url)(path.join(DESKTOP, 'node_modules/electron'));
 const appArgs = process.env.APP ? [] : [DESKTOP];
 
 // A virtual X server with one wide screen when there is no display (CI, a terminal over SSH).
@@ -39,11 +42,22 @@ const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'ok-desktop-'));
 const userData = path.join(tmp, 'profile');
 const lib = path.join(tmp, 'Karaoke');
 await makeDemoLibrary(lib, { log: () => {} });
+// A private repository (pretended) with version 9.9.9; this copy "is" an AppImage, and the new
+// one only writes down how it was started.
+const TOKEN = `github_pat_${'Zx9'.repeat(10)}`;
+const gh = await fakeGitHub({ repo: 'blearymoth/OpenKaraoke', token: TOKEN });
+const appImage = path.join(tmp, 'OpenKaraoke.AppImage');
+await fs.writeFile(appImage, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+const relaunched = path.join(tmp, 'relaunched.txt');
+const NEW_APPIMAGE = Buffer.from(`#!/bin/sh\nprintf '%s\\n' "$@" > '${relaunched}'\n`);
+gh.publish('9.9.9', { 'OpenKaraoke-9.9.9.AppImage': NEW_APPIMAGE, 'openkaraoke_9.9.9_amd64.deb': Buffer.from('not for this copy') });
 const env = {
   ...process.env,
   OPENKARAOKE_USER_DATA: userData,
   OPENKARAOKE_TEST_FOLDER: lib,
   OPENKARAOKE_FAKE_DISPLAYS: JSON.stringify(SCREENS),
+  OPENKARAOKE_UPDATE_API: gh.api,
+  APPIMAGE: appImage,
   PORT: '1', // ignored by the app: it never takes the port from the environment
 };
 delete env.XDG_SESSION_TYPE; // never restart through XWayland in a test
@@ -59,6 +73,18 @@ const launch = () => electron.launch({
 });
 const shot = (page, name) => page.screenshot({ path: path.join(out, `${name}.png`) });
 const readJson = async (file) => JSON.parse(await fs.readFile(file, 'utf8'));
+const menuItem = (label) => app.evaluate(({ Menu }, name) => {
+  const items = Menu.getApplicationMenu().items.flatMap((m) => m.submenu?.items || []);
+  items.find((i) => i.label === name).click();
+}, label);
+async function poll(fn, ms) {
+  const until = Date.now() + ms;
+  for (;;) {
+    const v = await fn().catch(() => null);
+    if (v || Date.now() > until) return v;
+    await sleep(200);
+  }
+}
 
 // Another program already has OpenKaraoke's usual port: the app must take the next free one.
 const squatter = net.createServer();
@@ -151,10 +177,7 @@ try {
   check(windows === 2, `clicking again brings the TV window forward instead of opening another (${windows} windows)`);
 
   // Menu: move the TV window to the next screen (here: back to the host's screen, as a window).
-  await app.evaluate(({ Menu }) => {
-    const items = Menu.getApplicationMenu().items.flatMap((m) => m.submenu?.items || []);
-    items.find((i) => i.label === 'Move TV window to the next screen').click();
-  });
+  await menuItem('Move TV window to the next screen');
   await sleep(1000);
   const moved = await app.evaluate(({ BrowserWindow }) => {
     const w = BrowserWindow.getAllWindows().find((x) => /\/tv/.test(x.webContents.getURL()));
@@ -197,8 +220,37 @@ try {
   const again = await app.firstWindow();
   await again.waitForURL(/\/host/, { timeout: 30_000 });
   check(Number(new URL(again.url()).port) === port, `the next start uses the same port again (${new URL(again.url()).port})`);
-  await app.close();
+
+  // Updates: Help › Check for updates… shows Settings › About and looks. The repository is
+  // private, so a token is asked for; with it, 9.9.9 is found, downloaded over the AppImage and
+  // started by "Restart now".
+  await menuItem('Check for updates…');
+  await again.waitForURL(/#\/settings\/about/, { timeout: 10_000 });
+  const tokenField = await again.waitForSelector('input[aria-label="GitHub access token"]', { timeout: 20_000 }).then(() => true, () => false);
+  const said = (await again.textContent('.updates').catch(() => '')).replace(/\s+/g, ' ');
+  check(tokenField && /private/.test(said), `a private repository asks for a token ("${said.slice(0, 120)}")`);
+  await again.fill('input[aria-label="GitHub access token"]', TOKEN);
+  await again.click('form:has(input[aria-label="GitHub access token"]) button:has-text("Save")');
+  const found = await again.waitForSelector('.updates :text("Version 9.9.9 is available")', { timeout: 20_000 }).then(() => true, () => false);
+  const pill = await again.textContent('.top-right .pill.neon').catch(() => '');
+  check(found && /Update 9\.9\.9/.test(pill), `with the token, version 9.9.9 is found (top bar: "${pill.trim()}")`);
+  const config = path.join(userData, 'updates.json');
+  check(!(await again.content()).includes(TOKEN) && ((await fs.stat(config)).mode & 0o777) === 0o600,
+    'the token is kept in updates.json for this user only, never shown in the page');
+  await shot(again, 'host-update-available');
+  await again.click('button:has-text("Download and install")');
+  const ready = await again.waitForSelector('button:has-text("Restart now")', { timeout: 30_000 }).then(() => true, () => false);
+  const swapped = (await fs.readFile(appImage)).equals(NEW_APPIMAGE) && ((await fs.stat(appImage)).mode & 0o111) === 0o111;
+  check(ready && swapped, `"Download and install" replaces the AppImage with the checked new one (ready ${ready}, replaced ${swapped})`);
+  check(gh.seen.filter((r) => r.at === 'storage').every((r) => !r.auth), 'the token never goes to GitHub’s file storage');
+  await shot(again, 'host-update-ready');
+  const closed = app.waitForEvent('close', { timeout: 30_000 });
+  await again.click('button:has-text("Restart now")');
+  await closed;
   app = null;
+  const started = await poll(() => fs.readFile(relaunched, 'utf8'), 20_000);
+  check(!!started && /--no-sandbox/.test(started), `"Restart now" quits and starts the new AppImage with the same options (${(started || 'not started').trim().split('\n').join(' ')})`);
+  check(!(await fs.access(path.join(userData, 'data', 'server.json')).then(() => true, () => false)), 'the party was saved and the data folder freed before the restart');
 } catch (e) {
   failed = true;
   check(false, `unexpected error: ${e.stack || e.message}`);
@@ -206,6 +258,7 @@ try {
   ws?.close();
   await app?.close().catch(() => {});
   if (squatter.listening) squatter.close();
+  await gh.close().catch(() => {});
   xvfb?.kill();
   await fs.rm(tmp, { recursive: true, force: true }).catch(() => {});
 }

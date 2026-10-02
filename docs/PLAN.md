@@ -139,13 +139,19 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   plays audio locally and reports position ~4×/s.
 - Media is served over HTTP; the TV fetches the MP3 and CDG for the current and next entry.
 - One party ("room") per server. The room code only exists so QR/join links are unambiguous.
+- The same server also runs inside the **desktop app** (`desktop/`, Electron): the host page is
+  the main window, `/tv` a window of its own (full screen on the second screen), guests still
+  join over the network. Port 6527 by default, or the next free one (kept); one server per
+  data folder (`data/server.json`).
 
 ## 4. Directory layout
 
 ```
 server/
-  index.js              ✅ entry: args → settings → library → http + ws → room → artwork → games
-  config.js             ✅ settings schema/defaults, CLI args, data dir
+  index.js              ✅ entry: args → logging → start.js
+  start.js              ✅ data-folder lock, port (saved, or the next free one), createApp, listen
+  app.js                ✅ settings → library → http + ws → room → artwork → games
+  config.js             ✅ settings schema/defaults, CLI args, data dir, default port 6527
   library/
     parse.js            ✅ file-name parser
     scanner.js          ✅ directory walk
@@ -174,7 +180,7 @@ server/
   games/
     base.js index.js    ✅ Game base class (phases, timers, per-role views) + registry
     quiz.js battle.js wheel.js poll.js relay.js applause.js recap.js   ✅ (§13)
-  util/                 ✅ log, jsonfile, net, qr
+  util/                 ✅ log, jsonfile, net (free ports), qr, datalock (one server per data folder)
   vendor/               ✅ ws.mjs, qrcode.mjs
 shared/
   text.js               ✅ normalisation, ids, distances
@@ -201,6 +207,14 @@ scripts/
   vendor.js             ✅ rebuild vendored libs
 test/                   ✅ node:test suites + e2e/ (Playwright scripts, `npm run e2e`)
 docs/                   ✅ PLAN (this), HANDOFF, RESEARCH, LIBRARY
+desktop/                ✅ the Linux desktop app (Electron + electron-builder, dev dependencies here only)
+  main.mjs              ✅ server in-process, host window, TV window on the second screen, menu, permissions
+  displays.mjs          ✅ which screen the TV window goes to (pure)
+  preload.cjs           ✅ window.okDesktop: openTv, pickFolder, updates
+  updater.mjs update-logic.mjs   ✅ updates from GitHub releases (AppImage swap, pkexec dnf/apt-get)
+  electron-builder.config.cjs    ✅ AppImage, .rpm, .deb → desktop/dist/
+  test/app.mjs          ✅ end to end under Xvfb (npm --prefix desktop test)
+.github/workflows/desktop.yml    ✅ test, build and release the desktop app for every change on main
 ```
 
 ## 5. Data model
@@ -438,7 +452,7 @@ mosaic / visualiser, "Up next" if queue has entries, library size.
 - Host "Open TV display": if `'getScreenDetails' in window`, request permission, pick a screen
   that isn't `currentScreen`, `window.open('/tv', 'ok-tv', 'popup,left=…,top=…,width=…,height=…')`.
   The TV page shows one "Click to start" overlay (unlocks audio, requests fullscreen).
-- `bin/open-tv.sh`: `chromium --kiosk --window-position=<x>,0 --autoplay-policy=no-user-gesture-required --use-fake-ui-for-media-stream --user-data-dir=~/.config/openkaraoke-tv http://localhost:8080/tv`
+- `bin/open-tv.sh`: `chromium --kiosk --window-position=<x>,0 --autoplay-policy=no-user-gesture-required --use-fake-ui-for-media-stream --user-data-dir=~/.config/openkaraoke-tv http://localhost:6527/tv` (the port the running server wrote to `data/server.json`)
   (the last flag auto-accepts the microphone prompt for the applause meter; the profile is TV-only).
 - Mirrors: `/tv?display=mirror` — muted, fetch CDG only, estimate position from `time` messages
   and a ping/pong clock offset (`serverNow = Date.now() + offset`).
@@ -557,14 +571,18 @@ original), and the favicon links and `/favicon.ico` point at the skin's icon. Se
 
 ## 15. Persistence (`data/`, git-ignored)
 `settings.json`, `secret.json`, `library.json` (catalog cache), `state.json` (party state),
-`history.jsonl`, `meta.json` (artwork/metadata), `art/` (images), `photos/` (guest uploads).
+`history.jsonl`, `meta.json` (artwork/metadata), `art/` (images), `photos/` (guest uploads),
+`server.json` (while running: pid, port — one server per data folder). The desktop app's data
+folder is `~/.config/OpenKaraoke/data`.
 
 ## 16. Security & privacy
 LAN only by default (binds 0.0.0.0 so phones can connect). Host actions need localhost or PIN
 token; displays need localhost or pairing; guests limited by role checks and rate limits;
 uploads size-limited and re-encoded client-side; directory listing only for host and only
 folders; media endpoints only serve files that are indexed tracks (never arbitrary paths).
-No telemetry. Outbound traffic only to the artwork providers (can be disabled).
+No telemetry. Outbound traffic only to the artwork providers (can be disabled) and, in the
+desktop app, GitHub's API for updates (can be switched off in Settings → About; a token for a
+private repository is kept in `updates.json`, mode 0600, and only sent to GitHub's API).
 
 ## 17. Testing
 - Unit (node:test): parser table, catalog grouping/search, scanner/zip fixtures, rotation
@@ -594,6 +612,9 @@ No telemetry. Outbound traffic only to the artwork providers (can be disabled).
   screenshots, a performance pass on the real library.
 - ✅ **Skins** (owner request): Studio (default, professional) and Party (the original look),
   Settings → Appearance (§14).
+- ✅ **Desktop app** (owner request): Linux AppImage/.rpm/.deb with the TV display as a window
+  on the second screen, default port 6527 with a free-port fallback, and updates from the
+  repository's releases (published by `.github/workflows/desktop.yml` for every change on main).
 
 ## 19. Open questions for the owner
 - Host PIN default: none (localhost-only host) — OK?

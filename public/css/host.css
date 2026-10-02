@@ -291,6 +291,10 @@ table.versions .num { text-align: right; }
 .tag-tile.decade b { font-size: 26px; }
 .folder-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r-md); background: var(--night); border: 1px solid var(--line); }
 .about { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.about .setting { padding: 10px 0; }
+.updates { gap: 12px; }
+.release-notes summary { cursor: pointer; font-weight: 700; color: var(--ink-2); }
+.release-notes-text { margin-top: 8px; max-height: 260px; overflow: auto; padding: 10px 12px; border-radius: var(--r-md); background: var(--night); border: 1px solid var(--line); font-size: 13px; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 .kbd-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; }
 kbd { font-family: var(--font-ui); font-weight: 800; color: var(--bulb); }
 code { font-size: 13px; padding: 1px 6px; border-radius: 6px; background: var(--night); }

@@ -1,25 +1,33 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-02 (end of the third build session, run in a cloud sandbox without the
-owner's PC or drive). Everything is pushed to GitHub `main`._
+_Last updated: 2026-10-02 (end of the third build session plus the desktop app, run in a cloud
+sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), seven party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 370/370; `npm run e2e` → 10 Playwright scripts, all green (the tenth,
-  `themes.mjs`, checks the skins). Every milestone also went through an independent review
+- `npm test` → 385/385; `npm run e2e` → 10 Playwright scripts, all green (the tenth,
+  `themes.mjs`, checks the skins); `npm --prefix desktop test` → 27/27 (the desktop app, also
+  against the built installer). Every milestone also went through an independent review
   whose confirmed findings were fixed and re-verified (table below).
 - **Skins** (after session 3): Settings → Appearance switches every screen between **Studio**
   (the new default, midnight navy and teal) and **Party** (the original neon look) — see
   "Skins" below.
+- **Desktop app** (after the skins): OpenKaraoke also comes as a Linux app (AppImage, .rpm,
+  .deb) with the TV display as a window of its own that opens full screen on the second
+  screen, and it **updates itself** from the repository's GitHub releases, which a workflow
+  publishes for every change to `main`. The default port is now **6527** (8080 clashed with
+  other programs); a busy port moves to the next free one. See "Desktop app" below — the
+  repository is private, so the app needs a token to see the releases (explained there).
 - **Nothing in session 3 could touch real hardware or the internet**: the artwork providers were
   unreachable from the sandbox (parsers are tested against fixtures built from the documented
   response shapes), and sound, microphone, TV legibility and phones need the PC. Work through
   the **owner checklist** below before the next party.
 - Start as before: `bin/openkaraoke.sh --library "/run/media/ruutu/SMILE-2/<collection folder>"`,
-  open `http://localhost:8080/host`, then **Open TV display** (or `bin/open-tv.sh`).
+  open `http://localhost:6527/host`, then **Open TV display** (or `bin/open-tv.sh`) — or
+  install the desktop app (below).
   To start it automatically at login: `bin/install-service.sh --library "…"`.
 
 ## What was built in session 3
@@ -129,8 +137,9 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
    your parties, just pick it there (it is remembered).
 7. **Phones on the real Wi-Fi**: join, photo upload from an iPhone and an Android phone,
    game answers (latency, early close), duet invitation, vibration (Android only — iPhones get
-   the toast). Firewall on Fedora: `sudo firewall-cmd --add-port=8080/tcp` (+ `--permanent`).
-8. **Second TV / laptop**: open `http://<PC address>:8080/tv` on it → a pairing code appears →
+   the toast). Firewall on Fedora: `sudo firewall-cmd --add-port=6527/tcp` (+ `--permanent`;
+   the port the host page shows if 6527 was busy).
+8. **Second TV / laptop**: open `http://<PC address>:6527/tv` on it → a pairing code appears →
    approve it in the host. Check it mirrors without sound.
 9. **Preview on headphones**: in the song dialog click "Choose headphones…" and pick the
    headphone output (Chrome names the outputs once the page may use the microphone). On a PC
@@ -139,6 +148,18 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
 10. **Service**: `bin/install-service.sh --library "/run/media/ruutu/SMILE-2/<folder>"`, reboot
     or log out/in, check `bin/install-service.sh --status`.
 11. Print the songbook (Settings → Library → Songbook) to PDF once to see page breaks.
+12. **Desktop app** (see "Desktop app" below): install the .rpm from the latest release
+    (`sudo dnf install ./openkaraoke-*.x86_64.rpm`) or build it (`npm --prefix desktop install
+    && npm --prefix desktop run dist`). With the TV connected as a second screen: **Open TV
+    display** → full screen on the TV, sound without a click, the applause meter's microphone
+    without a prompt. Plug the TV in after opening the window (it should move there), unplug
+    it (it should come back as a window). On GNOME/Wayland the app restarts itself once through
+    XWayland so that it may place the TV window — check that the window lands on the TV; if not,
+    try `OPENKARAOKE_WAYLAND=1 openkaraoke` and note what happens.
+13. **Updates**: in the app, Settings → About → paste a fine-grained token (read-only Contents
+    on this repository) → it finds the latest release; after the next push to `main` (and the
+    workflow's run, ≈10 min) **Download and install** → the password prompt (rpm) → **Restart
+    now**. The data in `~/.config/OpenKaraoke` stays.
 
 ## How it fits together (new in session 3)
 - `server/app.js` wires `ArtworkService` (`server/artwork/service.js`) next to the library;
@@ -259,6 +280,62 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   saves screenshots of both skins to `test-results/e2e-themes/`.
 - Owner: look at both skins on the TV from across the room and on a phone.
 
+## Desktop app (after session 3)
+**What**: `desktop/` wraps the same server and pages in Electron (only there: Electron and
+electron-builder are dev dependencies of `desktop/package.json`; the server keeps zero runtime
+dependencies and still runs with `node server/index.js`).
+- `desktop/main.mjs` starts the server in-process (`server/start.js`, shared with
+  `server/index.js`), opens the host page in the main window and the TV page in a second
+  window: full screen on a screen that isn't the host's (`desktop/displays.mjs`, remembered),
+  `autoplayPolicy: no-user-gesture-required` (no "click to start"), microphone allowed for
+  the app's own pages (never the camera). A TV plugged in later gets the window; unplugged, it
+  comes back. Menu: TV window, move it to the next screen (Ctrl+Shift+T), join link, data
+  folder, log file, Check for updates. Links to other sites open in the normal browser; one
+  instance at a time; quitting (also logout/SIGTERM) saves the party first. On Wayland it
+  restarts through XWayland (`--ozone-platform=x11`), since Wayland apps may not place windows.
+- Profile: `~/.config/OpenKaraoke` (`data/` = the server's data folder, `logs/openkaraoke.log`,
+  `window-state.json`, `updates.json`).
+- `desktop/preload.cjs` is the only bridge (`window.okDesktop`: openTv, pickFolder, updates);
+  the host page uses it when present (`chooseFolder()`, Open TV display, the update UI).
+- **Port**: 6527 by default (a saved 8080 is moved). If the saved port is busy the server
+  takes the next free one and saves it; `--port`/`$PORT` stay fixed (exit 78 if busy). One
+  server per data folder: `data/server.json` (pid, boot id, port; stale ones are taken over) —
+  `bin/open-tv.sh` reads the port from it.
+- **Installers**: `npm --prefix desktop run dist` → `desktop/dist/` AppImage, .rpm, .deb
+  (`desktop/electron-builder.config.cjs`; the app is unpacked, no asar). The .deb/.rpm install
+  to `/opt/OpenKaraoke` with a menu entry; the .deb adds an AppArmor profile (Ubuntu 24.04
+  needs one for Electron's sandbox; the AppImage there needs `--no-sandbox`).
+- **Updates** (`desktop/updater.mjs`, `desktop/update-logic.mjs`, `public/js/host/updates.js`):
+  checks GitHub's latest release 30 s after the start and every 6 h (switch in Settings →
+  About) and when asked; a newer version shows a pill in the top bar. **Download and install**:
+  an AppImage downloads next to itself and is swapped in; an .rpm/.deb (found by asking the
+  package manager who owns the running program) is installed with `pkexec dnf/apt-get` (the
+  system's password prompt), or opened in the software centre when there is no prompt. Every
+  download is checked against the release's SHA256SUMS and GitHub's digest. **Restart now**
+  relaunches the new version with the same options once the party is saved. A copy run from
+  the source code only says "git pull".
+- **Releases**: `.github/workflows/desktop.yml` runs on every push to `main` that touches the
+  app (and by hand): `npm test`, build, the end-to-end test against the built app, SHA256SUMS,
+  then a release `v0.1.<run number>` with the commit subjects as notes, marked latest (a draft
+  until every file is up). It keeps the 10 newest releases. Bump the version in package.json
+  for a new major.minor.
+- **Private repository**: GitHub answers 404 for a private repository's releases without
+  credentials, so the app shows a token field (Settings → About). A fine-grained personal
+  access token with read-only **Contents** on this repository is enough; it is kept in
+  `updates.json` (mode 0600), never shown to the pages and only sent to GitHub's API — the
+  updater follows download redirects itself so the token never reaches GitHub's file storage
+  (Electron's `net.fetch` would forward it, so Node's `fetch` is used). For other people to
+  download and update, make the repository public (or publish the releases from a public
+  repository) — nothing in the app changes.
+- **Tests**: `test/desktop.test.js` (displays, update logic, the updater against a stand-in
+  for GitHub: AppImage swap, checksums, token, pkexec paths, redirects) runs in `npm test`;
+  `npm --prefix desktop test` drives the real app under Xvfb with two pretend screens
+  (`OPENKARAOKE_FAKE_DISPLAYS`) and a stand-in GitHub (`OPENKARAOKE_UPDATE_API`): port
+  fallback, TV window placement and sound, microphone, menu, second instance, quit/save, the
+  update flow down to the restart. `APP=desktop/dist/linux-unpacked/openkaraoke` tests a build.
+- Not testable in the sandbox: real two-monitor placement, Wayland/XWayland, pkexec, GNOME's
+  dock grouping — checklist items 12–13.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, optional
@@ -268,6 +345,8 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   during the first artwork crawl.
 
 ## Known limitations / TODOs
+- Desktop app: Linux x64 only; no code signing; the AppImage on Ubuntu 24.04 needs
+  `--no-sandbox` (or use the .deb). Updates of a private repository need the token (above).
 - Catalog rebuild after a rescan with changes blocks the server ≈3–4 s at 90k tracks (the
   TV keeps playing; host/guest UIs pause). Could move to a worker thread.
 - Provider parsers are verified against documented shapes only — see checklist item 1.
@@ -284,5 +363,6 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
 ## Starter prompt for the next session
 > Read `CLAUDE.md` and `docs/HANDOFF.md`. I ran the owner checklist: <paste notes, e.g. the
 > output of `node scripts/artwork-check.js`, wrong covers, CDG problems, applause readings>.
-> Fix what I found, keep `npm test` and `npm run e2e` green (if the e2e scripts can't find
-> Playwright: `npm i --no-save playwright-core`), update HANDOFF.md and commit + push to `main`.
+> Fix what I found, keep `npm test`, `npm run e2e` and `npm --prefix desktop test` green (if
+> the e2e scripts can't find Playwright: `npm i --no-save playwright-core`), update HANDOFF.md
+> and commit + push to `main`.

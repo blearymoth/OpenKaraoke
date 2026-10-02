@@ -14,6 +14,7 @@ import { Settings } from './settings.js';
 import { Games } from './games.js';
 import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
 import { followAppearance } from '../lib/theme.js';
+import { UpdatePill } from './updates.js';
 
 // [path, icon, label, class]. Phones show a bottom bar with room for six tabs: the
 // 'desktop-only' pages are listed on the "More" page there instead.
@@ -89,6 +90,7 @@ function TopBar({ route }) {
       ${lib.offline && lib.roots.length > 0 && html`<a class="pill bad" href="#/settings/library"><${Icon} name="alert" size=${14} /> Drive not connected</a>`}
       ${status !== 'open' && html`<span class="pill bad">Reconnecting…</span>`}
       ${state.pairings?.length > 0 && html`<a class="pill bulb" href="#/settings/displays"><${Icon} name="tv" size=${14} /> Screen waiting: ${state.pairings[0].code}</a>`}
+      <${UpdatePill} />
       <button class="code-chip" onClick=${openInvite} title="Invite guests"><${Icon} name="qr" size=${16} /> <span class="label">Room</span> <b>${state.info.roomCode}</b></button>
     </div>
   </header>`;

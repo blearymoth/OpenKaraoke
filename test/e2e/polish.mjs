@@ -79,6 +79,7 @@ function fakeMediaDevices() {
   HTMLMediaElement.prototype.setSinkId = async function setSinkId(id) {
     m.sinks.push(id);
     if (id && !m.allowed) throw new DOMException('The page may not use this output', 'NotAllowedError');
+    Object.defineProperty(this, 'sinkId', { value: id, configurable: true }); // as the browser does
   };
 }
 
@@ -119,9 +120,24 @@ try {
   const options = await host.$$eval('.preview-output option', (l) => l.map((o) => `${o.value}=${o.textContent}`));
   check(listed && !(await host.$(pickButton)) && (await media()).stopped === 1, 'once allowed, the outputs are listed (and the microphone is let go at once)');
   check(JSON.stringify(options) === JSON.stringify(['=This computer’s default output', 'hdmi=HDMI', 'hp=USB Headphones']), `the list names every output but the default one (${options.join(', ')})`);
+  await host.selectOption('.preview-output select', 'hdmi'); // the wrong one first
+  await sleep(200);
   await host.selectOption('.preview-output select', 'hp');
   await sleep(200);
-  check(await host.evaluate(() => localStorage.getItem('ok.previewSink')) === 'hp' && (await media()).sinks.at(-1) === 'hp', 'the chosen output is used and remembered');
+  check(await host.evaluate(() => localStorage.getItem('ok.previewSink')) === 'hp' && (await media()).sinks.at(-1) === 'hp', 'a wrong choice can be changed: the chosen output is used and remembered');
+  check(!/can’t be used right now/.test(await host.textContent('.preview-output')), 'no warning while the headphones work');
+  // Chrome's one-time permission ends: the browser lists the outputs without names again. The
+  // list keeps them (a wrong choice can still be changed) and offers to look again.
+  await host.evaluate(() => { window.__media.allowed = false; window.dispatchEvent(new Event('focus')); });
+  await sleep(600);
+  const kept = await host.$$eval('.preview-output option', (l) => l.map((o) => o.value));
+  check(kept.includes('hdmi') && kept.includes('hp') && !!(await host.$('.preview-output button:has-text("Look for outputs again")')),
+    `when the browser stops naming the outputs they stay in the list, with “Look for outputs again” (${kept.join(', ')})`);
+  check(/can’t be used right now/.test(await host.textContent('.preview-output')), 'and the host is told the headphones can’t be used right now');
+  await host.evaluate(() => { window.__media.allowed = true; });
+  await host.click('.preview-output button:has-text("Look for outputs again")');
+  await sleep(400);
+  check(!/can’t be used right now/.test(await host.textContent('.preview-output')) && (await media()).sinks.at(-1) === 'hp', 'looking again makes the headphones usable again');
   await host.click('.versions .btn:has-text("Preview") >> nth=0');
   await host.waitForSelector('.versions .btn:has-text("Stop")', { timeout: 8000 });
   check((await media()).sinks.at(-1) === 'hp', 'the preview plays on the headphones');
@@ -194,6 +210,35 @@ try {
   await noMic.close();
   tvHere.close();
   await sleep(200);
+
+  // Firefox: its own dialog picks one output at a time and the page only learns about the ones
+  // picked. A wrong pick can be replaced with “Choose another output…”, and both stay listed.
+  const fox = watch(await browser.newPage({ viewport: { width: 1440, height: 900 } }), 'host-firefox-picker');
+  await fox.addInitScript(() => {
+    const picks = [{ deviceId: 'wrong', label: 'Wrong headphones' }, { deviceId: 'right', label: 'Right headphones' }];
+    const exposed = [];
+    const md = navigator.mediaDevices;
+    md.selectAudioOutput = async () => {
+      const d = picks[Math.min(exposed.length, picks.length - 1)];
+      if (!exposed.some((e) => e.deviceId === d.deviceId)) exposed.push(d);
+      return { kind: 'audiooutput', groupId: '', ...d };
+    };
+    md.enumerateDevices = async () => exposed.map((d) => ({ kind: 'audiooutput', groupId: '', ...d }));
+    HTMLMediaElement.prototype.setSinkId = async function setSinkId() {};
+  });
+  await fox.goto(`${base}/host#/search?q=neon`);
+  await fox.fill('.search-box input', 'neon heart');
+  await fox.click('.song-row');
+  await fox.click('.preview-output button:has-text("Choose headphones")');
+  await fox.waitForSelector('.preview-output select');
+  const firstPick = await fox.$eval('.preview-output select', (el) => el.value);
+  check(firstPick === 'wrong' && !!(await fox.$('.preview-output button:has-text("Choose another output")')), `after a pick in the browser’s dialog, another output can still be chosen (${firstPick})`);
+  await fox.click('.preview-output button:has-text("Choose another output")');
+  await sleep(400);
+  const foxOptions = await fox.$$eval('.preview-output option', (l) => l.map((o) => o.textContent));
+  check(await fox.$eval('.preview-output select', (el) => el.value) === 'right' && foxOptions.includes('Wrong headphones') && foxOptions.includes('Right headphones'),
+    `the second pick is used and both outputs are listed (${foxOptions.join(', ')})`);
+  await fox.close();
 
   // A preview stopped while it is still loading (the dialog closed) leaves no error behind.
   await host.route('**/media/*/audio', async (route) => {

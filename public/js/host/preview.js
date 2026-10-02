@@ -38,12 +38,24 @@ async function applySink() {
   }
 }
 
+// Every named output seen while this page is open. Browsers may later list fewer: Firefox only
+// shows the outputs picked in its own dialog, and Chrome hides them again when a one-time
+// permission ends. The list keeps them, so a wrong choice can always be changed.
+const seen = new Map(); // id → { id, label, named }
+
 /** Audio outputs other than the default one (without permission browsers hide their names, or all of them). */
 async function listOutputs() {
   const list = await navigator.mediaDevices.enumerateDevices();
-  return list
+  const now = list
     .filter((d) => d.kind === 'audiooutput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications')
     .map((d, i) => ({ id: d.deviceId, label: d.label || `Sound output ${i + 1}`, named: !!d.label }));
+  for (const d of now) if (d.named) seen.set(d.id, d);
+  return [...now, ...[...seen.values()].filter((d) => !now.some((n) => n.id === d.id))];
+}
+
+/** Notes an output picked in the browser's own dialog (Firefox), which may name it only there. */
+function remember(dev) {
+  if (dev?.deviceId) seen.set(dev.deviceId, { id: dev.deviceId, label: dev.label || 'Headphones', named: true });
 }
 
 /** Starts (or stops, when it is the one playing) the preview of a track. */
@@ -144,8 +156,8 @@ export function PreviewOutput({ displays = [] }) {
       if (picker) {
         // The browser's own picker (Firefox): the answer is the output to use.
         const dev = await navigator.mediaDevices.selectAudioOutput();
-        const list = await listOutputs().catch(() => []);
-        setDevices(list.some((d) => d.id === dev.deviceId) ? list : [...list, { id: dev.deviceId, label: dev.label || 'Headphones', named: true }]);
+        remember(dev);
+        setDevices(await listOutputs().catch(() => [...seen.values()]));
         choose(dev.deviceId);
       } else {
         // Chrome names the outputs once the page may use the microphone (nothing is recorded).
@@ -154,6 +166,9 @@ export function PreviewOutput({ displays = [] }) {
         const list = await listOutputs();
         setDevices(list);
         if (!list.some((d) => d.named)) setNote('No other sound output found — plug in the headphones and try again.');
+        // Allowed again: the headphones chosen before can be used once more.
+        await applySink();
+        setInUse(audio.sinkId || '');
       }
     } catch (e) {
       setNote(!picker && e?.name === 'NotFoundError'
@@ -163,6 +178,8 @@ export function PreviewOutput({ displays = [] }) {
     setAsking(false);
   };
   const named = devices.some((d) => d.named);
+  const picker = !!navigator.mediaDevices?.selectAudioOutput;
+  const chosen = devices.find((d) => d.id === sink);
   return html`<div class="preview-output">
     ${st.error && html`<p class="warn-text">${st.error}</p>`}
     ${canChoose && (named || inUse)
@@ -170,8 +187,10 @@ export function PreviewOutput({ displays = [] }) {
           <select class="select" value=${sink} onChange=${(e) => choose(e.currentTarget.value)}>
             <option value="">${tvHere ? 'This computer’s default output (the TV’s)' : 'This computer’s default output'}</option>
             ${devices.map((d) => html`<option value=${d.id}>${d.label}</option>`)}
-            ${sink && !devices.some((d) => d.id === sink) && html`<option value=${sink}>${inUse === sink ? 'The headphones chosen before' : 'Your headphones (not connected)'}</option>`}
-          </select></label>`
+            ${sink && !chosen && html`<option value=${sink}>${inUse === sink ? 'The headphones chosen before' : 'Your headphones (not connected)'}</option>`}
+          </select></label>
+        ${sink && inUse !== sink && html`<p class="hint">Previews play on the default output for now: ${chosen ? `“${chosen.label}”` : 'the headphones chosen before'} can’t be used right now (unplugged, or the browser wants your OK again).</p>`}
+        <p class="hint"><button class="link" disabled=${asking} onClick=${ask}>${picker ? 'Choose another output…' : 'Look for outputs again'}</button></p>`
       : html`<p class="hint">${tvHere
           ? 'Previews play on this computer’s default sound output, like the TV, so the party hears them.'
           : 'Previews play on this computer’s default sound output — use headphones if that is also the party speaker.'}

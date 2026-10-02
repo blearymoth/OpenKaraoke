@@ -1,7 +1,7 @@
 // Building blocks shared by the party games' screens (TV, host, phones).
 import { html, useEffect, useRef, useState } from '../vendor/preact.js';
 import { useTick, artUrl } from '../lib/store.js';
-import { ANSWER_COLORS, ANSWER_SHAPES } from '/shared/protocol.js';
+import { ANSWER_COLORS, ANSWER_SHAPES, singerColor } from '/shared/protocol.js';
 
 const loadedCss = new Set();
 
@@ -57,7 +57,7 @@ export function VoteBars({ items, winner = -1 }) {
 
 export function PlayerChip({ p, big }) {
   if (!p) return null;
-  return html`<span class=${`g-player ${big ? 'big' : ''}`}><span class="avatar" style=${{ '--avatar': p.color }}>${p.emoji || '🎤'}</span><span class="ellipsis">${p.name}</span></span>`;
+  return html`<span class=${`g-player ${big ? 'big' : ''}`}><span class="avatar" style=${{ '--avatar': singerColor(p.color) }}>${p.emoji || '🎤'}</span><span class="ellipsis">${p.name}</span></span>`;
 }
 
 /** Ranked list: rows [{ name, emoji, color, score, delta? }]. */
@@ -74,7 +74,7 @@ export function Leaderboard({ rows, max = 10, highlight }) {
 export function Podium({ rows }) {
   const order = [rows[1], rows[0], rows[2]];
   return html`<div class="g-podium">${order.map((r, i) => r && html`<div class=${`step p${[2, 1, 3][i]}`} key=${r.id || r.name}>
-    <span class="avatar" style=${{ '--avatar': r.color }}>${r.emoji || '🎤'}</span>
+    <span class="avatar" style=${{ '--avatar': singerColor(r.color) }}>${r.emoji || '🎤'}</span>
     <b class="ellipsis">${r.name}</b>
     <span class="num">${Math.round(r.score).toLocaleString()}</span>
     <div class="block">${[2, 1, 3][i]}</div>

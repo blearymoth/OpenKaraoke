@@ -13,8 +13,9 @@ import { withAppearance, appearanceVariant, notFoundPage } from '../server/http/
 import { THEMES, THEME_IDS, DEFAULT_THEME, normalizeTheme, normalizeAccent, normalizeAppearance, accentInk } from '../shared/themes.js';
 import { contrastText } from '../shared/text.js';
 import { tmpDir } from './helpers.js';
-import { worstDifference } from './color-vision.js';
+import { worstDifference, labAs, oklch } from './color-vision.js';
 import { segmentIndex, WHEEL_MAX_SEGMENTS } from '../shared/wheel.js';
+import { COLORS, singerColor } from '../shared/protocol.js';
 import { offlineFetch } from './fake-art.js';
 
 // ---- validation -------------------------------------------------------------------------------
@@ -283,6 +284,12 @@ function skinBlock(selector) {
 }
 const skins = { studio: skinBlock(':root, [data-theme="studio"]'), party: skinBlock('[data-theme="party"]') };
 
+/** `fg` at `alpha` over `bg` (#rrggbb, blended like CSS opacity). */
+function blend(fg, bg, alpha) {
+  const ch = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return `#${ch(fg).map((v, i) => Math.round(v * alpha + ch(bg)[i] * (1 - alpha)).toString(16).padStart(2, '0')).join('')}`;
+}
+
 /** WCAG contrast ratio of two #rrggbb colours. */
 function contrast(a, b) {
   const lum = (hex) => {
@@ -340,7 +347,7 @@ test('every token the app uses is defined (by the skins, a rule, or the code tha
   const used = new Set([...all.matchAll(/var\((--[a-z][\w-]*)/g)].map((m) => m[1]).filter((n) => !n.endsWith('-')));
   assert.deepEqual([...used].filter((n) => !defined.has(n)), [], 'tokens used but never defined');
   const generated = [...all.matchAll(/`var\(--([a-z]+(?:-[a-z]+)*)-\$\{/g)].map((m) => m[1]);
-  assert.deepEqual(generated.sort(), ['confetti', 'wheel', 'wheel-ink'], 'the numbered tokens the code builds');
+  assert.deepEqual(generated.sort(), ['confetti', 'singer', 'wheel', 'wheel-ink'], 'the numbered tokens the code builds');
 });
 
 test('base.css: Party keeps its exact old values; Studio is readable', () => {
@@ -361,6 +368,7 @@ test('base.css: Party keeps its exact old values; Studio is readable', () => {
   });
   ['#e21b3c', '#1368ce', '#d89e00', '#26890c'].forEach((c, i) => assert.equal(party.get(`--answer-${i + 1}`), c, `Party answer ${i + 1}`));
   ['#ff3d8b', '#ffc94a', '#45e2a6', '#4cc3ff', '#b388ff', '#fff'].forEach((c, i) => assert.equal(party.get(`--confetti-${i + 1}`), c, `Party confetti ${i + 1}`));
+  COLORS.forEach((c, i) => assert.equal(party.get(`--singer-${i + 1}`), c, `Party draws singer colour ${i + 1} as it is stored`));
 
   // Studio: no Bricolage, AA contrast for text and the accent
   assert.doesNotMatch(studio.get('--font-display'), /Bricolage/);
@@ -375,7 +383,34 @@ test('base.css: Party keeps its exact old values; Studio is readable', () => {
     const c = studio.get(`--wheel-${i}`);
     assert.ok(contrast(studio.get(`--wheel-ink-${i}`), c) >= 4.5, `Studio wheel label ${i} on ${c}`);
   }
-  for (let i = 1; i <= 4; i++) assert.ok(contrast('#ffffff', studio.get(`--answer-${i}`)) >= 4.5, `Studio white on answer ${i}`);
+  for (let i = 1; i <= 4; i++) {
+    const c = studio.get(`--answer-${i}`);
+    assert.ok(contrast('#ffffff', c) >= 4.5, `Studio white on answer ${i}`);
+    assert.ok(contrast(blend('#ffffff', c, 0.85), c) >= 4.5, `Studio sub-label (white at 85%) on answer ${i}: ${contrast(blend('#ffffff', c, 0.85), c).toFixed(2)}`);
+  }
+});
+
+test('singers’ colours: stored as one of COLORS, drawn by the skin', () => {
+  COLORS.forEach((c, i) => {
+    assert.equal(singerColor(c), `var(--singer-${i + 1})`);
+    assert.equal(singerColor(c.toUpperCase()), `var(--singer-${i + 1})`, 'any case');
+  });
+  assert.equal(singerColor('#123456'), '#123456', 'another colour is drawn as it is');
+  assert.equal(singerColor(undefined), undefined);
+  for (const skin of Object.values(skins)) COLORS.forEach((_, i) => assert.match(skin.get(`--singer-${i + 1}`), /^#[0-9a-f]{6}$/));
+});
+
+test('base.css: Studio has no pink or purple where it is always seen', () => {
+  // OKLCH hue: purples, magentas and pinks sit from about 290° round to 12° (red is 20°–30°,
+  // royal blue 265°–270°); a nearly grey colour has no hue to speak of
+  const pinkOrPurple = (hex) => {
+    const [, c, h] = oklch(hex);
+    return c > 0.04 && (h >= 290 || h < 12);
+  };
+  for (const pink of ['#ff3d8b', '#d296b0', '#f06bff', '#b388ff', '#b59be6']) assert.ok(pinkOrPurple(pink), `${pink} counts as pink or purple`);
+  for (const not of ['#2e409c', '#2263b1', '#78071e', '#f08f83', '#9da9bd']) assert.ok(!pinkOrPurple(not), `${not} does not`);
+  const always = [...COLORS.map((_, i) => `--singer-${i + 1}`), '--wheel-1', '--wheel-2', '--wheel-3', '--neon', '--bulb', ...[1, 2, 3, 4].map((i) => `--answer-${i}`)];
+  for (const name of always) assert.ok(!pinkOrPurple(skins.studio.get(name)), `Studio ${name} (${skins.studio.get(name)}) is not pink or purple`);
 });
 
 test('base.css: Studio game colours stay apart for colour-blind players', () => {
@@ -392,12 +427,15 @@ test('base.css: Studio game colours stay apart for colour-blind players', () => 
       if (d < worst.d) worst = { d, at: `n=${n}: segments ${a + 1} and ${b + 1}` };
     }
   }
-  assert.ok(worst.d >= 5, `wheel neighbours differ by CIEDE2000 ≥ 5 in every kind of colour vision (worst ${worst.d.toFixed(1)}, ${worst.at})`);
+  assert.ok(worst.d >= 8, `wheel neighbours differ by CIEDE2000 ≥ 8 in every kind of colour vision (worst ${worst.d.toFixed(1)}, ${worst.at})`);
   // the four answer colours (each also has its own shape)
   for (let i = 1; i <= 4; i++) {
     for (let j = i + 1; j <= 4; j++) {
       const d = worstDifference(studio.get(`--answer-${i}`), studio.get(`--answer-${j}`));
       assert.ok(d >= 10, `answers ${i} and ${j}: ${d.toFixed(1)}`);
+      // and no two share a lightness, so the tiles also differ in grey (or on a washed-out projector)
+      const dL = Math.abs(labAs(studio.get(`--answer-${i}`))[0] - labAs(studio.get(`--answer-${j}`))[0]);
+      assert.ok(dL >= 6, `answers ${i} and ${j} differ in lightness by L* ${dL.toFixed(1)}`);
     }
   }
 });

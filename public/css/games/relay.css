@@ -43,6 +43,7 @@
 /* ---- phones ------------------------------------------------------------------------------ */
 .g-guest.relay { text-align: center; }
 .rl-mine { display: grid; justify-items: center; gap: 8px; padding: 26px 16px; border-radius: 20px; background: linear-gradient(160deg, color-mix(in srgb, var(--neon) 55%, var(--stage)), var(--stage)); box-shadow: var(--glow); }
+:root:not([data-theme="party"]) .rl-mine { border-radius: var(--r-lg); } /* Studio: the cards' corners */
 .rl-mine .big { font-size: 72px; line-height: 1; animation: rl-wiggle 0.9s ease-in-out infinite alternate; }
 .rl-mine.fresh { animation: rl-pulse 0.7s ease 3; }
 @keyframes rl-wiggle { from { transform: rotate(-12deg); } to { transform: rotate(12deg) scale(1.08); } }

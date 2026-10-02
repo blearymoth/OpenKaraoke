@@ -177,9 +177,15 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   1px top edge on buttons instead of glows, a thin champagne ring around the join QR, calm
   navy/teal TV aurora, covers at full colour behind the intro (with a centre scrim so text holds
   4.5:1 over a white cover), deep game-show quiz colours (wine, royal blue, ochre, emerald — white
-  labels 6–9:1, always with the ▲◆●■ shapes) and a 12-colour wheel ordered so neighbouring
-  segments stay apart for every kind of colour blindness (CIEDE2000 ≥ 8, checked by
-  `test/themes.test.js` for every wheel size). Disabled buttons go neutral grey, a switch that is
+  labels 5.7–11:1, the 85% sub-labels 4.6:1 or more, four lightness steps L* 24/31/37/43 so they
+  differ in grey too, always with the ▲◆●■ shapes) and a 12-colour wheel (cobalt first, then
+  pastels; no pink, the two violet pastels are segments 4 and 12) ordered so neighbouring
+  segments stay apart for every kind of colour blindness
+  (worst pair CIEDE2000 9.0; `test/themes.test.js` checks ≥ 8 for every wheel size, ≥ 10 and
+  6 L* between answers, and no pink or purple in the singer colours, answers and first wheel
+  segments). Singers' colours: guests pick one of ten; Studio draws them as calm pastels and
+  cobalt (`--singer-1…10`; Party shows its neon ones, the stored value is the same). Small TV text
+  is never the faintest ink. Disabled buttons go neutral grey, a switch that is
   on has a dark knob, the current bottom tab has a pill behind its icon, losing quiz answers and
   wheel segments turn into quiet navy tiles (still readable) instead of fading, and "TV on" is a
   neutral chip with a green light. App icon: navy tile with a teal mic and sound arcs
@@ -187,13 +193,17 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   top of `public/css/base.css`; the few Studio-only rules are scoped
   `:root:not([data-theme="party"])` next to the rule they adjust (grep for it). New tokens
   (`--tv-display-*`, `--kicker-*`, `--raise`, `--switch-knob-on`, `--announce-*`, `--art-scrim`,
-  `--r-card`) carry Party's old values in the Party block.
+  `--r-card`, `--singer-*`) carry Party's old values in the Party block.
 - **Party**: the original look, pixel for pixel (checked against a890418 rule by rule and on 97
   captured screens; `test/themes.test.js` pins the values), apart from layout bugs fixed in both
-  skins: the next singer's name is never squeezed when the intro counts down, three-digit
-  countdowns fit their ring, the host's phone tab bar fits a 390px screen (labels cut if needed)
-  and its player row fades at the edge where it scrolls, the phone search box has a short
-  placeholder, and the songbook's join address wraps instead of running into the QR code.
+  skins: the TV intro card is a column where only the cover gives way, so the next singer's name
+  keeps its full height and the status stays on screen even with a three-line title, the logo and
+  Key/Tempo chips (the title stops at three lines; `test/e2e/artwork.mjs` checks 16:9 and 4:3,
+  counting down and waiting), three-digit countdowns fit their ring, the host's phone tab bar
+  fits without sideways scrolling and with whole labels down to 320px (below 386px the Home tab
+  leaves it: the logo at the top goes home) and its player row fades at the edge where it
+  scrolls, the phone search box has a short placeholder, and the songbook's join address wraps
+  instead of running into the QR code.
   Existing parties switch to Studio; a custom `display.accent` became `appearance.accent`.
 - How: `settings.appearance` → `server/http/shell.js` writes `data-theme` into each served page
   (ETag per skin, no flash) → `public/js/lib/theme.js` follows changes live. Every skin colour is

@@ -8,6 +8,7 @@ import {
   WHEEL_KINDS, WHEEL_KIND_LABELS, WHEEL_MIN_SEGMENTS, WHEEL_MAX_SEGMENTS, MAX_DARES, MAX_DARE_LENGTH,
   DEFAULT_DARES, segmentColor, segmentInk, rotationAt,
 } from '/shared/wheel.js';
+import { singerColor } from '/shared/protocol.js';
 
 ensureCss('/css/games/wheel.css');
 
@@ -190,7 +191,7 @@ function playFanfare(tv) {
 // ---- results --------------------------------------------------------------------------------
 
 function Avatar({ p, cls = 'avatar-big' }) {
-  return html`<span class=${cls} style=${{ '--c': p.color || 'var(--neon)' }}>${p.emoji || '🎤'}</span>`;
+  return html`<span class=${cls} style=${{ '--c': singerColor(p.color) || 'var(--neon)' }}>${p.emoji || '🎤'}</span>`;
 }
 
 const short = (text, max = 28) => ([...text].length > max ? `${[...text].slice(0, max - 1).join('').trim()}…` : text);

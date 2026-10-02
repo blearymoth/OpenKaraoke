@@ -104,7 +104,8 @@ Planned modules and their responsibilities are specified in `docs/PLAN.md` §4.
   navy + one teal accent, champagne gold for people and moments) and **Party** (neon pink/purple).
   Every skin-specific colour, gradient, glow, font, radius or type treatment is a token defined
   per skin at the top of `css/base.css` (`--neon` is the accent) — never hard-code one in CSS or
-  JS; canvas/SVG code reads tokens. A new token gets Party's current value so Party renders as
+  JS; canvas/SVG code reads tokens, and a singer's colour is drawn through `singerColor()`
+  (`shared/protocol.js`, → `--singer-N`). A new token gets Party's current value so Party renders as
   before; the few Studio-only rules are scoped `:root:not([data-theme="party"])`. Party must keep
   looking exactly as it did (test/themes.test.js pins its values). TV UI must be legible from
   across a room.

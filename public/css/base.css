@@ -117,6 +117,18 @@
   --halo: 0.3; /* 0–1: coloured glow around big avatars and vote cards */
   --avatar-veil: linear-gradient(rgba(var(--night-rgb), 0.18), rgba(var(--night-rgb), 0.18)); /* tones down singers’ colours */
   --avatar-tbd: #2a3852;
+  /* singers' colours: the guest picks one of ten (shared/protocol.js COLORS, stored as Party's
+     hex); each skin draws them its own way. Studio: the wheel's pastels and cobalt, no neon pink */
+  --singer-1: #f08f83;
+  --singer-2: #ebbc69;
+  --singer-3: #6dd5b3;
+  --singer-4: #74a6ef;
+  --singer-5: #2263b1;
+  --singer-6: #f2a26a;
+  --singer-7: #83d186;
+  --singer-8: #c2cd6f;
+  --singer-9: #4ad1d1;
+  --singer-10: #6ac5e8;
   /* QR codes and the frame around them */
   --paper: #ffffff;
   --paper-ink: #0a1120;
@@ -162,10 +174,10 @@
   --announce-scrim: 0.74; /* how much the screen behind an announcement is darkened (0–1), */
   --announce-blur: blur(0.9vh); /* and blurred, so lyric lines do not peek out around the card */
   /* games */
-  --answer-1: #8b1c2a;
-  --answer-2: #3246a9;
-  --answer-3: #845a0f;
-  --answer-4: #106c4f;
+  --answer-1: #78071e; /* quiz and poll answers: white text on each (the 85% sub-label too), and */
+  --answer-2: #2e409c; /* four lightness steps, L* 24 / 31 / 43 / 37, so they also differ in grey */
+  --answer-3: #895e10;
+  --answer-4: #026448;
   --confetti-1: var(--neon);
   --confetti-2: var(--bulb);
   --confetti-3: #74a6ef;
@@ -194,7 +206,7 @@
   --wheel-bulb-off: #2a3852;
   --wheel-hub-bg: radial-gradient(circle at 35% 30%, #2c3c5c, #0e1729 70%);
   --wheel-hub-border: #2a3852;
-  --wheel-1: #d296b0;
+  --wheel-1: #2263b1; /* cobalt, the one dark segment: the first one meets every other on some wheel size (the last wraps round to it) */
   --wheel-2: #4ad1d1;
   --wheel-3: #ebbc69;
   --wheel-4: #b59be6;
@@ -206,7 +218,7 @@
   --wheel-10: #f2a26a;
   --wheel-11: #6dd5b3;
   --wheel-12: #9d99ed;
-  --wheel-ink-1: #0a1120;
+  --wheel-ink-1: #ffffff;
   --wheel-ink-2: #0a1120;
   --wheel-ink-3: #0a1120;
   --wheel-ink-4: #0a1120;
@@ -279,6 +291,16 @@
   --halo: 1;
   --avatar-veil: none;
   --avatar-tbd: #3a2f5c;
+  --singer-1: #ff3d8b;
+  --singer-2: #ffc94a;
+  --singer-3: #45e2a6;
+  --singer-4: #4cc3ff;
+  --singer-5: #b388ff;
+  --singer-6: #ff8a3d;
+  --singer-7: #7cf05a;
+  --singer-8: #ff6262;
+  --singer-9: #3de0d0;
+  --singer-10: #f06bff;
   /* QR codes and the marquee-light frame around them */
   --paper: #fff8e6;
   --paper-ink: #1b1230;
@@ -625,4 +647,4 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
    Studio's answer colours are deep, for white labels on the tiles; the shapes and bars that
    vote counts draw straight on the dark page use a lighter tint of them so they stay visible. */
 :root:not([data-theme="party"]) :is(.g-votebar, .bt-split-row) .shape { color: color-mix(in srgb, var(--answer) 55%, #fff); }
-:root:not([data-theme="party"]) :is(.g-votebar, .bt-split-row) .bar i { background: color-mix(in srgb, var(--answer) 75%, #fff); }
+:root:not([data-theme="party"]) :is(.g-votebar, .bt-split-row) .bar i { background: color-mix(in srgb, var(--answer) 65%, #fff); }

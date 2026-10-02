@@ -64,7 +64,7 @@ button.g-answer:active:not(:disabled) { transform: scale(0.97); }
 .g-podium { display: flex; align-items: flex-end; justify-content: center; gap: 16px; }
 .g-podium .step { display: grid; justify-items: center; gap: 6px; width: 120px; }
 .g-podium .avatar { width: 56px; height: 56px; font-size: 32px; }
-.g-podium .block { width: 100%; display: grid; place-items: center; border-radius: var(--r-md) 12px 0 0; font-family: var(--font-display); font-size: 32px; font-weight: 800; background: linear-gradient(180deg, var(--stage-3), var(--stage)); }
+.g-podium .block { width: 100%; display: grid; place-items: center; border-radius: var(--r-md) var(--r-md) 0 0; font-family: var(--font-display); font-size: 32px; font-weight: 800; background: linear-gradient(180deg, var(--stage-3), var(--stage)); }
 .g-podium .p1 .block { height: 150px; background: var(--podium-gold); color: var(--bulb-ink); }
 .g-podium .p2 .block { height: 110px; }
 .g-podium .p3 .block { height: 80px; }

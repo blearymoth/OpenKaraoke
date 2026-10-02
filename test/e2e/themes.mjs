@@ -220,6 +220,19 @@ try {
     await hostPhone.waitForSelector('.skin-card');
     await shot(hostPhone, `${skin}-host-phone-appearance`);
     scrollChecks.push([`${skin}: host phone`, await noSideways(hostPhone)]);
+    // narrower phones: every visible bottom tab keeps its whole label, and the current tab's pill fits
+    for (const width of [375, 360, 320]) {
+      await hostPhone.setViewportSize({ width, height: 760 });
+      await sleep(200);
+      const cut = await hostPhone.evaluate(() => [...document.querySelectorAll('.nav a')].filter((a) => getComputedStyle(a).display !== 'none').flatMap((a) => {
+        const label = a.querySelector('span:not(.badge)');
+        const tab = a.getBoundingClientRect().width;
+        return [label.scrollWidth > label.clientWidth && label.textContent, a.querySelector('.icon').getBoundingClientRect().width > tab && `${label.textContent} pill`].filter(Boolean);
+      }));
+      check(cut.length === 0, `${skin}: host phone at ${width}px: whole tab labels${cut.length ? ` (cut: ${cut.join(', ')})` : ''}`);
+      scrollChecks.push([`${skin}: host phone at ${width}px`, await noSideways(hostPhone)]);
+    }
+    await hostPhone.setViewportSize({ width: 390, height: 844 });
     await guest.click('.g-tabs button:has-text("Home")');
     await sleep(300);
     await shot(guest, `${skin}-guest-home`);

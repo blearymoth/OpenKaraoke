@@ -2,6 +2,7 @@
 import { html, useEffect, useRef, useState, useCallback } from '../vendor/preact.js';
 import { Icon } from './icons.js';
 import { artUrl, artistArtUrl, artStore, marksStore, formatTime, useStore } from './store.js';
+import { singerColor } from '/shared/protocol.js';
 
 /** JSON fetch helper; adds the host token when there is one. */
 export async function apiGet(path, params) {
@@ -97,7 +98,7 @@ export function ArtistImage({ artistKey, size = 44, class: cls = '' }) {
 }
 
 export function Avatar({ singer, size = 32 }) {
-  return html`<span class="avatar" title=${singer?.name || ''} style=${{ width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.55)}px`, '--avatar': singer?.color }}>${singer?.emoji || '🎤'}</span>`;
+  return html`<span class="avatar" title=${singer?.name || ''} style=${{ width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.55)}px`, '--avatar': singerColor(singer?.color) }}>${singer?.emoji || '🎤'}</span>`;
 }
 
 export function SongBadges({ song }) {

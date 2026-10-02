@@ -354,10 +354,19 @@ body.host .toasts { bottom: 104px; }
 }
 
 @media (max-width: 480px) {
-  /* phones: the nine bottom tabs share the width (no sideways scrolling); a label too long for its tab is cut */
+  /* phones: the bottom tabs share the width (no sideways scrolling); a label too long for its tab is cut */
   .nav { gap: 0; padding-inline: 2px; }
   .nav a { min-width: 0; padding: 6px 1px; font-size: 10.5px; }
   .nav a > span:not(.badge) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+@media (max-width: 385px) {
+  /* narrower phones (375, 360, 320px): Home leaves the tab bar (the logo at the top goes home), so the
+     other eight labels fit whole */
+  .nav a.tab-home { display: none; }
+}
+@media (max-width: 340px) {
+  .nav a { font-size: 9.5px; }
+  :root:not([data-theme="party"]) .nav a .icon { padding-inline: 7px; } /* Studio: the current tab's pill fits its tab */
 }
 
 .check-row { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-2); }

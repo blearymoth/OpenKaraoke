@@ -21,7 +21,19 @@ export const TEMPO_STEP = 0.05;
 export const REACTIONS = ['👏', '❤️', '🔥', '😂', '🎉', '🤘', '😍', '🙌'];
 
 export const AVATARS = ['🎤', '🦄', '🐯', '🦊', '🐼', '🐸', '🐙', '🦋', '🌵', '🍕', '🚀', '👾', '🎸', '🥁', '🎧', '🌈', '⭐', '🍒', '🐝', '🦖', '🐧', '🦁', '🍩', '💃'];
+/** Singers' colours: what a singer stores (validated server-side) and the guest picks from. */
 export const COLORS = ['#ff3d8b', '#ffc94a', '#45e2a6', '#4cc3ff', '#b388ff', '#ff8a3d', '#7cf05a', '#ff6262', '#3de0d0', '#f06bff'];
+
+/**
+ * The CSS colour to draw a singer's colour with: one of COLORS is drawn by the skin
+ * (var(--singer-1…10) in /css/base.css: Party shows these values, Studio its own calmer set);
+ * any other '#rrggbb' as it is.
+ */
+export function singerColor(color) {
+  if (typeof color !== 'string') return color;
+  const i = COLORS.indexOf(color.toLowerCase());
+  return i < 0 ? color : `var(--singer-${i + 1})`;
+}
 
 export function clampKey(k) {
   const n = Math.round(Number(k) || 0);

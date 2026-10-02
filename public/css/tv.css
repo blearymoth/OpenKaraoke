@@ -100,10 +100,14 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 
 /* ---- intro card ---------------------------------------------------------------------------- */
 
-.intro { display: grid; place-content: center; justify-items: center; text-align: center; gap: 2.6vh; padding: 6vh; }
+/* One centred column. Nothing in it shrinks except the cover: when the card is full (a long title,
+   an artist logo, Key/Tempo chips, the countdown) the cover gives way, so the singer's name is never
+   squeezed and the status line stays on screen. The title stops at three lines. */
+.intro { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 2.6vh; padding: 6vh; }
+.intro > * { flex: none; }
 .intro .kicker { font-size: 3.6vh; color: var(--bulb); font-weight: 700; }
-.intro .name { font-size: 15vh; max-width: 88vw; min-height: min-content; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-bottom: 1vh; } /* min-height: never squeezed when the card is full */
-.intro .song { font-size: 4.6vh; color: var(--ink-2); max-width: 80vw; }
+.intro .name { font-size: 15vh; max-width: 88vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-bottom: 1vh; }
+.intro .song { font-size: 4.6vh; color: var(--ink-2); max-width: 80vw; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
 .intro .song b { color: var(--ink); font-weight: 700; }
 .intro .meta { display: flex; gap: 1.5vh; }
 .intro .chip { font-size: 2.6vh; min-height: 5vh; padding: 0 2.4vh; background: rgba(255, 255, 255, 0.08); color: var(--ink); cursor: default; }
@@ -116,16 +120,20 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 .countdown.wide b { font-size: 4.6vh; } /* three digits still fit inside the ring */
 /* counting down: a smaller cover and ring, so the whole card (name included) fits the screen */
 .intro.counting { gap: 2vh; padding-block: 4vh; }
-.intro.counting .intro-art { margin-bottom: 1vh; }
-.intro.counting .intro-cover { width: 22vh; height: 22vh; }
+.intro.counting .intro-art { flex-basis: 22vh; }
 .intro.counting .artist-logo { max-height: 6vh; }
 .intro.counting .countdown { width: 11vh; height: 11vh; margin-top: 0; }
 .intro.counting .countdown b { font-size: 5.6vh; }
 .intro.counting .countdown.wide b { font-size: 3.7vh; }
 .intro .status { font-size: 3vh; color: var(--ink-2); min-height: 4vh; }
-.intro-art { position: relative; margin-bottom: 2vh; }
-.intro-cover { display: block; width: 28vh; height: 28vh; object-fit: cover; border-radius: 2vh; box-shadow: 0 3vh 8vh -2vh rgba(0, 0, 0, 0.85); animation: cover-in 0.8s var(--ease) both; }
-.intro-art .avatar-big { position: absolute; right: -6vh; bottom: -4vh; width: 12vh; height: 12vh; font-size: 7vh; }
+/* the cover: 28vh (22vh while counting) or smaller when the card is full; the singer's avatar on its
+   corner is 12vh, scaled down with a cover smaller than 22vh */
+.intro > .intro-art { position: relative; flex: 0 1 28vh; min-height: 0; aspect-ratio: 1; margin-bottom: 2vh; container-type: inline-size; }
+.intro-cover { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 2vh; box-shadow: 0 3vh 8vh -2vh rgba(0, 0, 0, 0.85); animation: cover-in 0.8s var(--ease) both; }
+.intro-art .avatar-big { --av: min(12vh, 55cqw); position: absolute; right: calc(var(--av) / -2); bottom: calc(var(--av) / -3); width: var(--av); height: var(--av); font-size: calc(var(--av) * 7 / 12); }
+/* no cover: the avatar alone, 17vh, giving way the same way */
+.intro > .intro-art.solo { flex-basis: 17vh; margin-bottom: 0; }
+.intro-art.solo .avatar-big { position: static; width: 100%; height: 100%; font-size: calc(100cqw * 10 / 17); }
 @keyframes cover-in { from { transform: rotate(-6deg) scale(0.9); opacity: 0; } }
 .intro .artist-logo { display: block; max-height: 9vh; max-width: 40vw; object-fit: contain; filter: drop-shadow(0 0.4vh 1vh rgba(0, 0, 0, 0.8)); animation: tv-fade 0.8s var(--ease) 0.3s both; }
 .intro .year { color: var(--ink-3, var(--ink-2)); }
@@ -250,6 +258,7 @@ body.preview .conn-lost, body.preview .corner-qr { display: none; }
 .board-list span { font-size: 2.6vh; color: var(--ink-2); }
 .board-list .eta { font-size: 2.8vh; color: var(--bulb); font-weight: 700; white-space: nowrap; }
 .board-more { font-size: 2.6vh; color: var(--ink-3); text-align: center; }
+:root:not([data-theme="party"]) :is(.mirror-badge, .break-now, .board-more) { color: var(--ink-2); } /* Studio: small text on the TV is ink-2, never the faintest ink, to read across a room */
 .board-join { display: flex; align-items: center; gap: 2vh; font-size: 2.6vh; color: var(--ink-2); }
 .board-join img { width: 11vh; height: 11vh; background: var(--paper); padding: 0.8vh; border-radius: 1vh; }
 .board-join b { display: block; font-size: 3.4vh; color: var(--ink); }

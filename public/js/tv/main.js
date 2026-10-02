@@ -7,7 +7,7 @@ import { TvController } from './controller.js';
 import { GAME_UI } from '../games/index.js';
 import { BreakPlayer } from './break-player.js';
 import { applyAppearance, followAppearance, qrSrc, appIcon } from '../lib/theme.js';
-import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
+import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo, singerColor } from '/shared/protocol.js';
 
 const params = new URLSearchParams(location.search);
 const store = createStore({ status: 'connecting', state: null, display: 'main', denied: null, unlocked: false, help: false, reactions: [], toast: null });
@@ -368,7 +368,7 @@ function Board({ st }) {
     </section>
     <ol class="board-list">${st.queue.slice(0, 8).map((e, i) => html`<li key=${e.id}>
       <span class="pos num">${i + 1}</span>
-      <span class="avatar" style=${{ '--avatar': e.singers[0]?.color }}>${e.singers[0]?.emoji || '🎤'}</span>
+      <span class="avatar" style=${{ '--avatar': singerColor(e.singers[0]?.color) }}>${e.singers[0]?.emoji || '🎤'}</span>
       <div class="ellipsis"><b class="ellipsis">${singersText(e.singers) || 'Anyone'}</b><span class="ellipsis">${e.mystery ? '🎁 Mystery song' : `${e.title} · ${e.artist}`}</span></div>
       <span class="eta">${formatEta(e.eta)}</span>
     </li>`)}</ol>
@@ -402,7 +402,7 @@ function Lobby({ st }) {
     <div class="lobby-bottom">
       ${next.length
         ? html`<h3>Up next</h3><div class="upnext-row">${next.map((e) => html`<div class="upnext-item">
-            <span class="avatar" style=${{ '--avatar': e.singers[0]?.color }}>${e.singers[0]?.emoji || '🎤'}</span>
+            <span class="avatar" style=${{ '--avatar': singerColor(e.singers[0]?.color) }}>${e.singers[0]?.emoji || '🎤'}</span>
             <div class="ellipsis"><b class="ellipsis">${singersText(e.singers) || 'Anyone'}</b><span class="ellipsis">${e.title}</span></div>
           </div>`)}</div>`
         : html`<div class="lobby-empty">${st.library.songs ? `${st.library.songs.toLocaleString()} songs ready to sing. The first song you pick starts the party.` : 'The song library is empty — add your karaoke folder in the host settings.'}</div>`}
@@ -433,8 +433,8 @@ function Intro({ st }) {
   return html`<div class=${`scene intro fade-in ${counting ? 'counting' : ''}`} key=${cur.id}>
     <div class="kicker">${cur.mystery ? 'Mystery song!' : 'Next singer'}</div>
     ${cover
-      ? html`<div class="intro-art"><img class="intro-cover" src=${artUrl(cur.songId, 500)} alt="" /><div class="avatar-big" style=${{ '--c': singer?.color }}>${singer?.emoji || '🎤'}</div></div>`
-      : html`<div class="avatar-big" style=${{ '--c': singer?.color }}>${singer?.emoji || '🎤'}</div>`}
+      ? html`<div class="intro-art"><img class="intro-cover" src=${artUrl(cur.songId, 500)} alt="" /><div class="avatar-big" style=${{ '--c': singerColor(singer?.color) }}>${singer?.emoji || '🎤'}</div></div>`
+      : html`<div class="intro-art solo"><div class="avatar-big" style=${{ '--c': singerColor(singer?.color) }}>${singer?.emoji || '🎤'}</div></div>`}
     <div class="name display">${singersText(cur.singers) || 'Grab the mic!'}</div>
     <div class="song"><b>${cur.title}</b> by ${cur.artist}${cur.year && !cur.mystery ? html` <span class="year">(${cur.year})</span>` : ''}</div>
     ${logo && html`<img class="artist-logo" src=${artistArtUrl(cur.art.logo, 'logo', { size: 500 })} alt="" />`}
@@ -463,12 +463,12 @@ function Singing({ st }) {
   return html`<div class=${`scene ${ticker ? 'with-ticker' : ''}`}>
     ${d.showTitleCard !== false && pos < 12 && html`<div class="titlecard" key=${cur.id}>
       ${cur.art?.cover && !cur.mystery && html`<img class="tc-cover" src=${artUrl(cur.songId, 250)} alt="" />`}
-      <span class="avatar" style=${{ '--avatar': cur.singers[0]?.color }}>${cur.singers[0]?.emoji || '🎤'}</span>
+      <span class="avatar" style=${{ '--avatar': singerColor(cur.singers[0]?.color) }}>${cur.singers[0]?.emoji || '🎤'}</span>
       <div class="ellipsis"><b class="display ellipsis">${singersText(cur.singers) || 'Sing along!'}</b><span>${cur.title} by ${cur.artist}</span></div>
     </div>`}
     ${d.showQr !== false && html`<div class="corner-qr"><img src=${qrSrc(st.info.joinUrl)} alt="" /><span>${st.info.roomCode}</span></div>`}
     ${showUpNext && html`<div class="upnext-banner">
-      <span class="avatar" style=${{ '--avatar': next.singers[0]?.color }}>${next.singers[0]?.emoji || '🎤'}</span>
+      <span class="avatar" style=${{ '--avatar': singerColor(next.singers[0]?.color) }}>${next.singers[0]?.emoji || '🎤'}</span>
       <div><small>Up next, get ready</small><b>${singersText(next.singers) || 'Next song'}</b></div>
     </div>`}
     ${ticker && html`<div class="ticker">

@@ -16,7 +16,7 @@ import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
 import { followAppearance } from '../lib/theme.js';
 
 const NAV = [
-  ['/', 'home', 'Home'],
+  ['/', 'home', 'Home', 'tab-home'],
   ['/search', 'search', 'Search'],
   ['/artists', 'mic', 'Artists'],
   ['/tags', 'tag', 'Collections'],
@@ -65,7 +65,7 @@ function TopBar({ route }) {
   };
   const lib = state.library;
   return html`<header class="topbar">
-    <a class="brand" href="#/"><img src="/img/icon.svg" alt="" /><span>OpenKaraoke</span></a>
+    <a class="brand" href="#/" aria-label="OpenKaraoke home"><img src="/img/icon.svg" alt="" /><span>OpenKaraoke</span></a>
     <label class="search-box">
       <${Icon} name="search" size=${18} />
       <input ref=${input} type="search" placeholder=${narrow ? 'Song or artist' : 'Search songs or artists  ( / )'} value=${q} aria-label="Search songs or artists"

@@ -195,6 +195,43 @@ test('wheel: singer segments — tonight’s singers plus guests on their phones
   assert.equal(room.game.segments.length, 6);
 });
 
+test('wheel: a guest who calls themself Everyone is on the wheel — the sing-along singer is not', async () => {
+  const { req, host, guest, room, leave } = await party();
+  await req(host, 'singer.add', { name: 'Everyone' }); // the sing-along singer (flagged)
+  room.createSinger({ name: 'everyone' }); // a phone-less one made before the flag existed
+  const ana = await guest('Ana');
+  await req(host, 'singer.add', { name: 'Zed' });
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', who: 'all' } });
+  assert.deepEqual(room.game.segments.map((x) => x.label).sort(), ['Ana', 'Zed'], 'no sing-along on the wheel');
+  await req(host, 'game.close');
+
+  const eve = await guest('Everyone');
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', who: 'online' } });
+  assert.deepEqual(room.game.segments.map((x) => x.label).sort(), ['Ana', 'Everyone']);
+  assert.equal(room.game.segments.find((x) => x.label === 'Everyone').people[0].deviceId, eve.data.deviceId, 'the guest, not the sing-along');
+  await req(host, 'game.close');
+
+  // "Everyone singing tonight": her singer (made when she requests a song) counts once.
+  await req(eve, 'queue.add', { songId: room.catalog.songList[0].id });
+  const mine = room.s.singers.find((x) => x.deviceId === eve.data.deviceId);
+  assert.ok(mine && !mine.singAlong);
+  leave(eve); // gone for now, but she was here tonight
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', who: 'all' } });
+  const segs = room.game.segments;
+  assert.deepEqual(segs.map((x) => x.label).sort(), ['Ana', 'Everyone', 'Zed']);
+  assert.equal(segs.find((x) => x.label === 'Everyone').people[0].singerId, mine.id);
+  await req(host, 'game.close');
+
+  // Three people with a phone make duet pairs (she counts as one of them).
+  await guest('Everyone');
+  await guest('Ben');
+  leave(ana);
+  await guest('Cy');
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'duets', who: 'online', count: 12 } });
+  const names = new Set(room.game.segments.flatMap((x) => x.people.map((p) => p.name)));
+  assert.deepEqual([...names].sort(), ['Ben', 'Cy', 'Everyone']);
+});
+
 test('wheel: dare segments are a random pick of the host’s list', async () => {
   const { req, host, room, view, tv } = await party();
   const dares = Array.from({ length: 20 }, (_, i) => `Dare number ${i + 1}`);

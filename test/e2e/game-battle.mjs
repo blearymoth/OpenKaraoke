@@ -83,6 +83,15 @@ try {
   check(!(await card.locator('.btn:has-text("Coming soon")').count()), 'Battle is available on the Games page');
   await card.locator('.btn:has-text("Set up")').click();
   await host.waitForSelector('.game-card.open .battle-setup');
+  // A guest who calls themself Everyone is a contestant chip; the sing-along singer is not.
+  const singAlong = room().findOrCreateSinger('Everyone');
+  const eve = room().createSinger({ name: 'Everyone', deviceId: 'e2e-eve-phone' });
+  room().markDirty();
+  await host.waitForSelector('.bt-chips .chip:has-text("Everyone")', { timeout: 5000 }).catch(() => {});
+  check(await host.locator('.bt-chips .chip', { hasText: 'Everyone' }).count() === 1, 'a guest called Everyone is a contestant chip (the sing-along is not)');
+  for (const x of [singAlong, eve]) room().s.singers.splice(room().s.singers.indexOf(x), 1);
+  room().markDirty();
+  await host.waitForSelector('.bt-chips .chip:has-text("Everyone")', { state: 'detached', timeout: 5000 });
   await host.click('.bt-chips .chip:has-text("Ann")');
   await host.click('.bt-chips .chip:has-text("Bob")');
   await host.fill('.bt-add input', 'Dee');

@@ -157,7 +157,7 @@ export class Wheel extends Game {
     const seen = new Set();
     const add = (p) => {
       const key = personKey(p.name);
-      if (!key || key === 'everyone' || seen.has(key)) return;
+      if (!key || seen.has(key)) return;
       seen.add(key);
       out.push(p);
     };
@@ -174,7 +174,9 @@ export class Wheel extends Game {
       if (p.singerId && room.singer(p.singerId)) continue; // listed above
       add({ name: p.name, emoji: p.emoji, color: p.color, singerId: null, deviceId });
     }
-    if (!onlineOnly) for (const x of room.s.singers) if (!x.deviceId && !x.singAlong && tonight(x)) singer(x);
+    // The sing-along singer is not a person (nor is a phone-less "Everyone" made before the flag);
+    // a guest who calls themself Everyone has a phone and is on the wheel like anyone else.
+    if (!onlineOnly) for (const x of room.s.singers) if (!x.deviceId && !x.singAlong && personKey(x.name) !== 'everyone' && tonight(x)) singer(x);
     return out;
   }
 

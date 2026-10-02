@@ -61,7 +61,8 @@ function useHostStore() {
 
 function SingerChips({ store, picked, onToggle }) {
   const { state } = useStore(store);
-  const singers = (state?.singers || []).filter((s) => s.name && s.name !== 'Everyone');
+  // Not the sing-along singer (no phone); a guest who calls themself Everyone has a phone.
+  const singers = (state?.singers || []).filter((s) => s.name && (s.deviceId || s.name.toLowerCase() !== 'everyone'));
   if (!singers.length) return html`<p class="hint">No singers yet — type names below.</p>`;
   return html`<div class="bt-chips">${singers.map((s) => {
     const on = picked.some((p) => p.singerId === s.id);

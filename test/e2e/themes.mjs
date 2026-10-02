@@ -220,13 +220,13 @@ try {
     await hostPhone.waitForSelector('.skin-card');
     await shot(hostPhone, `${skin}-host-phone-appearance`);
     scrollChecks.push([`${skin}: host phone`, await noSideways(hostPhone)]);
-    // narrower phones: every visible bottom tab keeps its whole label, and the current tab's pill fits;
-    // below 386px History (not Home) leaves the bar and stays reachable under Queue → History
+    // the phone tab bar (six tabs, the other pages on "More"), from 390 down to 320px: every tab keeps
+    // its whole label and the current tab's pill (Studio) fits; the More page in this skin
     const tabsAt = async (hash) => {
       await hostPhone.evaluate((h) => { location.hash = h; }, hash);
       await sleep(250);
       return hostPhone.evaluate(() => [...document.querySelectorAll('.nav a')].filter((a) => getComputedStyle(a).display !== 'none')
-        .map((a) => `${a.querySelector('span:not(.badge)').textContent}${a.classList.contains('on') && a.getAttribute('aria-current') === 'page' ? '*' : ''}`).join(' '));
+        .map((a) => `${a.querySelector('span:not(.badge)').textContent}${a.classList.contains('on') ? '*' : ''}`).join(' '));
     };
     for (const width of [390, 375, 360, 320]) {
       await hostPhone.setViewportSize({ width, height: 760 });
@@ -234,29 +234,22 @@ try {
       const cut = await hostPhone.evaluate(() => [...document.querySelectorAll('.nav a')].filter((a) => getComputedStyle(a).display !== 'none').flatMap((a) => {
         const label = a.querySelector('span:not(.badge)');
         const tab = a.getBoundingClientRect().width;
-        return [label.scrollWidth > label.clientWidth && label.textContent, a.querySelector('.icon').getBoundingClientRect().width > tab && `${label.textContent} pill`].filter(Boolean);
+        return [(label.scrollWidth > label.clientWidth || label.getBoundingClientRect().width > tab) && label.textContent, a.querySelector('.icon').getBoundingClientRect().width > tab && `${label.textContent} pill`].filter(Boolean);
       }));
       check(cut.length === 0, `${skin}: host phone at ${width}px: whole tab labels${cut.length ? ` (cut: ${cut.join(', ')})` : ''}`);
       scrollChecks.push([`${skin}: host phone at ${width}px`, await noSideways(hostPhone)]);
-      const narrow = width < 386;
       const home = await tabsAt('#/');
-      const expected = `Home* Search Artists Playlists Games Photos${narrow ? '' : ' History'} Settings Queue`;
-      check(home === expected, `${skin}: host phone at ${width}px: Home is in the tab bar and marked current on Home${home === expected ? '' : ` (${home})`}`);
-      const historyPage = await tabsAt('#/history');
-      check(historyPage.includes(narrow ? 'Queue*' : 'History*') && historyPage.split('*').length === 2, `${skin}: host phone at ${width}px: the history page marks ${narrow ? 'Queue' : 'History'} as current (${historyPage})`);
-      await tabsAt('#/queue');
-      await hostPhone.click('.queue-page .tabs button:has-text("History")');
-      await sleep(150);
-      const link = await hostPhone.$eval('.queue-page .history-page-link', (a) => getComputedStyle(a).display !== 'none' && a.getBoundingClientRect().width > 0);
-      check(link === narrow, `${skin}: host phone at ${width}px: Queue → History ${narrow ? 'links' : 'does not link'} to the full history page`);
-      if (narrow && width === 375) {
-        await hostPhone.click('.queue-page .history-page-link');
-        await hostPhone.waitForSelector('.page-head h1:has-text("history")');
-        check((await hostPhone.$$('.page-head button:has-text("New party")')).length === 1, `${skin}: host phone at ${width}px: the link opens the history page with New party`);
-      }
-      await tabsAt('#/settings/appearance');
+      check(home === 'Home* Search Artists Games Queue More', `${skin}: host phone at ${width}px: six tabs, Home current on Home (${home})`);
+      const appearance = await tabsAt('#/settings/appearance');
+      check(appearance.endsWith('More*') && appearance.split('*').length === 2, `${skin}: host phone at ${width}px: Settings → Appearance marks More as current (${appearance})`);
     }
     await hostPhone.setViewportSize({ width: 390, height: 844 });
+    await hostPhone.click('.nav a[href="#/more"]');
+    await hostPhone.waitForSelector('.more-list');
+    await sleep(200);
+    check((await hostPhone.$$eval('.more-list a', (l) => l.map((a) => a.textContent.trim()))).some((t) => t.startsWith('Settings')), `${skin}: the More page leads to Settings`);
+    await shot(hostPhone, `${skin}-host-phone-more`);
+    scrollChecks.push([`${skin}: host phone More page`, await noSideways(hostPhone)]);
     await guest.click('.g-tabs button:has-text("Home")');
     await sleep(300);
     await shot(guest, `${skin}-guest-home`);

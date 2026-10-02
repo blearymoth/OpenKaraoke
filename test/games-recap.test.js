@@ -3,7 +3,12 @@
 // controlled by the host, auto-advance, the same recap on every screen).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { setupRoom } from './room-harness.js';
+import { tmpDir } from './helpers.js';
+import { offlineFetch } from './fake-art.js';
+import { createApp } from '../server/app.js';
 import { buildRecap, slidesFor } from '../server/games/recap.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -48,25 +53,46 @@ test('recap: tonight’s statistics from the history (skipped songs don’t coun
     reactions: 3 + 1 + 9 + 2,
     games: 3,
   });
-  assert.deepEqual(r.topSingers.map((s) => [s.name, s.songs]), [['Ann', 3], ['Ben', 2], ['Dee', 1]]);
+  assert.deepEqual(r.topSingers.map((s) => [s.name, s.songs, s.rank]), [['Ann', 3, 1], ['Ben', 2, 2], ['Dee', 1, 3]]);
   assert.equal(r.topSingers[0].emoji, '🦄');
   assert.ok(!r.topSingers.some((s) => s.name === 'Everyone'));
   assert.ok(!r.topSingers.some((s) => s.name === 'Cy'), 'Cy was skipped');
   // Best rated: highest average, then more votes, then earlier.
-  assert.deepEqual(r.bestRated.map((p) => [p.title, p.rating.avg, p.rating.n]), [['Dancing Queen', 4.5, 6], ['Hello', 4.5, 4], ['Waterloo', 3.2, 5], ['Africa', 2, 1]]);
+  assert.deepEqual(r.bestRated.map((p) => [p.title, p.rating.avg, p.rating.n, p.rank]), [['Dancing Queen', 4.5, 6, 1], ['Hello', 4.5, 4, 1], ['Waterloo', 3.2, 5, 3], ['Africa', 2, 1, 4]], 'the same average shares a place');
   assert.deepEqual(r.bestRated[0].singers.map((s) => s.name), ['Ann', 'Ben']);
   assert.equal(r.bestRated[0].order, undefined, 'no internals');
   // Most sung artists: "ABBA" and "Abba" are the same artist.
-  assert.deepEqual(r.topArtists[0], { artist: 'ABBA', count: 3 });
+  assert.deepEqual(r.topArtists[0], { artist: 'ABBA', count: 3, rank: 1 });
+  assert.deepEqual(r.topArtists.map((a) => a.rank), [1, 2, 2, 2]);
   assert.deepEqual(r.topArtists.map((a) => a.artist), ['ABBA', 'Oasis', 'Toto', 'Adele'], 'then the most recent first; Blondie was skipped');
-  assert.deepEqual(r.favourite, {
+  assert.deepEqual(r.favourites, [{
     songId: 'song-Dancing Queen', title: 'Dancing Queen', artist: 'Abba', reactions: 9, rating: { avg: 4.5, n: 6 },
     singers: [{ name: 'Ann', emoji: '🦄', color: '#f0f' }, { name: 'Ben', emoji: '🐸', color: '#0f0' }],
-  });
+  }]);
   assert.deepEqual(r.games.map((g) => [g.label, g.title, g.winners]), [
     ['Battle', 'Battle winner', ['Ben']], ['Applause meter', 'Loudest applause', ['Ann', 'Cy']], ['Game', 'Odd', ['X']],
   ]);
   assert.deepEqual(slidesFor(r), ['totals', 'singers', 'rated', 'artists', 'favourite', 'games', 'thanks']);
+});
+
+test('recap: a guest who calls themself Everyone is one of tonight’s singers; the sing-along isn’t', () => {
+  const people = {
+    guest: { name: 'Everyone', emoji: '🦄', color: '#f0f', deviceId: 'phone-1' },
+    along: { name: 'Everyone', emoji: '🎉', color: '#fff', singAlong: true },
+    old: { name: 'everyone', emoji: '🎉', color: '#fff' }, // a sing-along singer from before the flag
+  };
+  const of = (id) => (Object.hasOwn(people, id) ? people[id] : null);
+  const history = [
+    rec('Hello', 'Adele', ['guest']),
+    rec('Waterloo', 'ABBA', ['along']),
+    rec('Africa', 'Toto', ['old']),
+    rec('Wonderwall', 'Oasis', ['gone'], { singers: ['Everyone'] }), // removed since: just the name
+    rec('Call Me', 'Blondie', [], { singers: ['EVERYONE'] }), // an old record without ids
+  ].reverse();
+  const r = buildRecap({ history, singerOf: of });
+  assert.equal(r.totals.songs, 5);
+  assert.equal(r.totals.singers, 1);
+  assert.deepEqual(r.topSingers.map((x) => [x.name, x.songs, x.emoji]), [['Everyone', 1, '🦄']]);
 });
 
 test('recap: slides without data are left out; an empty night says so', () => {
@@ -132,7 +158,7 @@ test('recap: the game — built from tonight in the room, host slide controls, s
   assert.equal(v.recap.totals.reactions, 7);
   assert.deepEqual(v.recap.topSingers.map((x) => [x.name, x.songs]), [['Zoe', 2], ['Max', 1]]);
   assert.deepEqual(v.recap.bestRated.map((p) => [p.title, p.rating.avg]), [['Waterloo', 5], ['Hello', 4]]);
-  assert.equal(v.recap.favourite.title, 'Waterloo');
+  assert.deepEqual(v.recap.favourites.map((p) => p.title), ['Waterloo']);
   assert.deepEqual(v.recap.games[0].winners, ['Zoe']);
   assert.deepEqual(v.slides, ['totals', 'singers', 'rated', 'artists', 'favourite', 'games', 'thanks']);
   assert.deepEqual(view(ana).game.recap, v.recap, 'phones get the same recap');
@@ -170,7 +196,7 @@ test('recap: the game — built from tonight in the room, host slide controls, s
   // Refresh: a song sung meanwhile shows up, the current slide stays.
   g.auto = false;
   g.show(1);
-  s().tonight.history.unshift({ at: Date.now(), songId: 'x', title: 'Extra', artist: 'Adele', singers: ['Zoe'], singerIds: [], playedSec: 100, skipped: false });
+  s().tonight.perfs.push({ entryId: 'x', songId: 'x', title: 'Extra', artist: 'Adele', singers: ['Zoe'], singerIds: [], playedSec: 100 });
   await req(host, 'game.action', { action: 'refresh' });
   assert.equal(view(tv).game.recap.totals.songs, 4);
   assert.equal(view(tv).game.slide, 'singers');
@@ -179,6 +205,27 @@ test('recap: the game — built from tonight in the room, host slide controls, s
   assert.equal(view(ana).game.phase, 'done');
   await req(host, 'game.close');
   assert.equal(s().current, null, 'the stopped song waits for Play');
+});
+
+test('recap: in the room, a guest called Everyone is on the top singers slide; sing-alongs aren’t', async () => {
+  const env = await setupRoom({ playback: { countdown: 0 } });
+  const { req, view, connect, guest, s } = env;
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const eve = await guest('Everyone');
+  await req(eve, 'queue.add', { songId: env.song('hello').id }); // from her phone
+  await req(host, 'player.play');
+  const cur = s().current;
+  await req(tv, 'tv.ready', { entryId: cur.id, dur: 200 });
+  await req(tv, 'tv.ended', { entryId: cur.id });
+  await sing(env, host, tv, 'waterloo', 'Everyone'); // the host's sing-along
+  await req(host, 'game.start', { type: 'recap' });
+  const r = view(tv).game.recap;
+  assert.equal(r.totals.songs, 2);
+  assert.equal(r.totals.singers, 1);
+  assert.deepEqual(r.topSingers.map((x) => [x.name, x.songs]), [['Everyone', 1]]);
+  assert.equal(r.topSingers[0].emoji, s().singers.find((x) => x.deviceId === eve.data.deviceId).emoji, 'the guest, not the sing-along');
+  await req(host, 'game.close');
 });
 
 test('recap: an empty night — one slide, no auto-advance', async () => {
@@ -193,4 +240,126 @@ test('recap: an empty night — one slide, no auto-advance', async () => {
   assert.equal(v.recap.totals.songs, 0);
   assert.equal((await req(host, 'game.action', { action: 'next' })).index, 0);
   assert.equal(room.game.phase, 'slides');
+});
+
+test('recap: ties share a place (1, 1, 3) on every ranked list; songs tied for the most reactions are joint favourites', () => {
+  const h = [
+    rec('Hello', 'Adele', ['s1'], { reactions: 4, rating: { avg: 4, n: 2 } }),
+    rec('Waterloo', 'ABBA', ['s2'], { reactions: 4, rating: { avg: 5, n: 1 } }),
+    rec('Call Me', 'Blondie', ['s3'], { reactions: 1, rating: { avg: 4, n: 3 } }),
+  ].reverse();
+  const r = buildRecap({ history: h, singerOf });
+  assert.deepEqual(r.topSingers.map((s) => [s.name, s.songs, s.rank]), [['Ann', 1, 1], ['Ben', 1, 1], ['Cy', 1, 1]], 'one song each: all first');
+  assert.deepEqual(r.bestRated.map((p) => [p.title, p.rank]), [['Waterloo', 1], ['Call Me', 2], ['Hello', 2]]);
+  assert.deepEqual(r.topArtists.map((a) => [a.artist, a.rank]), [['Blondie', 1], ['ABBA', 1], ['Adele', 1]]);
+  assert.deepEqual(r.favourites.map((p) => p.title), ['Waterloo', 'Hello'], 'joint favourites, the better rated first');
+  assert.ok(slidesFor(r).includes('favourite'));
+  // Two songs with 3 and 2 songs sung: 1, 2 — and a tie below the top: 1, 2, 2, 4.
+  const more = buildRecap({
+    history: [
+      rec('A', 'X', ['s1']), rec('B', 'X', ['s1']), rec('C', 'Y', ['s2']), rec('D', 'Y', ['s3']), rec('E', 'Z', ['sE']), rec('F', 'W', ['s1']),
+      rec('G', 'V', ['gone'], { singers: ['Dee'] }), rec('H', 'V', ['gone'], { singers: ['Dee'] }),
+    ].reverse(),
+    singerOf,
+  });
+  assert.deepEqual(more.topSingers.map((s) => [s.name, s.rank]), [['Ann', 1], ['Dee', 2], ['Ben', 3], ['Cy', 3]]);
+  // Four songs tied for the most reactions: nobody stood out.
+  const flat = buildRecap({ history: ['A', 'B', 'C', 'D'].map((t) => rec(t, 'X', ['s1'], { reactions: 1 })), singerOf });
+  assert.deepEqual(flat.favourites, []);
+  assert.ok(!slidesFor(flat).includes('favourite'));
+  // Game results saved with the game's name in the title don't repeat it.
+  const games = buildRecap({ games: [{ type: 'wheel', title: 'Roulette wheel · Singers', winners: ['Ann'] }, { type: 'wheel', title: 'Singers drawn', winners: ['Ben'] }] }).games;
+  assert.deepEqual(games.map((g) => `${g.label} · ${g.title}`), ['Roulette wheel · Singers', 'Roulette wheel · Singers drawn']);
+});
+
+test('recap: a long night counts every song — not just the host’s history list (the newest 200, skipped songs too)', async () => {
+  const env = await setupRoom();
+  const { req, room, connect, s } = env;
+  const host = await connect('host');
+  const sing = async (singerName, completed = true) => {
+    await req(host, 'queue.add', { songId: env.song(completed ? 'hello' : 'waterloo').id, singerName });
+    await req(host, 'player.play');
+    s().player.pos = completed ? 190 : 5;
+    room.finish(completed ? 'ended' : 'skipped');
+  };
+  for (let i = 0; i < 30; i++) await sing('Zed', false); // skipped: they don't count
+  for (let i = 0; i < 150; i++) await sing('Ann');
+  for (let i = 0; i < 100; i++) await sing('Ben');
+  assert.equal(s().tonight.history.length, 200, 'the host’s list stays short');
+  assert.equal(room.hostView().tonight.songs, 250, 'the host’s count is right');
+  await req(host, 'game.start', { type: 'recap' });
+  const r = room.game.recap;
+  assert.equal(r.totals.songs, 250);
+  assert.equal(r.totals.singers, 2);
+  assert.deepEqual(r.topSingers.map((x) => [x.name, x.songs]), [['Ann', 150], ['Ben', 100]]);
+  assert.deepEqual(r.topSingers.map((x) => [x.name, x.songs]), s().singers.filter((x) => x.sung).map((x) => [x.name, x.sung]), 'the same as the singers list');
+  assert.deepEqual(r.topArtists, [{ artist: 'Adele', count: 250, rank: 1 }]);
+  await req(host, 'game.close');
+  // A new party starts from zero.
+  room.newSession();
+  assert.deepEqual(s().tonight.perfs, []);
+});
+
+/** The last song just ended, Ana rated it 5 ★ and the host started the recap straight away. */
+async function finale() {
+  const env = await setupRoom({ playback: { countdown: 0, ratingAfterSong: true } });
+  const { req, room, connect, guest, s } = env;
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const ana = await guest('Ana');
+  await req(host, 'queue.add', { songId: env.song('hello').id, singerName: 'Zoe' });
+  await req(host, 'player.play');
+  const cur = s().current;
+  await req(tv, 'tv.ready', { entryId: cur.id, dur: 200 });
+  await req(tv, 'tv.ended', { entryId: cur.id });
+  assert.ok(room.rating, 'the rating window is open');
+  await req(ana, 'rate', { entryId: cur.id, stars: 5 });
+  await req(host, 'game.start', { type: 'recap' });
+  return { ...env, host, tv, ana };
+}
+
+test('recap: the rating of the last song, closed after the recap started, is added to it', async () => {
+  const { req, room, view, host, tv, ana, s } = await finale();
+  assert.deepEqual(view(tv).game.slides, ['totals', 'singers', 'thanks']);
+  await req(host, 'game.action', { action: 'next' });
+  assert.equal(view(tv).game.slide, 'singers');
+  room.flush();
+  room.closeRating(); // the window ends (40 s after the song)
+  assert.ok(room.flushTimer, 'the new recap is broadcast');
+  const v = view(tv).game;
+  assert.deepEqual(v.slides, ['totals', 'singers', 'rated', 'thanks']);
+  assert.deepEqual(v.recap.bestRated.map((p) => [p.title, p.rating.avg, p.rating.n]), [['Hello', 5, 1]]);
+  assert.equal(v.slide, 'singers', 'the slide on screen stays');
+  assert.deepEqual(s().tonight.perfs[0].rating, { avg: 5, n: 1 });
+  assert.deepEqual(view(ana).game.recap, v.recap);
+});
+
+test('recap: shutting down with the rating still open saves it without waking the recap', async () => {
+  const { room, s } = await finale();
+  room.flush();
+  await room.close();
+  assert.deepEqual(s().tonight.perfs[0].rating, { avg: 5, n: 1 }, 'the votes are kept');
+  assert.equal(room.flushTimer, null, 'nothing is broadcast after closing');
+});
+
+test('recap: a party saved before the recap had its own list keeps tonight’s songs', async () => {
+  const dataDir = await tmpDir('ok-data-');
+  const lib = await tmpDir('ok-lib-');
+  const now = Date.now();
+  const history = [
+    rec('Hello', 'Adele', ['s1'], { reactions: 2, rating: { avg: 4, n: 2 } }),
+    rec('Call Me', 'Blondie', ['s3'], { skipped: true }),
+    rec('Waterloo', 'ABBA', ['s2']),
+  ].reverse().map((h, i) => ({ ...h, entryId: `e${i}` }));
+  await fs.writeFile(path.join(dataDir, 'state.json'), JSON.stringify({ session: { id: 'old', startedAt: now - 3600_000, lastActivity: now }, tonight: { sung: [], history, games: [] } }));
+  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch: offlineFetch, crawl: false });
+  try {
+    const perfs = app.room.s.tonight.perfs;
+    assert.deepEqual(perfs.map((p) => p.title), ['Hello', 'Waterloo'], 'oldest first, skipped songs left out');
+    assert.deepEqual(perfs[0].rating, { avg: 4, n: 2 });
+    assert.equal(perfs[0].reactions, 2);
+    assert.equal(app.room.hostView().tonight.songs, 2);
+  } finally {
+    await app.close?.();
+  }
 });

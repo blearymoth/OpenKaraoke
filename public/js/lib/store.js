@@ -94,19 +94,34 @@ export function singersText(singers) {
 }
 
 // Artwork that changes while a page is open (the server sends `art` events) gets a new URL,
-// so the browser loads the new image instead of its cached placeholder.
+// so the browser loads the new image instead of the one this page already has. The version
+// is the server's `seq` of the change: it keeps growing across page loads, and a page that was
+// offline (a sleeping phone) sends the last one it saw in its hello and gets the missed
+// changes with the welcome (see server/artwork/feed.js).
 const artVersions = new Map();
+let artAll = 0; // version of every image ("everything may have changed")
+let artSeq = 0; // the last change this page knows about
 /** The latest `art` event (components re-render; the URLs of changed images differ). */
-export const artStore = createStore({ n: 0, songs: [], artists: [] });
+export const artStore = createStore({ n: 0, songs: [], artists: [], all: false });
 
-/** Handles an `art` event: { songs: [songId], artists: [artistKey] }. */
-export function noteArt({ songs = [], artists = [] } = {}) {
-  for (const id of songs) artVersions.set(`s:${id}`, (artVersions.get(`s:${id}`) || 0) + 1);
-  for (const key of artists) artVersions.set(`a:${key}`, (artVersions.get(`a:${key}`) || 0) + 1);
-  if (songs.length || artists.length) artStore.set({ n: artStore.get().n + 1, songs, artists });
+/** Handles an `art` event or the welcome's `art`: { seq, songs: [songId], artists: [artistKey], all? }. */
+export function noteArt({ seq = 0, songs = [], artists = [], all = false } = {}) {
+  seq = Number(seq) || 0;
+  if (seq > artSeq) artSeq = seq;
+  const v = seq || Date.now();
+  if (all) artAll = v;
+  for (const id of songs) artVersions.set(`s:${id}`, v);
+  for (const key of artists) artVersions.set(`a:${key}`, v);
+  if (all || songs.length || artists.length) artStore.set({ n: artStore.get().n + 1, songs, artists, all: !!all });
 }
 
-const ver = (k) => (artVersions.has(k) ? `&v=${artVersions.get(k)}` : '');
+/** For the hello: the last artwork change this page saw (the welcome replays newer ones). */
+export const lastArtSeq = () => artSeq || undefined;
+
+const ver = (k) => {
+  const v = Math.max(artVersions.get(k) || 0, artAll);
+  return v ? `&v=${v.toString(36)}` : '';
+};
 
 export const artUrl = (songId, size = 250) => (songId ? `/api/art/song/${encodeURIComponent(songId)}?s=${size}${ver(`s:${songId}`)}` : '/img/icon.svg');
 

@@ -37,6 +37,11 @@ body.host { overflow: hidden; }
 .nav a.on .icon { color: var(--neon); }
 .nav .badge { margin-left: auto; }
 .mobile-only { display: none !important; }
+.more-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; max-width: 520px; }
+.more-list a { display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 0 16px; border-radius: 14px; background: var(--stage); border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-weight: 650; }
+.more-list a:hover { background: var(--stage-2); }
+.more-list .icon { color: var(--ink-2); }
+.more-list .badge { margin-left: auto; }
 
 /* ---- main ------------------------------------------------------------------------------ */
 
@@ -156,7 +161,6 @@ body.host { overflow: hidden; }
 .now-card-label { font-size: 12px; font-weight: 800; color: var(--neon); }
 .now-card-singer { font-family: var(--font-display); font-weight: 750; font-size: 19px; }
 .q-summary { font-size: 13px; padding: 0 4px; }
-.history-page-link { display: none; justify-self: start; } /* shown on narrow phones, which have no History tab */
 .q-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
 .q-item { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 6px 8px 4px; border-radius: var(--r-md); background: var(--stage); border: 1px solid transparent; }
 .q-item:hover { border-color: var(--line); }
@@ -319,7 +323,7 @@ body.host .toasts { bottom: 104px; }
   :root:not([data-theme="party"]) .nav a .icon { box-sizing: content-box; padding: 3px 10px; border-radius: 99px; }
   :root:not([data-theme="party"]) .nav a.on { color: var(--ink); }
   :root:not([data-theme="party"]) .nav a.on .icon { background: var(--neon-soft); color: var(--neon); }
-  .nav a:nth-child(4), .nav a:nth-child(5), .nav a:nth-child(7) { display: none; }
+  .nav a.desktop-only { display: none; }
   .nav .badge { position: absolute; top: 2px; right: 18%; }
   .mobile-only { display: flex !important; }
   .brand span { display: none; }
@@ -354,27 +358,24 @@ body.host .toasts { bottom: 104px; }
   .row-2 { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 480px) {
-  /* phones: the bottom tabs share the width (no sideways scrolling); a label too long for its tab is cut */
-  .nav { gap: 0; padding-inline: 2px; }
-  .nav a { min-width: 0; padding: 6px 1px; font-size: 10.5px; }
-  .nav a > span:not(.badge) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-}
-@media (max-width: 385px) {
-  /* narrower phones (375, 360, 320px): History leaves the tab bar so the other eight labels fit whole;
-     tonight's history stays one tap away under Queue → History, which links to the full page */
-  .nav a.tab-history { display: none; }
-  .history-page-link { display: inline-flex; }
-}
-@media (max-width: 340px) {
-  .nav a { font-size: 9.5px; }
-  :root:not([data-theme="party"]) .nav a .icon { padding-inline: 7px; } /* Studio: the current tab's pill fits its tab */
+/* Phones: a table marked "stack" shows each row as a small card — the "lead" cell and the
+   actions on one line, the other cells (labelled by data-label) wrapped below. */
+@media (max-width: 600px) {
+  .table.stack thead { display: none; }
+  .table.stack tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .table.stack tr::after { content: ''; order: 1; flex-basis: 100%; }
+  .table.stack td { order: 2; border: 0; padding: 0; font-size: 13px; }
+  .table.stack td.lead { order: 0; flex: 1 1 0; min-width: 0; font-size: inherit; }
+  .table.stack td.actions { order: 1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; font-size: inherit; }
+  .table.stack td[colspan] { order: 0; flex-basis: 100%; font-size: inherit; }
+  .table.stack .num { text-align: left; }
+  .table.stack td[data-label]::before { content: attr(data-label) ' '; font-size: 12px; }
 }
 
 .check-row { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink-2); }
 .songbook-form { margin-top: 4px; }
 .versions td.actions { display: flex; gap: 6px; justify-content: flex-end; }
-.preview-output { margin-top: 10px; max-width: 420px; }
+.preview-output { margin-top: 10px; max-width: 420px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .playlist-queue { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 4px 0 16px; }
 .playlist-queue .input { max-width: 320px; }
 .playlist-select { width: auto; min-height: 40px; border-radius: var(--r-pill); }
@@ -393,6 +394,14 @@ body.host .toasts { bottom: 104px; }
 .photo-tile figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; min-width: 0; }
 .photo-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .upload-cover { margin-top: 12px; cursor: pointer; }
+
+/* The live TV preview floats over the page: taps go through it (only its close button takes
+   them), and on phones it sits under the top bar, clear of the player and the tab bar. */
+.tv-preview { pointer-events: none; }
+.tv-preview .icon-btn { pointer-events: auto; }
+@media (max-width: 900px) {
+  .tv-preview { top: 66px; bottom: auto; right: 10px; width: min(300px, 55vw); }
+}
 
 /* ---- settings → appearance: skin cards, each with a sample drawn in that skin's tokens ---------- */
 .skins { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 12px; }

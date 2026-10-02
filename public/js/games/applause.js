@@ -12,6 +12,8 @@ export const icon = '👏';
 export const blurb = 'The TV computer’s microphone measures the cheering.';
 
 const busyPhase = (phase) => phase === 'countdown' || phase === 'measure';
+/** The mic is released at the latest this long after the measuring window (the server waits 1.5 s). */
+const MIC_SPARE_MS = 2500;
 
 // ---- measuring (main TV only) -----------------------------------------------------------
 
@@ -60,19 +62,27 @@ function closeMic(mic) {
  * On the main TV: opens the mic during the countdown, measures during 'measure' (until the
  * server's endsAt), reports levels ~5×/s and the final score, then releases the mic.
  * `onLevel` gets the instant level (~20×/s) for the local gauge.
+ * The mic never outlives the round: it's released when the result is sent, when the link to
+ * the server drops (the last state would otherwise keep it open), and in any case shortly
+ * after the measuring window closes.
  */
 function useMeasurement(game, tv, now, onLevel) {
   const micRef = useRef(null);
   const round = game.round;
-  const active = !!tv?.main && !game.ended && busyPhase(game.phase);
+  const active = !!tv?.main && tv.open !== false && !game.ended && busyPhase(game.phase);
   useEffect(() => {
     if (!active) return undefined;
     const p = openMic();
     micRef.current = p;
     p.catch((e) => tv.send({ event: 'error', round, message: micMessage(e) }));
+    const release = () => p.then(closeMic, () => {});
+    // Server time when this round's measuring window closes (from the countdown: plus the window).
+    const windowEnd = game.endsAt + (game.phase === 'countdown' ? game.seconds * 1000 : 0);
+    const cap = setTimeout(release, Math.max(0, windowEnd - now()) + MIC_SPARE_MS);
     return () => {
+      clearTimeout(cap);
       if (micRef.current === p) micRef.current = null;
-      p.then(closeMic, () => {});
+      release();
     };
   }, [active, round]);
   const measuring = active && game.phase === 'measure';
@@ -107,6 +117,7 @@ function useMeasurement(game, tv, now, onLevel) {
         if (done) {
           stopped = true;
           tv.send({ event: 'result', round, score: scoreLevels(levels) });
+          closeMic(mic); // done listening, whatever the server answers
           return;
         }
         timer = setTimeout(step, 50);
@@ -226,7 +237,7 @@ export function Control({ game, act }) {
       <input class="input" value=${label} maxlength="40" placeholder="Next: who is it for? (optional)" aria-label="Who is the next measurement for"
         onInput=${(e) => setLabel(e.currentTarget.value)} onKeyDown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); measure(); } }} />
       <button class="btn primary" onClick=${measure}>Next measurement</button>
-      ${last && html`<button class="btn" onClick=${() => act('game.action', { action: 'again' })}>Measure ${last.label} again</button>`}
+      ${last && html`<button class="btn ap-again" aria-label=${`Measure ${last.label} again`} title=${`Measure ${last.label} again`} onClick=${() => act('game.action', { action: 'again' })}><span>Measure</span><span class="ellipsis">${last.label}</span><span>again</span></button>`}
     </div>`}
     <${Results} game=${game} act=${act} />
   </div>`;

@@ -334,11 +334,15 @@ function DisplaysSection({ state }) {
   const lan = state.info.lanUrls[0] || state.info.baseUrl;
   return html`
     <div class="setting column">
-      <div class="setting-text"><b>Connected displays</b><p class="hint">The main display plays the music; others are muted mirrors.</p></div>
+      <div class="setting-text"><b>Connected displays</b><p class="hint">The main display plays the music; the others are muted. When the main TV disconnects, another TV page plays until it is back — mirrors and queue boards stay muted.</p></div>
       ${state.displays.length
-        ? html`<div class="folders">${state.displays.map((d) => html`<div class="folder-row">
+        ? html`<div class="folders">${state.displays.map((d) => html`<div class="folder-row display-row">
             <span class=${`dot ${d.display === 'main' ? 'on' : ''}`}></span>
-            <div class="grow"><b>${d.display === 'main' ? 'Main TV — plays the sound' : 'Mirror — muted'}</b><div class="hint">${d.local ? 'On this computer' : `Paired screen at ${d.ip}`}</div></div>
+            <div class="grow">
+              <b>${d.display === 'main' ? 'Main TV — plays the sound' : d.kind === 'board' ? 'Queue board — muted' : 'Mirror — muted'}</b>
+              <div class="hint">${d.local ? 'On this computer' : `Paired screen at ${d.ip}`}${d.standIn ? ' · standing in for the TV that disconnected' : ''}</div>
+            </div>
+            ${d.kind !== 'board' && (d.display !== 'main' || d.standIn) && html`<button class="btn small" onClick=${() => act('display.main', { id: d.id }).then((r) => r && toast('Main display changed', 'ok'))}>${d.standIn ? 'Keep as main' : 'Make main'}</button>`}
           </div>`)}</div>`
         : html`<p class="muted">No display is connected. Use “Open TV” in the player bar.</p>`}
     </div>
@@ -351,7 +355,8 @@ function DisplaysSection({ state }) {
             <div class="grow"><b>Screen at ${p.ip}</b><div class="hint">Asked ${new Date(p.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div></div>
             <button class="btn small primary" onClick=${() => act('display.approve', { id: p.id }).then((r) => r && toast('Screen paired', 'ok'))}>Approve</button>
             <button class="btn small ghost danger" onClick=${() => act('display.deny', { id: p.id })}>Deny</button>
-          </div>`)}</div>`
+          </div>`)}</div>
+          ${state.pairings.length > 1 && html`<div class="btn-row"><button class="btn small ghost danger" onClick=${() => act('display.deny', { all: true })}>Deny all</button></div>`}`
         : html`<p class="muted">None right now.</p>`}
     </div>
     <div class="setting">

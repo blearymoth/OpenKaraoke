@@ -54,6 +54,9 @@ export function formatTempo(r) {
   return `${Math.round(r * 100)}%`;
 }
 
+/** Songs a playlist or a favourites list holds — and so what /api/songs returns in one call. */
+export const MAX_LIST_SONGS = 500;
+
 /** Why a guest's hello was refused, in words a guest understands. */
 export const DENIED_MESSAGES = {
   bad_room: 'This party code does not exist. Scan the QR code on the TV again.',
@@ -86,3 +89,9 @@ export const ANSWER_SHAPES = ['▲', '◆', '●', '■'];
 
 /** Seconds guests have to rate a performance after it ends. */
 export const RATING_SECONDS = 40;
+
+/**
+ * How long the next phase's host controls stay inert after a control moved a game on (PLAN §7):
+ * the second click of a double click lands on the button drawn for the new phase.
+ */
+export const GAME_SETTLE_MS = 600;

@@ -292,15 +292,29 @@ settings subset, game public state) + per-device `me` block.
 ## 7. WebSocket protocol & auth
 
 Endpoint `/ws`. Client first sends
-`{ t:'hello', role:'host'|'tv'|'guest', token?, deviceId, name?, room?, display?:'main'|'mirror' }`.
-Server replies `{ t:'welcome', clientId, role, token?, serverTime, state }` or `{ t:'denied', reason }`.
+`{ t:'hello', role:'host'|'tv'|'guest', token?, deviceId, name?, room?, display?:'main'|'mirror'|'board'|'preview', artSeq?, resume? }`.
+Server replies `{ t:'welcome', clientId, role, token?, serverTime, state, art }` (a TV also gets `display`
+and a secret per-connection `resume` key, kept in memory and sent back when it reconnects) or
+`{ t:'denied', reason }`.
+`art` = `{ seq }` plus the artwork changes after the hello's `artSeq` (`songs`, `artists`), or
+`all: true` when the server can't tell any more (restart, long offline).
 
 Auth rules:
 - **host**: request from this computer (loopback or own IP) when `party.trustLocalhost`, or a
   valid host token (obtained with the PIN via `{ t:'auth.pin', pin }`). If no PIN is set,
   remote host access is refused with a hint to set one on the PC.
 - **tv**: local → allowed. Remote → pairing: display shows a 4-digit code, host approves
-  (`display.approve`) → token issued and stored by the display.
+  (`display.approve`) → token issued and stored by the display. Only waiting codes count towards
+  the limit of 20; one address holds at most two (a new one replaces its oldest); a denied code
+  is dropped after a minute. A hidden `preview` is only for this computer or a host token.
+- **main display** (plays the sound): the first plain `/tv`. When it disconnects, another plain
+  `/tv` stands in and hands the sound back to the next plain `/tv` that connects; mirrors
+  (`display=mirror`), queue boards (`layout=board`) and previews never take it by themselves
+  (playback pauses instead). The host can pick any non-board display (`display.main {id}`).
+  A screen that reconnects while its old socket still looks open (Wi-Fi drop, caught only by
+  the heartbeat) replaces that socket as main display, and stands in only if the old one did:
+  the same page (its `resume` key matches the main display's connection) or the same paired
+  screen (same TV token), asking for the same kind of display.
 - **guest**: `room` must match `party.roomCode`; `deviceId` (random, stored in localStorage) must not be banned.
 - Tokens = HMAC-SHA256(secret, role + ':' + pinVersion + ':' + id), secret in `data/secret.json`.
 
@@ -313,15 +327,43 @@ player.play {entryId?}  player.pause  player.resume  player.next  player.restart
 player.seek {pos}  player.key {semitones}  player.tempo {rate}  player.channel {mode}  player.volume {v}
 singer.add/update/remove/merge     guest.update(me) guest.kick guest.ban guest.cohost
 favorite.toggle {songId}  playlist.save/delete/queue   settings.update {patch}   library.rescan
-announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve/reject
+announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve/reject/rejectWaiting
+duet.answer {entryId, accept}  duet.invites {allow}   (guest: answer / turn off duet invitations)
 game.start {type, config}  game.action {...}  game.answer {...}  game.vote {...}  game.end
-display.approve {code}   tv.status / tv.ended / tv.error / tv.ready   ping {c}
+display.approve {code}  display.deny {id|code|all}  display.main {id}  display.forget
+tv.status / tv.ended / tv.error / tv.ready   ping {c}
 ```
-Server → client: `welcome`, `state`, `time`, `tv`, `res`, `toast`, `notify` (to one device:
-"You're up next!"), `reaction`, `announce`, `game`, `lib` (scan progress), `art` (song ids whose
-art became available), `pong {c, s}`.
+`game.action` may carry the game's `step` (in the host view; it counts phase changes): a control
+drawn for an older step is ignored (`{ stale: true }`), and so is one that arrives within
+`GAME_SETTLE_MS` (600 ms) of a host control that moved the game on — the second click of a double
+click lands on the button the host's screen has meanwhile drawn for the new phase. The host's
+phase buttons stay disabled for that long too, so a double click never skips a phase.
 
-Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min.
+Server → client: `welcome`, `state`, `time`, `tv`, `res`, `toast`, `notify` (to one device:
+"You're up next!"), `reaction`, `announce`, `game`, `lib` (scan progress), `art`
+`{ seq, songs, artists, all? }` (images that became available or changed; guests don't get
+queued mystery songs or their artists until the song is out in the open: it starts, or is queued
+without the mystery; one removed unplayed stays withheld), `pong {c, s}`.
+
+Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min. Photo
+uploads are checked (photos on, named, not banned, rate limit) before their body is read; one
+upload at a time per phone, 2 per address, 8 in all. An upload is cut off after 5 s without
+data or 20 s in all, and when all 8 slots are taken a newcomer replaces the slowest upload that
+is under 64 KB/s after 2 s or still arriving after 8 s (so uploads that stall or trickle can't
+keep guests out: holding every slot would take a new upload, and photo token, per second). At most 5
+photos per phone, 10 per address and 50 in all wait for the host. When the list (or the address's
+share) is full, a new photo replaces the oldest one from the busiest address (its busiest phone)
+if that has more waiting than the sender's address, else from the busiest phone at the sender's
+address if that has more than the sender — so a phone with nothing waiting always gets a place
+and a flood (many guest names, several addresses) pushes out its own photos first. The host can
+turn down every waiting photo at once (`photo.rejectWaiting`). 300 approved/rejected are kept
+(rejected, then the oldest approved, go first — waiting photos never push out approved ones).
+Duet invitations (a guest's `queue.add` with `partners: [singerId]`): the partner is asked
+(`notify` kind `duet`) only once the song is in the queue (after host approval when that is
+on), and every open invitation is in the partner's own state (`me.invites`) so a locked or
+reloaded phone still shows it. One open invitation per inviter → partner, at most 3 waiting
+per partner, 3 per pair and 6 per partner per 10 min, a "no" sticks for that song; a guest can
+turn invitations off (`duet.invites`). Bans, singer removal and the song starting withdraw them.
 
 ## 8. HTTP API
 
@@ -340,7 +382,7 @@ GET  /api/art/artist/:key?type=picture|fanart|logo|cutout
 GET  /media/:trackId/audio     audio (Range) — from file or zip entry
 GET  /media/:trackId/cdg       CDG bytes (gzip when accepted; cache a few in memory)
 GET  /media/:trackId/video     video (Range)
-POST /api/photos               guest photo upload (raw image body ≤ 4 MB, x-device-id header)
+POST /api/photos               guest photo upload (raw image body ≤ 4 MB, x-guest-token header)
 GET  /api/photos/:id           approved photo
 GET  /api/fs/list?path=…       (host only) list sub-folders for the library folder picker
 GET  /api/history?limit        (host only)   GET /api/export/songbook?format=html|csv&…
@@ -427,15 +469,39 @@ Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safar
   `100x100bb` with `600x600bb`; ToS: no caching — off by default), optional **Fanart.tv** (user key).
 - Matching: clean artist (primary credit, drop "(Duet)", "feat …") and title (drop variants,
   "karaoke", brackets). Score candidates with `similarity()` on artist & title (≥ 0.75 & ≥ 0.7),
-  prefer original albums (penalise "karaoke", "tribute", "hits", "cover", "in the style of"),
-  prefer duration within ±15 s. Store confidence.
+  prefer original albums (penalise "karaoke", "tribute", "hits", "cover", "in the style of"
+  unless our own title or artist has that word — "Cover Girls"), prefer duration within ±15 s.
+  Duos credited by surname match ("Hall & Oates" = "Daryl Hall & John Oates"), number words
+  match digits ("Jackson Five"). Store confidence.
+- Artists: the catalog splits credits on "&", "+", "/", commas, so band names fall apart
+  ("Sam & Dave" → Sam, Dave). A performer never credited alone is searched by the act it
+  appears in ("Sam & Dave"), never by the fragment (a namesake's photos); each performer of a
+  featured list ("feat. Pharrell Williams, Katy Perry & Big Sean") is searched by name unless
+  that list leads songs of its own ("with Brooks & Dunn"). The name searched for is stored
+  (`n`, and `pictureFor` for a picture that came with a matched song); art found under an old
+  name is dropped, also when the library changes during a lookup. A fragment in several acts
+  ("Peter": Peter, Paul & Mary / Peter & Gordon) holds the most common act's art, so the TV only
+  shows fanart/logos found for one of the song's own acts. Art found under a performer's own
+  name stands in only when the providers were asked about the act and know nothing ("Elton John"
+  for "Elton John & Kiki Dee"), since that name may be a namesake ("Dave" the rapper and the
+  Dave of "Sam & Dave" are one catalog artist); the two are never mixed. An act never looked up
+  gets no stand-ins (also offline); one looked up long ago keeps them while it is asked again or
+  can't be asked (a refresh starts `tried` over; `asked` keeps the databases that searched for
+  the name before until they answer again, so one backing off changes nothing). When the act's
+  first lookup ends with nothing found, an `artChoice` event (server-internal: no image changed)
+  rebuilds the TV's view.
+  Deezer's "no picture" images (`images/artist//…`, MD5 of "" `d41d8cd9…`) are ignored, and
+  so are version-1 pictures that came with a matched song (no mark; then any performer in the
+  track's credit got it): they are looked up again for the current search name.
 - Cache: `data/art/<sha1(url)>.jpg` (download 250 px for lists, 1000 px for TV on demand),
   metadata in `data/meta.json` keyed by song key: `{ provider, id, cover:{s,m,l}, artistPic,
   genre, year, explicit, rank, album, confidence, fetchedAt }`; misses retried after 30 days.
 - Priorities: current/next entries > songs visible in UIs (on-demand) > background crawl
   (popular first). Per-provider token-bucket limiters, exponential back-off on 429/quota errors.
 - Placeholder: deterministic gradient from `hash32(artist)` with initials, served as SVG.
-- Clients: `<img src="/api/art/song/ID?s=250">`; server pushes `art` events so UIs refresh.
+- Clients: `<img src="/api/art/song/ID?s=250">`; server pushes `art` events so UIs refresh
+  (the event's `seq` becomes `&v=` in the URL). Images and placeholders are sent `no-cache`
+  with an ETag, so a changed cover also reaches pages opened later (a 304 otherwise).
 
 ## 13. Games
 All games are server state machines (`server/games/*.js`) with a public view for TV/phones.

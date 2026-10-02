@@ -4,6 +4,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupRoom, SONGS, MORE_SONGS } from './room-harness.js';
 import { Battle, buildBracket, seedOrder, roundName } from '../server/games/battle.js';
+import { GAME_SETTLE_MS } from '../shared/protocol.js';
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const ALL = [...SONGS, ...MORE_SONGS];
 
@@ -545,4 +548,161 @@ test('battle: controls are phase-checked; unknown actions and guests’ attempts
   await assert.rejects(act('start'), /No game/);
   // The song that was on keeps playing; the party carries on from there.
   assert.ok(ctx.s().current);
+});
+
+test('battle: another song can’t start during a performance — “Play now” and Play are refused, nothing is lost', async () => {
+  const ctx = await party(['Cy'], { playback: { countdown: 0, autoStart: true } });
+  const { act, req, s, room, host, tv } = ctx;
+  await req(host, 'queue.add', { songId: ctx.song('waterloo').id, singerName: 'Queued' });
+  await req(host, 'player.stop');
+  await ctx.start({ contestants: ['Ana', 'Ben'], auto: true });
+  await act('start');
+  const a = s().current;
+  await req(tv, 'tv.ready', { entryId: a.id, dur: 200 });
+  const queued = s().queue[0];
+  await assert.rejects(req(host, 'queue.add', { songId: ctx.song('hello').id, singerName: 'Bo', position: 'now' }), /game is using the TV/);
+  await assert.rejects(req(host, 'player.play', { entryId: queued.id }), /game is using the TV/);
+  room.profileOf(ctx.g.Cy.data.deviceId).coHost = true;
+  await assert.rejects(req(ctx.g.Cy, 'player.play', { entryId: queued.id }), /game is using the TV/, 'a co-host neither');
+  assert.equal(s().current.id, a.id, 'the performance goes on');
+  assert.equal(room.game.perfs[0].status, 'singing');
+  assert.deepEqual(s().queue.map((e) => e.title), ['Waterloo'], 'the queue is untouched');
+  assert.deepEqual(await req(host, 'player.play', { entryId: a.id }), { state: 'playing' }, 'the battle song itself can be resumed');
+  // Safety net: if a non-game song were on when the next performance starts, it goes back to the queue.
+  await req(tv, 'tv.ended', { entryId: a.id });
+  room.game.clearTimers();
+  room.startEntry(s().queue.shift());
+  const host1 = s().current;
+  room.game.autoStart();
+  assert.equal(s().current.source, 'game:battle');
+  assert.equal(s().queue[0].id, host1.id, 'back at the top of the queue, not thrown away');
+  assert.equal(s().tonight.history.filter((h) => h.title === host1.title).length, 0, 'and not in the history as skipped');
+});
+
+test('battle: ended on the deciding result screen → the winner is kept; nobody sang → no winner', async () => {
+  const ctx = await party(['Cy', 'Di']);
+  const { act, req, view, tv, s, g } = ctx;
+  await ctx.start({ contestants: ['Ana', 'Bo'] });
+  await ctx.perform();
+  await ctx.perform();
+  await req(g.Cy, 'game.input', { pick: 'b' });
+  await req(g.Di, 'game.input', { pick: 'b' });
+  await act('close');
+  assert.equal(view(tv).game.phase, 'result');
+  await req(ctx.host, 'game.end'); // "End game" while the TV says "Bo wins!"
+  let v = view(tv).game;
+  assert.equal(v.phase, 'done');
+  assert.equal(v.champion, 1);
+  assert.deepEqual(v.ranking.map((r) => r.c), [1, 0]);
+  assert.deepEqual(s().tonight.games.at(-1).winners, ['Bo']);
+
+  // Best of three, ended at 1–0 on the result screen: not decided yet → no winner.
+  const three = await party(['Cy']);
+  await three.start({ contestants: ['Ana', 'Bo'], rounds: 3 });
+  await three.perform();
+  await three.perform();
+  await three.req(three.g.Cy, 'game.input', { pick: 'a' });
+  await three.act('close');
+  await three.req(three.host, 'game.end');
+  assert.equal(three.view(three.tv).game.champion, -1);
+  assert.equal(three.s().tonight.games.length, 0);
+
+  // A showcase where every performance is skipped: nobody wins.
+  const sc = await party([]);
+  await sc.start({ format: 'showcase', contestants: ['Ana', 'Bo', 'Cy'] });
+  for (let i = 0; i < 3; i++) await sc.act('skip');
+  v = sc.view(sc.tv).game;
+  assert.equal(v.phase, 'final');
+  assert.equal(v.champion, -1);
+  assert.equal(v.finalLot, false);
+  sc.room.game.end();
+  assert.equal(sc.s().tonight.games.length, 0, 'no "Battle winner" in the recap');
+
+  // A duel where both skip: the match is drawn by lot, but nobody is the battle's champion.
+  const duel = await party([]);
+  await duel.start({ contestants: ['Ana', 'Bo'] });
+  await duel.act('skip');
+  await duel.act('skip');
+  assert.equal(duel.view(duel.tv).game.phase, 'result');
+  await duel.act('next');
+  assert.equal(duel.view(duel.tv).game.champion, -1);
+  duel.room.game.end();
+  assert.equal(duel.s().tonight.games.length, 0);
+});
+
+test('battle: a banned guest’s votes stop counting', async () => {
+  const ctx = await party(['Cy', 'Troll', 'Ed']);
+  const { act, req, view, tv, g } = ctx;
+  await ctx.start({ contestants: ['Ana', 'Bo'] });
+  await ctx.perform();
+  await ctx.perform();
+  await req(g.Cy, 'game.input', { pick: 'a' });
+  await req(g.Troll, 'game.input', { pick: 'b' });
+  await req(g.Ed, 'game.input', { pick: 'b' });
+  assert.deepEqual(view(tv).game.match.votes, { a: 1, b: 2 });
+  await req(ctx.host, 'guest.ban', { deviceId: g.Troll.data.deviceId });
+  assert.deepEqual(view(tv).game.match.votes, { a: 1, b: 1 });
+  assert.equal(view(tv).game.match.voters, 2);
+  await act('close');
+  assert.deepEqual(view(tv).game.match.points, { a: 1, b: 1 }, 'a tie without the troll');
+
+  // Score voting: the average leaves the banned guest's score out.
+  const sc = await party(['Cy', 'Troll']);
+  await sc.start({ format: 'showcase', contestants: ['Ana', 'Bo'] });
+  await sc.perform();
+  await sc.req(sc.g.Cy, 'game.input', { score: 8 });
+  await sc.req(sc.g.Troll, 'game.input', { score: 1 });
+  assert.equal(sc.view(sc.host).game.perf.score, 4.5);
+  await sc.req(sc.host, 'guest.ban', { deviceId: sc.g.Troll.data.deviceId });
+  assert.equal(sc.view(sc.host).game.perf.score, 8);
+  assert.equal(sc.view(sc.tv).game.perf.votes, 1);
+});
+
+test('battle: a double click on “Close voting now” or “Continue” never skips the result screen', async () => {
+  const ctx = await party(['Cy']);
+  const { req, view, tv, host } = ctx;
+  await ctx.start({ format: 'knockout', contestants: ['Ana', 'Bo', 'Cy', 'Di'] });
+  const g = ctx.game();
+  let later = 0; // the game's clock runs this far ahead of the real one
+  g.now = () => Date.now() + later;
+  await ctx.perform();
+  await ctx.perform();
+  const press = (action) => req(host, 'game.action', { action, step: view(host).game.step });
+  const twice = async (action) => {
+    const step = view(host).game.step;
+    return Promise.all([0, 1].map(() => req(host, 'game.action', { action, step })));
+  };
+  later += GAME_SETTLE_MS; // the songs take a while
+  // Both clicks sent before the new state arrived: the second names the old step.
+  let [a, b] = await twice('close');
+  assert.equal(b.stale, true);
+  assert.ok(a.winner >= 0);
+  assert.equal(view(tv).game.phase, 'result', 'the result is on the TV');
+  later += GAME_SETTLE_MS;
+  [a, b] = await twice('next');
+  assert.equal(b.stale, true);
+  assert.equal(view(tv).game.phase, 'vs', 'the next match’s intro, not further');
+  // A human double click: the second click lands on the button drawn for the new phase
+  // ("Continue" under "Close voting now"), so it names the new step — ignored for a moment.
+  later += GAME_SETTLE_MS;
+  await ctx.perform();
+  await ctx.perform();
+  later += GAME_SETTLE_MS;
+  a = await press('close');
+  assert.ok(a.winner >= 0);
+  const step = view(host).game.step;
+  assert.equal(step, g.step, 'the host has the result screen’s step');
+  await sleep(100);
+  b = await press('next');
+  assert.equal(b.stale, true, 'the second click of the double click');
+  assert.equal(g.phase, 'result', 'the result stays on the TV');
+  later += GAME_SETTLE_MS; // the host clicks “Continue” once they've seen the result
+  assert.equal((await press('next')).stale, undefined);
+  assert.equal(g.phase, 'vs');
+  // Without a step, "close" outside a vote is refused instead of moving on.
+  await ctx.perform();
+  await ctx.perform();
+  await ctx.act('close');
+  await assert.rejects(ctx.act('close'), /Nothing to move on/);
+  assert.equal(view(tv).game.phase, 'result');
 });

@@ -161,6 +161,21 @@ body.guest {
 
 .toasts { bottom: calc(86px + env(safe-area-inset-bottom)); }
 
+/* Dock: duet invitations and the rating prompt, above the tab bar on every tab. Dock sets
+   --dock-h to its height so the page and the toasts make room for it. */
+.g-dock { position: fixed; left: 0; right: 0; bottom: calc(66px + env(safe-area-inset-bottom)); z-index: 25; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: min(640px, 100%); margin: 0 auto; padding: 0 10px 8px; }
+.g-dock > * { animation: toast-in 0.3s var(--ease); }
+.g-app.has-dock .g-main { padding-bottom: calc(84px + var(--dock-h, 0px) + env(safe-area-inset-bottom)); }
+.g-app.has-dock .toasts { bottom: calc(80px + var(--dock-h, 0px) + env(safe-area-inset-bottom)); }
+.g-dock .invite-card { padding: 12px 14px; gap: 10px; }
+.g-dock .invite-card .big-emoji { font-size: 32px; }
+.g-dock .rate-card { padding: 10px 12px 12px; gap: 8px; }
+.g-dock .rate-stars button { min-height: 44px; font-size: 24px; }
+.rate-head { display: flex; align-items: center; gap: 8px; }
+.rate-head b { display: block; }
+.invite-card .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.load-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; text-align: center; }
+
 /* ---- games & ratings --------------------------------------------------------------- */
 .game-tab .kicker { color: var(--bulb); font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; }
 .g-tabs button:first-child .icon { color: inherit; }

@@ -60,25 +60,29 @@ export function PlayerChip({ p, big }) {
   return html`<span class=${`g-player ${big ? 'big' : ''}`}><span class="avatar" style=${{ '--avatar': singerColor(p.color) }}>${p.emoji || '🎤'}</span><span class="ellipsis">${p.name}</span></span>`;
 }
 
-/** Ranked list: rows [{ name, emoji, color, score, delta? }]. */
+/** Ranked list: rows [{ name, emoji, color, score, delta?, rank? }] (tied rows share a `rank`: 1, 1, 3). */
 export function Leaderboard({ rows, max = 10, highlight }) {
   return html`<ol class="g-leaderboard">${rows.slice(0, max).map((r, i) => html`<li class=${highlight && r.id === highlight ? 'me' : ''} key=${r.id || r.name}>
-    <span class="rank num">${i + 1}</span>
+    <span class="rank num">${r.rank || i + 1}</span>
     <${PlayerChip} p=${r} />
     ${r.delta ? html`<span class="delta num">+${r.delta.toLocaleString()}</span>` : null}
     <b class="score num">${Math.round(r.score).toLocaleString()}</b>
   </li>`)}</ol>`;
 }
 
-/** Top three on a podium (2nd, 1st, 3rd). */
+/** Top three on a podium (2nd, 1st, 3rd). Rows with a `rank` share a step when tied (1, 1, 3). */
 export function Podium({ rows }) {
   const order = [rows[1], rows[0], rows[2]];
-  return html`<div class="g-podium">${order.map((r, i) => r && html`<div class=${`step p${[2, 1, 3][i]}`} key=${r.id || r.name}>
-    <span class="avatar" style=${{ '--avatar': singerColor(r.color) }}>${r.emoji || '🎤'}</span>
-    <b class="ellipsis">${r.name}</b>
-    <span class="num">${Math.round(r.score).toLocaleString()}</span>
-    <div class="block">${[2, 1, 3][i]}</div>
-  </div>`)}</div>`;
+  return html`<div class="g-podium">${order.map((r, i) => {
+    if (!r) return null;
+    const place = Math.min(3, r.rank || [2, 1, 3][i]);
+    return html`<div class=${`step p${place}`} key=${r.id || r.name}>
+      <span class="avatar" style=${{ '--avatar': singerColor(r.color) }}>${r.emoji || '🎤'}</span>
+      <b class="ellipsis">${r.name}</b>
+      <span class="num">${Math.round(r.score).toLocaleString()}</span>
+      <div class="block">${place}</div>
+    </div>`;
+  })}</div>`;
 }
 
 /** Song cover (placeholder while unknown) for game screens. */

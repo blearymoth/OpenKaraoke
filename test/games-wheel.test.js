@@ -11,6 +11,7 @@ import {
   DEFAULT_DARES, MAX_DARES, MAX_DARE_LENGTH, SPIN_SECONDS, WHEEL_COLORS,
   landingRotation, segmentAt, rotationAt, spinEase, segmentColor,
 } from '../shared/wheel.js';
+import { GAME_SETTLE_MS } from '../shared/protocol.js';
 
 const ALL = [...SONGS, ...MORE_SONGS];
 // Most tests need no more than one song (each harness song is a 1.4 MB file on disk).
@@ -192,6 +193,43 @@ test('wheel: singer segments — tonight’s singers plus guests on their phones
   for (const name of ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8']) await req(host, 'singer.add', { name });
   await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', count: 6 } });
   assert.equal(room.game.segments.length, 6);
+});
+
+test('wheel: a guest who calls themself Everyone is on the wheel — the sing-along singer is not', async () => {
+  const { req, host, guest, room, leave } = await party();
+  await req(host, 'singer.add', { name: 'Everyone' }); // the sing-along singer (flagged)
+  room.createSinger({ name: 'everyone' }); // a phone-less one made before the flag existed
+  const ana = await guest('Ana');
+  await req(host, 'singer.add', { name: 'Zed' });
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', who: 'all' } });
+  assert.deepEqual(room.game.segments.map((x) => x.label).sort(), ['Ana', 'Zed'], 'no sing-along on the wheel');
+  await req(host, 'game.close');
+
+  const eve = await guest('Everyone');
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', who: 'online' } });
+  assert.deepEqual(room.game.segments.map((x) => x.label).sort(), ['Ana', 'Everyone']);
+  assert.equal(room.game.segments.find((x) => x.label === 'Everyone').people[0].deviceId, eve.data.deviceId, 'the guest, not the sing-along');
+  await req(host, 'game.close');
+
+  // "Everyone singing tonight": her singer (made when she requests a song) counts once.
+  await req(eve, 'queue.add', { songId: room.catalog.songList[0].id });
+  const mine = room.s.singers.find((x) => x.deviceId === eve.data.deviceId);
+  assert.ok(mine && !mine.singAlong);
+  leave(eve); // gone for now, but she was here tonight
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', who: 'all' } });
+  const segs = room.game.segments;
+  assert.deepEqual(segs.map((x) => x.label).sort(), ['Ana', 'Everyone', 'Zed']);
+  assert.equal(segs.find((x) => x.label === 'Everyone').people[0].singerId, mine.id);
+  await req(host, 'game.close');
+
+  // Three people with a phone make duet pairs (she counts as one of them).
+  await guest('Everyone');
+  await guest('Ben');
+  leave(ana);
+  await guest('Cy');
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'duets', who: 'online', count: 12 } });
+  const names = new Set(room.game.segments.flatMap((x) => x.people.map((p) => p.name)));
+  assert.deepEqual([...names].sort(), ['Ben', 'Cy', 'Everyone']);
 });
 
 test('wheel: dare segments are a random pick of the host’s list', async () => {
@@ -508,7 +546,7 @@ test('wheel: ending mid-spin never reveals the drawn result; summary for the rec
   assert.ok(!JSON.stringify(view(host).game).includes('"index"'));
   const rec = s().tonight.games.at(-1);
   assert.equal(rec.type, 'wheel');
-  assert.match(rec.title, /Roulette wheel/);
+  assert.equal(rec.title, 'Singers drawn', 'the recap adds the game’s name itself (no “Roulette wheel · Roulette wheel”)');
   assert.deepEqual(rec.winners, [first]);
   assert.deepEqual(rec.results, [first]);
   await req(host, 'game.close');
@@ -530,4 +568,93 @@ test('wheel: after the game the queue carries on (auto-start resumes)', async ()
   assert.equal(room.game.phase, 'done');
   assert.ok(s().current, 'the wheel’s song starts once the game is over');
   assert.equal(s().current.source, 'game:wheel');
+});
+
+test('wheel: a buzz only counts phones that are connected right now', async () => {
+  const { req, host, guest, room, view, leave, connect } = await party();
+  const ana = await guest('Ana');
+  await guest('Ben');
+  leave(ana); // Ana went home (her singer and profile stay)
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers' } });
+  const g = room.game;
+  assert.ok(g.segments.some((x) => x.label === 'Ana'), 'she was here tonight: still on the wheel');
+  await req(host, 'game.action', { action: 'spin' });
+  g.spin.index = g.segments.findIndex((x) => x.label === 'Ana');
+  const before = ana.inbox.length;
+  land(room);
+  assert.equal(ana.inbox.length, before);
+  assert.equal(view(host).game.result.notified, 0, 'the host sees “No phone connected”');
+  await assert.rejects(req(host, 'game.action', { action: 'buzz' }), /No.*phone/);
+  // Back on her phone: "Buzz again" reaches her.
+  const back = await connect('guest', { token: ana.welcome.token });
+  assert.deepEqual(await req(host, 'game.action', { action: 'buzz' }), { notified: 1 });
+  assert.equal(back.inbox.filter((m) => m.t === 'notify' && m.kind === 'game').length, 1);
+  assert.equal(view(host).game.result.notified, 1);
+});
+
+test('wheel: “everyone singing tonight” leaves out singers from earlier parties', async () => {
+  const { req, host, guest, room, leave, connect } = await party();
+  await req(host, 'singer.add', { name: 'LastMonthLucy' });
+  const otto = await guest('OldGuestOtto');
+  await req(otto, 'queue.add', { songId: room.catalog.songList[0].id });
+  await req(host, 'queue.clear');
+  leave(otto);
+  await req(host, 'singer.add', { name: 'Zed' });
+  await new Promise((r) => setTimeout(r, 5));
+  await req(host, 'party.new');
+  await guest('Ana');
+  await guest('Ben');
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', count: 12 } });
+  assert.deepEqual(room.game.segments.map((x) => x.label).sort(), ['Ana', 'Ben']);
+  await req(host, 'game.close');
+  // Tonight's people without a phone: re-added by the host, or with a song in the queue.
+  await req(host, 'singer.add', { name: 'zed' });
+  await req(host, 'queue.add', { songId: room.catalog.songList[0].id, singerName: 'LastMonthLucy' });
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', count: 12 } });
+  assert.deepEqual(room.game.segments.map((x) => x.label).sort(), ['Ana', 'Ben', 'LastMonthLucy', 'Zed']);
+  await req(host, 'game.close');
+  // Otto drops by tonight with his phone (and leaves again): he's part of tonight.
+  leave(await connect('guest', { token: otto.welcome.token }));
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'duets', count: 12 } });
+  const people = new Set(room.game.segments.flatMap((x) => x.people.map((p) => p.name)));
+  assert.deepEqual([...people].sort(), ['Ana', 'Ben', 'LastMonthLucy', 'OldGuestOtto', 'Zed']);
+});
+
+test('wheel: a double click on a spin button spins once (and never takes a newer result off the wheel)', async () => {
+  const { req, host, room, view } = await party();
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'dares', count: 6 } });
+  const g = room.game;
+  let later = 0; // the game's clock: the wheel turns for a few seconds before it lands
+  g.now = () => Date.now() + later;
+  const landed = () => {
+    land(room);
+    later += GAME_SETTLE_MS;
+  };
+  let step = view(host).game.step;
+  const [a, b] = await Promise.all([0, 1].map(() => req(host, 'game.action', { action: 'spin', step })));
+  assert.equal(a.seq, 1);
+  assert.equal(b.stale, true);
+  assert.equal(g.seq, 1);
+  landed();
+  step = view(host).game.step;
+  const shown = g.result.seg.label;
+  await req(host, 'game.action', { action: 'spin', remove: true, step });
+  landed();
+  // The second click of "Spin again without …" arrives late (drawn for the old result).
+  assert.equal((await req(host, 'game.action', { action: 'spin', remove: true, step })).stale, true);
+  assert.equal(g.segments.length, 5, 'only the shown result was taken off');
+  assert.ok(!g.segments.some((x) => x.label === shown));
+});
+
+test('wheel: guests whose name is only emoji are on the wheel (and paired) like everyone else', async () => {
+  const { req, host, guest, room } = await party();
+  await guest('Ana');
+  await guest('🦄🦄');
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'singers', who: 'online' } });
+  assert.deepEqual(room.game.segments.map((x) => x.label).sort(), ['Ana', '🦄🦄'].sort());
+  await req(host, 'game.close');
+  await guest('🎸');
+  await req(host, 'game.start', { type: 'wheel', config: { kind: 'duets', who: 'online', count: 12 } });
+  const pairs = room.game.segments.map((x) => x.people.map((p) => p.name).sort().join(' & ')).sort();
+  assert.deepEqual(pairs, ['Ana & 🎸', 'Ana & 🦄🦄', '🎸 & 🦄🦄'].map((p) => p.split(' & ').sort().join(' & ')).sort());
 });

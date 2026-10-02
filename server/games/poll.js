@@ -23,13 +23,15 @@ export class Poll extends Game {
   start() {
     const c = this.config;
     const room = this.room;
-    const picked = c.songIds.map((id) => this.catalog.song(id));
+    const noExplicit = !!this.settings.get('queue.explicitFilter');
+    // (With the explicit filter on, a song the host picked must have a clean version to be queued.)
+    const picked = c.songIds.map((id) => this.catalog.song(id)).filter((s) => !noExplicit || room.pickTrack(s, { noExplicit }));
     const exclude = new Set([...picked.map((s) => s.id), ...room.s.tonight.sung, ...room.s.queue.map((e) => e.songId)]);
     const filter = { exclude, minDuration: 20, maxDuration: 480 }; // no jingles, no 10-minute epics
     if (c.tag) filter.tag = c.tag;
     if (c.genre) filter.genre = c.genre;
     if (c.decade) filter.decade = c.decade;
-    if (this.settings.get('queue.explicitFilter')) filter.noExplicit = true;
+    if (noExplicit) filter.noExplicit = true;
     const more = this.catalog.random(4 - picked.length, filter);
     this.candidates = [...picked, ...more].slice(0, 4).map((s) => ({ songId: s.id, title: s.title, artist: s.artist }));
     if (this.candidates.length < 2) fail('Not enough songs for a poll — try it without filters.', 'empty');
@@ -49,14 +51,15 @@ export class Poll extends Game {
   }
 
   action(client, m) {
-    if (m.action === 'close' && this.phase === 'vote') return this.close();
+    if (m.action === 'close') return this.phase === 'vote' ? this.close() : { winner: this.winner }; // (closed already)
     if (m.action === 'end') return this.end();
     return fail('Unknown poll control.');
   }
 
+  /** Votes per candidate (banned guests' votes don't count). */
   counts() {
     const counts = this.candidates.map(() => 0);
-    for (const i of this.votes.values()) counts[i]++;
+    for (const i of this.liveVotes(this.votes)) counts[i]++;
     return counts;
   }
 
@@ -84,9 +87,11 @@ export class Poll extends Game {
     const counts = this.counts();
     v.seconds = this.config.seconds;
     v.candidates = this.candidates.map((c, i) => ({ ...c, votes: counts[i] }));
-    v.total = this.votes.size;
-    v.winner = this.phase === 'vote' ? -1 : this.winner;
+    v.total = counts.reduce((a, b) => a + b, 0);
+    v.winner = this.phase === 'vote' ? -1 : this.winner; // still -1 when the host ended the poll during the vote
     v.tie = !!this.tie;
+    v.singer = this.config.singer; // 'everyone' (a sing-along) or 'nobody' (the host picks)
+    v.queued = !!this.queuedEntryId; // the winner really is in the queue
     if (ctx.role === 'guest') v.myVote = this.votes.has(ctx.deviceId) ? this.votes.get(ctx.deviceId) : -1;
     if (ctx.role === 'host') v.queueError = this.queueError || null;
     return v;

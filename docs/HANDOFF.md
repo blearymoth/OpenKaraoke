@@ -71,12 +71,17 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
   approves it (Photos page; approval can be turned off), the TV flashes it and can use the
   photos as its background slideshow.
 - **Remote display pairing**: a `/tv` on another machine shows a code; the host approves it
-  (Settings → Displays lists them and can forget them all, which revokes their tokens).
+  (Settings → Displays lists them and can forget them all, which revokes their tokens). The
+  same page shows which screen plays the sound and lets the host make another one the main
+  display; queue boards and mirrors never take the sound by themselves.
 - **Live TV preview** in the host player bar (a muted mini mirror).
 - **Preview on headphones**: play a song on the host computer's second audio output.
 - **Printable songbook** (Settings → Library: HTML to print to PDF, or CSV; letter/tag/genre/
   decade/popular filters) — `server/http/songbook.js`.
-- **systemd user service**: `bin/install-service.sh` (`--status`, `--uninstall`).
+- **systemd user service**: `bin/install-service.sh` (`--status`, `--uninstall`). `--library`
+  and `--pin` are saved in the settings once (Settings can change them later); `--port`,
+  `--host`, `--data` go in the unit. Running it again restarts the service with the new options;
+  it refuses while another copy holds the port. A taken port exits with 78 (not retried).
 - **Playlists** (host), **duet invitations** (a guest invites a partner, who accepts on their
   phone; the host picks partners directly), **co-hosts** (the host gives a guest the player and
   queue controls), **"In queue" / "Sung tonight" marks** and **"Most sung here"**, **queue board**
@@ -119,8 +124,10 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
    the toast). Firewall on Fedora: `sudo firewall-cmd --add-port=8080/tcp` (+ `--permanent`).
 8. **Second TV / laptop**: open `http://<PC address>:8080/tv` on it → a pairing code appears →
    approve it in the host. Check it mirrors without sound.
-9. **Preview on headphones**: in the song dialog pick the headphone output (Chrome shows the
-   device list once it may use audio devices).
+9. **Preview on headphones**: in the song dialog click "Choose headphones…" and pick the
+   headphone output (Chrome names the outputs once the page may use the microphone). On a PC
+   without a microphone, check the note's route: site settings → Microphone: Allow, after which
+   the outputs appear. Never move the system's default output instead — the TV plays on it.
 10. **Service**: `bin/install-service.sh --library "/run/media/ruutu/SMILE-2/<folder>"`, reboot
     or log out/in, check `bin/install-service.sh --status`.
 11. Print the songbook (Settings → Library → Songbook) to PDF once to see page breaks.
@@ -227,6 +234,8 @@ owner's PC or drive). Everything is pushed to GitHub `main`._
 - Years come from Deezer album release dates (a compilation or remaster can show a later year).
 - Video karaoke (MP4/WEBM) is implemented through element mode but untested with real files.
 - Phone vibration only works on Android; iPhones get the toast/card only.
+- "Preview on headphones" (Song details → Choose headphones…) needs the browser's
+  permission once (Chrome: microphone, to name the outputs); check it on the party PC.
 - `catalog.js` heap ~200–400 MB while building 90k tracks (unchanged).
 - Rotation edge case: after Stop re-queues a song of someone who already sang, a newcomer
   can be placed before an earlier newcomer (manual reordering fixes it).

@@ -7,7 +7,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
-import { loadPlaywright, startParty, check, results, sleep } from './lib.mjs';
+import { loadPlaywright, startParty, check, results, sleep, doubleClick } from './lib.mjs';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
 const out = path.resolve(process.argv[2] || 'test-results/e2e-quiz');
@@ -124,11 +124,24 @@ try {
   // ---- five questions ----
   for (let i = 0; i < 5; i++) {
     const q = g.questions[i];
+    let dbl = '';
+    if (i === 1) {
+      // The host double-clicks "Start the question now" (once the TV had a moment to load the
+      // clip). By the second click the button reads "Close the question": the question still
+      // opens with the TV's clip, and stays open.
+      await until(() => g.qi === 1 && g.phase === 'get-ready', 12000);
+      await sleep(800);
+      dbl = await doubleClick(host, '.game-live .btn:has-text("Start the question now")');
+    }
     await tv.waitForSelector('.qz-question', { timeout: 10000 });
     const opened = await until(() => g.qi === i && g.opened, 6000);
     const clipEvent = tvEvents.find((e) => e.q === i && e.event === 'clip');
     const delay = clipEvent && askedAt[i] ? clipEvent.at - askedAt[i] : -1;
     check(opened && !!clipEvent && !clipEvent.opened && delay >= 0 && delay < 3000, `Q${i + 1} (${q.type}): the TV started the ${q.clip.kind} and reported it ${delay} ms after the question appeared`);
+    if (dbl) {
+      await sleep(700);
+      check(g.qi === 1 && g.phase === 'question' && g.opened && /disabled/.test(dbl), `Q2: a double click on "Start the question now" starts it once (the second click hit ${dbl})`);
+    }
     if (q.type === 'lyrics') {
       const colours = await tv.$eval('.qz-lyrics canvas', (c) => {
         const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
@@ -166,13 +179,23 @@ try {
       await until(async () => (level = Math.max(level, (await engineState()).level)) > 0.01, 2000);
       check(level > 0.01, `Q${i + 1}: the clip is audible (level ${level.toFixed(3)})`);
     }
-    await bob.click(`.qz-pad .g-answer >> nth=${(q.answer + 1) % 4}`);
-    // Everyone answered → the question closes early.
-    await tv.waitForSelector('.qz-reveal', { timeout: 5000 });
-    const after = Date.now() - g.openedAt;
-    check(after < 7000, `Q${i + 1}: closed early once both phones answered (${(after / 1000).toFixed(1)} s of 10)`);
-    await ann.waitForSelector('.qz-verdict.right');
-    await bob.waitForSelector('.qz-verdict.wrong');
+    if (i === 3) {
+      // Bob doesn't answer; the host double-clicks "Close the question": the reveal stays up.
+      const under = await doubleClick(host, '.game-live .btn:has-text("Close the question")');
+      await tv.waitForSelector('.qz-reveal', { timeout: 5000 });
+      await sleep(700);
+      check(g.phase === 'reveal' && g.qi === 3 && !!(await tv.$('.qz-reveal')), `Q4: a double click on "Close the question" shows the answer (doesn’t skip it; the second click hit ${under})`);
+      await ann.waitForSelector('.qz-verdict.right');
+      await bob.waitForSelector('.qz-verdict.wrong:has-text("Too slow")');
+    } else {
+      await bob.click(`.qz-pad .g-answer >> nth=${(q.answer + 1) % 4}`);
+      // Everyone answered → the question closes early.
+      await tv.waitForSelector('.qz-reveal', { timeout: 5000 });
+      const after = Date.now() - g.openedAt;
+      check(after < 7000, `Q${i + 1}: closed early once both phones answered (${(after / 1000).toFixed(1)} s of 10)`);
+      await ann.waitForSelector('.qz-verdict.right');
+      await bob.waitForSelector('.qz-verdict.wrong');
+    }
     if (q.clip.reveal) {
       const ok = await until(async () => {
         const e = await engineState();
@@ -214,10 +237,32 @@ try {
   await shot(tv, 'tv-final');
   await shot(ann, 'ann-final');
   await shot(host, 'host-quiz-final');
+  // A tie at the top: both share the crown on the TV, the phones and in the recap.
+  const players = room().game.players;
+  const idOf = (name) => Object.keys(room().s.profiles).find((id) => room().s.profiles[id].name === name);
+  players.get(idOf('Bob')).score = players.get(idOf('Ann')).score;
+  room().markDirty();
+  check(await tv.waitForSelector('.qz-final h1:has-text("Ann & Bob share the crown")', { timeout: 5000 }).then(() => true, () => false), 'TV: a tie shares the crown');
+  check(await bob.waitForSelector('text=You share the win', { timeout: 5000 }).then(() => true, () => false), 'Bob: "You share the win!"');
+  check(/You share the win/.test(await ann.textContent('.g-guest.quiz')), 'Ann: "You share the win!"');
+  check((await bob.$$eval('.g-leaderboard .rank', (l) => l.map((x) => x.textContent))).join() === '1,1', 'phones: both are listed 1st');
+  await sleep(500);
+  await shot(tv, 'tv-final-tie');
+  await shot(bob, 'bob-final-tie');
+  // Nobody scored: nobody is crowned, and there's no podium of zeros.
+  const scores = [...players.values()].map((p) => p.score);
+  for (const p of players.values()) p.score = 0;
+  room().markDirty();
+  const nobody = await tv.waitForSelector('.qz-final h1:has-text("Nobody scored")', { timeout: 5000 }).then(() => true, () => false);
+  check(nobody && !(await tv.$('.qz-final .g-podium')) && /Not a single right answer/.test(await tv.textContent('.qz-final')), 'TV: nobody scored — no podium');
+  await shot(tv, 'tv-final-nobody');
+  [...players.values()].forEach((p, i) => { p.score = scores[i]; });
+  room().markDirty();
+  await tv.waitForSelector('.qz-final .g-podium');
   await host.click('.game-live .btn:has-text("Finish")');
   await host.waitForSelector('.game-live .btn:has-text("Close")', { timeout: 5000 });
   const recap = room().s.tonight.games.at(-1);
-  check(recap?.type === 'quiz' && recap.winners?.[0] === 'Ann', 'the champion goes into the party recap');
+  check(recap?.type === 'quiz' && recap.winners?.join() === 'Ann,Bob', 'the (tied) champions go into the party recap');
   await host.click('.game-live .btn:has-text("Close")');
   check(await tv.waitForSelector('.lobby', { timeout: 10000 }).then(() => true, () => false), 'after the quiz the TV goes back to the lobby');
   await sleep(1200);

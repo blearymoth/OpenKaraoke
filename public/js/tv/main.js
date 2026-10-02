@@ -1,7 +1,7 @@
 // TV display app (/tv): lobby with join QR, next-singer intro, lyrics with overlays.
-import { html, render, useEffect, useRef, useState } from '../vendor/preact.js';
+import { html, render, useEffect, useLayoutEffect, useRef, useState } from '../vendor/preact.js';
 import { Connection } from '../lib/ws-client.js';
-import { createStore, useStore, useTick, useInterval, singersText, formatEta, artUrl, artistArtUrl, artStore, noteArt } from '../lib/store.js';
+import { createStore, useStore, useTick, useInterval, singersText, formatEta, artUrl, artistArtUrl, artStore, noteArt, lastArtSeq } from '../lib/store.js';
 import { Icon } from '../lib/icons.js';
 import { TvController } from './controller.js';
 import { GAME_UI } from '../games/index.js';
@@ -14,16 +14,25 @@ const store = createStore({ status: 'connecting', state: null, display: 'main', 
 
 const preview = params.get('display') === 'preview'; // the host's small live preview
 const board = params.get('layout') === 'board'; // a queue board for a second screen (muted)
+const muted = preview || board; // never plays sound, whatever the server says
 if (board) document.body.classList.add('board-layout');
 if (preview) document.body.classList.add('preview');
+// The key the server gave this page's last connection: reconnecting with it after a Wi-Fi drop
+// (while the server still holds the dead connection) keeps this screen the main display.
+// In memory only, so another tab or window never passes for this one.
+let resume;
 const conn = new Connection({
   hello: () => ({
     role: 'tv',
-    display: preview ? 'preview' : board || params.get('display') === 'mirror' ? 'mirror' : undefined,
+    display: preview ? 'preview' : board ? 'board' : params.get('display') === 'mirror' ? 'mirror' : undefined,
     token: localStorage.getItem('ok.tvToken') || undefined, // a screen paired by the host
     hostToken: preview ? localStorage.getItem('ok.hostToken') || undefined : undefined,
+    artSeq: lastArtSeq(),
+    resume,
   }),
 });
+/** This screen's role: what the server says, but a board or a preview is always a muted mirror. */
+const roleOf = (display) => (muted ? 'mirror' : display);
 const now = () => conn.serverNow();
 const controller = new TvController({
   conn,
@@ -34,14 +43,19 @@ const controller = new TvController({
 
 conn.on('welcome', (m) => {
   applyAppearance(m.state.appearance);
-  store.update({ state: m.state, display: m.display, denied: null });
-  controller.setDisplay(m.display);
+  noteArt(m.art);
+  resume = typeof m.resume === 'string' ? m.resume : undefined;
+  store.update({ state: m.state, display: roleOf(m.display), denied: null });
+  controller.setDisplay(roleOf(m.display));
   controller.apply(m.state);
   controller.onWelcome();
   applyBreak(m.state);
 });
-const breakPlayer = new BreakPlayer({ onEnded: (id) => conn.request('tv.break', { id }).catch(() => {}) });
-const applyBreak = (st) => breakPlayer.apply(st?.breakMusic || null, { main: store.get().display === 'main' && !preview, unlocked: controller.unlocked, master: st?.player?.volume ?? 1 });
+const breakPlayer = new BreakPlayer({ onEnded: (id, { pick, error = false } = {}) => conn.request('tv.break', { id, pick, error }).catch(() => {}) });
+const applyBreak = (st) => {
+  const s = store.get();
+  breakPlayer.apply(st?.breakMusic || null, { main: s.display === 'main' && !s.denied && !preview, unlocked: controller.unlocked, master: st?.player?.volume ?? 1 });
+};
 
 conn.on('state', (m) => {
   applyAppearance(m.state.appearance);
@@ -50,12 +64,20 @@ conn.on('state', (m) => {
   applyBreak(m.state);
 });
 conn.on('display', (m) => {
-  store.update({ display: m.display });
-  controller.setDisplay(m.display);
+  store.update({ display: roleOf(m.display) });
+  controller.setDisplay(roleOf(m.display));
+  applyBreak(store.get().state);
 });
 conn.on('time', (m) => controller.onTime(m));
 conn.on('status', (status) => store.update({ status }));
-conn.on('denied', (m) => store.update({ denied: m.reason }));
+conn.on('denied', (m) => {
+  // Refused (e.g. the host forgot paired screens): nothing will tell this screen to stop
+  // later, so go quiet now. A later welcome reloads the song where the party is.
+  store.update({ denied: m.reason });
+  controller.stop();
+  applyBreak(null);
+  conn.outbox.length = 0; // reports about a song this screen no longer plays
+});
 conn.on('reaction', (m) => addReaction(m));
 conn.on('art', (m) => noteArt(m));
 controller.addEventListener('change', () => {
@@ -235,13 +257,15 @@ function Mosaic({ ids }) {
 function App() {
   const s = useStore(store);
   const st = s.state;
+  // The host's preview never asks to be paired: it signs in with the host's own token.
+  if (s.denied && preview) return html`<${Refused} title="No preview" text="Sign in to the host again to see the TV here." />`;
   if (s.denied === 'pairing_required') return html`<${Pairing} />`;
   if (s.denied) return html`<${Refused} reason=${s.denied} />`;
   if (!st) return html`<div class="denied"><div class="spinner"></div><p>Connecting to OpenKaraoke…</p></div>`;
   const p = st.player;
   const game = st.game;
   const gameUi = game && GAME_UI[game.type];
-  const tv = { conn, controller, main: s.display === 'main', send: (m) => conn.request('tv.game', m).catch(() => null) };
+  const tv = { conn, controller, main: s.display === 'main', open: s.status === 'open', send: (m) => conn.request('tv.game', m).catch(() => null) };
   // An exclusive game owns the TV; its results stay up until the next song starts. A game that
   // sings songs itself (`showSongs`: battle) lets the karaoke scene show while its song is on.
   const gameScene = !!(game?.exclusive && gameUi?.Tv && (!game.ended || !st.current) && !(game.showSongs && st.current));
@@ -259,16 +283,16 @@ function App() {
     ${st.announcement && html`<div class="announce" key=${st.announcement.id}><div>${st.announcement.text}</div></div>`}
     <div class="reactions">${s.reactions.map((r) => html`<div class="reaction" key=${r.id} style=${{ left: `${r.x}%`, '--dx': r.dx }}><b>${r.emoji}</b>${r.name && html`<span>${r.name}</span>`}</div>`)}</div>
     ${s.status !== 'open' && html`<div class="conn-lost">Reconnecting to the server…</div>`}
-    ${s.display === 'mirror' && !preview && !board && html`<div class="mirror-badge">Mirror display (muted)</div>`}
+    ${s.display === 'mirror' && !muted && html`<div class="mirror-badge">Mirror display (muted)</div>`}
     ${s.toast && html`<div class="conn-lost" style="background:var(--stage-3);color:var(--ink)">${s.toast}</div>`}
     ${s.help && html`<${Help} />`}
-    ${!s.unlocked && s.display === 'main' && !preview && html`<${StartOverlay} />`}
+    ${!s.unlocked && s.display === 'main' && html`<${StartOverlay} />`}
   `;
 }
 
-function Refused({ reason }) {
+function Refused({ reason, title = 'This screen can\'t join', text = DENIED_MESSAGES[reason] || reason }) {
   useEffect(() => followAppearance(), []); // no party state here to carry a skin switch
-  return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>This screen can't join</h2><p>${DENIED_MESSAGES[reason] || reason}</p></div>`;
+  return html`<div class="denied"><div style="font-size:12vh">📺</div><h2>${title}</h2><p>${text}</p></div>`;
 }
 
 function StartOverlay() {
@@ -429,25 +453,60 @@ function Intro({ st }) {
   const circ = 2 * Math.PI * 44;
   const cover = cur.art?.cover && !cur.mystery;
   const logo = cur.art?.logo && !cur.mystery;
-  const counting = p.state === 'intro' && left > 0;
-  return html`<div class=${`scene intro fade-in ${counting ? 'counting' : ''}`} key=${cur.id}>
+  const avatar = html`<div class="avatar-big" style=${{ '--c': singerColor(singer?.color) }}>${singer?.emoji || '🎤'}</div>`;
+  const song = html`<div class="song"><b>${cur.title}</b> by ${cur.artist}${cur.year && !cur.mystery ? html` <span class="year">(${cur.year})</span>` : ''}</div>`;
+  const name = html`<${BigName} text=${singersText(cur.singers) || 'Grab the mic!'} theme=${st.appearance?.theme} />`;
+  // The name gets a row of its own across the card. With artwork, the cover (or the singer)
+  // sits beside the song line and the logo, so everything still fits on the screen with the
+  // countdown and key/tempo chips.
+  return html`<div class="scene intro fade-in" key=${cur.id}>
     <div class="kicker">${cur.mystery ? 'Mystery song!' : 'Next singer'}</div>
-    ${cover
-      ? html`<div class="intro-art"><img class="intro-cover" src=${artUrl(cur.songId, 500)} alt="" /><div class="avatar-big" style=${{ '--c': singerColor(singer?.color) }}>${singer?.emoji || '🎤'}</div></div>`
-      : html`<div class="intro-art solo"><div class="avatar-big" style=${{ '--c': singerColor(singer?.color) }}>${singer?.emoji || '🎤'}</div></div>`}
-    <div class="name display">${singersText(cur.singers) || 'Grab the mic!'}</div>
-    <div class="song"><b>${cur.title}</b> by ${cur.artist}${cur.year && !cur.mystery ? html` <span class="year">(${cur.year})</span>` : ''}</div>
-    ${logo && html`<img class="artist-logo" src=${artistArtUrl(cur.art.logo, 'logo', { size: 500 })} alt="" />`}
+    ${cover || logo
+      ? html`${name}
+        <div class="intro-main">
+          ${cover ? html`<div class="intro-art"><img class="intro-cover" src=${artUrl(cur.songId, 500)} alt="" />${avatar}</div>` : avatar}
+          <div class="intro-text">
+            ${song}
+            ${logo && html`<img class="artist-logo" src=${artistArtUrl(cur.art.logo, 'logo', { size: 500 })} alt="" />`}
+          </div>
+        </div>`
+      : html`${avatar}${name}${song}`}
     ${(p.key !== 0 || p.tempo !== 1) && html`<div class="meta">
       ${p.key !== 0 && html`<span class="chip">Key ${formatKey(p.key)}</span>`}
       ${p.tempo !== 1 && html`<span class="chip">Tempo ${formatTempo(p.tempo)}</span>`}
     </div>`}
-    ${counting && html`<div class=${`countdown ${left > 99 ? 'wide' : ''}`}>
+    ${p.state === 'intro' && left > 0 && html`<div class=${`countdown ${left > 99 ? 'wide' : ''}`}>
       <svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44" /><circle class="arc" cx="50" cy="50" r="44" stroke-dasharray=${circ} stroke-dashoffset=${circ * (1 - frac)} /></svg>
       <b>${left}</b>
     </div>`}
     <div class=${`status ${warn ? 'warn' : ''}`}>${status}</div>
   </div>`;
+}
+
+/**
+ * The singer's name on the intro card: a long one (a duet) gets smaller to fit on its line. The
+ * skin's display font sets its width, so a skin switch fits it again.
+ */
+function BigName({ text, theme }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const fit = () => {
+      el.style.removeProperty('--fit');
+      // Down to half the full size; a name longer than that ends in "…". The text doesn't get
+      // narrower in exact proportion to its size, hence a second look.
+      let f = 1;
+      for (let i = 0; i < 3 && f > 0.5 && el.scrollWidth > el.clientWidth; i++) {
+        f = Math.max(0.5, Math.floor(f * 98 * el.clientWidth / el.scrollWidth) / 100);
+        el.style.setProperty('--fit', f);
+      }
+    };
+    fit();
+    document.fonts?.ready.then(fit); // the display font may arrive after the first layout
+    addEventListener('resize', fit);
+    return () => removeEventListener('resize', fit);
+  }, [text, theme]);
+  return html`<div class="name display" ref=${ref}>${text}</div>`;
 }
 
 function Singing({ st }) {

@@ -203,3 +203,152 @@ test('ratings: skipped songs and ratings turned off open no rating window', asyn
   room.finish('ended');
   assert.equal(room.rating, null);
 });
+
+test('games queue a clean version when the explicit filter is on (poll winner, wheel, autoplay)', async () => {
+  const { req, connect, guest, room, s, song, app } = await setupRoom({ queue: { explicitFilter: true }, library: { brandPriority: ['SF'] } });
+  const host = await connect('host');
+  const ana = await guest('Ana');
+  const cat = app.library.catalog;
+  const explicit = (e) => !!cat.track(e.trackId).p?.flags?.explicit;
+  const rapture = song('rapture'); // an explicit SF version (the preferred brand) and a clean SC one
+  assert.equal(cat.isExplicit(rapture), false, 'the song has a clean version');
+  assert.equal(explicit({ trackId: room.pickTrack(rapture).id }), true, 'without the filter the SF version wins');
+  const killer = song('killer queen'); // explicit only
+  // A poll the host seeded with both: the explicit-only song can't be queued, so it isn't offered.
+  await req(host, 'game.start', { type: 'poll', config: { songIds: [rapture.id, killer.id] } });
+  const candidates = room.game.candidates.map((c) => c.songId);
+  assert.equal(candidates[0], rapture.id);
+  assert.ok(!candidates.includes(killer.id));
+  await req(ana, 'game.input', { choice: 0 });
+  await req(host, 'game.action', { action: 'close' });
+  assert.equal(s().queue[0].songId, rapture.id);
+  assert.equal(explicit(s().queue[0]), false, 'the poll winner is the clean version');
+  await req(host, 'game.close');
+  // Autoplay / wheel results go through the same door.
+  s().queue = [];
+  room.gameQueue(rapture, { singerName: 'Everyone', position: 'end', source: 'game:autoplay' });
+  assert.equal(explicit(s().queue[0]), false, 'autoplay queues the clean version');
+  assert.throws(() => room.gameQueue(killer, { position: 'end', source: 'game:wheel' }), /Explicit songs are turned off/);
+  assert.equal(s().queue.length, 1);
+  // Filter off: host rules (the preferred version).
+  app.settings.update({ queue: { explicitFilter: false } });
+  room.gameQueue(killer, { position: 'end', source: 'game:wheel' });
+  assert.equal(s().queue[1].songId, killer.id);
+});
+
+test('"Play now" while a game owns the TV is refused and leaves the queue alone', async () => {
+  const { req, connect, s, song, room } = await setupRoom({ playback: { countdown: 0, autoStart: true } }, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  await connect('tv');
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 60 } });
+  const singers = s().singers.length;
+  await assert.rejects(req(host, 'queue.add', { songId: song('hello').id, singerName: 'Newcomer', position: 'now' }), /game is using the TV/);
+  assert.deepEqual(s().queue, [], 'nothing was queued');
+  assert.equal(s().singers.length, singers, 'no singer was created either');
+  await req(host, 'game.close');
+  assert.equal(s().current, null, 'nothing starts by itself after the game');
+  // Without a game it starts right away.
+  await req(host, 'queue.add', { songId: song('hello').id, singerName: 'Bo', position: 'now' });
+  assert.equal(s().current?.title, 'Hello');
+  assert.equal(room.game, null);
+});
+
+test('the "Everyone" sing-along singer is never a guest who calls themself that', async () => {
+  const { req, connect, guest, room, s, song } = await setupRoom({ playback: { countdown: 0, autoStart: false } }, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  const everyone = await guest('everyone'); // a guest really named that
+  const mal = await guest('Mal');
+  const mine = room.profileOf(everyone.data.deviceId).singerId;
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 60 } });
+  await req(host, 'game.action', { action: 'close' });
+  const sa = room.singer(s().queue[0].singerIds[0]);
+  assert.notEqual(sa.id, mine, 'not the guest’s own singer');
+  assert.equal(sa.deviceId, undefined, 'no phone: nobody is buzzed, rated or held back in the rotation');
+  assert.equal(sa.singAlong, true);
+  assert.equal(sa.name, 'Everyone');
+  await req(host, 'game.close');
+  // A guest renaming to "Everyone" later doesn't capture the sing-alongs either.
+  await req(mal, 'guest.update', { name: 'Everyone' });
+  room.gameQueue(song('waterloo'), { singerName: 'Everyone', position: 'end', source: 'game:autoplay' });
+  assert.equal(s().queue.at(-1).singerIds[0], sa.id);
+  // Typed by the host (add dialog, playlists, Singers page): the same sing-along singer.
+  const typed = (await req(host, 'queue.add', { songId: song('call me').id, singerName: 'EVERYONE' })).entry;
+  assert.equal(s().queue.find((e) => e.id === typed.id).singerIds[0], sa.id);
+  assert.equal((await req(host, 'singer.add', { name: 'everyone' })).singer.id, sa.id);
+  assert.equal(s().singers.filter((x) => x.singAlong).length, 1);
+  // The guest's own requests still use their own singer.
+  const own = (await req(everyone, 'queue.add', { songId: song('hello').id })).entry;
+  assert.equal(s().queue.find((e) => e.id === own.id).singerIds[0], mine);
+});
+
+test('an "Everyone" singer from before the sing-along flag is reused (not a guest named Everyone)', async () => {
+  const { guest, room, s } = await setupRoom();
+  await guest('Everyone');
+  const old = room.createSinger({ name: 'Everyone' }); // made by an earlier version
+  assert.equal(room.findOrCreateSinger('everyone').id, old.id);
+  assert.equal(old.singAlong, true);
+  assert.equal(s().singers.filter((x) => x.singAlong).length, 1);
+});
+
+test('singer names without letters (emoji) are matched exactly, not all as one', async () => {
+  const { room } = await setupRoom();
+  const unicorn = room.findOrCreateSinger('🦄🦄');
+  const guitar = room.findOrCreateSinger('🎸');
+  assert.notEqual(unicorn.id, guitar.id);
+  assert.equal(room.findOrCreateSinger(' 🦄🦄 ').id, unicorn.id);
+  assert.equal(room.findOrCreateSinger('Ana').id, room.findOrCreateSinger('ANA').id);
+});
+
+test('poll: ended during the vote → no winner, nothing queued; the view says who sings and whether it was queued', async () => {
+  const { req, connect, guest, s, view } = await setupRoom({ playback: { countdown: 0, autoStart: false } }, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const ana = await guest('Ana');
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 60 } });
+  await req(ana, 'game.input', { choice: 1 });
+  assert.equal(view(tv).game.queued, false);
+  assert.equal(view(tv).game.singer, 'everyone');
+  await req(host, 'game.end');
+  for (const c of [tv, ana, host]) {
+    const g = view(c).game;
+    assert.equal(g.phase, 'done');
+    assert.equal(g.winner, -1, 'no winner: the screens say the poll was cancelled');
+    assert.equal(g.queued, false);
+  }
+  assert.deepEqual(s().queue, []);
+  await req(host, 'game.close');
+  // "Nobody" polls: queued, but not as a sing-along.
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 60, singer: 'nobody' } });
+  await req(host, 'game.action', { action: 'close' });
+  const g = view(tv).game;
+  assert.equal(g.singer, 'nobody');
+  assert.equal(g.queued, true);
+  assert.ok(g.winner >= 0);
+});
+
+test('poll: a banned guest’s vote stops counting; a double click on "Close voting now" closes it once', async () => {
+  const { req, connect, guest, view, room } = await setupRoom({ playback: { countdown: 0, autoStart: false } }, { songs: [...SONGS, ...MORE_SONGS] });
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const ana = await guest('Ana');
+  const troll = await guest('Troll');
+  await req(host, 'game.start', { type: 'poll', config: { seconds: 60 } });
+  await req(ana, 'game.input', { choice: 1 });
+  await req(troll, 'game.input', { choice: 2 });
+  assert.equal(view(tv).game.total, 2);
+  await req(host, 'guest.ban', { deviceId: troll.data.deviceId });
+  assert.deepEqual(view(tv).game.candidates.map((c) => c.votes), [0, 1, 0, 0]);
+  assert.equal(view(tv).game.total, 1);
+  const step = view(host).game.step;
+  assert.ok(Number.isInteger(step));
+  const [first, second] = await Promise.all([
+    req(host, 'game.action', { action: 'close', step }),
+    req(host, 'game.action', { action: 'close', step }),
+  ]);
+  assert.equal(first.winner, 1, 'only Ana’s vote counts');
+  assert.equal(second.stale, true, 'the second click does nothing');
+  assert.equal(room.game.phase, 'result');
+  assert.equal(room.s.queue.length, 1);
+  // Without a step (older clients) a late close is harmless too — no "unknown control" error.
+  assert.equal((await req(host, 'game.action', { action: 'close' })).winner, 1);
+});

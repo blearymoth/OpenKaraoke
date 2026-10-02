@@ -84,7 +84,7 @@ export function AddDialog({ songId, trackId: initialTrack, singerName = '' }) {
 export function SongDialog({ songId }) {
   const { state } = useStore(store);
   const { data: song, error, reload } = useFetch(`/api/songs/${encodeURIComponent(songId)}`, null, { ttl: 2000 });
-  useEffect(() => artStore.subscribe((ev) => { if (ev.songs.includes(songId)) reload(); }), [songId]);
+  useEffect(() => artStore.subscribe((ev) => { if (ev.all || ev.songs.includes(songId)) reload(); }), [songId]);
   const fav = state.favorites.includes(songId);
   return html`<${Modal} title="Song details" wide onClose=${closeDialog}>
     ${error && html`<p class="warn-text">${error.message}</p>`}
@@ -119,7 +119,7 @@ export function SongDialog({ songId }) {
           <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
         </tr>`)}</tbody>
       </table>
-      <${PreviewOutput} />
+      <${PreviewOutput} displays=${state.displays} />
     `}
   </${Modal}>`;
 }

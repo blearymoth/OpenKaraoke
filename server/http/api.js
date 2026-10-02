@@ -9,6 +9,7 @@ import { sendFile } from './static.js';
 import { qrSvg } from '../util/qr.js';
 import { placeholderSvg } from '../artwork/placeholder.js';
 import { hash32 } from '../../shared/text.js';
+import { MAX_LIST_SONGS } from '../../shared/protocol.js';
 import { songbookRoutes } from './songbook.js';
 import { RateLimiter } from '../util/ratelimit.js';
 import { Lru } from '../util/lru.js';
@@ -100,8 +101,9 @@ export function apiRoutes(router, app) {
     return out;
   });
 
+  // A whole playlist or favourites list in one call.
   router.get('/api/songs', (ctx) => {
-    const ids = (ctx.query.get('ids') || '').split(',').filter(Boolean).slice(0, 300);
+    const ids = (ctx.query.get('ids') || '').split(',').filter(Boolean).slice(0, MAX_LIST_SONGS);
     return { items: summaries(ids.map((id) => cat().song(id)).filter(Boolean)) };
   });
 
@@ -262,8 +264,20 @@ export function apiRoutes(router, app) {
     if (!/^image\/(?:jpeg|png|webp)$/i.test(ctx.req.headers['content-type'] || '')) throw new HttpError(415, 'Send a JPEG, PNG or WebP picture');
     const deviceId = auth.verify(String(ctx.req.headers['x-guest-token'] || ''), 'guest')?.id;
     if (!deviceId) throw new HttpError(401, 'Join the party first');
-    const body = await readBody(ctx.req, MAX_PHOTO_BYTES);
-    return { photo: await app.room.photos.add(deviceId, body) };
+    if (Number(ctx.req.headers['content-length']) > MAX_PHOTO_BYTES) throw new HttpError(413, `That photo is too big (max ${MAX_PHOTO_BYTES >> 20} MB)`);
+    // Everything that can refuse the photo (switched off, banned, rate limit, too many at once)
+    // runs before its bytes are read and held in memory; a stalled or crawling upload is cut off.
+    const photos = app.room.photos;
+    const upload = photos.admit(deviceId, ctx.ip);
+    try {
+      const body = await photos.receive(upload, ctx.req).catch((e) => {
+        ctx.res.setHeader('connection', 'close'); // cut off: answer now, not after the rest arrives
+        throw e;
+      });
+      return { photo: await photos.store(deviceId, body, ctx.ip) };
+    } finally {
+      upload.release();
+    }
   });
 
   router.get('/api/photos/:id', async (ctx) => {

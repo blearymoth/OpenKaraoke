@@ -8,7 +8,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
 import { segmentAt } from '../../shared/wheel.js';
-import { loadPlaywright, startParty, WsClient, check, results, sleep } from './lib.mjs';
+import { loadPlaywright, startParty, WsClient, check, results, sleep, doubleClick } from './lib.mjs';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
 const out = path.resolve(process.argv[2] || 'test-results/e2e-wheel');
@@ -47,8 +47,10 @@ async function startWheel(host, setup) {
 }
 
 /** Clicks a spin button, checks the secrecy while it turns, returns the result once it stops. */
-async function spinAndLand(host, tv, spy, button, label) {
-  await host.click(`.game-live .btn:has-text("${button}")`);
+async function spinAndLand(host, tv, spy, button, label, { dbl = false } = {}) {
+  const sel = `.game-live .btn:has-text("${button}")`;
+  if (dbl) await doubleClick(host, sel);
+  else await host.click(sel);
   await tv.waitForSelector('.wheel-tv .wheel.is-spinning');
   const secret = room().game.spin;
   const st = await spy.until((s) => s.game?.phase === 'spinning' && s.game.spin?.seq === secret.seq, 5000);
@@ -111,6 +113,14 @@ try {
   await shot(tv, 'tv-wheel-result-song');
   await shot(ann, 'ann-wheel-result');
 
+  // A guest who calls themself Everyone can be picked as well, next to the sing-along.
+  const eve = room().createSinger({ name: 'Everyone', deviceId: 'e2e-eve-phone' });
+  room().markDirty();
+  await host.waitForSelector(`.game-live .wheel-queue select option[value="${eve.id}"]`, { state: 'attached', timeout: 5000 }).catch(() => {});
+  const sungBy = await host.$$eval('.game-live .wheel-queue select option', (l) => l.map((o) => [o.value, o.textContent.trim()]));
+  check(sungBy.some(([v, t]) => v === 'everyone' && /sing-along/.test(t)) && sungBy.some(([v, t]) => v === eve.id && t === 'Everyone'), '“Sung by” offers the sing-along and a guest called Everyone');
+  room().s.singers.splice(room().s.singers.indexOf(eve), 1);
+  room().markDirty();
   await host.selectOption('.game-live .wheel-queue select', 'everyone');
   await host.click('.game-live .btn:has-text("Queue it next")');
   await host.waitForSelector('.game-live .wheel-ok');
@@ -122,8 +132,10 @@ try {
 
   const before = room().game.segments.length;
   const used = result.seg.label;
-  result = await spinAndLand(host, tv, spy, 'Spin again without', 'spin again');
+  const spins = room().game.seq;
+  result = await spinAndLand(host, tv, spy, 'Spin again without', 'spin again', { dbl: true }); // a double click spins once
   check(room().game.segments.length === before - 1 && !room().game.segments.some((x) => x.label === used), 'the used song was taken off the wheel');
+  check(room().game.seq === spins + 1, 'a double click on “Spin again without …” spins once');
   host.once('dialog', (d) => d.accept());
   await host.click('.game-live .btn:has-text("End game")');
   await host.waitForSelector('.game-live .btn:has-text("Close")');

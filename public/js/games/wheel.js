@@ -385,7 +385,8 @@ export function Control({ game, act, state }) {
   };
   const spinning = game.phase === 'spinning';
   const canQueue = r && ['songs', 'genres', 'duets'].includes(game.kind);
-  const singers = (state?.singers || []).filter((x) => x.name && x.name.toLowerCase() !== 'everyone');
+  // The sing-along singer is the first option; a guest who calls themself Everyone has a phone.
+  const singers = (state?.singers || []).filter((x) => x.name && (x.deviceId || x.name.toLowerCase() !== 'everyone'));
   const queueLabel = game.kind === 'songs' ? 'Queue it next' : game.kind === 'genres' ? `Queue a random ${r?.label || ''} song` : 'Queue a duet for both';
   let status = `The wheel is on the TV with ${game.segments.length} ${game.kindLabel.toLowerCase()}.`;
   if (spinning) status = 'Spinning… the result shows on the TV when the wheel stops.';
@@ -406,9 +407,9 @@ export function Control({ game, act, state }) {
     ${r && !spinning && !game.ended && r.people && html`<p class="hint">${r.notified ? `${r.notified === 1 ? 'Their phone' : `${r.notified} phones`} buzzed.` : 'No phone connected for this result.'}
       ${' '}<button class="btn small ghost" disabled=${busy} onClick=${() => run({ action: 'buzz' })}>Buzz again</button></p>`}
     ${!game.ended && html`<div class="wheel-actions">
-      ${game.phase === 'ready' && html`<button class="btn primary large" disabled=${busy} onClick=${() => run({ action: 'spin' })}>🎡 Spin the wheel!</button>`}
-      ${game.phase === 'result' && html`<button class="btn primary" disabled=${busy} onClick=${() => run({ action: 'spin' })}>🎡 Spin again</button>
-        <button class="btn" disabled=${busy || !game.canRemove} title=${game.canRemove ? '' : 'Only two left on the wheel'} onClick=${() => run({ action: 'spin', remove: true })}>Spin again without “${short(r?.label || '')}”</button>`}
+      ${game.phase === 'ready' && html`<button class="btn primary large" disabled=${busy} onClick=${() => run({ action: 'spin', step: game.step })}>🎡 Spin the wheel!</button>`}
+      ${game.phase === 'result' && html`<button class="btn primary" disabled=${busy} onClick=${() => run({ action: 'spin', step: game.step })}>🎡 Spin again</button>
+        <button class="btn" disabled=${busy || !game.canRemove} title=${game.canRemove ? '' : 'Only two left on the wheel'} onClick=${() => run({ action: 'spin', remove: true, step: game.step })}>Spin again without “${short(r?.label || '')}”</button>`}
       ${spinning && html`<button class="btn primary large" disabled>Spinning…</button>`}
     </div>`}
     <div class="wheel-seglist" aria-label="On the wheel">${game.segments.map((s, i) => html`<span key=${i} class=${`chip ${r && !spinning && r.index === i ? 'on' : ''}`}>

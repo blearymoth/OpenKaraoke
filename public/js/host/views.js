@@ -174,17 +174,22 @@ export function Artist({ artistKey }) {
   useStore(artStore);
   const { data, error, loading, reload } = useFetch(`/api/artists/${encodeURIComponent(artistKey)}`);
   // The first visit asks TheAudioDB for fanart and logos: reload the header when they arrive.
-  useEffect(() => artStore.subscribe((ev) => { if (ev.artists.includes(artistKey)) reload(); }), [artistKey]);
+  useEffect(() => artStore.subscribe((ev) => { if (ev.all || ev.artists.includes(artistKey)) reload(); }), [artistKey]);
+  // A known logo can still fail to load (dead link, no internet): then the name as text.
+  const [badLogo, setBadLogo] = useState('');
   if (error) return html`<div class="page"><${Empty} icon="🤷" title="Artist not found">${error.message}</${Empty}></div>`;
   if (!data || (loading && !data)) return html`<div class="page"><${Spinner} /></div>`;
   const art = data.artist.art || {};
+  const logo = art.logo ? artistArtUrl(artistKey, 'logo', { size: 500 }) : '';
   return html`<div class="page">
     <header class=${`artist-head ${art.fanart ? 'with-fanart' : ''}`}>
       ${art.fanart > 0 && html`<div class="artist-fanart" style=${{ backgroundImage: `url(${artistArtUrl(artistKey, 'fanart', { size: 1000 })})` }}></div>`}
       <${ArtistImage} artistKey=${artistKey} size=${132} />
       <div class="artist-head-text">
         <p class="muted">Artist${art.genre ? ` · ${art.genre}` : ''}</p>
-        ${art.logo ? html`<h1 class="artist-logo"><img src=${artistArtUrl(artistKey, 'logo', { size: 500 })} alt=${data.artist.name} /></h1>` : html`<h1>${data.artist.name}</h1>`}
+        ${logo && logo !== badLogo
+          ? html`<h1 class="artist-logo"><img src=${logo} alt=${data.artist.name} onError=${() => setBadLogo(logo)} /></h1>`
+          : html`<h1>${data.artist.name}</h1>`}
         <p class="muted">${plural(data.songs.length, 'song')}</p>
       </div>
     </header>
@@ -239,11 +244,13 @@ export function Browse({ genre, decade }) {
 export function Favorites() {
   const { state } = useStore(store);
   const ids = state.favorites;
-  const { data } = useFetch(ids.length ? '/api/songs' : null, { ids: ids.join(',') }, { ttl: 0 });
+  const { data, error, reload } = useFetch(ids.length ? '/api/songs' : null, { ids: ids.join(',') }, { ttl: 0 });
+  const byId = data && new Map(data.items.map((s) => [s.id, s]));
   return html`<div class="page">
     <${PageHead} title="Favourites" sub=${ids.length ? plural(ids.length, 'song') : ''} />
     ${!ids.length && html`<${Empty} icon="⭐" title="No favourites yet">Press the star next to a song to keep it here for quick access.</${Empty}>`}
-    ${ids.length > 0 && (data ? html`<${SongList} items=${ids.map((id) => data.items.find((s) => s.id === id)).filter(Boolean)} />` : html`<${Spinner} />`)}
+    ${ids.length > 0 && error && html`<${Empty} icon="⚠️" title="Couldn’t load the songs">${error.message} <button class="btn small" onClick=${reload}><${Icon} name="refresh" size=${16} /> Try again</button></${Empty}>`}
+    ${ids.length > 0 && !error && (byId ? html`<${SongList} items=${ids.map((id) => byId.get(id)).filter(Boolean)} />` : html`<${Spinner} />`)}
   </div>`;
 }
 
@@ -264,10 +271,10 @@ function SingerRow({ s }) {
     </div></td></tr>`;
   }
   return html`<tr>
-    <td><div class="who"><${Avatar} singer=${s} size=${30} /> <b>${s.name}</b></div></td>
-    <td class="num">${s.sung}</td>
-    <td class="num">${s.stars ? html`<span class="stars" title="Average rating from guests">★ ${s.stars.toFixed(1)}</span>` : html`<span class="faint">—</span>`}</td>
-    <td class="num">${s.queued}</td>
+    <td class="lead"><div class="who"><${Avatar} singer=${s} size=${30} /> <b>${s.name}</b></div></td>
+    <td class="num" data-label="Sung">${s.sung}</td>
+    <td class="num" data-label="Rating">${s.stars ? html`<span class="stars" title="Average rating from guests">★ ${s.stars.toFixed(1)}</span>` : html`<span class="faint">—</span>`}</td>
+    <td class="num" data-label="Queued">${s.queued}</td>
     <td>${s.deviceId ? html`<span class=${`dot ${s.online ? 'on' : ''}`}></span> ${s.online ? 'Connected' : 'Phone offline'}` : html`<span class="faint">Added by host</span>`}</td>
     <td class="actions">
       <button class="icon-btn small" aria-label=${`Edit ${s.name}`} onClick=${() => setEditing(true)}><${Icon} name="edit" size=${16} /></button>
@@ -293,16 +300,16 @@ export function Singers() {
       </form>
     </${PageHead}>
     ${sorted.length
-      ? html`<table class="table"><thead><tr><th>Singer</th><th class="num">Sung tonight</th><th class="num">Queued</th><th>Phone</th><th></th></tr></thead>
+      ? html`<table class="table stack"><thead><tr><th>Singer</th><th class="num">Sung tonight</th><th class="num">Rating</th><th class="num">Queued</th><th>Phone</th><th></th></tr></thead>
         <tbody>${sorted.map((s) => html`<${SingerRow} key=${s.id} s=${s} />`)}</tbody></table>`
       : html`<${Empty} icon="🎤" title="No singers yet">Add names here, type a name when you queue a song, or invite guests to join from their phones.</${Empty}>`}
     <h2 class="section-title">Guests' phones</h2>
     ${state.guests.length
-      ? html`<table class="table"><thead><tr><th>Guest</th><th>Status</th><th class="num">Songs waiting</th><th></th></tr></thead><tbody>
+      ? html`<table class="table stack"><thead><tr><th>Guest</th><th>Status</th><th class="num">Songs waiting</th><th></th></tr></thead><tbody>
         ${state.guests.map((g) => html`<tr>
-          <td><div class="who"><${Avatar} singer=${g} size=${30} /> <b>${g.name}</b></div></td>
+          <td class="lead"><div class="who"><${Avatar} singer=${g} size=${30} /> <b>${g.name}</b></div></td>
           <td>${g.banned ? html`<span class="pill bad">Removed</span>` : html`<span class=${`dot ${g.online ? 'on' : ''}`}></span> ${g.online ? 'Connected' : 'Offline'}`}</td>
-          <td class="num">${g.queued}</td>
+          <td class="num" data-label="Songs waiting">${g.queued}</td>
           <td class="actions">${!g.banned && html`<button class=${`btn small ${g.coHost ? 'on' : 'ghost'}`} title="A co-host can run the player and approve requests from their phone"
               onClick=${() => act('guest.cohost', { deviceId: g.deviceId, on: !g.coHost }).then((r) => r && toast(r.coHost ? `${g.name} is now a co-host` : `${g.name} is no longer a co-host`, 'ok'))}>${g.coHost ? '★ Co-host' : 'Make co-host'}</button>`}
             ${g.banned
@@ -325,11 +332,11 @@ export function History() {
       <button class="btn ghost" onClick=${() => confirm('Start a new party? Tonight’s song counts and history reset; the queue and singers stay.') && act('party.new').then((r) => r && toast('New party started', 'ok'))}><${Icon} name="sparkles" size=${16} /> New party</button>
     </${PageHead}>
     ${list.length
-      ? html`<table class="table"><thead><tr><th>Time</th><th>Singer</th><th>Song</th><th></th><th></th></tr></thead><tbody>
+      ? html`<table class="table stack"><thead><tr><th>Time</th><th>Singer</th><th>Song</th><th></th><th></th></tr></thead><tbody>
         ${list.map((h) => html`<tr>
           <td class="num faint">${new Date(h.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
           <td>${h.singers.join(' & ') || html`<span class="faint">—</span>`}</td>
-          <td><b>${h.title}</b> <span class="faint">${h.artist}</span></td>
+          <td class="lead"><b>${h.title}</b> <span class="faint">${h.artist}</span></td>
           <td>${h.skipped ? html`<span class="pill">Skipped</span>` : ''}${h.key ? html` <span class="pill">Key ${h.key > 0 ? '+' : ''}${h.key}</span>` : ''}${h.rating ? html` <span class="pill bulb" title=${`${h.rating.n} ${h.rating.n === 1 ? 'vote' : 'votes'}`}>★ ${h.rating.avg.toFixed(1)}</span>` : ''}${h.game ? html` <span class="pill">${h.game}</span>` : ''}</td>
           <td class="actions"><button class="btn small" onClick=${() => openDialog({ type: 'add', songId: h.songId, singerName: h.singers[0] || '' })}>Queue again</button></td>
         </tr>`)}</tbody></table>`

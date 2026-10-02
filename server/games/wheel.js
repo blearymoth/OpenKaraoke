@@ -59,6 +59,8 @@ export function parseDares(input) {
 }
 
 const personView = (p) => ({ name: p.name, emoji: p.emoji || '🎤', color: p.color || '' });
+/** One key per person: the folded name, or the name as typed when it has no letters ("🦄🦄"). */
+const personKey = (name) => fold(name) || String(name || '').trim().toLowerCase();
 
 export class Wheel extends Game {
   static type = 'wheel';
@@ -143,7 +145,10 @@ export class Wheel extends Game {
     return shuffle(genres.slice(0, count * 2)).slice(0, count).map((g) => ({ label: g.genre, sub: `${g.count} ${g.count === 1 ? 'song' : 'songs'}`, genre: g.genre }));
   }
 
-  /** Everyone who could sing: tonight's singers plus guests on their phones (no duplicates). */
+  /**
+   * Everyone who could sing: tonight's singers plus guests on their phones (no duplicates).
+   * Singers are kept from party to party: only the ones who are part of tonight count.
+   */
   people() {
     const room = this.room;
     const online = new Set(room.hub.list((c) => c.role === 'guest').map((c) => c.data.deviceId).filter(Boolean));
@@ -151,16 +156,17 @@ export class Wheel extends Game {
     const out = [];
     const seen = new Set();
     const add = (p) => {
-      const key = fold(p.name);
-      if (!key || key === 'everyone' || seen.has(key)) return;
+      const key = personKey(p.name);
+      if (!key || seen.has(key)) return;
       seen.add(key);
       out.push(p);
     };
     const singer = (x) => add({ name: x.name, emoji: x.emoji, color: x.color, singerId: x.id, deviceId: x.deviceId || null });
+    const tonight = this.tonight();
     // People with a phone first (so a name the host also typed in maps to the guest's phone).
     for (const x of room.s.singers) {
       if (!x.deviceId || room.profileOf(x.deviceId)?.banned) continue;
-      if (!onlineOnly || online.has(x.deviceId)) singer(x);
+      if (onlineOnly ? online.has(x.deviceId) : online.has(x.deviceId) || tonight(x)) singer(x);
     }
     for (const deviceId of online) {
       const p = room.profileOf(deviceId);
@@ -168,8 +174,23 @@ export class Wheel extends Game {
       if (p.singerId && room.singer(p.singerId)) continue; // listed above
       add({ name: p.name, emoji: p.emoji, color: p.color, singerId: null, deviceId });
     }
-    if (!onlineOnly) for (const x of room.s.singers) if (!x.deviceId) singer(x);
+    // The sing-along singer is not a person (nor is a phone-less "Everyone" made before the flag);
+    // a guest who calls themself Everyone has a phone and is on the wheel like anyone else.
+    if (!onlineOnly) for (const x of room.s.singers) if (!x.deviceId && !x.singAlong && personKey(x.name) !== 'everyone' && tonight(x)) singer(x);
     return out;
+  }
+
+  /**
+   * Is a singer part of tonight's party? Sang, queued or waiting tonight, added (or re-added by the
+   * host) since the party started, or their phone was here tonight.
+   */
+  tonight() {
+    const s = this.room.s;
+    const since = s.session?.startedAt || 0;
+    const busy = new Set([...s.queue, ...s.pending, ...(s.current ? [s.current] : [])].flatMap((e) => e.singerIds || []));
+    return (x) => x.sung > 0 || busy.has(x.id)
+      || Math.max(x.createdAt || 0, x.seenAt || 0, x.lastSangAt || 0) >= since
+      || (!!x.deviceId && (this.room.profileOf(x.deviceId)?.lastSeen || 0) >= since);
   }
 
   /** Random duet pairs: first everyone gets a partner, then other random combinations. */
@@ -178,7 +199,7 @@ export class Wheel extends Game {
     const out = [];
     const keys = new Set();
     const add = (a, b) => {
-      const key = [fold(a.name), fold(b.name)].sort().join('|');
+      const key = [personKey(a.name), personKey(b.name)].sort().join('|');
       if (keys.has(key)) return;
       keys.add(key);
       out.push([a, b]);
@@ -244,7 +265,7 @@ export class Wheel extends Game {
     if (seg.people) this.buzz();
   }
 
-  /** Buzzes the picked singers' phones (singers and duet wheels). Returns how many were told. */
+  /** Buzzes the picked singers' phones (singers and duet wheels). Returns how many were reached. */
   buzz(again = false) {
     const r = this.result;
     if (this.phase !== 'result' || !r?.seg.people) {
@@ -257,8 +278,7 @@ export class Wheel extends Game {
       if (!deviceId) continue;
       const other = r.seg.people.find((x) => x !== p);
       const text = other ? `The wheel paired you with ${other.name} — time for a duet! 🎶` : 'The wheel picked you — pick a song! 🎤';
-      this.room.notifyDevice(deviceId, { t: 'notify', kind: 'game', game: 'wheel', text });
-      n++;
+      if (this.room.notifyDevice(deviceId, { t: 'notify', kind: 'game', game: 'wheel', text }) > 0) n++; // only phones that are here
     }
     r.notified = n;
     if (again && !n) fail('Nobody on this result has a phone connected.', 'not_found');
@@ -337,7 +357,7 @@ export class Wheel extends Game {
     const winners = [];
     for (const h of this.history) for (const p of h.seg.people || []) if (!winners.includes(p.name)) winners.push(p.name);
     return {
-      title: `Roulette wheel · ${WHEEL_KIND_LABELS[this.config.kind]}`,
+      title: `${WHEEL_KIND_LABELS[this.config.kind]} drawn`, // (the recap puts the game's name in front)
       winners: winners.slice(0, 12),
       results: this.history.slice(-10).map((h) => h.seg.label),
     };

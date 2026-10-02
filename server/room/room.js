@@ -10,7 +10,7 @@ import { RateLimiter } from '../util/ratelimit.js';
 import { wifiPayload } from '../util/qr.js';
 import { mediaUrls } from '../http/media.js';
 import { insertIndex, etas, leadOf, shuffled } from './rotation.js';
-import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, RATING_SECONDS, clampKey, clampTempo } from '../../shared/protocol.js';
+import { CHANNEL_MODES, AVATARS, COLORS, REACTIONS, RATING_SECONDS, MAX_LIST_SONGS, clampKey, clampTempo } from '../../shared/protocol.js';
 import { createGame } from '../games/index.js';
 import { BreakMusic } from './breakmusic.js';
 import { Photos } from './photos.js';
@@ -19,8 +19,10 @@ import { logger } from '../util/log.js';
 
 const log = logger('room');
 const SESSION_IDLE_MS = 8 * 3600 * 1000;
+const MAX_HISTORY = 200; // tonight's history for the host's list (skipped songs too)
+const MAX_PERFS = 2000; // tonight's sung songs for the counts and the recap (a long night has a few hundred)
 // No party state change → no broadcast.
-const QUIET = new Set(['tv.status', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
+const QUIET = new Set(['tv.status', 'tv.break', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
 const HOST = 'host';
 const TV = 'tv';
 const GUEST = 'guest';
@@ -38,20 +40,41 @@ const DEFAULT_STATE = {
   songPrefs: {},
   trackPrefs: {},
   stats: { plays: {} },
-  tonight: { sung: [], history: [], games: [] },
+  tonight: { sung: [], history: [], perfs: [], games: [] },
   photos: [],
 };
 
 const newId = (bytes = 6) => crypto.randomBytes(bytes).toString('base64url');
+/** A sung song, compact, for tonight's counts and the party recap (oldest first in tonight.perfs). */
+const perfRecord = (h) => {
+  const perf = {
+    entryId: h.entryId, songId: h.songId, title: h.title, artist: h.artist,
+    singerIds: h.singerIds || [], singers: h.singers || [], playedSec: h.playedSec || 0,
+  };
+  if (h.reactions) perf.reactions = h.reactions;
+  if (h.rating) perf.rating = { ...h.rating };
+  return perf;
+};
 /** What a co-host's phone may do (never settings, bans, games or the library). */
 const COHOST_ACTIONS = new Set([
   'player.play', 'player.pause', 'player.resume', 'player.toggle', 'player.next', 'player.restart', 'player.seek',
   'player.key', 'player.tempo', 'player.volume', 'queue.move', 'queue.approve', 'queue.reject', 'announce',
 ]);
 const MAX_PLAYLISTS = 100;
-const MAX_PLAYLIST_SONGS = 500;
+const MAX_PLAYLIST_SONGS = MAX_LIST_SONGS;
 const MASK = '••••••';
 const MAX_PROFILES = 1000;
+// What a /tv page asks to be (hello `display`): a plain TV ('main', may play the sound), a muted
+// mirror (?display=mirror: main only when the host picks it), the queue board (?layout=board:
+// never plays) or the host's own live preview (muted and not listed). The server then makes it
+// the main display or a mirror.
+const TV_KINDS = new Set(['main', 'mirror', 'board', 'preview']);
+const PAIR_WAITING_MAX = 20; // codes waiting for the host, all screens together
+const PAIR_PER_ADDRESS = 2; // codes one address may hold (a new one replaces the oldest)
+const PAIR_TTL_MS = 10 * 60_000;
+const PAIR_DENIED_MS = 60_000; // long enough for the refused screen to read "denied"
+const PAIR_TOAST_MS = 10_000; // at most one "a screen wants to pair" toast this often
+const MAX_OPEN_INVITES = 3; // duet invitations waiting for one guest at a time
 const validId = (id) => typeof id === 'string' && /^[\w-]{4,64}$/.test(id) && id !== '__proto__' && id !== 'constructor' && id !== 'prototype';
 const str = (v, max = 100) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 const num = (v, min, max, def) => {
@@ -61,6 +84,9 @@ const num = (v, min, max, def) => {
 const fail = (message, code) => {
   throw new UserError(message, { code });
 };
+/** A singer name for matching: folded, or as typed when it has no letters or digits ("🦄🦄"). */
+const nameKey = (name) => fold(name) || String(name || '').trim().toLowerCase();
+const EVERYONE = 'everyone'; // the sing-along singer's name key
 
 export class Room {
   constructor(app) {
@@ -76,6 +102,7 @@ export class Room {
     this.announceTimer = null;
     this.announcement = null;
     this.game = null; // the running party game (not persisted: a restart ends it)
+    this.gameBehind = null; // a finished game the current song started after (closed when it ends)
     this.pairings = new Map(); // remote displays waiting for the host: id → { id, code, ip, at, status, token }
     this.rating = null; // guests rating the performance that just ended
     this.ratingTimer = null;
@@ -90,7 +117,10 @@ export class Room {
       favorite: new RateLimiter({ capacity: 30, perMs: 60_000 }),
       game: new RateLimiter({ capacity: 20, perMs: 10_000 }), // answers/votes per guest
       pair: new RateLimiter({ capacity: 5, perMs: 10 * 60_000 }), // pairing codes per address
+      invite: new RateLimiter({ capacity: 3, perMs: 10 * 60_000 }), // duet invitations per inviter → invitee
+      invited: new RateLimiter({ capacity: 6, perMs: 10 * 60_000 }), // duet invitations one guest receives
     };
+    this.declined = new Set(); // "inviter>invitee>song" duet invitations turned down this session
     this.handlers = this.buildHandlers();
     this.breakMusic = new BreakMusic(this);
     this.photos = new Photos(this);
@@ -113,6 +143,9 @@ export class Room {
     else Object.assign(p, { state: 'idle', pos: 0, dur: 0 });
     p.seek = { seq: 0, pos: p.pos || 0 };
     if (!Number.isFinite(p.volume)) p.volume = this.settings.get('playback.volume');
+    // State saved before tonight.perfs existed: rebuild it from what's left of tonight's history.
+    if (!Array.isArray(s.tonight.perfs)) s.tonight.perfs = [];
+    if (!s.tonight.perfs.length) s.tonight.perfs = s.tonight.history.filter((h) => h && !h.skipped).reverse().map(perfRecord);
     this.ensureSession();
     this.syncPlays();
     this.save();
@@ -122,16 +155,18 @@ export class Room {
     this.doc.save();
   }
 
-  async close() {
+  /** @param {{ save?: boolean }} [opts] save: false leaves state.json as it is on disk */
+  async close({ save = true } = {}) {
     clearTimeout(this.introTimer);
     clearTimeout(this.flushTimer);
     clearTimeout(this.announceTimer);
     clearTimeout(this.ratingTimer);
+    this.game?.dispose(); // (first: closing the rating must not wake up a game)
     this.closeRating();
-    this.game?.dispose();
     this.breakMusic.close();
     this.photos.close();
-    await this.doc.flush();
+    if (save) await this.doc.flush();
+    else this.doc.discard();
   }
 
   // ---- sessions ("tonight") ---------------------------------------------------------
@@ -144,12 +179,13 @@ export class Room {
   newSession() {
     const now = Date.now();
     this.s.session = { id: newId(), startedAt: now, lastActivity: now };
-    this.s.tonight = { sung: [], history: [], games: [] };
+    this.s.tonight = { sung: [], history: [], perfs: [], games: [] };
     for (const singer of this.s.singers) {
       singer.sung = 0;
       delete singer.stars;
     }
     this.notified.clear();
+    this.declined.clear();
     log.info('new party session started');
   }
 
@@ -177,13 +213,33 @@ export class Room {
       return { ok: true, role, welcome: { state: this.hostView() } };
     }
     if (role === TV) {
+      const asked = typeof msg.display === 'string' && TV_KINDS.has(msg.display) ? msg.display : 'main';
       // A remote host (PIN) may watch the preview; other remote screens need pairing.
-      const previewByHost = msg.display === 'preview' && this.auth.isHost(client.ip, msg.hostToken);
-      if (!client.isLocal && !previewByHost && !this.auth.verify(msg.token, 'tv')) return { ok: false, reason: 'pairing_required' };
-      // 'preview' = the host's small live preview: a muted mirror that doesn't count as a TV.
-      client.data.preview = msg.display === 'preview';
-      client.data.display = msg.display === 'mirror' || client.data.preview || this.mainDisplay() ? 'mirror' : 'main';
-      return { ok: true, role, welcome: { display: client.data.display, state: this.tvView() } };
+      const previewByHost = asked === 'preview' && !client.isLocal && this.auth.isHost(client.ip, msg.hostToken);
+      const paired = this.auth.verify(msg.token, 'tv');
+      if (!client.isLocal && !previewByHost && !paired) return { ok: false, reason: 'pairing_required' };
+      // 'preview' = the host's small live preview: a muted mirror that isn't listed as a display.
+      // Only this computer or a signed-in host gets one; a paired screen asking for it is a mirror.
+      const kind = asked === 'preview' && !client.isLocal && !previewByHost ? 'mirror' : asked;
+      client.data.kind = kind;
+      client.data.preview = kind === 'preview';
+      client.data.hostPreview = previewByHost; // admitted by the host's token, not a pairing
+      client.data.screen = paired?.id || ''; // the paired device (every tab of its browser shares it)
+      // A plain TV becomes the main display unless one is already on; it takes the sound back
+      // from a screen that only stood in while the main TV was away (a reload, a Wi-Fi blip).
+      // The same screen coming back before its old connection timed out (after a Wi-Fi drop the
+      // server only notices at the next heartbeat) takes that connection's place: it stays the
+      // main display, and a stand-in only if the old connection was one. "The same screen" is
+      // the page that held that connection (it reconnects with the secret `resume` key its
+      // welcome gave it; works for this computer's screens too) or the same paired device.
+      const main = this.mainDisplay();
+      const resumed = typeof msg.resume === 'string' && msg.resume.length >= 12 && main?.data.resume === msg.resume;
+      const samePaired = !!(client.data.screen && main?.data.screen === client.data.screen);
+      const again = !!main && main.data.kind === kind && (resumed || samePaired);
+      client.data.display = again || (kind === 'main' && (!main || main.data.standIn)) ? 'main' : 'mirror';
+      client.data.standIn = again && !!main.data.standIn;
+      client.data.resume = newId(12);
+      return { ok: true, role, welcome: { display: client.data.display, resume: client.data.resume, state: this.tvView() } };
     }
     if (role === GUEST) {
       if (String(msg.room || '').toUpperCase() !== this.settings.get('party.roomCode')) return { ok: false, reason: 'bad_room' };
@@ -206,26 +262,29 @@ export class Room {
 
   onJoin(client) {
     if (client.role === TV && client.data.display === 'main') {
-      const p = this.s.player;
-      if (p.displayLost) p.displayLost = false;
       log.info(`TV display connected (${client.isLocal ? 'this computer' : client.ip})`);
-      this.maybeAutoStart();
+      this.setMain(client, { standIn: client.data.standIn });
     }
     this.markDirty();
   }
 
   onLeave(client) {
     if (client.role === TV && client.data.display === 'main') {
-      const next = this.hub.list((c) => c.role === TV && c !== client && c.open && !c.data.preview)[0];
+      // Another plain TV stands in until the main TV is back. Mirrors, queue boards and the
+      // host's preview asked to stay muted: they never take the sound by themselves. Another tab
+      // of the same paired screen is that screen, not a stand-in.
+      const others = this.hub.list((c) => c.role === TV && c !== client && c.open && c.data.kind === 'main');
+      const same = client.data.screen ? others.find((c) => c.data.screen === client.data.screen) : null;
+      const next = same || others[0];
       if (next) {
-        next.data.display = 'main';
-        next.send({ t: 'display', display: 'main' });
+        this.setMain(next, { standIn: same ? !!client.data.standIn : true });
       } else {
         const p = this.s.player;
         if (this.s.current) {
           if (p.state === 'playing' || p.state === 'intro' || p.state === 'ready') {
             p.state = 'paused';
-            this.toastHosts('The TV display disconnected — playback is paused.', 'error');
+            const mirror = this.hub.list((c) => c.role === TV && c !== client && c.open && c.data.kind === 'mirror').length;
+            this.toastHosts(`The TV display disconnected — playback is paused.${mirror ? ' Open the TV page again, or pick another display in Settings → Displays.' : ''}`, 'error');
           }
           p.displayLost = true;
           p.tvReady = false;
@@ -239,6 +298,41 @@ export class Room {
 
   mainDisplay() {
     return this.hub.list((c) => c.role === TV && c.data.display === 'main' && c.open)[0] || null;
+  }
+
+  /**
+   * Makes `client` the one display that plays the sound; any other main display becomes a muted
+   * mirror. `standIn`: it only took over because the main TV went away, and gives the sound
+   * back to the next plain TV that connects.
+   */
+  setMain(client, { standIn = false } = {}) {
+    for (const c of this.hub.list((x) => x.role === TV && x !== client && x.data.display === 'main')) {
+      c.data.display = 'mirror';
+      c.data.standIn = false;
+      c.send({ t: 'display', display: 'mirror' });
+    }
+    client.data.standIn = standIn;
+    if (client.data.display !== 'main') {
+      client.data.display = 'main';
+      client.send({ t: 'display', display: 'main' });
+    }
+    const p = this.s.player;
+    if (p.displayLost) p.displayLost = false;
+    this.maybeAutoStart();
+    this.markDirty();
+  }
+
+  /** The host picks the display that plays the sound (Settings → Displays). */
+  displayMain(m) {
+    const id = typeof m.id === 'string' ? m.id.slice(0, 64) : '';
+    const c = this.hub.list((x) => x.role === TV && x.id === id && x.open && !x.data.preview)[0];
+    if (!c) fail('That display is not connected any more.', 'not_found');
+    if (c.data.kind === 'board') fail('A queue board never plays the music — open /tv on that screen to use it as the TV.', 'bad_display');
+    if (c.data.display !== 'main' || c.data.standIn) {
+      log.info(`the host made the display ${c.isLocal ? 'on this computer' : `at ${c.ip}`} the main TV`);
+      this.setMain(c);
+    }
+    return { ok: true };
   }
 
   // ---- requests ------------------------------------------------------------------------
@@ -285,7 +379,9 @@ export class Room {
       'display.approve': [H, (c, m) => this.displayApprove(m)],
       'display.deny': [H, (c, m) => this.displayDeny(m)],
       'display.forget': [H, () => this.displayForget()],
+      'display.main': [H, (c, m) => this.displayMain(m)],
       'duet.answer': [[GUEST], (c, m) => this.duetAnswer(c, m)],
+      'duet.invites': [[GUEST], (c, m) => this.duetInvites(c, m)],
       'settings.update': [H, (c, m) => this.settingsUpdate(m)],
       'library.rescan': [H, () => this.libraryRescan()],
       'library.paths': [H, (c, m) => this.libraryPaths(m)],
@@ -306,14 +402,15 @@ export class Room {
       'tv.error': [[TV], (c, m) => this.tvError(c, m)],
       'tv.audio': [[TV], (c, m) => { c.data.audioUnlocked = !!m.unlocked; }],
       'tv.game': [[TV], (c, m) => this.gameTv(c, m)],
-      'tv.break': [[TV], (c, m) => { if (c.data.display === 'main') this.breakMusic.ended(str(m.id, 40)); }],
+      'tv.break': [[TV], (c, m) => { if (c.data.display === 'main') this.breakMusic.ended(str(m.id, 40), { error: m.error === true, pick: Number.isSafeInteger(m.pick) ? m.pick : undefined }); }],
       'break.skip': [PLAYER, () => this.breakMusic.skip()],
       'photo.approve': [H, (c, m) => this.photos.approve(str(m.id, 40))],
       'photo.reject': [H, (c, m) => this.photos.reject(str(m.id, 40))],
+      'photo.rejectWaiting': [H, () => this.photos.rejectWaiting()],
       'photo.remove': [H, (c, m) => this.photos.remove(str(m.id, 40))],
       'photo.clear': [H, () => this.photos.removeAll()],
       'game.start': [H, (c, m) => this.gameStart(m)],
-      'game.action': [H, (c, m) => this.activeGame().action(c, m)],
+      'game.action': [H, (c, m) => this.gameAction(c, m)],
       'game.input': [[GUEST], (c, m) => this.gameInput(c, m)],
       'game.end': [H, () => this.gameEnd()],
       'game.close': [H, () => this.gameClose()],
@@ -363,6 +460,8 @@ export class Room {
     const deviceId = isGuest ? client.data.deviceId : null;
     const profile = deviceId ? this.profileOf(deviceId) : null;
     const noExplicit = isGuest && this.settings.get('queue.explicitFilter');
+    // "Play now" can't start while a game owns the TV: refuse before anything changes.
+    if (!isGuest && m.position === 'now' && this.gameBlocks()) fail('A game is using the TV — end it first.', 'busy');
 
     if (isGuest) {
       const rules = this.settings.data.queue;
@@ -399,7 +498,10 @@ export class Room {
       const partner = typeof pid === 'string' ? this.singer(pid) : null;
       if (!partner || singerIds.includes(pid)) continue;
       if (!isGuest) singerIds.push(pid);
-      else if (partner.deviceId && !this.profileOf(partner.deviceId)?.banned) invites.push(pid);
+      else if (partner.deviceId && !this.profileOf(partner.deviceId)?.banned) {
+        this.checkInvite(deviceId, partner, song);
+        invites.push(pid);
+      }
     }
     if (!isGuest && str(m.partnerName, 40)) {
       const partner = this.findOrCreateSinger(str(m.partnerName, 40));
@@ -426,25 +528,75 @@ export class Room {
     const note = str(m.note, 80);
     if (note) entry.note = note;
     if (invites.length) entry.invites = invites;
-    for (const pid of invites) {
-      this.notifyDevice(this.singer(pid).deviceId, { t: 'notify', kind: 'duet', entryId: entry.id, title: song.title, by: this.singer(singerIds[0])?.name || '' });
-    }
 
     if (isGuest && this.settings.get('queue.requireApproval')) {
-      this.s.pending.push(entry);
+      this.s.pending.push(entry); // a duet invitation goes out once the host approves (queueApprove)
       this.toastHosts(`${profile.name} requested ${song.title}`, 'info');
       return { pending: true, entry: this.entryView(entry) };
     }
     if (!isGuest && m.position === 'now') {
       this.s.queue.unshift(entry);
-      this.play({ entryId: entry.id });
+      try {
+        this.play({ entryId: entry.id });
+      } catch (e) {
+        this.s.queue = this.s.queue.filter((x) => x !== entry); // refused: not queued either
+        throw e;
+      }
       return { pending: false, index: 0, started: true, eta: 0, entry: this.entryView(entry) };
     }
     const wasEmpty = !this.s.queue.length;
     const index = this.insertEntry(entry, !isGuest ? m.position : undefined);
     if (wasEmpty) this.maybeAutoStart();
     const started = this.s.current?.id === entry.id;
+    this.sendInvites(entry); // (none left if it started right away)
     return { pending: false, index, started, eta: started ? 0 : this.etaList()[this.s.queue.indexOf(entry)], entry: this.entryView(entry) };
+  }
+
+  /**
+   * May this guest invite `partner` to sing `song`? Throws a message for the inviter when not:
+   * the partner turned invitations off, already has enough waiting, already has one from this
+   * guest, said no to this song, or has been asked too often lately (a phone that buzzes on
+   * every invitation must not become a target).
+   */
+  checkInvite(deviceId, partner, song) {
+    const name = partner.name || 'Your partner';
+    if (this.profileOf(partner.deviceId)?.noInvites) fail(`${name} isn’t taking duet invitations right now.`, 'invites_off');
+    const open = [...this.s.queue, ...this.s.pending].filter((e) => e.invites?.includes(partner.id));
+    if (open.some((e) => e.addedBy === deviceId)) fail(`You already invited ${name} — wait for their answer first.`, 'invite_open');
+    if (open.length >= MAX_OPEN_INVITES) fail(`${name} has enough duet invitations waiting — try again later.`, 'invite_limit');
+    if (this.declined.has(`${deviceId}>${partner.id}>${song.id}`)) fail(`${name} said no to this one — pick another song, or sing it solo.`, 'invite_declined');
+    if (!this.limits.invite.take(`${deviceId}>${partner.id}`)) fail(`You’ve asked ${name} a lot — give them a few minutes.`, 'rate_limited');
+    if (!this.limits.invited.take(partner.id)) fail(`${name} has had lots of invitations — try again in a few minutes.`, 'rate_limited');
+  }
+
+  /** Asks the invited guests on their phones; only once the entry is in the queue. */
+  sendInvites(entry) {
+    if (!entry.invites?.length) return;
+    const by = this.singer(entry.singerIds[0])?.name || '';
+    for (const pid of entry.invites) {
+      this.notifyDevice(this.singer(pid)?.deviceId, { t: 'notify', kind: 'duet', entryId: entry.id, title: entry.title, by });
+    }
+  }
+
+  /** Withdraws every open invitation to `singerId` (the guest left, was banned or removed). */
+  dropInvites(singerId) {
+    for (const e of [...this.s.queue, ...this.s.pending]) {
+      if (!e.invites?.includes(singerId)) continue;
+      e.invites = e.invites.filter((x) => x !== singerId);
+      if (!e.invites.length) delete e.invites;
+    }
+  }
+
+  /** Open duet invitations for this singer: queued songs only (pending ones wait for the host). */
+  invitesFor(singerId, eta = this.etaList()) {
+    const out = [];
+    if (!singerId) return out;
+    this.s.queue.forEach((e, i) => {
+      if (!e.invites?.includes(singerId) || e.singerIds.includes(singerId)) return;
+      // The invited partner sees the real song, even a mystery one: they are asked to sing it.
+      out.push({ entryId: e.id, title: e.title, artist: e.artist, by: this.singerView(e.singerIds[0]), position: i + 1, eta: eta[i] ?? null });
+    });
+    return out.slice(0, MAX_OPEN_INVITES);
   }
 
   /**
@@ -545,6 +697,10 @@ export class Room {
       const name = str(patch.singerName, 40);
       e.singerIds = name ? [this.findOrCreateSinger(name).id] : [];
     }
+    if (e.invites) { // someone the host added by hand needs no invitation any more
+      e.invites = e.invites.filter((id) => !e.singerIds.includes(id));
+      if (!e.invites.length) delete e.invites;
+    }
     if (patch.mystery !== undefined) e.mystery = !!patch.mystery || undefined;
     if (patch.note !== undefined) e.note = str(patch.note, 80) || undefined;
     return { entry: this.entryView(e) };
@@ -558,6 +714,7 @@ export class Room {
     const index = this.insertEntry(entry, m.position);
     this.notifyDevices(entry, { t: 'notify', kind: 'approved', entryId: entry.id, title: entry.title });
     if (wasEmpty) this.maybeAutoStart();
+    this.sendInvites(entry); // (none left if it started right away)
     return { index };
   }
 
@@ -587,7 +744,8 @@ export class Room {
   play(m = {}) {
     const q = this.s.queue;
     let entry = null;
-    if (this.gameBlocks() && !this.s.current) fail('A game is using the TV — end it first.', 'busy');
+    // An exclusive game owns the TV: no other song may start (its own current song may resume).
+    if (this.gameBlocks() && (m.entryId ? this.s.current?.id !== m.entryId : !this.s.current)) fail('A game is using the TV — end it first.', 'busy');
     if (m.entryId) {
       const i = q.findIndex((e) => e.id === m.entryId);
       if (i < 0) {
@@ -608,8 +766,11 @@ export class Room {
 
   startEntry(entry) {
     const s = this.s;
+    // A finished game whose results are still up: this song moves the party on (see finish()).
+    this.gameBehind = this.game?.ended ? this.game : null;
     const track = this.catalog.track(entry.trackId);
     s.current = entry;
+    delete entry.invites; // too late to join now: the song is on
     const countdown = Math.max(0, Number(this.settings.get('playback.countdown')) || 0);
     const p = s.player;
     Object.assign(p, {
@@ -771,8 +932,10 @@ export class Room {
     if (entry.source?.startsWith('game:')) record.game = entry.source.slice(5);
     this.appendHistory(record);
     s.tonight.history.unshift({ ...record, entryId: entry.id, singerIds: entry.singerIds });
-    s.tonight.history.length = Math.min(s.tonight.history.length, 200);
+    s.tonight.history.length = Math.min(s.tonight.history.length, MAX_HISTORY);
     if (completed) {
+      s.tonight.perfs.push(perfRecord({ ...record, entryId: entry.id, singerIds: [...entry.singerIds] }));
+      if (s.tonight.perfs.length > MAX_PERFS) s.tonight.perfs.splice(0, s.tonight.perfs.length - MAX_PERFS);
       for (const singer of singers) {
         singer.sung = (singer.sung || 0) + 1;
         singer.totalSung = (singer.totalSung || 0) + 1;
@@ -785,6 +948,14 @@ export class Room {
     }
     s.current = null;
     this.resetPlayer();
+    // The first song after a finished game is over: close the game (its result is already in
+    // tonight's games), so the lobby with its QR code, ratings and autoplay come back instead of
+    // the old results screen.
+    if (this.game && this.game === this.gameBehind) {
+      this.game.dispose();
+      this.game = null;
+    }
+    this.gameBehind = null;
     // A game that plays songs itself (battle) decides what comes next.
     const handled = this.gameHook('onSongEnd', entry, { completed, playedSec, reason }) === true;
     if (completed && !entry.game && entry.singerIds.length && this.settings.get('playback.ratingAfterSong')) this.openRating(entry);
@@ -877,9 +1048,31 @@ export class Room {
     return singer;
   }
 
+  /**
+   * The singer called `name` (or a new one). "Everyone" is always the sing-along singer — never a
+   * guest who calls themself that. A host re-adding a name marks that singer as here tonight.
+   */
   findOrCreateSinger(name) {
-    const f = fold(name);
-    return this.s.singers.find((x) => fold(x.name) === f) || this.createSinger({ name });
+    const singer = this.singerNamed(name) || this.createSinger({ name });
+    singer.seenAt = Date.now();
+    return singer;
+  }
+
+  singerNamed(name) {
+    const key = nameKey(name);
+    if (key === EVERYONE) return this.singAlongSinger();
+    return this.s.singers.find((x) => !x.singAlong && nameKey(x.name) === key) || null;
+  }
+
+  /** "Everyone" (poll winners, wheel results, autoplay, the host's sing-alongs): no phone, no guest. */
+  singAlongSinger() {
+    let singer = this.s.singers.find((x) => x.singAlong);
+    if (!singer) {
+      // One made before the flag existed, or a new one.
+      singer = this.s.singers.find((x) => !x.deviceId && nameKey(x.name) === EVERYONE) || this.createSinger({ name: 'Everyone' });
+      singer.singAlong = true;
+    }
+    return singer;
   }
 
   singerForProfile(deviceId) {
@@ -895,9 +1088,10 @@ export class Room {
   singerAdd(m) {
     const name = str(m.name, 40);
     if (!name) fail('Give the singer a name.', 'bad_request');
-    const existing = this.s.singers.find((x) => fold(x.name) === fold(name));
-    if (existing) return { singer: existing };
-    return { singer: this.createSinger({ name, emoji: str(m.emoji, 16) || undefined, color: validColor(m.color) }) };
+    const existing = this.singerNamed(name);
+    const singer = existing || this.createSinger({ name, emoji: str(m.emoji, 16) || undefined, color: validColor(m.color) });
+    singer.seenAt = Date.now(); // here tonight (the wheel's "everyone singing tonight")
+    return { singer };
   }
 
   singerUpdate(m) {
@@ -915,6 +1109,7 @@ export class Room {
     if (i < 0) fail('Singer not found.', 'not_found');
     const [singer] = this.s.singers.splice(i, 1);
     for (const e of [...this.s.queue, ...this.s.pending]) e.singerIds = e.singerIds.filter((id) => id !== singer.id);
+    this.dropInvites(singer.id);
     for (const prof of Object.values(this.s.profiles)) if (prof.singerId === singer.id) delete prof.singerId;
     return { removed: singer.id };
   }
@@ -955,6 +1150,7 @@ export class Room {
       delete this.s.profiles[id];
       const singer = singerId && this.singer(singerId);
       if (singer && !singer.sung) this.s.singers = this.s.singers.filter((x) => x.id !== singerId);
+      if (singerId) this.dropInvites(singerId);
     }
   }
 
@@ -965,6 +1161,8 @@ export class Room {
       profile.banned = true;
       this.s.queue = this.s.queue.filter((e) => e.addedBy !== m.deviceId);
       this.s.pending = this.s.pending.filter((e) => e.addedBy !== m.deviceId);
+      if (profile.singerId) this.dropInvites(profile.singerId);
+      this.photos.dropPending(m.deviceId);
     }
     for (const c of this.hub.list((x) => x.role === GUEST && x.data.deviceId === m.deviceId)) {
       c.send({ t: 'denied', reason: ban ? 'banned' : 'kicked' });
@@ -994,7 +1192,7 @@ export class Room {
     const i = list.indexOf(songId);
     if (i >= 0) list.splice(i, 1);
     else list.unshift(songId);
-    if (list.length > 500) list.length = 500;
+    if (list.length > MAX_LIST_SONGS) list.length = MAX_LIST_SONGS;
     return { favorite: i < 0 };
   }
 
@@ -1083,10 +1281,42 @@ export class Room {
     e.invites = e.invites.filter((x) => x !== me);
     if (!e.invites.length) delete e.invites;
     if (m.accept && !e.singerIds.includes(me)) e.singerIds.push(me);
-    const inviter = this.singer(e.singerIds[0]);
-    const name = this.singer(me)?.name || 'Your partner';
-    if (inviter?.deviceId) this.notifyDevice(inviter.deviceId, { t: 'notify', kind: m.accept ? 'duet-yes' : 'duet-no', entryId: e.id, title: e.title, by: name });
+    if (!m.accept) this.rememberDecline(e, me);
+    this.tellInviter(e, me, !!m.accept);
     return { accepted: !!m.accept };
+  }
+
+  /** A guest turns duet invitations off (or back on); turning them off declines the open ones. */
+  duetInvites(client, m) {
+    const deviceId = client.data.deviceId;
+    const profile = this.profileOf(deviceId);
+    if (!profile?.name) fail('Choose a name first.', 'no_profile');
+    if (typeof m.allow !== 'boolean') fail('Say whether duet invitations are allowed.', 'bad_request');
+    if (!this.limits.profile.take(deviceId)) fail('Too many changes — try again in a minute.', 'rate_limited');
+    if (m.allow) {
+      delete profile.noInvites;
+    } else {
+      profile.noInvites = true;
+      const me = profile.singerId;
+      for (const e of [...this.s.queue, ...this.s.pending]) {
+        if (!me || !e.invites?.includes(me)) continue;
+        this.rememberDecline(e, me);
+        this.tellInviter(e, me, false);
+      }
+      if (me) this.dropInvites(me);
+    }
+    return { allow: !profile.noInvites };
+  }
+
+  rememberDecline(entry, singerId) {
+    if (this.declined.size >= 2000) this.declined.delete(this.declined.values().next().value);
+    this.declined.add(`${entry.addedBy}>${singerId}>${entry.songId}`);
+  }
+
+  tellInviter(entry, singerId, accepted) {
+    const inviter = this.singer(entry.singerIds[0]);
+    const name = this.singer(singerId)?.name || 'Your partner';
+    if (inviter?.deviceId) this.notifyDevice(inviter.deviceId, { t: 'notify', kind: accepted ? 'duet-yes' : 'duet-no', entryId: entry.id, title: entry.title, by: name });
   }
 
   // ---- remote displays (pairing) --------------------------------------------------------------------
@@ -1094,13 +1324,23 @@ export class Room {
   /** A screen on another computer asks to become a TV display: it shows `code`, the host approves. */
   pairRequest(ip) {
     this.prunePairings();
-    if (!this.limits.pair.take(String(ip))) fail('Too many pairing attempts — wait a few minutes.', 'rate_limited');
-    if (this.pairings.size >= 20) fail('Too many screens are waiting to be paired.', 'busy');
+    const addr = String(ip || '');
+    if (!this.limits.pair.take(addr)) fail('Too many pairing attempts — wait a few minutes.', 'rate_limited');
+    // A screen asking again (reloaded, "Show a new code") replaces its oldest code, so a few
+    // addresses can't keep every slot busy.
+    const mine = this.waitingPairings().filter((p) => p.ip === addr);
+    for (const old of mine.slice(0, Math.max(0, mine.length - PAIR_PER_ADDRESS + 1))) this.pairings.delete(old.id);
+    if (this.waitingPairings().length >= PAIR_WAITING_MAX) fail('Too many screens are waiting to be paired.', 'busy');
     let code;
     do code = String(crypto.randomInt(1000, 10000)); while ([...this.pairings.values()].some((p) => p.code === code));
-    const p = { id: newId(12), code, ip: String(ip || ''), at: Date.now(), status: 'waiting', token: null };
+    const now = Date.now();
+    const p = { id: newId(12), code, ip: addr, at: now, until: now + PAIR_TTL_MS, status: 'waiting', token: null };
     this.pairings.set(p.id, p);
-    this.toastHosts(`A screen at ${p.ip.replace(/^::ffff:/, '')} wants to be a TV display (code ${code}). Approve it in Settings → Displays.`);
+    // Settings → Displays lists every waiting screen; the toast is only a heads-up (not a flood).
+    if (now - (this.pairToastAt || 0) >= PAIR_TOAST_MS) {
+      this.pairToastAt = now;
+      this.toastHosts(`A screen at ${addr.replace(/^::ffff:/, '')} wants to be a TV display (code ${code}). Approve it in Settings → Displays.`);
+    }
     this.markDirty();
     return { id: p.id, code };
   }
@@ -1120,10 +1360,17 @@ export class Room {
 
   prunePairings() {
     const now = Date.now();
-    for (const [id, p] of this.pairings) if (now - p.at > 10 * 60_000) this.pairings.delete(id);
+    for (const [id, p] of this.pairings) if (now > p.until) this.pairings.delete(id);
+  }
+
+  /** Codes still waiting for the host (only these count towards the limit). */
+  waitingPairings() {
+    const now = Date.now();
+    return [...this.pairings.values()].filter((p) => p.status === 'waiting' && now <= p.until);
   }
 
   findPairing(m) {
+    this.prunePairings();
     const p = [...this.pairings.values()].find((x) => x.id === m.id || (m.code && x.code === String(m.code)));
     if (!p || p.status !== 'waiting') fail('That screen is no longer waiting — ask it to show a new code.', 'not_found');
     return p;
@@ -1133,20 +1380,28 @@ export class Room {
     const p = this.findPairing(m);
     p.status = 'approved';
     p.token = this.auth.sign('tv', this.auth.newId());
+    p.until = Math.max(p.until, Date.now() + 2 * 60_000); // time for the screen to collect it
     log.info(`paired a display at ${p.ip}`);
     return { ok: true };
   }
 
+  /** Refuses one screen ({ id } or { code }) or every waiting one ({ all: true }); the slots free up. */
   displayDeny(m) {
-    const p = this.findPairing(m);
-    p.status = 'denied';
-    return { ok: true };
+    const list = m.all === true ? this.waitingPairings() : [this.findPairing(m)];
+    const until = Date.now() + PAIR_DENIED_MS;
+    for (const p of list) Object.assign(p, { status: 'denied', until: Math.min(p.until, until) });
+    return { ok: true, denied: list.length };
   }
 
-  /** Logs every paired (remote) display out; screens on this computer are not affected. */
+  /**
+   * Logs every paired (remote) display out. Screens on this computer, and a remote host's own
+   * live preview (signed in with the host PIN, not paired), are not affected.
+   */
   async displayForget() {
     await this.auth.forgetDisplays();
-    for (const c of this.hub.list((x) => x.role === TV && !x.isLocal)) {
+    // Approved codes not collected yet carry the old token version: they would fail anyway.
+    for (const [id, p] of this.pairings) if (p.status === 'approved') this.pairings.delete(id);
+    for (const c of this.hub.list((x) => x.role === TV && !x.isLocal && !x.data.hostPreview)) {
       c.send({ t: 'denied', reason: 'pairing_required' });
       c.close(4003, 'unpaired');
     }
@@ -1184,7 +1439,7 @@ export class Room {
     const clean = this.settings.update(patch);
     if (paths) await this.libraryPaths({ paths });
     if (clean.artwork) this.app.artwork?.settingsChanged();
-    if (clean.playback?.breakMusic) this.breakMusic.settingsChanged();
+    if (clean.playback?.breakMusic) this.breakMusic.settingsChanged(clean.playback.breakMusic);
     return { settings: clean };
   }
 
@@ -1262,6 +1517,11 @@ export class Room {
     return this.game;
   }
 
+  /** Host controls (a phase control that is stale or part of a double click does nothing: Game.control). */
+  gameAction(client, m) {
+    return this.activeGame().control(client, m);
+  }
+
   gameInput(client, m) {
     const game = this.activeGame();
     if (!this.settings.get('guests.games')) fail('The host has turned off games on phones.', 'closed');
@@ -1310,9 +1570,18 @@ export class Room {
     }
   }
 
-  /** Queues a song for a game (poll winner, wheel result…): host rules, no guest limits. */
+  /**
+   * Queues a song for a game (poll winner, wheel result, autoplay…): host rules, no guest limits —
+   * but with the explicit filter on, only a clean version (like gameSing; none → an error).
+   */
   gameQueue(song, { singerName = '', singerIds, position = 'next', source = 'game:x' } = {}) {
-    return this.queueAdd({ role: HOST, data: {} }, { songId: song.id, singerName, singerId: singerIds?.[0], partners: singerIds?.slice(1), position, source });
+    let trackId;
+    if (this.settings.get('queue.explicitFilter')) {
+      const clean = this.pickTrack(song, { noExplicit: true });
+      if (!clean) fail('Explicit songs are turned off for this party.', 'explicit');
+      trackId = clean.id;
+    }
+    return this.queueAdd({ role: HOST, data: {} }, { songId: song.id, trackId, singerName, singerId: singerIds?.[0], partners: singerIds?.slice(1), position, source });
   }
 
   /**
@@ -1330,7 +1599,16 @@ export class Room {
       dur: Math.round(track.duration || song.duration || 0), source, game: gameId || source,
     };
     if (clipEnd > 0) entry.clipEnd = Math.max(15, Math.round(clipEnd));
-    if (this.s.current) this.finish('skipped', { advance: false });
+    const cur = this.s.current;
+    if (cur && !cur.game) {
+      // Not a game's song (play() refuses those while a game owns the TV — but never lose one):
+      // back to the top of the queue, like Stop.
+      this.s.current = null;
+      this.resetPlayer();
+      this.s.queue.unshift(cur);
+    } else if (cur) {
+      this.finish('skipped', { advance: false });
+    }
     this.s.player.hold = false;
     this.startEntry(entry);
     this.markDirty();
@@ -1339,8 +1617,11 @@ export class Room {
 
   /** Sends a message to one guest's phones (device id from their signed token). */
   notifyDevice(deviceId, msg) {
-    if (!deviceId) return;
-    this.hub.broadcast(msg, (c) => c.role === GUEST && c.data.deviceId === deviceId);
+    if (!deviceId) return 0;
+    const to = (c) => c.role === GUEST && c.data.deviceId === deviceId;
+    const n = this.hub.list(to).length; // phones connected right now (nothing is kept for later)
+    if (n) this.hub.broadcast(msg, to);
+    return n;
   }
 
   // ---- performance ratings (PLAN §13.7) ----------------------------------------------------------------
@@ -1377,7 +1658,10 @@ export class Room {
     return { stars };
   }
 
-  /** Ends the rating window: the average goes to tonight's history and the singers' stats. */
+  /**
+   * Ends the rating window: the average goes to tonight's history, the recap's performances
+   * and the singers' stats (and to a running game, e.g. a recap started meanwhile).
+   */
   closeRating() {
     const r = this.rating;
     if (!r) return;
@@ -1388,12 +1672,15 @@ export class Room {
     const avg = Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10;
     const h = this.s.tonight.history.find((x) => x.entryId === r.entryId);
     if (h) h.rating = { avg, n: values.length };
+    const perf = this.s.tonight.perfs.findLast((x) => x.entryId === r.entryId);
+    if (perf) perf.rating = { avg, n: values.length };
     for (const id of r.singerIds) {
       const singer = this.singer(id);
       if (!singer) continue;
       singer.stars = { sum: (singer.stars?.sum || 0) + avg, n: (singer.stars?.n || 0) + 1 };
     }
     this.appendHistory({ at: Date.now(), sessionId: this.s.session.id, type: 'rating', entryId: r.entryId, songId: r.songId, rating: avg, votes: values.length });
+    this.gameHook('onRatingClosed', r.entryId);
   }
 
   ratingView(role, deviceId) {
@@ -1450,13 +1737,39 @@ export class Room {
     this.app.artwork?.focus(ids.map((id) => id && this.catalog.song(id)).filter(Boolean));
   }
 
-  /** Popular songs with covers for the TV lobby mosaic (refreshed at most once a minute). */
+  /**
+   * Songs guests must not learn about through `art` events yet: the queued (or pending)
+   * mystery songs, which guests only see as "Surprise!", and their artists. Also the songs
+   * that are out in the open (playing, queued without the mystery) and their artists: what
+   * was withheld from guests may be told once it's among these (server/artwork/feed.js).
+   */
+  artSecrets() {
+    const songs = new Set();
+    const artists = new Set();
+    const openSongs = new Set(this.s.queue.filter((e) => !e.mystery).map((e) => e.songId));
+    if (this.s.current) openSongs.add(this.s.current.songId);
+    const artistsOf = (id) => this.catalog.song(id)?.artistKeys || [];
+    const openArtists = new Set([...openSongs].flatMap(artistsOf));
+    for (const e of [...this.s.queue, ...this.s.pending]) {
+      if (!e.mystery || openSongs.has(e.songId)) continue;
+      songs.add(e.songId);
+      for (const key of artistsOf(e.songId)) artists.add(key);
+    }
+    return { songs, artists, openSongs, openArtists };
+  }
+
+  /**
+   * Popular songs with covers for the TV lobby mosaic. The explicit filter and a new library
+   * apply at once; new metadata (the crawler) at most once a minute.
+   */
   mosaic() {
     const now = Date.now();
-    const v = `${this.catalog.version}:${this.catalog.metaVersion}`;
-    if (this.mosaicCache && (this.mosaicCache.v === v || now - this.mosaicCache.at < 60_000)) return this.mosaicCache.ids;
-    const ids = this.catalog.popular({ limit: 36, filter: { hasArt: true, noExplicit: !!this.settings.get('queue.explicitFilter') } }).items.map((s) => s.id);
-    this.mosaicCache = { v, at: now, ids };
+    const noExplicit = !!this.settings.get('queue.explicitFilter');
+    const c = this.mosaicCache;
+    if (c && c.version === this.catalog.version && c.noExplicit === noExplicit
+      && (c.meta === this.catalog.metaVersion || now - c.at < 60_000)) return c.ids;
+    const ids = this.catalog.topSongs(36, { hasArt: true, noExplicit }).map((s) => s.id);
+    this.mosaicCache = { version: this.catalog.version, meta: this.catalog.metaVersion, noExplicit, at: now, ids };
     return ids;
   }
 
@@ -1502,7 +1815,7 @@ export class Room {
   profileView(deviceId) {
     const p = this.profileOf(deviceId);
     if (!p) return null;
-    return { name: p.name, emoji: p.emoji, color: p.color, singerId: p.singerId || null, favorites: p.favorites || [], coHost: !!p.coHost };
+    return { name: p.name, emoji: p.emoji, color: p.color, singerId: p.singerId || null, favorites: p.favorites || [], coHost: !!p.coHost, duetInvites: !p.noInvites };
   }
 
   entryView(e, { mask = false } = {}) {
@@ -1616,19 +1929,23 @@ export class Room {
         .map(([deviceId, p]) => ({ deviceId, name: p.name, emoji: p.emoji, color: p.color, online: online.has(deviceId), banned: !!p.banned, coHost: !!p.coHost, queued: queuedBy.get(deviceId) || 0, lastSeen: p.lastSeen || 0 }))
         .sort((a, b) => Number(b.online) - Number(a.online) || b.lastSeen - a.lastSeen)
         .slice(0, 300),
-      displays: this.hub.list((c) => c.role === TV && !c.data.preview).map((c) => ({ id: c.id, display: c.data.display, local: c.isLocal, ip: c.isLocal ? '' : String(c.ip || '').replace(/^::ffff:/, '') })),
-      pairings: [...this.pairings.values()].filter((p) => p.status === 'waiting' && Date.now() - p.at < 10 * 60_000).map((p) => ({ id: p.id, code: p.code, ip: p.ip.replace(/^::ffff:/, ''), at: p.at })),
+      displays: this.hub.list((c) => c.role === TV && !c.data.preview).map((c) => ({
+        id: c.id, display: c.data.display, kind: c.data.kind || 'main', standIn: !!c.data.standIn,
+        local: c.isLocal, ip: c.isLocal ? '' : String(c.ip || '').replace(/^::ffff:/, ''),
+      })),
+      pairings: this.waitingPairings().map((p) => ({ id: p.id, code: p.code, ip: p.ip.replace(/^::ffff:/, ''), at: p.at })),
       hosts: this.hub.list((c) => c.role === HOST).length,
       announcement: this.announcement,
       favorites: s.hostFavorites,
       playlists: s.playlists,
       session: s.session,
-      tonight: { songs: s.tonight.history.filter((h) => !h.skipped).length, history: s.tonight.history.slice(0, 30) },
+      tonight: { songs: s.tonight.perfs.length, history: s.tonight.history.slice(0, 30) },
       game: this.game?.view({ role: HOST }) || null,
       rating: this.ratingView(HOST),
       sungTonight: s.tonight.sung.slice(-500),
       breakMusic: (({ title, artist } = {}) => (title ? { title, artist } : null))(this.breakMusic.view() || {}),
       photos: this.photos.hostView(),
+      photoCounts: this.photos.counts(),
     };
   }
 
@@ -1699,7 +2016,7 @@ export class Room {
   duetPartners() {
     const online = new Set(this.hub.list((c) => c.role === GUEST).map((c) => c.data.deviceId));
     return this.s.singers
-      .filter((x) => x.deviceId && online.has(x.deviceId) && !this.profileOf(x.deviceId)?.banned)
+      .filter((x) => x.deviceId && online.has(x.deviceId) && !this.profileOf(x.deviceId)?.banned && !this.profileOf(x.deviceId)?.noInvites)
       .slice(0, 60)
       .map((x) => ({ id: x.id, name: x.name, emoji: x.emoji, color: x.color }));
   }
@@ -1733,6 +2050,7 @@ export class Room {
         pending,
         queued,
         left: max > 0 ? Math.max(0, max - queued) : null,
+        invites: this.invitesFor(profile?.singerId, base.queue.map((e) => e.eta)),
       },
     };
   }
@@ -1756,6 +2074,7 @@ export class Room {
     }
     this.checkUpNext();
     this.focusArtwork();
+    this.app.artFeed?.release(); // a mystery song started (or was unmasked): its art is no secret
     this.breakMusic.checkAutoplay();
     this.save();
   }

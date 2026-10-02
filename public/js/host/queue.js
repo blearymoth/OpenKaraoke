@@ -126,10 +126,8 @@ function RequestsTab({ state }) {
 
 function HistoryTab({ state }) {
   const items = state.tonight.history;
-  // narrow phones have no History tab (host.css): this link keeps the full page (and New party) one tap away
-  const page = html`<a class="btn ghost small history-page-link" href="#/history"><${Icon} name="history" size=${16} /> Tonight's history page</a>`;
-  if (!items.length) return html`<${Empty} icon="🕘" title="Nothing sung yet tonight">Finished songs show up here so you can queue them again.</${Empty}>${page}`;
-  return html`${page}<ol class="q-list">${items.map((h) => html`<li class="q-item" key=${h.at}>
+  if (!items.length) return html`<${Empty} icon="🕘" title="Nothing sung yet tonight">Finished songs show up here so you can queue them again.</${Empty}>`;
+  return html`<ol class="q-list">${items.map((h) => html`<li class="q-item" key=${h.at}>
     <span class="q-pos faint num">${new Date(h.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
     <div class="q-text">
       <div class="q-singer ellipsis">${h.singers.join(' & ') || 'No singer'}</div>

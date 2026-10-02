@@ -30,6 +30,7 @@
 .ap-last b { font-family: var(--font-display); font-size: 26px; color: var(--bulb); }
 .ap-next { display: flex; flex-wrap: wrap; gap: 10px; }
 .ap-next .input { flex: 1 1 220px; min-width: 0; }
+.ap-next .btn { max-width: 100%; min-width: 0; } /* a long label is cut short instead of widening the page */
 
 /* ---- TV ------------------------------------------------------------------------------------------------ */
 .g-tv.applause .ap-main { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; align-content: center; gap: 4vw; min-height: 0; }

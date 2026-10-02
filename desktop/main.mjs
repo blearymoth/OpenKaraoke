@@ -24,11 +24,15 @@ const REPO_NAME = 'blearymoth/OpenKaraoke';
 const REPO = `https://github.com/${REPO_NAME}`;
 
 // Test hooks (desktop/test/app.mjs): a separate profile, a folder instead of the folder dialog,
-// a pretend set of screens (a virtual X server can't show two monitors) and a stand-in for
-// GitHub's API.
+// a pretend set of screens (a virtual X server can't show two monitors), a stand-in for
+// GitHub's API, and links to other sites noted in globalThis.okOpenedExternally instead of
+// opened (a test machine's browser would start, and outlive the app).
 const TEST_FOLDER = process.env.OPENKARAOKE_TEST_FOLDER || '';
 const FAKE_DISPLAYS = process.env.OPENKARAOKE_FAKE_DISPLAYS ? JSON.parse(process.env.OPENKARAOKE_FAKE_DISPLAYS) : null;
 const UPDATE_API = process.env.OPENKARAOKE_UPDATE_API || undefined;
+const openExternal = process.env.OPENKARAOKE_TEST_EXTERNAL
+  ? (url) => { (globalThis.okOpenedExternally ||= []).push(url); }
+  : (url) => shell.openExternal(url);
 
 app.setName('OpenKaraoke');
 app.setPath('userData', process.env.OPENKARAOKE_USER_DATA || path.join(app.getPath('appData'), 'OpenKaraoke'));
@@ -114,14 +118,14 @@ function run() {
       if (url === 'about:blank' || ours(url)) {
         return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true, icon: ICON, webPreferences: { contextIsolation: true, sandbox: true } } };
       }
-      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+      if (/^https?:\/\//i.test(url)) openExternal(url);
       return { action: 'deny' };
     });
     contents.on('did-create-window', (win) => guard(win.webContents));
     contents.on('will-navigate', (e, url) => {
       if (ours(url)) return;
       e.preventDefault();
-      if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+      if (/^https?:\/\//i.test(url)) openExternal(url);
     });
   }
 
@@ -355,7 +359,7 @@ function run() {
           { label: 'Close TV window', click: () => tvWin?.close() },
           { type: 'separator' },
           { label: 'Copy the guests’ join link', click: () => clipboard.writeText(server.app.info().joinUrl) },
-          { label: 'Open the host page in a browser', click: () => shell.openExternal(`http://localhost:${server.port}/host`) },
+          { label: 'Open the host page in a browser', click: () => openExternal(`http://localhost:${server.port}/host`) },
           { type: 'separator' },
           { role: 'quit', label: 'Quit OpenKaraoke' },
         ],
@@ -378,7 +382,7 @@ function run() {
         submenu: [
           { label: 'Open the data folder', click: () => shell.openPath(dataDir) },
           { label: 'Open the log file', click: () => shell.openPath(logFile) },
-          { label: 'OpenKaraoke on GitHub', click: () => shell.openExternal(REPO) },
+          { label: 'OpenKaraoke on GitHub', click: () => openExternal(REPO) },
           { label: 'Check for updates…', click: showUpdates },
           { type: 'separator' },
           { label: 'About OpenKaraoke', click: about },

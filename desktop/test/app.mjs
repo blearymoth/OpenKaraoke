@@ -57,6 +57,7 @@ const env = {
   OPENKARAOKE_TEST_FOLDER: lib,
   OPENKARAOKE_FAKE_DISPLAYS: JSON.stringify(SCREENS),
   OPENKARAOKE_UPDATE_API: gh.api,
+  OPENKARAOKE_TEST_EXTERNAL: '1', // links to other sites are noted, not opened in a browser
   APPIMAGE: appImage,
   PORT: '1', // ignored by the app: it never takes the port from the environment
 };
@@ -77,6 +78,18 @@ const menuItem = (label) => app.evaluate(({ Menu }, name) => {
   const items = Menu.getApplicationMenu().items.flatMap((m) => m.submenu?.items || []);
   items.find((i) => i.label === name).click();
 }, label);
+/** Quits the app like the menu does; a quit that hangs fails the test instead of hanging it. */
+async function quit(running) {
+  let timer;
+  try {
+    await Promise.race([running.close(), new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('quitting took more than 30 s')), 30_000); })]);
+  } catch (e) {
+    running.process()?.kill('SIGKILL');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function poll(fn, ms) {
   const until = Date.now() + ms;
   for (;;) {
@@ -193,6 +206,8 @@ try {
   const navigated = await host.evaluate(() => { location.href = 'https://example.com/'; return location.href; }).catch(() => '');
   await sleep(500);
   check(new URL(host.url()).port === String(port), `the host window stays on the app's pages (${navigated && host.url()})`);
+  const external = await app.evaluate(() => globalThis.okOpenedExternally || []);
+  check(external.length === 2 && external.every((u) => u === 'https://example.com/'), `both go to the normal browser instead (${JSON.stringify(external)})`);
 
   // A second start of the app: the running one comes to the front, nothing else happens.
   const second = spawn(executable, ['--no-sandbox', ...appArgs], { env, stdio: 'ignore' });
@@ -207,7 +222,7 @@ try {
   await ws.req('player.stop').catch(() => {});
   ws.close();
   ws = null;
-  await app.close();
+  await quit(app);
   app = null;
   await sleep(300);
   const leftLock = await fs.access(path.join(userData, 'data', 'server.json')).then(() => true, () => false);
@@ -256,7 +271,7 @@ try {
   check(false, `unexpected error: ${e.stack || e.message}`);
 } finally {
   ws?.close();
-  await app?.close().catch(() => {});
+  if (app) await quit(app).catch(() => {});
   if (squatter.listening) squatter.close();
   await gh.close().catch(() => {});
   xvfb?.kill();

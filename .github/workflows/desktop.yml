@@ -42,6 +42,7 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
 
       - name: Tests
+        timeout-minutes: 10
         run: npm test
 
       - name: Version
@@ -59,11 +60,13 @@ jobs:
         run: npm ci --prefix desktop
 
       - name: Installers
+        timeout-minutes: 20
         env:
           OPENKARAOKE_VERSION: ${{ steps.version.outputs.version }}
         run: npm --prefix desktop run dist
 
       - name: Test the built app
+        timeout-minutes: 10
         env:
           APP: desktop/dist/linux-unpacked/openkaraoke
         run: |

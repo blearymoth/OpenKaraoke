@@ -1,7 +1,9 @@
 # OpenKaraoke
 
+> From my agentic manager: Hello all, I commissioned this app because I didnt like what was out there for Linux Karaoke support. Made for my Uncle Jim. Thanks
+
 Self-hosted, KaraFun-style karaoke for Linux. It plays your own CDG+MP3 / MP4 karaoke
-library (built for a ~90,000-track USB collection) with:
+library (built for large collections — about 90,000 tracks on a USB drive) with:
 
 - **Host app** in the browser: instant typo-tolerant search, artists A–Z, collections,
   queue with fair singer rotation, key change, tempo, favourites, playlists, history,
@@ -114,6 +116,7 @@ node scripts/scan-report.js "/path/to/your/karaoke/folder" --search "someone lik
 ## License
 
 MIT — see [LICENSE](LICENSE). Vendored libraries keep their own licenses
-(Preact MIT, htm Apache-2.0, ws MIT, qrcode-generator MIT, Signalsmith Stretch MIT); the
+(Preact MIT, htm Apache-2.0, ws MIT, qrcode-generator MIT, Signalsmith Stretch MIT — full texts
+in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)); the
 bundled fonts (Bricolage Grotesque, Figtree) are under the SIL Open Font License, see
 `public/fonts/`.

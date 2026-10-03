@@ -21,7 +21,7 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
   screen, and it **updates itself** from the repository's GitHub releases, which a workflow
   publishes for every change to `main`. The default port is now **6527** (8080 clashed with
   other programs); a busy port moves to the next free one. See "Desktop app" below — the
-  repository is private, so the app needs a token to see the releases (explained there).
+  repository is public (since 2026-10-03), so updates need no token any more.
 - **Party hotspot (M5b)**: Settings → Party → **Party hotspot** makes the PC open its own Wi-Fi
   through NetworkManager, so guests don't need the home Wi-Fi. The invite dialog, the TV lobby,
   the corner QR during songs, the queue board, the quiz and the songbook then show **two
@@ -44,7 +44,7 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
   unreachable from the sandbox (parsers are tested against fixtures built from the documented
   response shapes), and sound, microphone, TV legibility and phones need the PC. Work through
   the **owner checklist** below before the next party.
-- Start as before: `bin/openkaraoke.sh --library "/run/media/ruutu/SMILE-2/<collection folder>"`,
+- Start as before: `bin/openkaraoke.sh --library "/run/media/<user>/<drive>/<collection folder>"`,
   open `http://localhost:6527/host`, then **Open TV display** (or `bin/open-tv.sh`) — or
   install the desktop app (below).
   To start it automatically at login: `bin/install-service.sh --library "…"`.
@@ -130,7 +130,7 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
 | Quiz scale | 30 questions from a synthetic 90,000-song catalog in ≈220 ms |
 
 ## Owner checklist — needs the PC
-0. `cd ~/Projects/karaoke && git pull` (nothing to install; still no runtime npm packages).
+0. `cd <your OpenKaraoke checkout> && git pull` (nothing to install; still no runtime npm packages).
 1. **Artwork providers, live**: `node scripts/artwork-check.js` — one request per provider,
    what the parsers make of it and which expected fields are missing. If something is missing,
    run `node scripts/artwork-check.js --save /tmp/art-fixtures` and copy the raw responses over
@@ -164,7 +164,7 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
    headphone output (Chrome names the outputs once the page may use the microphone). On a PC
    without a microphone, check the note's route: site settings → Microphone: Allow, after which
    the outputs appear. Never move the system's default output instead — the TV plays on it.
-10. **Service**: `bin/install-service.sh --library "/run/media/ruutu/SMILE-2/<folder>"`, reboot
+10. **Service**: `bin/install-service.sh --library "/run/media/<user>/<drive>/<folder>"`, reboot
     or log out/in, check `bin/install-service.sh --status`.
 11. Print the songbook (Settings → Library → Songbook) to PDF once to see page breaks.
 12. **Desktop app** (see "Desktop app" below): install the .rpm from the latest release
@@ -395,8 +395,10 @@ dependencies and still runs with `node server/index.js`).
   then a release `v0.1.<run number>` with the commit subjects as notes, marked latest (a draft
   until every file is up). It keeps the 10 newest releases. Bump the version in package.json
   for a new major.minor.
-- **Private repository**: GitHub answers 404 for a private repository's releases without
-  credentials, so the app shows a token field (Settings → About). A fine-grained personal
+- **Private repository** (this one is public since 2026-10-03, so no token is needed — remove
+  the one saved in Settings → About and revoke it on GitHub; this stays for a private fork):
+  GitHub answers 404 for a private repository's releases without credentials, so the app shows
+  a token field (Settings → About). A fine-grained personal
   access token with read-only **Contents** on this repository is enough; it is kept in
   `updates.json` (mode 0600), never shown to the pages and only sent to GitHub's API — the
   updater follows download redirects itself so the token never reaches GitHub's file storage
@@ -610,7 +612,7 @@ player is a mini player (tap it for the full Playback page).
 
 ## Known limitations / TODOs
 - Desktop app: Linux x64 only; no code signing; the AppImage on Ubuntu 24.04 needs
-  `--no-sandbox` (or use the .deb). Updates of a private repository need the token (above).
+  `--no-sandbox` (or use the .deb). Updates of a private fork need a token (above).
 - Catalog rebuild after a rescan with changes blocks the server ≈3–4 s at 90k tracks (the
   TV keeps playing; host/guest UIs pause). Could move to a worker thread.
 - Provider parsers are verified against documented shapes only — see checklist item 1.

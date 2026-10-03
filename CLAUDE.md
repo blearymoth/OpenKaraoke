@@ -12,7 +12,7 @@ on a USB drive) and serves three browser apps over the home network:
 
 **Start here:** read `docs/HANDOFF.md` (current status + next steps), then `docs/PLAN.md`
 (full spec, architecture, protocol, roadmap). `docs/RESEARCH.md` has the feature research
-and artwork-API facts; `docs/LIBRARY.md` describes the owner's karaoke collection.
+and artwork-API facts; `docs/LIBRARY.md` describes how karaoke libraries are laid out and named.
 
 ## Hard rules
 
@@ -152,7 +152,7 @@ Planned modules and their responsibilities are specified in `docs/PLAN.md` §4.
 ## Owner's environment (for local testing)
 
 - Linux desktop, Node available. Karaoke library on a USB drive mounted at
-  `/run/media/ruutu/SMILE-2/` (one collection folder inside, organised `Letter/Artist/Artist - Title [Brand Karaoke].{mp3,cdg}`).
-- Project checkout: `~/Projects/karaoke` (this repo).
+  `/run/media/<user>/<drive>/` (one collection folder inside, organised `Letter/Artist/Artist - Title [Brand Karaoke].{mp3,cdg}`).
+- Project checkout: a local clone of this repo.
 - The TV display is expected to run in Chrome/Chromium on the same PC (HDMI second screen);
   guests use phones on the same Wi-Fi.

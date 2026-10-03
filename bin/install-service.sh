@@ -2,7 +2,7 @@
 # Installs OpenKaraoke as a systemd *user* service: it starts when you log in and restarts
 # by itself if it ever crashes. Run it again to change the options (the service restarts).
 #
-#   bin/install-service.sh --library "/run/media/$USER/SMILE-2/Karaoke"   # install + start
+#   bin/install-service.sh --library "/run/media/$USER/<drive>/Karaoke"   # install + start
 #   bin/install-service.sh --library "…" --port 6527 --pin 1234   # --port: only that port
 #   bin/install-service.sh --status       # is it running? (also: journalctl --user -u openkaraoke -f)
 #   bin/install-service.sh --uninstall    # stop and remove it

@@ -37,6 +37,7 @@ module.exports = {
   files: [
     'package.json',
     'LICENSE',
+    'THIRD_PARTY_LICENSES.md',
     'server/**/*',
     'public/**/*',
     'shared/**/*',

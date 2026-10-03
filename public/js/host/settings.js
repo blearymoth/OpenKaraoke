@@ -143,7 +143,15 @@ function PinField({ hasPin }) {
 }
 
 function RoomCodeField({ value }) {
-  const random = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
+  // Random letters from the browser's cryptographic generator (24 letters: 256 % 24 = 16, so
+  // bytes ≥ 240 are skipped to keep every letter equally likely).
+  const random = () => {
+    const out = [];
+    while (out.length < 4) {
+      for (const n of crypto.getRandomValues(new Uint8Array(8))) if (n < 240 && out.length < 4) out.push('ABCDEFGHJKLMNPQRSTUVWXYZ'[n % 24]);
+    }
+    return out.join('');
+  };
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   return html`<div class="inline-form">

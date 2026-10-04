@@ -56,7 +56,8 @@ export class CdgDecoder {
     this.borderColor = 0;
     this.bgColor = 0;
     this.transparentColor = -1; // parsed for compatibility; nothing keys it (it is a 16-entry table, not one colour)
-    this.scrollFill = -1; // the colour the latest SCROLL_PRESET filled the uncovered rows/columns with
+    this.scrollFill = -1; // the colour the latest SCROLL_PRESET (since the last MEMORY_PRESET) filled the uncovered rows/columns with
+    this.presetCount = 0; // MEMORY_PRESETs so far: a new number is a new screen (shared/lyrics.js keys colours per screen)
     this.version++;
   }
 
@@ -91,6 +92,8 @@ export class CdgDecoder {
         const color = b[d] & 0x0f;
         this.pixels.fill(color);
         this.bgColor = color;
+        this.presetCount++;
+        this.scrollFill = -1; // the whole screen is the new background: no strip of an old fill colour is left
         return true;
       }
       case CDG_INSTR.BORDER_PRESET: {

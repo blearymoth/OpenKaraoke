@@ -266,8 +266,9 @@ function Background() {
   if (mode === 'art' && singing) {
     const art = cur.art || {};
     const fanart = art.fanart && state.display.fanart !== false && !cur.mystery;
+    // (lighter effects: the artist's photos are still and opaque, the cover under them is never seen)
     return html`
-      <div class="art-bg" key=${cur.songId} style=${{ backgroundImage: `url(${cur.mystery ? appIcon() : artUrl(cur.songId, 500)})` }}></div>
+      ${!(fanart && holdSlides()) && html`<div class="art-bg" key=${cur.songId} style=${{ backgroundImage: `url(${cur.mystery ? appIcon() : artUrl(cur.songId, 500)})` }}></div>`}
       ${fanart && html`<${FanartShow} artistKey=${art.fanart} count=${art.fanartCount || 1} key=${art.fanart} />`}
       <div class="art-shade"></div>`;
   }

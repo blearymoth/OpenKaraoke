@@ -7,8 +7,9 @@ import {
   LYRICS_LOOKS, LYRICS_MOTIONS, LIGHTER_EFFECTS, DEFAULT_LYRICS_LOOK, normalizeLyricsLook, normalizeLyricsMotion, normalizeLighterEffects,
   keyColours, maskColours, roleStats, roleStatsAsync, rolesFromStats, rolesFromHist, readablePalette, panelBackdrop, lyricsLut,
   outlineIndices, OUTLINE_INDEX, contrast, oklab, deltaE, luminance, fromOklch, scrollTimeline, scrollShift, CONTRAST_TARGET,
+  ScreenKeying,
 } from '../shared/lyrics.js';
-import { CdgWriter, textWidth } from '../scripts/lib/cdg-writer.js';
+import { CdgWriter, textWidth, drawText, centeredX } from '../scripts/lib/cdg-writer.js';
 import { GLYPHS, FONT_HEIGHT } from '../scripts/lib/cdg-font.js';
 import { makeCdg, synthSong, DEMO_SONGS } from '../scripts/make-demo-library.js';
 
@@ -114,6 +115,151 @@ test('keying: DEFINE_TRANSPARENT is never keyed', () => {
   const { K } = keyColours(dec);
   assert.equal(K & (1 << 15), 0, 'the white letters stay');
   assert.ok(K & 1);
+});
+
+// ---- keying held still for each screen (ScreenKeying) -------------------------------------------
+
+/** The demo library's timing without rendering its audio (synthSong's numbers). */
+const demoTiming = (song) => {
+  const bar = 240 / song.bpm;
+  return { duration: (4 + song.lyrics.length * 2) * bar, barSec: bar, introBars: 2, lineBars: 2 };
+};
+
+/**
+ * Plays `bytes` in 1/60 s steps up to `until` s, keying on every change as the TV renderer does
+ * (with the load-time pass's screens, or before it has got there: `pass` false). → `flips`: per
+ * screen, how many times a colour on screen switched between keyed and drawn; `shown`: the times
+ * colour `watch` was drawn; `at(t)`: { K, hist } at time t.
+ */
+function walkKeying(bytes, until, { pass = true, watch = -1, at = [] } = {}) {
+  const keying = new ScreenKeying();
+  if (pass) roleStats(bytes, { screens: keying.screens });
+  const dec = new CdgDecoder(bytes);
+  const hist = new Uint32Array(16);
+  const flips = new Map();
+  const shown = [];
+  const snaps = new Map();
+  let version = -1;
+  let K = 0;
+  let prev = { K: 0, present: 0, preset: -1 };
+  for (let i = 0; i <= until * 60; i++) {
+    const t = i / 60;
+    dec.seek(t);
+    if (dec.version !== version) {
+      version = dec.version;
+      K = keying.key(dec, hist).K;
+      let present = 0;
+      for (let c = 0; c < 16; c++) if (hist[c]) present |= 1 << c;
+      const changed = dec.presetCount === prev.preset ? (K ^ prev.K) & present & prev.present : 0;
+      if (changed) flips.set(dec.presetCount, (flips.get(dec.presetCount) || 0) + maskColours(changed).length);
+      if (watch >= 0 && (present >> watch) & 1 && !((K >> watch) & 1)) shown.push(+t.toFixed(2));
+      prev = { K, present, preset: dec.presetCount };
+    }
+    for (const want of at) if (Math.abs(want - t) < 1 / 120) snaps.set(want, { K, hist: Uint32Array.from(hist), palette: Uint8Array.from(dec.palette) });
+  }
+  return { flips: Object.fromEntries(flips), shown, at: (t) => snaps.get(t) };
+}
+
+test('keying holds still for each screen: a demo title box never flashes on the panel', () => {
+  const BAND = 4; // (scripts/make-demo-library.js: the title card's purple box, ≈ 35 % of the window)
+  for (const song of DEMO_SONGS) {
+    const bytes = makeCdg(song, demoTiming(song));
+    const pass = walkKeying(bytes, 12, { watch: BAND });
+    assert.deepEqual(pass.flips, {}, `${song.title}: no colour on screen switches between keyed and drawn`);
+    assert.deepEqual(pass.shown, [], `${song.title}: the title box is never drawn (it was shown from ≈1.3 s and again from ≈3.7 s)`);
+    // before the pass has got there: the box shows while it is drawn, is keyed once at 35 %, and stays keyed while it is erased
+    const live = walkKeying(bytes, 12, { pass: false, watch: BAND });
+    for (const [screen, n] of Object.entries(live.flips)) assert.ok(n <= 1, `${song.title}, screen ${screen} without the pass: at most one keying change (${n})`);
+    assert.ok(live.shown.length && Math.max(...live.shown) < 2, `${song.title} without the pass: only while the box is drawn (${live.shown.at(-1)} s)`);
+  }
+});
+
+test('keying: words in a colour that was a background earlier on the same screen are drawn', () => {
+  // A white title card over 60 % of the window, then (no MEMORY_PRESET) a page of white words on
+  // black drawn over it tile by tile.
+  const w = new CdgWriter();
+  w.loadColors(Array.from({ length: 16 }, (_, i) => [[0, 0, 0], [15, 15, 15], [0, 0, 12], [15, 12, 0]][i] || [0, 0, 0]));
+  w.memoryPreset(0, 2);
+  w.borderPreset(0);
+  let f = w.screen.slice();
+  for (let y = 30; y < 180; y++) f.fill(1, y * W + 6, y * W + 294);
+  drawText(f, 'The Title Card', centeredX('The Title Card'), 90, 2);
+  w.drawFrame(f);
+  w.padTo(3);
+  f = new Uint8Array(W * H);
+  drawText(f, 'White words on black', centeredX('White words on black'), 60, 1);
+  drawText(f, 'sung in amber', centeredX('sung in amber'), 110, 1, { highlightX: 150, highlightColor: 3 });
+  w.drawFrame(f);
+  w.padTo(10);
+  const bytes = w.toBuffer();
+  for (const pass of [true, false]) {
+    const r = walkKeying(bytes, 10, { pass, at: [2.5, 9] });
+    const title = r.at(2.5);
+    assert.ok(title.K & (1 << 1) && !(title.K & (1 << 2)), `pass ${pass}: the white card is background, its blue words drawn`);
+    const page = r.at(9);
+    assert.ok(page.hist[1] > 500, 'white words on the page');
+    assert.equal(page.K & (1 << 1), 0, `pass ${pass}: the white words are drawn (keyed: ${maskColours(page.K)})`);
+    const lut = lyricsLut('panel', page.palette, page.K, 0, null, PLATES.studio, null);
+    assert.equal(lut[1] >>> 24, 255);
+    assert.equal(lut[3] >>> 24, 255);
+  }
+  // with the pass: white is background from the start and turns into words once (when what is left of the card is no longer most of it)
+  for (const [screen, n] of Object.entries(walkKeying(bytes, 10).flips)) assert.ok(n <= 1, `screen ${screen}: ${n} keying changes`);
+});
+
+test('keying: a picture drawn over the preset background is still shown as the disc made it', () => {
+  const w = new CdgWriter();
+  w.loadColors(Array.from({ length: 16 }, (_, i) => [(i * 5) % 16, (i * 11) % 16, (i * 7 + 3) % 16]));
+  w.memoryPreset(0, 2);
+  const f = w.screen.slice();
+  let seed = 11;
+  const rand = () => (seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32;
+  for (let y = 0; y < H; y += 3) for (let x = 0; x < W; x += 3) {
+    const c = Math.floor(rand() * 16);
+    for (let dy = 0; dy < 3; dy++) f.fill(c, (y + dy) * W + x, (y + dy) * W + x + 3);
+  }
+  w.drawFrame(f);
+  const end = Math.ceil(w.time) + 1; // (a tile of many colours takes several packets)
+  w.padTo(end);
+  const r = walkKeying(w.toBuffer(), end, { at: [0.2, end - 0.5] });
+  assert.ok(r.at(0.2).K & 1, 'the preset colour is background while the picture is drawn');
+  assert.equal(r.at(end - 0.5).K, 0, 'the whole picture, nothing keyed');
+});
+
+test('keying: a scroll-preset fill colour is forgotten at the next memory preset', () => {
+  // A title on yellow scrolled away with SCROLL_PRESET (fill yellow), then a MEMORY_PRESET to blue
+  // and yellow words sung in white: the yellow words must be drawn.
+  const [WHITE, YELLOW, BLUE] = [1, 2, 3];
+  const w = new CdgWriter();
+  w.loadColors(Array.from({ length: 16 }, (_, i) => [[0, 0, 0], [15, 15, 15], [15, 14, 0], [0, 0, 8]][i] || [0, 0, 0]));
+  w.memoryPreset(YELLOW, 2);
+  w.borderPreset(YELLOW);
+  let f = w.screen.slice();
+  drawText(f, 'The Title', centeredX('The Title'), 90, 0);
+  w.drawFrame(f);
+  w.padTo(2);
+  for (let i = 0; i < 6; i++) {
+    w.scroll(false, YELLOW, 0, 0, 2, 0);
+    w.padPackets(10);
+  }
+  w.padTo(3);
+  w.memoryPreset(BLUE, 2);
+  w.borderPreset(BLUE);
+  f = w.screen.slice();
+  drawText(f, 'Yellow words on blue', centeredX('Yellow words on blue'), 60, YELLOW);
+  drawText(f, 'sung in white', centeredX('sung in white'), 110, YELLOW, { highlightX: 150, highlightColor: WHITE });
+  w.drawFrame(f);
+  w.padTo(6);
+  const dec = new CdgDecoder(w.toBuffer());
+  dec.seek(2.9);
+  assert.equal(dec.scrollFill, YELLOW);
+  dec.seek(5);
+  assert.equal(dec.scrollFill, -1, 'the memory preset painted over every strip');
+  const { K, main } = keyColours(dec);
+  assert.deepEqual(maskColours(K), [BLUE]);
+  const lut = lyricsLut('panel', dec.palette, K, main, null, PLATES.studio, null);
+  assert.equal(lut[YELLOW] >>> 24, 255, 'the yellow words are drawn');
+  assert.equal(lut[WHITE] >>> 24, 255);
 });
 
 // ---- archetype discs (readability: outline, bare, light, dim, halo, scroller, …) --------------
@@ -287,6 +433,16 @@ test('roles: the async pass gives the same statistics, and stops when cancelled'
   assert.deepEqual(slow, sync);
   let calls = 0;
   assert.equal(await roleStatsAsync(bytes, { sliceMs: 0, cancelled: () => ++calls > 2 }), null);
+  // the screens for ScreenKeying: the first `syncSeconds` before it returns, then the same as the synchronous pass
+  const song = DEMO_SONGS[0];
+  const demo = makeCdg(song, demoTiming(song));
+  const whole = new ScreenKeying();
+  roleStats(demo, { screens: whole.screens });
+  const early = new ScreenKeying();
+  const pending = roleStatsAsync(demo, { sliceMs: 0, screens: early.screens, syncSeconds: 10 });
+  assert.equal(early.screens.get(2)?.big, 0b10001, 'the title card’s screen is known at once (its background and box)');
+  await pending;
+  assert.deepEqual(early.screens, whole.screens);
   const hist = new Uint32Array(16);
   hist[0] = 50000;
   hist[1] = 5000;

@@ -86,8 +86,11 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 /* Lighter effects: the desktop app sets .lite-fx on a PC that draws without graphics acceleration
    (or when chosen in Settings → About); the TV page sets .lite-auto by itself (js/tv/lighter.js,
    Settings → TV display). Still backgrounds instead of drifting ones, no blur, and with the clear
-   look a still shade behind the lyrics. */
+   look a still shade behind the lyrics. The song's cover loses its blur: it is drawn again for
+   every song, and in software a 7vh blur froze the TV, lyrics included, for ≈2 s at a time at 4K
+   (four times as a song started); with artist photos over it, it is left out (js/tv/main.js). */
 :is(.lite-fx, .lite-auto) :is(.aurora i, .fanart-bg, .photo-bg, .mosaic) { animation: none; }
+:is(.lite-fx, .lite-auto) .art-bg { filter: var(--art-bg-filter-lite); }
 :is(.lite-fx, .lite-auto) .aurora i { transform: none; transition: none; }
 :is(.lite-fx, .lite-auto) :is(.announce, .start) { -webkit-backdrop-filter: none; backdrop-filter: none; }
 :is(.lite-fx, .lite-auto) #stage:has(#lyrics.show[data-look="clear"])::before { content: ''; position: absolute; inset: 0; z-index: -1; background: radial-gradient(ellipse 62% 58% at center, rgba(var(--shade-rgb), 0.6), rgba(var(--shade-rgb), 0) 72%); }
@@ -280,6 +283,13 @@ body.preview :is(.announce, .start) { -webkit-backdrop-filter: none; backdrop-fi
 }
 .paused-pill .icon { width: 0.84em; height: 0.84em; }
 @media (max-aspect-ratio: 17/10) { #app:has(.corner-qr) .paused-pill { left: calc((100vw - var(--band-end)) / 2); } }
+/* One notice at a time in the band: each has its own place in it and nothing keeps them apart.
+   Paused takes it (Up next waits, the ticker still lists the next singers; so does the battle
+   badge); below 17:10 the pass-the-mic holder (a pill at the band's right end there, games/relay.css)
+   waits for the title strip, Up next and Paused. */
+.paused-pill { z-index: 5; }
+#app:has(.paused-pill) :is(.upnext-banner, .bt-badge) { visibility: hidden; }
+@media (max-aspect-ratio: 17/10) { #app:has(:is(.titlecard, .upnext-banner, .paused-pill)) .rl-badge { visibility: hidden; } }
 
 .tv-error { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 70vw; padding: 4vh 5vh; border-radius: 3vh; background: var(--bad-panel); text-align: center; display: grid; gap: 1.5vh; }
 .tv-error b { font-size: 4.4vh; font-family: var(--font-display); }

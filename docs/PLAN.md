@@ -516,7 +516,9 @@ from its palette) with a box-shadow.
   redraws, and the transform drops by 12 rows in the same frame (12·k is whole, so they cancel).
 - `layout()` (load, resize, devicePixelRatio change, smoothing change): the box height snapped to
   a multiple of 16 device pixels (smoothing) or to a whole k per CD+G pixel (`pixelated`),
-  placed in whole device pixels; it publishes `--lyr-left/top/w/h` for the overlay layout.
+  placed in whole device pixels; a box smaller than the disc's 192 rows (the host's live preview)
+  shrinks in multiples of 16, filtered, in either mode; it publishes `--lyr-left/top/w/h` for
+  the overlay layout.
 - `render(t)` every animation frame: a backward step under 0.3 s is held (jitter, mirrors); the
   decoder catches up; a redraw only when its memory or the colour table changed: the rectangle of
   memory that differs from what was drawn (grown by 2 pixels for the outline and Scale2x) goes
@@ -538,12 +540,23 @@ Reset on load, stop and a display change.
 
 **Colours** (`shared/lyrics.js`, pure):
 - Keying, at every redraw, from the window's histogram: colours covering ≥ 35% (kept down to 20%),
-  the memory-preset colour at ≥ 10%, the latest scroll-preset fill colour when it is on screen,
-  the border colour when it shows nowhere but the strip the offsets uncover, and any colour that
-  looks the same (OKLab ΔE < 0.02) as a keyed one. Nothing keyed (a picture screen): shown as is.
-- Colour roles, from a load-time pass over the song (a screen every 0.5 s, in 8 ms slices, never
-  mid-song statistics): areas, edges (outlines, halos) and fills (everything else); until it
-  finishes every colour is a fill.
+  the memory-preset colour at ≥ 10%, the latest scroll-preset fill colour (since the last memory
+  preset) when it is on screen, the border colour when it shows nowhere but the strip the offsets
+  uncover, and any colour that looks the same (OKLab ΔE < 0.02) as a keyed one. Nothing keyed (a
+  picture screen): shown as is.
+- Keying holds still for a screen (`ScreenKeying`; a screen lasts from one memory preset to the
+  next, the decoder's `presetCount`), so a box drawn or erased tile by tile (a title card) no longer
+  flashes on, off and on again: a colour that has covered ≥ 35% on this screen stays keyed while
+  what is on screen of it is an area (≥ 50% of its pixels with all 8 neighbours alike), not lines
+  of words; and one the load-time pass saw at ≥ 35% at any sample of the screen is keyed from the
+  screen's start — unless the pass also saw it drawn in lines (≥ 64 pixels, mostly not inside an
+  area) at two samples or more, when it is held only while it looks like an area. These holds
+  apply only when something else is background (a picture screen still shows as is), and colours
+  held but not on screen are added after the look-alike step (they never hide a look-alike).
+- Colour roles, from a load-time pass over the song (a screen every 0.5 s, in 8 ms slices, the
+  first 10 s before the song starts, never mid-song statistics): areas, edges (outlines, halos)
+  and fills (everything else); until it finishes every colour is a fill. The same pass notes each
+  screen's big and line colours for `ScreenKeying`.
 - `readablePalette` (OKLab, hue and chroma kept): dark words on a light background flip to light
   on dark; fills rise to 7:1 or more against the plate over mid-grey (the brightest backdrop the
   skins leave), keeping their order and at least 0.12 ΔE apart (sung and unsung stay apart); halos
@@ -555,16 +568,27 @@ lyrics covers the box (checked at 1920×1080, 1280×720, 1366×768, 1024×768, 1
 a 720×1280 mirror): the title strip, "Up next" and Paused are one line in the band above the box;
 the join QR sits in the side margin at 17:10 and wider, a row in that band below; reactions rise
 in the right margin (hidden on portrait screens); the progress bar is on the ticker's top edge;
-the pass-the-mic band and the battle badge use the band, the photo flash the side margin.
+the pass-the-mic band and the battle badge use the band, the photo flash the side margin. One
+notice at a time in the band (each has its own place there and nothing else keeps them apart):
+Paused takes it — Up next and the battle badge wait (the ticker still lists the next singers) —
+and below 17:10 the pass-the-mic holder's pill (at the band's right end there) waits for the
+title strip, Up next and Paused; the pass-the-mic band hides the others while it is up.
 
 **Lighter effects anywhere** (`public/js/tv/lighter.js`): `html.lite-auto` gives every TV page
 what the desktop app's `.lite-fx` gives its windows — still backgrounds (no drift or Ken Burns,
-and the photo slideshows behind a song hold still), no blur. `on`: always;
+and the photo slideshows behind a song hold still), no blur: the song's cover behind the lyrics
+loses its 7vh blur (`--art-bg-filter-lite`, the same dimming without it; it is drawn again for
+every song, and in software that blur froze a 4K TV for ≈2 s at a time as a song started) and
+is left out under the artist's photos (still and opaque there). `on`: always;
 `off`: never; `auto`: when the browser draws in software (a WebGL context with
 `failIfMajorPerformanceCaveat` fails, or its renderer is a software one — `shared/graphics.js`)
-or when two 120-frame windows while lyrics play have a median frame gap above 1.35× the best seen
-or 50 ms (it stays until the page reloads; the reason is logged once and kept in
-`data-lite-reason`). The host's preview and the queue board never decide by themselves. The
+or when two windows in a row while lyrics play are slow (`public/js/tv/frame-watch.js`, pure). A
+window is ≈2 s of frames (at least 8), judged by itself because the screen's refresh is unknown
+(the TV window can move to a 30 or 24 Hz TV mode, or from a 144 Hz monitor): slow when its median
+frame gap is above 1.35× its own fastest tenth (counted as no faster than 60 fps: 45 fps and up is
+fine) or above 50 ms (under 20 fps). A steady half rate (every frame two refreshes) looks the same
+as a 30 Hz TV and is not counted. It trips within ≈4 s at any rate from 1 fps up; it stays until
+the page reloads; the reason is logged once and kept in `data-lite-reason`. The host's preview and the queue board never decide by themselves. The
 desktop app marks its pages with this PC's choice (`data-lighter`); its "off" wins over `auto`.
 The TV's art shade is `.art-shade` (the dialogs' `.scrim` brought a full-screen backdrop blur).
 
@@ -581,9 +605,12 @@ scale, `pixelated`) that viewport glides at 54–60 fps. Script per frame: 0.3 m
 the 95th percentile, 3–4 ms worst (a 12-row move redraws the whole canvas); a colour-table change
 with an empty cache 2.5 ms (the first, not yet compiled, ≈10 ms); no decoder replay while playing.
 Under lighter effects the slideshows behind a song (artist photos, guests' photos) hold still: a
-new full-screen picture froze software drawing for ≈0.25 s at 1080p and 2.4 s at 4K.
+new full-screen picture froze software drawing for ≈0.25 s at 1080p and 2.4 s at 4K; and the
+cover is not blurred (with the blur, four freezes of 1.5–2.1 s as each song started at 3840×2160;
+without, the longest frame ≈150 ms, at 1080p none over 70 ms).
 
-**Tests**: `test/lyrics.test.js` (archetype discs, keying, roles, timeline), `test/frame-clock.test.js`,
+**Tests**: `test/lyrics.test.js` (archetype discs, keying and its holds per screen, roles,
+timeline), `test/frame-clock.test.js`, `test/frame-watch.test.js`,
 `test/cdg.test.js`, settings in `test/util.test.js`, tokens and lyric-box rules in
 `test/themes.test.js`, `test/e2e/lyrics.mjs`; on a real library, `scripts/lyrics-check.js`.
 
@@ -1139,7 +1166,7 @@ WAI-ARIA tabs with arrow/Home/End keys); on phones it is the Control page.
   element into an overlay, nothing reloads; off by default on phones), which screen plays the
   sound (+ Change → Devices), the desktop app's TV window controls (`okDesktop.tv`: open/close,
   full screen, which screen — native Wayland: the person moves it), and "On the TV" quick settings
-  (background, lyrics timing ±2 s, corner QR, announce) saved without a toast.
+  (background, lyrics look, lyrics timing ±2 s, corner QR, announce) saved without a toast.
 - **Devices** (`devices.js`): a plain-words summary; screens waiting to pair (Approve/Deny);
   **TV screens** "Main TV" / "Mirror N" / "Queue board N" with where, device, paired, since,
   "Sound blocked", stand-in, **Make main** and **Identify** (`display.identify`: the name big on

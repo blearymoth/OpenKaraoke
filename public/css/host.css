@@ -348,6 +348,13 @@ table.versions .num { text-align: right; }
 .setting-text p { margin-top: 3px; max-width: 60ch; }
 .setting-control { justify-self: end; width: 100%; display: flex; justify-content: flex-end; }
 .setting.bool .setting-control { width: auto; }
+/* A narrow settings column (the admin panel docked beside it): the control's track is filled first,
+   so a row with help text left it ≈80 px (a word a line). Such rows put the control under the text. */
+.settings-body { container-type: inline-size; }
+@container (max-width: 640px) {
+  .setting:not(.bool):has(.setting-text p) { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .setting:not(.bool):has(.setting-text p) .setting-control { justify-content: flex-start; }
+}
 .code-input { font-family: var(--font-display); font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; width: 110px !important; flex: none !important; }
 .color-input { width: 56px; height: 36px; padding: 2px; border: 1px solid var(--line); border-radius: 10px; background: var(--stage-2); cursor: pointer; }
 .folders { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }

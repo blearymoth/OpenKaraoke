@@ -7,10 +7,7 @@
 // the automatic ones stay on until the page reloads.
 import { isSoftwareRenderer } from '/shared/graphics.js';
 import { normalizeLighterEffects } from '/shared/lyrics.js';
-
-const WINDOW = 120; // frames per measurement
-const SLOWER = 1.35; // a window this much slower than the best one seen is slow…
-const SLOW_MS = 50; // …and so is one at under 20 frames a second (a 24 or 30 Hz TV mode is not)
+import { FrameWatch } from './frame-watch.js';
 
 /** Why this browser draws in software ('' when it doesn't): from a throwaway WebGL context. */
 export function softwareRenderer() {
@@ -38,11 +35,7 @@ export class LighterEffects {
       const software = softwareRenderer();
       if (software) this.reason = `the browser draws in software: ${software}`;
     }
-    this.gaps = [];
-    this.last = 0;
-    this.lyrics = false;
-    this.base = Infinity; // the best median frame gap seen (ms)
-    this.slow = 0; // slow windows in a row
+    this.watch = new FrameWatch(); // frames slowing down while lyrics play (js/tv/frame-watch.js)
     this.apply();
   }
 
@@ -61,23 +54,9 @@ export class LighterEffects {
       this.apply(); // (the desktop app marks the page with its choice after it has started)
       return;
     }
-    const gap = ts - this.last;
-    this.last = ts;
-    // A hidden page, a long pause (a dialog, a busy moment) or lyrics coming or going: a new window.
-    if (document.visibilityState !== 'visible' || gap > 1000 || lyricsPlaying !== this.lyrics) {
-      this.gaps.length = 0;
-      this.lyrics = lyricsPlaying;
-      return;
-    }
-    this.gaps.push(gap);
-    if (this.gaps.length < WINDOW) return;
-    const median = this.gaps.sort((a, b) => a - b)[WINDOW >> 1];
-    this.gaps.length = 0;
-    this.base = Math.min(this.base, median);
-    if (!lyricsPlaying) return;
-    this.slow = median > SLOWER * this.base || median > SLOW_MS ? this.slow + 1 : 0;
-    if (this.slow >= 2) {
-      this.reason = `${Math.round(1000 / median)} frames a second with lyrics, ${Math.round(1000 / this.base)} at best`;
+    const slow = this.watch.frame(ts, lyricsPlaying, document.visibilityState === 'visible');
+    if (slow) {
+      this.reason = `${Math.round(slow.fps)} frames a second with lyrics, ${Math.round(slow.best)} at best`;
       this.apply();
     }
   }

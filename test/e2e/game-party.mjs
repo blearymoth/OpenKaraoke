@@ -186,6 +186,22 @@ async function bandAnd(tv, sel) {
   }, sel);
 }
 
+/** The notices in the band above the lyrics drawn over one another (tv.css: one at a time). */
+const bandClash = (tv) => tv.evaluate(() => {
+  const shown = [...document.querySelectorAll('.titlecard, .upnext-banner, .paused-pill, .bt-badge, .rl-badge, .corner-qr')].filter((e) => {
+    const r = e.getBoundingClientRect();
+    const cs = getComputedStyle(e);
+    return r.width && r.height && cs.display !== 'none' && cs.visibility !== 'hidden';
+  });
+  const out = [];
+  shown.forEach((a, i) => shown.slice(i + 1).forEach((b) => {
+    const p = a.getBoundingClientRect();
+    const q = b.getBoundingClientRect();
+    if (p.left < q.right - 1 && q.left < p.right - 1 && p.top < q.bottom - 1 && q.top < p.bottom - 1) out.push(`.${a.classList[0]} over .${b.classList[0]}`);
+  }));
+  return { out, badge: shown.some((e) => e.classList.contains('rl-badge')) };
+});
+
 async function endAndClose(host) {
   await host.click('.game-live .btn:has-text("End game")');
   await host.waitForSelector('.game-live .btn:has-text("Close")', { timeout: 10000 });
@@ -335,6 +351,9 @@ try {
     await tv.waitForSelector('.rl-flash', { state: 'detached', timeout: 8000 });
     const back = await tv.evaluate(() => { const b = document.querySelector('.upnext-banner'); return !!b && getComputedStyle(b).visibility === 'visible'; });
     check(back, '…and it comes back once the band has gone');
+    // below 17:10 the holder's badge is a pill at the band's right end: it waits for "Up next"
+    const clash = await bandClash(tv);
+    check(!clash.out.length && clash.badge === (shape === '16:9'), `TV ${shape}: the holder’s badge and "Up next" never cover each other (badge ${clash.badge ? 'shown' : 'waiting'}${clash.out.length ? `; ${clash.out.join(' | ')}` : ''})`);
   }
   room().queueRemove(HOST, { entryId: nextUp.id });
   room().seek({ pos: 5 });
@@ -361,6 +380,8 @@ try {
     await tv.waitForSelector('.rl-flash', { state: 'detached', timeout: 8000 });
     const back = await tv.evaluate(() => { const p = document.querySelector('.paused-pill'); return !!p && getComputedStyle(p).visibility === 'visible'; });
     check(back, '…and it comes back once the band has gone');
+    const clash = await bandClash(tv);
+    check(!clash.out.length, `TV ${shape}, paused: the notices in the band don’t cover each other${clash.out.length ? `: ${clash.out.join(' | ')}` : ''}`);
   }
   await tv.setViewportSize({ width: 1280, height: 720 });
   room().resume();

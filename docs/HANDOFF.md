@@ -596,8 +596,8 @@ player is a mini player (tap it for the full Playback page).
 - **Playback**: the live preview is now a part of the tab (no floating box): it runs only while
   the tab is shown and a main TV is connected, "Bigger" shows it large without reloading, Hide is
   remembered; it is a light page (no sound engine, 30 fps, no animations) and a phone or tablet
-  gets a cover instead of a music video. "On the TV" has the background, lyrics timing and the
-  corner QR at hand. In the desktop app: the TV window's state and buttons (open, full screen,
+  gets a cover instead of a music video. "On the TV" has the background, the lyrics look, lyrics
+  timing and the corner QR at hand. In the desktop app: the TV window's state and buttons (open, full screen,
   which screen; on native Wayland it says how to move it).
 - **Devices**: each screen named ("Main TV", "Mirror 1", "Queue board 1") with where it is, its
   browser, since when, whether its sound is blocked; **Identify** shows the name big on that
@@ -652,26 +652,39 @@ whole song. Three designs were judged; the spec built from the winner is PLAN §
 - `public/js/lib/lyrics-renderer.js`: the decoder's whole memory on a canvas inside a clipping
   window; scrolling is a compositor transform (a 1-pixel step redraws nothing), a change redraws
   only the rectangle that changed; the box keeps its size and place, snapped to whole device
-  pixels. No filter, mask or rounded clip on anything that moves (the rule in PLAN §9.5).
+  pixels (in a preview smaller than the disc it shrinks to fit). No filter, mask or rounded clip
+  on anything that moves (the rule in PLAN §9.5).
 - `shared/lyrics.js`: which colours are background (by what is on screen: big areas, the preset
-  colour, the scroll-fill colour, the border colour in the strip the offsets uncover), the
-  colour roles (a pass over the song at load), the readable palette (light-on-dark, 7:1 on the
-  panel, halos tamed, discs that read well left alone) and the scroll timeline that smooths
-  one-pixel steps.
+  colour, the scroll-fill colour since the last memory preset, the border colour in the strip the
+  offsets uncover), held still for each screen (`ScreenKeying`: a title box drawn or erased tile
+  by tile no longer flashes on, off and on again; words in a colour that was a background earlier
+  on the screen still show), the colour roles (a pass over the song at load; its first 10 s
+  before the song starts), the readable palette (light-on-dark, 7:1 on the panel, halos tamed,
+  discs that read well left alone) and the scroll timeline that smooths one-pixel steps.
 - `public/js/lib/frame-clock.js`: the lyrics' time moves on with the animation frames and never
   steps back while playing (a 2 ms step back used to replay the song).
 - Overlays stay out of the lyric box at every screen shape: the title is a one-line strip above
   the lyrics, "Up next" and Paused share that band, the join QR is in the side margin (a row in
   the band on screens narrower than 17:10), reactions rise in the right margin, the progress bar sits on
-  the ticker. The pass-the-mic band and badge and the battle badge follow.
+  the ticker. The pass-the-mic band and badge and the battle badge follow. One notice at a time
+  in the band: Paused takes it (Up next and the battle badge wait; the ticker still lists who's
+  next), and below 17:10 the pass-the-mic holder's pill waits for the title strip, Up next and
+  Paused.
 - `public/js/tv/lighter.js`: lighter effects (still backgrounds — no drift, no Ken Burns, no new
-  slideshow picture behind a song — and no blur) on any TV page when the
-  browser draws in software or the frames slow down while lyrics play; never by themselves in
-  the host's preview or the queue board; the desktop app's per-PC "Off" wins. `shared/graphics.js`
-  has the software-renderer check (the desktop app uses it too).
+  slideshow picture behind a song — and no blur, the song's cover included; under the artist's
+  photos the cover is left out) on any TV page when the browser draws in software or the frames
+  slow down while lyrics play (`public/js/tv/frame-watch.js`: two 2-second windows in a row whose
+  frames are uneven — the median gap over 1.35× the window's own fastest tenth — or under 20 fps;
+  a TV window moved to a 30/24 Hz TV or from a 144 Hz monitor doesn't count); never by themselves
+  in the host's preview or the queue board; the desktop app's per-PC "Off" wins.
+  `shared/graphics.js` has the software-renderer check (the desktop app uses it too).
 - Decoder (`shared/cdg.js`): `scroll()` copies whole rows, `seek(NaN)` is ignored, the
-  scroll-fill colour is recorded, Define Transparent is never keyed (it could hide white text).
-  The quiz keeps its own renderer (`js/lib/cdg-canvas.js`), now keying only the preset colour.
+  scroll-fill colour is recorded (and forgotten at the next memory preset), memory presets are
+  counted (`presetCount`: a new screen), Define Transparent is never keyed (it could hide white
+  text). The quiz keeps its own renderer (`js/lib/cdg-canvas.js`, `transparent: false`), now keying
+  only the preset colour.
+- Host Settings: next to the docked admin panel (a 1280 px window) the rows with help text put
+  their select under the text (they were squeezed into an ≈80 px column).
 - Demo library: a 7th track, "Zephyr Lane - Gliding Home", scrolls smoothly (`CdgWriter.glide`).
 
 **Measured** (headless Chromium in the sandbox, SwiftShader software drawing on 4 cores, a bright
@@ -696,17 +709,26 @@ were rejected (a canvas at screen resolution). On a 4K TV driven without a graph
 "Smooth lyrics text" off glides at 54–60 fps; a 4K desktop at 200% scaling (the 2× row) is fine
 either way. Found while measuring and fixed: under lighter effects the slideshows behind a song
 (artist photos every 20 s, guests' photos every 12 s) now hold still — each new picture froze
-software drawing, lyrics included, for ≈0.25 s at 1080p and 2.4 s at 4K.
+software drawing, lyrics included, for ≈0.25 s at 1080p and 2.4 s at 4K. Found in review and
+fixed: the song's cover kept its 7vh blur under lighter effects, so at 3840×2160 the TV froze
+four times for 1.5–2.1 s as each song started (lyrics included); without the blur (and with no
+cover under the artist's photos) the longest frame there is ≈150 ms, at 1080p none over 70 ms.
 
-**Tests**: `test/lyrics.test.js` (archetype discs A–J in both skins, keying, roles, timeline),
-`test/frame-clock.test.js`, `test/cdg.test.js` (row-wise scroll against the old per-pixel one),
+**Tests**: `test/lyrics.test.js` (archetype discs A–J in both skins, keying — held still per
+screen on every demo title card, words in a former background colour, a picture, a scroll-fill
+colour after a preset —, roles, timeline), `test/frame-clock.test.js`, `test/frame-watch.test.js`
+(refresh rates, a TV window moved between screens, slow frames), `test/cdg.test.js` (row-wise
+scroll against the old per-pixel one),
 settings and migration in `test/util.test.js`, tokens and lyric-box rules in `test/themes.test.js`,
 the desktop's packaged `shared/` modules in `test/desktop.test.js`; end to end
 `test/e2e/lyrics.mjs`: no filter on the lyrics, every overlay clear of the box at six screen sizes
 and a portrait mirror, a cream light disc at 7:1 or more on the panel, the demo scroller gliding
 with no decoder replay, a disc's scroll-fill and border strips keyed out, the disc look opaque in
-its border-colour frame, lighter effects auto/on/off, the mirror and the host's preview, the
-settings on a phone. Other e2e scripts now measure `#lyrics` (the canvas is larger than the box)
+its border-colour frame, lighter effects auto/on/off (the cover unblurred), the mirror and the
+host's preview (its box inside a 1280×800 host's preview), every partial redraw during a glide
+and a wipe equal to a full one (panel, clear, square pixels), the band's notices never over each
+other (Up next + Paused, a battle badge with a long name + Paused; the pass-the-mic holder in
+`test/e2e/game-party.mjs`), the settings on a phone and beside the admin panel. Other e2e scripts now measure `#lyrics` (the canvas is larger than the box)
 and set lighter effects off where they check moving backgrounds (headless Chromium draws in
 software, so the TV would turn them on).
 
@@ -722,9 +744,11 @@ software, so the TV would turn them on).
 **Known issues**: in the clear look the 1-pixel outline of a line just outside the window can
 show as a row of dots on the window's edge one row before the line arrives; a 12-row memory move
 redraws the whole canvas (≈3–5 ms of script); the scroll timeline takes ≈5–7 ms at load for a
-4-minute scroller and the colour-role pass ≈100–300 ms of processor time, in 8 ms slices; a
-battle disc's purple title box (under 35% of the window) stays an opaque block on the panel;
-the "Reconnecting…" pill can reach ≈3 px into the box at 16:9; in Party the mirror badge still
+4-minute scroller and the colour-role pass ≈100–300 ms of processor time, in 8 ms slices (its
+first 10 s, ≈5–10 ms, before the song starts); words in a colour that was a background earlier on
+the same screen stay hidden while what is left of that background is most of that colour (a
+title card being painted over); an even half frame rate (every frame two refreshes) does not
+turn lighter effects on (it looks the same as a 30 Hz TV mode); the "Reconnecting…" pill can reach ≈3 px into the box at 16:9; in Party the mirror badge still
 overlaps the end of the ticker message on narrow screens (as before).
 
 ## Next steps

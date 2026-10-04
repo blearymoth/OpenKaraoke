@@ -133,7 +133,7 @@ test('row-wise scroll() moves memory exactly like the per-pixel reference', () =
   }
 });
 
-test('the latest SCROLL_PRESET fill colour is recorded (not a copy, not an offset step)', () => {
+test('the latest SCROLL_PRESET fill colour is recorded (not a copy, not an offset step) until the next memory preset', () => {
   const w = new CdgWriter();
   w.memoryPreset(0);
   w.scroll(false, 9, 0, 0, 0, 4); // offset only: nothing filled
@@ -149,8 +149,15 @@ test('the latest SCROLL_PRESET fill colour is recorded (not a copy, not an offse
   dec = new CdgDecoder(w.toBuffer());
   dec.seek(10);
   assert.equal(dec.scrollFill, 7);
+  assert.equal(dec.presetCount, 1);
   dec.seek(0);
   assert.equal(dec.scrollFill, -1, 'a replay starts again from nothing');
+  assert.equal(dec.presetCount, 0);
+  w.memoryPreset(5);
+  dec = new CdgDecoder(w.toBuffer());
+  dec.seek(10);
+  assert.equal(dec.scrollFill, -1, 'a memory preset paints over every strip: no fill colour left');
+  assert.equal(dec.presetCount, 2, 'a new screen');
 });
 
 test('seek() ignores a time that is not a number', () => {

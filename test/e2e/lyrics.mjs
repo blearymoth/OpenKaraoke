@@ -4,10 +4,12 @@
 // light disc's words at 7:1 or more on the dark panel; the demo scroller glides (the canvas moves
 // by a transform) without the decoder replaying the song; a disc's scroll-preset fill and border
 // strips are keyed out; the disc look is opaque in a frame of the disc's border colour; lighter
-// effects follow the setting; a mirror and the host's preview show the lyrics; the host's settings
-// fit a phone. The library is the demo (its smooth scroller) plus two discs written here with
-// CdgWriter: a cream, dark-on-light pager and a scroller whose SCROLL_PRESET fill and border
-// presets uncover strips of other colours.
+// effects follow the setting (and take the blur off the cover); a mirror and the host's preview
+// show the lyrics, the preview's box inside it; partial redraws match full ones; the notices in the
+// band above the lyrics never cover each other (a battle badge with a long name, Paused, Up next);
+// the host's settings fit a phone and a laptop beside the admin panel. The library is the demo
+// (its smooth scroller) plus two discs written here with CdgWriter: a cream, dark-on-light pager
+// and a scroller whose SCROLL_PRESET fill and border presets uncover strips of other colours.
 //
 //   node test/e2e/lyrics.mjs [outDir]
 import fs from 'node:fs/promises';
@@ -200,8 +202,10 @@ const canvasInk = (target) => target.evaluate(() => {
 });
 
 /** Overlays shown with the lyrics, against the lyric box (±1 px). */
-const OVERLAYS = ['.titlecard', '.corner-qr', '.upnext-banner', '.paused-pill', '.reaction', '.progress', '.ticker'];
-const overlays = (page) => page.evaluate((sels) => {
+const OVERLAYS = ['.titlecard', '.corner-qr', '.upnext-banner', '.paused-pill', '.reaction', '.progress', '.ticker', '.bt-badge', '.rl-badge'];
+/** The notices in the band above the lyrics (and the join QR at its end below 17:10): never one over another. */
+const BAND = ['.titlecard', '.upnext-banner', '.paused-pill', '.bt-badge', '.rl-badge', '.corner-qr'];
+const overlays = (page) => page.evaluate(({ sels, band }) => {
   const box = document.getElementById('lyrics').getBoundingClientRect();
   const found = [];
   for (const sel of sels) {
@@ -213,8 +217,14 @@ const overlays = (page) => page.evaluate((sels) => {
       found.push({ sel, meets, rect: [a.left, a.top, a.right, a.bottom].map(Math.round) });
     }
   }
-  return { box: [box.left, box.top, box.right, box.bottom].map(Math.round), found };
-}, OVERLAYS);
+  const inBand = found.filter((f) => band.includes(f.sel));
+  const clashes = [];
+  inBand.forEach((f, i) => inBand.slice(i + 1).forEach((g) => {
+    const [a, b] = [f.rect, g.rect];
+    if (a[0] < b[2] - 1 && b[0] < a[2] - 1 && a[1] < b[3] - 1 && b[1] < a[3] - 1) clashes.push(`${f.sel} [${a}] over ${g.sel} [${b}]`);
+  }));
+  return { box: [box.left, box.top, box.right, box.bottom].map(Math.round), found, clashes };
+}, { sels: OVERLAYS, band: BAND });
 const SIZES = [[1920, 1080], [1280, 720], [1366, 768], [1024, 768], [1280, 1024], [2560, 1080]];
 /** Measures the overlays at every §7 size on the TV and on the portrait mirror; `want`: the ones that must be up. */
 async function overlaysClear(tv, mirror, what, want) {
@@ -226,6 +236,7 @@ async function overlaysClear(tv, mirror, what, want) {
       seen.add(f.sel);
       if (f.meets) bad.push(`${size} ${f.sel} [${f.rect}] meets the box [${r.box}]`);
     }
+    for (const c of r.clashes) bad.push(`${size} ${c}`);
   };
   for (const [w, h] of SIZES) {
     await tv.setViewportSize({ width: w, height: h });
@@ -234,7 +245,7 @@ async function overlaysClear(tv, mirror, what, want) {
   }
   await measure(mirror, '720x1280 mirror');
   const missing = want.filter((s) => !seen.has(s));
-  check(!bad.length && !missing.length, `${what}: ${[...seen].join(' ')} clear of the lyric box at ${SIZES.length} sizes and the portrait mirror${bad.length ? `: ${bad.join(' | ')}` : ''}${missing.length ? ` (not shown: ${missing.join(' ')})` : ''}`);
+  check(!bad.length && !missing.length, `${what}: ${[...seen].join(' ')} clear of the lyric box and of each other at ${SIZES.length} sizes and the portrait mirror${bad.length ? `: ${bad.join(' | ')}` : ''}${missing.length ? ` (not shown: ${missing.join(' ')})` : ''}`);
   await tv.setViewportSize({ width: 1280, height: 720 });
 }
 
@@ -270,6 +281,19 @@ try {
   const lite = (page) => page.evaluate(() => ({ on: document.documentElement.classList.contains('lite-auto'), reason: document.documentElement.dataset.liteReason || '' }));
   const autoLite = await lite(tv);
   check(autoLite.on && /software/.test(autoLite.reason), `'auto': the TV takes lighter effects in software drawing (${autoLite.reason})`);
+  // The song's cover (blurred 7vh: in software that froze the TV for ≈2 s at a time at 4K) loses its
+  // blur, and is left out under the artist's photos (still and opaque here).
+  const cover = () => tv.evaluate(() => {
+    const c = document.querySelector('#bg .art-bg');
+    return { filter: c ? getComputedStyle(c).filter : null, photos: !!document.querySelector('#bg .fanart-bg') };
+  });
+  const withPhotos = await cover();
+  check(withPhotos.photos && withPhotos.filter === null, `lighter effects, artist photos: no cover drawn under them (${JSON.stringify(withPhotos)})`);
+  await setDisplay({ fanart: false });
+  await until(async () => (await cover()).filter !== null, 5000);
+  const plainCover = await cover();
+  check(!plainCover.photos && /brightness/.test(plainCover.filter) && !/blur/.test(plainCover.filter), `lighter effects, the cover: dimmed, not blurred (${plainCover.filter})`);
+  await setDisplay({ fanart: true });
 
   // ---- 2. no overlay on the lyrics -------------------------------------------------------------
   await seekTo(tv, 0.5);
@@ -287,6 +311,10 @@ try {
   await tv.waitForSelector('.upnext-banner');
   await overlaysClear(tv, mirror, 'up next', ['.upnext-banner']);
   await shot(tv, 'tv-up-next');
+  await hostReq('player.pause'); // (Paused covered the next singer's name below 17:10)
+  await tv.waitForSelector('.paused-pill');
+  await overlaysClear(tv, mirror, 'up next, paused', ['.paused-pill']);
+  await hostReq('player.resume');
 
   // ---- 4. the demo scroller glides: the canvas moves, the decoder never replays -----------------
   // Its second line glides up at 13.82 s (24 px in 0.4 s); two seconds from 13.3 s.
@@ -321,6 +349,44 @@ try {
   check(g.distinct >= 10, `the glide moves the canvas through ${g.distinct} transforms in 2 s (${g.frames} frames)`);
   check(g.resets === 0 && g.stopped === 0, `the decoder never replays while playing (${g.resets} resets, ${g.stopped} frames not playing)`);
 
+  // ---- 4b. partial redraws: what each frame redrew (the changed rectangle, grown for the outline
+  // and Scale2x) is exactly what a full redraw of the same moment draws -------------------------
+  for (const [look, smoothing] of [['clear', true], ['panel', true], ['clear', false]]) {
+    await setDisplay({ lyricsLook: look, cdgSmoothing: smoothing });
+    await seekTo(tv, 13.3);
+    const d = await tv.evaluate(async () => {
+      const r = window.__tvController.lyrics;
+      const g2 = r.canvas.getContext('2d');
+      const res = { frames: 0, stale: 0, worst: 0, redrawn: 0, look: r.look, smoothing: r.smoothing };
+      const t0 = performance.now();
+      await new Promise((done) => {
+        const tick = () => {
+          const { width, height } = r.canvas;
+          const a = g2.getImageData(0, 0, width, height).data;
+          const version = r.drawnVersion;
+          r.full = true;
+          r.update();
+          const b = g2.getImageData(0, 0, width, height).data;
+          let diff = 0;
+          for (let i = 0; i < a.length; i += 4) if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2] || a[i + 3] !== b[i + 3]) diff++;
+          res.frames++;
+          if (version !== res.lastVersion) res.redrawn++;
+          res.lastVersion = version;
+          if (diff) res.stale++;
+          res.worst = Math.max(res.worst, diff);
+          if (performance.now() - t0 < 2500) requestAnimationFrame(tick);
+          else done();
+        };
+        requestAnimationFrame(tick);
+      });
+      return res;
+    });
+    check(d.look === look && d.smoothing === smoothing && d.frames > 10 && d.redrawn > 10 && d.stale === 0,
+      `${look}${smoothing ? '' : ', square pixels'}: every partial redraw during a glide and a wipe matches a full one (${d.redrawn} redraws in ${d.frames} frames, ${d.stale} with stale pixels, worst ${d.worst})`);
+  }
+  await setDisplay({ lyricsLook: 'panel', cdgSmoothing: true });
+  await seekTo(tv, 15.3);
+
   // ---- 7b. lighter effects: off never, on always -------------------------------------------------
   await setDisplay({ lighterEffects: 'off' });
   check(await until(async () => !(await lite(tv)).on, 3000), "'off': the TV drops lighter effects");
@@ -334,12 +400,19 @@ try {
   check(await until(async () => (await lite(tv)).on && (await lite(mirror)).on, 3000), "'on': the TV and the mirror have lighter effects");
 
   // ---- 8. the mirror and the host's preview show the lyrics ----------------------------------
-  const host = watch(await browser.newPage({ viewport: { width: 1440, height: 900 } }), 'host');
+  // (a laptop-size host page: the preview is about 290×160 px, smaller than the disc's 288×192)
+  const host = watch(await browser.newPage({ viewport: { width: 1280, height: 800 } }), 'host');
   await host.goto(`${base}/host`);
   await host.click('.admin-panel [role=tab]:has-text("Playback")');
   const frame = await (await host.waitForSelector('.preview-frame iframe')).contentFrame();
   check(await frame.waitForSelector('#lyrics.show', { timeout: 15000 }).then(() => true, () => false), 'the host’s preview shows the lyric box');
   check(await until(async () => (await canvasInk(frame)).ink > 500), 'the host’s preview draws the lyrics');
+  const pv = await frame.evaluate(() => {
+    const r = document.getElementById('lyrics').getBoundingClientRect();
+    return { w: innerWidth, h: innerHeight, box: [r.left, r.top, r.right, r.bottom].map((v) => Math.round(v * 10) / 10) };
+  });
+  check(pv.w < 400 && pv.box[0] >= 0 && pv.box[1] >= 0 && pv.box[2] <= pv.w && pv.box[3] <= pv.h,
+    `the lyric box fits the host’s small preview (${pv.w}×${pv.h}: [${pv.box}]; it stayed 288×192 and lost its top line)`);
   check((await lite(frame)).on, "'on': the preview has lighter effects too");
   check(await mirror.waitForSelector('#lyrics.show', { timeout: 5000 }).then(() => true, () => false) && (await canvasInk(mirror)).ink > 500, 'the portrait mirror shows the lyrics');
   await setDisplay({ lighterEffects: 'auto' });
@@ -457,6 +530,32 @@ try {
   check(await phone.evaluate(() => document.documentElement.scrollWidth - innerWidth <= 0), 'the TV display settings fit a phone (no sideways scrolling)');
   await shot(phone, 'host-settings-phone');
   await phone.close();
+  // …and on a laptop, beside the admin panel: the rows with help put the select under the text
+  const laptop = watch(await browser.newPage({ viewport: { width: 1280, height: 800 } }), 'host-laptop');
+  await laptop.goto(`${base}/host#/settings/display`);
+  await laptop.waitForSelector('.setting');
+  const cols = await laptop.evaluate(() => [...document.querySelectorAll('.setting:has(.setting-text p):has(select)')].map((row) => ({
+    label: row.querySelector('.setting-text b').textContent.trim(),
+    text: Math.round(row.querySelector('.setting-text').getBoundingClientRect().width),
+  })));
+  const body = await laptop.$eval('.settings-body', (e) => Math.round(e.getBoundingClientRect().width));
+  check(cols.length >= 3 && cols.every((c) => c.text >= 250), `Settings → TV display beside the admin panel (${body} px): the help text keeps a readable column (${cols.map((c) => `${c.label} ${c.text} px`).join(', ')})`);
+  await shot(laptop, 'host-settings-laptop');
+  await laptop.close();
+  await hostReq('player.stop');
+
+  // ---- 10. a battle with a long name: its badge in the band, and Paused never on top of it -------
+  await hostReq('game.start', { type: 'battle', config: { format: 'duel', contestants: ['Annabelle Featherstonehaugh', 'Bob'] } });
+  await hostReq('game.action', { action: 'start' });
+  check(await onTv(tv, ''), 'a battle song plays with its lyrics');
+  await tv.waitForSelector('.bt-badge');
+  await overlaysClear(tv, mirror, 'a battle', ['.bt-badge']);
+  await hostReq('player.pause');
+  await tv.waitForSelector('.paused-pill');
+  await overlaysClear(tv, mirror, 'a battle, paused', ['.paused-pill']);
+  await shot(tv, 'tv-battle-paused');
+  await hostReq('game.end');
+  await hostReq('game.close');
   await hostReq('player.stop');
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);

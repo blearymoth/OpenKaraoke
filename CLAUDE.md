@@ -91,7 +91,8 @@ renderers draw in software).
 Browser (`public/`, plain ES modules, Preact + htm)
 - `tv.html` + `js/tv/` — `controller.js` (follows server state, owns the media clock, reports
   `tv.ready/status/ended/error/audio`), `main.js` (lobby, intro, lyrics overlays, shortcuts),
-  `lighter.js` (lighter effects by themselves: software drawing, slow frames).
+  `lighter.js` (lighter effects by themselves: software drawing, slow frames — `frame-watch.js`,
+  pure, judges the frames).
 - `js/lib/audio-engine.js` — Signalsmith buffer mode (key/tempo) + element mode; channel
   matrix, loudness, fades. `js/lib/lyrics-renderer.js` — the TV's lyrics (decoder memory on a
   canvas moved by a transform, dirty rectangles, looks); `js/lib/frame-clock.js` — the lyrics'

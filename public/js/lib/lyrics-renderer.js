@@ -10,10 +10,11 @@
 // DOM (public/tv.html): #lyrics (the box, placed here) > .lyr-plate (static: the panel's plate
 // or the disc look's frame) + .lyr-window (position absolute, overflow hidden) > canvas
 // (position absolute at 0, 0). The box keeps today's size and place; with smoothing off it
-// snaps to a whole number of device pixels per CD+G pixel.
+// snaps to a whole number of device pixels per CD+G pixel (when it is smaller than the disc, as
+// in the host's preview, it shrinks the way smoothing does).
 import { CdgDecoder, scale2xRect, CDG_WIDTH as MW, CDG_HEIGHT as MH, CDG_VISIBLE_X as VX, CDG_VISIBLE_Y as VY, CDG_VISIBLE_WIDTH as VW, CDG_VISIBLE_HEIGHT as VH } from '/shared/cdg.js';
 import {
-  keyColours, lyricsLut, outlineIndices, rolesFromHist, rolesFromStats, roleStatsAsync, scrollShift, scrollTimeline,
+  ScreenKeying, lyricsLut, outlineIndices, rolesFromHist, rolesFromStats, roleStatsAsync, scrollShift, scrollTimeline,
   normalizeLyricsLook, normalizeLyricsMotion,
 } from '/shared/lyrics.js';
 import { token } from './theme.js';
@@ -60,7 +61,7 @@ export class LyricsRenderer {
     this.big = new Uint8Array(MEM * 4); // their Scale2x
     this.drawnMem = new Uint8Array(MEM); // the memory as last drawn
     this.hist = new Uint32Array(16);
-    this.prevK = 0;
+    this.keying = new ScreenKeying(); // which colours are background, held still for each screen
     this.lutCache = new Map();
     this.lut = null;
     this.lutKey = '';
@@ -113,10 +114,11 @@ export class LyricsRenderer {
     this.decoder = new CdgDecoder(bytes);
     this.timeline = scrollTimeline(this.decoder.bytes);
     this.roles = null;
-    this.prevK = 0;
+    this.keying = new ScreenKeying();
     this.lastT = null;
     this.drawnVersion = -1;
-    roleStatsAsync(this.decoder.bytes, { cancelled: () => gen !== this.gen }).then((stats) => {
+    // (the first 10 s before this returns: a title card's screen is known before it is drawn)
+    roleStatsAsync(this.decoder.bytes, { cancelled: () => gen !== this.gen, screens: this.keying.screens, syncSeconds: 10 }).then((stats) => {
       if (!stats || gen !== this.gen) return;
       this.roles = rolesFromStats(stats);
       this.stale = true;
@@ -156,8 +158,10 @@ export class LyricsRenderer {
     const view = this.view;
     const dpr = view.devicePixelRatio || 1;
     const target = Math.min(0.86 * view.innerHeight * dpr, (0.86 * view.innerWidth * dpr) / 1.5); // today's box height
-    // smoothing: a height in multiples of 16 device px (12 CD+G rows are whole device px); off: whole device px per CD+G px
-    const k = this.smoothing ? Math.max(VH, Math.floor(target / 16) * 16) / VH : Math.max(1, Math.floor(target / VH));
+    // smoothing: a height in multiples of 16 device px (12 CD+G rows are whole device px); off: whole device px per
+    // CD+G px, and below one (the host's small preview) the same multiples of 16 as smoothing, filtered
+    const sixteens = Math.max(16, Math.floor(target / 16) * 16) / VH;
+    const k = this.smoothing || target < VH ? sixteens : Math.floor(target / VH);
     const boxW = VW * k;
     const boxH = VH * k;
     const left = Math.round((view.innerWidth * dpr - boxW) / 2);
@@ -181,7 +185,7 @@ export class LyricsRenderer {
     }
     Object.assign(c.style, {
       width: px(MW * k), height: px(MH * k), maxWidth: 'none', maxHeight: 'none', // (base.css caps canvases at 100 %: this one is wider than its window)
-      transformOrigin: '0 0', willChange: 'transform', imageRendering: this.smoothing ? 'auto' : 'pixelated',
+      transformOrigin: '0 0', willChange: 'transform', imageRendering: this.smoothing || k < 1 ? 'auto' : 'pixelated', // (a nearest-neighbour shrink drops strokes)
     });
     const root = this.lyrics.ownerDocument.documentElement.style;
     root.setProperty('--lyr-left', px(left));
@@ -228,10 +232,9 @@ export class LyricsRenderer {
     let main = d.bgColor;
     let roles = null;
     if (look !== 'disc') {
-      ({ K, main } = keyColours(d, this.prevK, this.hist));
+      ({ K, main } = this.keying.key(d, this.hist));
       roles = this.roles || rolesFromHist(this.hist, K);
     }
-    this.prevK = K;
     const p = this.plate;
     const o = this.outline;
     const key = `${look}|${d.palette.join(',')}|${K}|${main}|${roles ? roles.sig : ''}|${p.rgb}|${p.a}|${o.rgb}|${o.a}|${this.smoothing}`;

@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { CdgDecoder, CDG_INSTR, CDG_PACKET_SIZE, CDG_WIDTH, CDG_HEIGHT, CDG_VISIBLE_X, CDG_VISIBLE_Y, findLyricsFrame } from '../shared/cdg.js';
 import {
-  contrast, keyColours, lyricsLut, maskColours, outlineIndices, oklab, panelBackdrop, readablePalette, roleStats, rolesFromStats, scrollTimeline,
+  contrast, ScreenKeying, lyricsLut, maskColours, outlineIndices, oklab, panelBackdrop, readablePalette, roleStats, rolesFromStats, scrollTimeline,
   CONTRAST_TARGET,
 } from '../shared/lyrics.js';
 import { GLYPHS, FONT_HEIGHT } from './lib/cdg-font.js';
@@ -145,7 +145,8 @@ for (const file of sample) {
   for (let i = 0; i + CDG_PACKET_SIZE <= bytes.length; i += CDG_PACKET_SIZE) {
     if ((bytes[i] & 0x3f) === 9 && (bytes[i + 1] & 0x3f) === CDG_INSTR.DEFINE_TRANSPARENT) transparent++;
   }
-  const roles = rolesFromStats(roleStats(bytes));
+  const keying = new ScreenKeying(); // as the TV keys: held still for each screen
+  const roles = rolesFromStats(roleStats(bytes, { screens: keying.screens }));
   const dec = new CdgDecoder(bytes);
   const best = findLyricsFrame(bytes).time;
   const times = [...new Set([dec.duration * 0.25, best, dec.duration * 0.7].map((t) => Math.round(t * 10) / 10))].sort((a, b) => a - b);
@@ -155,11 +156,9 @@ for (const file of sample) {
   let tamed = 0;
   let pictures = 0;
   let weak = 0;
-  let prev = 0;
   for (const t of times) {
     dec.seek(t);
-    const { K, main } = keyColours(dec, prev);
-    prev = K;
+    const { K, main } = keying.key(dec, new Uint32Array(16));
     if (!K) pictures++;
     for (const c of maskColours(K)) keyed.add(c);
     if (K) {

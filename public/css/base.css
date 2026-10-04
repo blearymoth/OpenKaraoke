@@ -161,6 +161,7 @@
   --aurora-opacity: 0.2; /* the drifting blobs behind TV text (visualizer, games, a lobby without covers): faint */
   --aurora-3-opacity: 0.16; /* enough that ink-2 keeps 7:1 where all three overlap (test/themes.test.js) */
   --art-bg-filter: blur(7vh) saturate(1) brightness(0.4); /* covers at full colour. Every picture behind TV text (covers, */
+  --art-bg-filter-lite: saturate(1) brightness(0.4); /* (lighter effects: the same without the blur, which froze software drawing) */
   --art-scrim: 0.65; /* artist photos, guests' photos) is dimmed to brightness 0.4, then darkened by this scrim at its */
   --fanart-filter: brightness(0.4) saturate(0.95); /* centre (edges: 0.72), so ink-2 text keeps 7:1 (the TV's target) */
   --photo-filter: brightness(0.4); /* even over a white patch; a guest's new photo still shows bright first, in its frame */
@@ -336,6 +337,7 @@
   --aurora-opacity: 0.55;
   --aurora-3-opacity: 0.28;
   --art-bg-filter: blur(7vh) saturate(1.35) brightness(0.5);
+  --art-bg-filter-lite: saturate(1.35) brightness(0.5);
   --art-scrim: 0.25;
   --fanart-filter: brightness(0.62) saturate(1.1);
   --photo-filter: brightness(0.6);

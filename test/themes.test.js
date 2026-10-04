@@ -375,6 +375,18 @@ test('base.css + tv.css: the lyrics plate is a token of each skin; nothing over 
   assert.equal(tvRules.some((r) => r.selectors.some((sel) => /^\.lite-fx\b/.test(sel))), false, 'lighter effects: :is(.lite-fx, .lite-auto)');
 });
 
+test('tv.css: lighter effects take the blur off the song’s cover (it froze software drawing for seconds at 4K)', () => {
+  for (const id of THEME_IDS) {
+    const full = skins[id].get('--art-bg-filter');
+    const lite = skins[id].get('--art-bg-filter-lite');
+    assert.match(full, /blur\(/, `${id}: the cover is blurred`);
+    assert.doesNotMatch(lite, /blur\(/, `${id}: …but not under lighter effects`);
+    assert.equal(lite, full.replace(/blur\([^)]*\)\s*/, ''), `${id}: otherwise the same (dimmed as much, so TV text keeps its contrast)`);
+  }
+  const rule = tvRules.find((r) => r.selectors.includes(':is(.lite-fx, .lite-auto) .art-bg'));
+  assert.equal(rule?.decls.filter, 'var(--art-bg-filter-lite)');
+});
+
 test('no colour is hard-coded outside the skin blocks (CSS and browser code)', async () => {
   // Black, white and greys are shared on purpose (shadows, photo prints, slider thumbs, video
   // backdrops, print pages); every colour with a hue comes from a token, so a new screen can't
@@ -464,7 +476,7 @@ test('base.css: Studio TV text holds 7:1 (read across a room), even over a white
   // skin's filter, then darkened by the scrim (--art-scrim at the centre, 0.72 at the edges).
   const shade = studio.get('--shade-rgb').split(',').map(Number);
   const scrim = Number(studio.get('--art-scrim'));
-  for (const filter of ['--art-bg-filter', '--fanart-filter', '--photo-filter']) {
+  for (const filter of ['--art-bg-filter', '--art-bg-filter-lite', '--fanart-filter', '--photo-filter']) {
     const brightness = Number(/brightness\(([\d.]+)\)/.exec(studio.get(filter))?.[1] ?? 1);
     const white = `#${shade.map((v) => Math.round(255 * brightness * (1 - scrim) + v * scrim).toString(16).padStart(2, '0')).join('')}`;
     for (const ink of ['--ink', '--ink-2', '--bulb']) {
@@ -571,7 +583,7 @@ function studioTvBackdrops() {
   // a white cover, artist photo or guest photo: dimmed by the skin's filter, then the scrim (its centre)
   const shade = studio.get('--shade-rgb').split(',').map(Number);
   const scrim = Number(studio.get('--art-scrim'));
-  for (const filter of ['--art-bg-filter', '--fanart-filter', '--photo-filter']) {
+  for (const filter of ['--art-bg-filter', '--art-bg-filter-lite', '--fanart-filter', '--photo-filter']) {
     const brightness = Number(/brightness\(([\d.]+)\)/.exec(studio.get(filter))?.[1] ?? 1);
     backs[`a white picture (${filter})`] = `#${shade.map((v) => Math.round(255 * brightness * (1 - scrim) + v * scrim).toString(16).padStart(2, '0')).join('')}`;
   }

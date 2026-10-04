@@ -4,7 +4,8 @@
 //   - settings: the looks, the scroll motions and the lighter-effects choices
 //   - scroll smoothing: a disc that scrolls one CD+G pixel at a time is shown gliding, never
 //     more than 3 CD+G pixels from where the disc puts the words
-//   - content keying: which colours are the disc's background (transparent behind the lyrics)
+//   - content keying: which colours are the disc's background (transparent behind the lyrics),
+//     held still for each screen (ScreenKeying)
 //   - colour roles (fills, edges, areas), from one pass over the whole song when it loads
 //   - readablePalette: every lyric colour at least 7:1 against the panel; dark words on a light
 //     disc turn light; halos stop competing with the letters
@@ -49,6 +50,9 @@ const WINDOW = VW * VH;
 const KEY_SHARE = 0.35; // a colour covering this much of the window is background...
 const KEEP_SHARE = 0.2; // ...and stays background down to this (no flicker at the threshold)
 const PRESET_SHARE = 0.1; // the MEMORY_PRESET colour is background from here
+const AREA_SHARE = 0.5; // a colour with this share of its pixels inside an area (8 neighbours alike) is a box, not lines
+const LINE_PX = 64; // a sample counts a colour as drawn in lines from this many pixels…
+const LINE_SAMPLES = 2; // …and a screen as using it for words from this many such samples
 const SAME_COLOUR = 0.02; // OKLab distance under which two entries look the same
 const INK_SHARE = 0.02; // colours with less of the ink get no role
 const BIG_MOVE = 2; // scroll steps larger than this (page jumps) are never smoothed
@@ -145,16 +149,19 @@ export function maskColours(mask) {
 /**
  * Which colours are the background of the screen `dec` (a CdgDecoder) shows: drawn transparent
  * so the panel or the picture shows instead. → { K (bit c set: colour c keyed), main (the keyed
- * colour covering the most), hist (pixels per colour in the visible window) }.
+ * colour covering the most), hist (pixels per colour in the visible window), big (the colours
+ * covering ≥ 35 %) }.
  *   - colours covering ≥ 35 % of the window (kept down to 20 % when `prev` had them)
  *   - the MEMORY_PRESET colour from 10 %; the latest SCROLL_PRESET fill colour when on screen
+ *   - colours the screen holds (ScreenKeying): `screen` ones always, `keep` ones while what is
+ *     on screen of them is an area (most of its pixels inside a block of it), not lines of words
  *   - colours that look the same as one of those ("hidden" text a disc reveals by changing the
  *     palette stays hidden)
  *   - the border colour, when it shows nowhere but the strip the scroll offsets reveal
  * A screen with no dominant colour (a picture) gives K = 0: shown as the disc made it.
  * DEFINE_TRANSPARENT is never keyed.
  */
-export function keyColours(dec, prev = 0, hist = new Uint32Array(16)) {
+export function keyColours(dec, prev = 0, hist = new Uint32Array(16), { screen = 0, keep = 0 } = {}) {
   const px = dec.pixels;
   const ox = CDG_VISIBLE_X + dec.hOffset;
   const oy = CDG_VISIBLE_Y + dec.vOffset;
@@ -164,13 +171,21 @@ export function keyColours(dec, prev = 0, hist = new Uint32Array(16)) {
     for (let x = 0; x < VW; x++) hist[px[row + x]]++;
   }
   let K = 0;
+  let big = 0;
   for (let c = 0; c < 16; c++) {
     const share = hist[c] / WINDOW;
+    if (share >= KEY_SHARE) big |= 1 << c;
     if (share >= KEY_SHARE || ((prev >> c) & 1 && share >= KEEP_SHARE)) K |= 1 << c;
   }
   if (hist[dec.bgColor] / WINDOW >= PRESET_SHARE) K |= 1 << dec.bgColor;
   if (dec.scrollFill >= 0 && hist[dec.scrollFill] > 0) K |= 1 << dec.scrollFill;
-  if (!K) return { K: 0, main: dec.bgColor, hist };
+  if (!K) return { K: 0, main: dec.bgColor, hist, big };
+  let held = 0; // held colours not on screen: keyed (the colour table stays the same), after the look-alikes
+  for (let c = 0; c < 16; c++) {
+    if ((K >> c) & 1 || !(((screen | keep) >> c) & 1)) continue;
+    if (!hist[c]) held |= 1 << c;
+    else if ((screen >> c) & 1 || areaShare(dec, c, hist[c]) >= AREA_SHARE) K |= 1 << c;
+  }
   const labs = [];
   for (let c = 0; c < 16; c++) labs.push(oklab(rgbAt(dec.palette, c)));
   const base = K;
@@ -184,11 +199,84 @@ export function keyColours(dec, prev = 0, hist = new Uint32Array(16)) {
       }
     }
   }
+  K |= held;
   const b = dec.borderColor;
   if (!((K >> b) & 1) && !borderInside(dec, b)) K |= 1 << b;
   let main = -1;
   for (let c = 0; c < 16; c++) if ((K >> c) & 1 && (main < 0 || hist[c] > hist[main])) main = c;
-  return { K, main, hist };
+  return { K, main, hist, big };
+}
+
+/** The share of colour `c`'s `n` pixels in the window that are inside an area (all 8 neighbours `c` too). */
+function areaShare(dec, c, n) {
+  const px = dec.pixels;
+  const ox = CDG_VISIBLE_X + dec.hOffset;
+  const oy = CDG_VISIBLE_Y + dec.vOffset;
+  let inner = 0;
+  for (let y = 0; y < VH; y++) {
+    const row = (oy + y) * W + ox; // (the window never touches the memory's edge: every pixel has 8 neighbours)
+    for (let x = 0; x < VW; x++) {
+      const i = row + x;
+      if (px[i] === c && px[i - W - 1] === c && px[i - W] === c && px[i - W + 1] === c && px[i - 1] === c && px[i + 1] === c
+        && px[i + W - 1] === c && px[i + W] === c && px[i + W + 1] === c) inner++;
+    }
+  }
+  return inner / n;
+}
+
+/**
+ * Keying that holds still while a screen is up (from one MEMORY_PRESET to the next, the
+ * decoder's presetCount). A box drawn or erased tile by tile (a title card) crossed 35 % and then
+ * 20 % on the way: it flashed on the panel, vanished, and its last fifth came back behind the
+ * words. Now a colour that has been background on this screen stays keyed while what is on screen
+ * of it is still an area; and one the load-time pass saw covering 35 % at some point on this screen
+ * is keyed from the start (`screens`, filled by roleStats/roleStatsAsync) — unless the screen also
+ * uses it for words (drawn in lines at two samples or more): then only while it looks like an
+ * area. Words in a colour that was a background earlier on the screen are never hidden.
+ */
+export class ScreenKeying {
+  constructor() {
+    /** presetCount → { big (colours ≥ 35 % at a sample), lines (per colour: samples where it was drawn in lines) } */
+    this.screens = new Map();
+    this.reset();
+  }
+
+  reset() {
+    this.prev = 0;
+    this.seen = 0; // the colours that were ≥ 35 % on this screen so far
+    this.preset = -1;
+  }
+
+  /** keyColours() for `dec` at its current time, with what this screen holds. */
+  key(dec, hist) {
+    if (dec.presetCount !== this.preset) {
+      this.reset();
+      this.preset = dec.presetCount;
+    }
+    let screen = 0;
+    let keep = this.seen;
+    const s = this.screens.get(dec.presetCount);
+    if (s) {
+      for (let c = 0; c < 16; c++) {
+        if (!((s.big >> c) & 1)) continue;
+        if (s.lines[c] >= LINE_SAMPLES) keep |= 1 << c;
+        else screen |= 1 << c;
+      }
+    }
+    const r = keyColours(dec, this.prev, hist, { screen, keep });
+    this.prev = r.K;
+    this.seen |= r.big;
+    return r;
+  }
+}
+
+/** Adds a pass sample to `screens` (see ScreenKeying): `big` colours, and those drawn in lines (`stats`: addRoleStats' result). */
+function noteScreen(screens, preset, big, stats) {
+  let s = screens.get(preset);
+  if (!s) screens.set(preset, (s = { big: 0, lines: new Uint16Array(16) }));
+  s.big |= big;
+  if (!stats) return;
+  for (let c = 0; c < 16; c++) if (stats.count[c] >= LINE_PX && stats.interior[c] < AREA_SHARE * stats.count[c]) s.lines[c]++;
 }
 
 /** Does colour `b` show in the window outside the bottom/right strip the offsets reveal? */
@@ -258,13 +346,17 @@ export function addRoleStats(stats, idx, K) {
   return { count: cnt, interior: inter, sandwich: sand };
 }
 
-/** One sample every `step` packets (0.5 s) of the whole song; picture screens (K = 0) are skipped. */
-function* roleSamples(bytes, step) {
+/**
+ * One sample every `step` packets (0.5 s) of the whole song; picture screens (K = 0) are skipped.
+ * With `screens` (a ScreenKeying's), notes what each screen holds. Yields the packet position.
+ */
+function* roleSamples(bytes, step, screens = null) {
   const dec = new CdgDecoder(bytes);
   const stats = newRoleStats();
   const idx = new Uint8Array(WINDOW);
   const hist = new Uint32Array(16);
   let prev = 0;
+  let big = 0;
   let last = null;
   let lastVersion = -1;
   for (let p = step; p <= dec.packetCount; p += step) {
@@ -277,19 +369,21 @@ function* roleSamples(bytes, step) {
         stats.sandwich[c] += last.sandwich[c];
       }
     } else {
-      const { K } = keyColours(dec, prev, hist);
-      prev = K;
-      last = K ? addRoleStats(stats, dec.visibleIndices(idx), K) : null;
+      const r = keyColours(dec, prev, hist);
+      prev = r.K;
+      big = r.big;
+      last = r.K ? addRoleStats(stats, dec.visibleIndices(idx), r.K) : null;
       lastVersion = dec.version;
     }
-    yield;
+    if (screens) noteScreen(screens, dec.presetCount, big, last);
+    yield p;
   }
   return stats;
 }
 
-/** The colour statistics of a whole song (synchronous: scripts and tests). */
-export function roleStats(bytes, { step = 150 } = {}) {
-  const it = roleSamples(bytes, step);
+/** The colour statistics of a whole song (synchronous: scripts and tests); `screens`: as roleSamples. */
+export function roleStats(bytes, { step = 150, screens = null } = {}) {
+  const it = roleSamples(bytes, step, screens);
   let r = it.next();
   while (!r.done) r = it.next();
   return r.value;
@@ -311,17 +405,21 @@ function breathe() {
 
 /**
  * The same, in slices of about `sliceMs` with a pause between them, so the TV keeps drawing
- * while a song loads. Resolves to null when `cancelled()` turns true (another song loaded).
+ * while a song loads; the first `syncSeconds` of the song are done before this returns (the
+ * screens of a title card are known before it is drawn). Resolves to null when `cancelled()`
+ * turns true (another song loaded).
  */
-export async function roleStatsAsync(bytes, { step = 150, sliceMs = 8, cancelled = () => false } = {}) {
-  const it = roleSamples(bytes, step);
+export async function roleStatsAsync(bytes, { step = 150, sliceMs = 8, cancelled = () => false, screens = null, syncSeconds = 0 } = {}) {
+  const it = roleSamples(bytes, step, screens);
+  let syncUntil = syncSeconds * CDG_PACKETS_PER_SECOND;
   for (;;) {
     const t0 = now();
     let r;
     do {
       r = it.next();
-    } while (!r.done && now() - t0 < sliceMs);
+    } while (!r.done && (now() - t0 < sliceMs || r.value < syncUntil));
     if (r.done) return r.value;
+    syncUntil = 0;
     await breathe();
     if (cancelled()) return null;
   }

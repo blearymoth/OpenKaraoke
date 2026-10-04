@@ -9,6 +9,7 @@ import { centredBounds, displayFor, nextDisplay, tvDisplay, visibleBounds } from
 import { compareVersions, expectedHash, installCommand, installKind, parseChecksums, parseVersion, pickAsset, releaseInfo } from '../desktop/update-logic.mjs';
 import { Updater } from '../desktop/updater.mjs';
 import { chooseBackend, displaySettings, gpuInfoProblem, gpuVerdict, graphicsLine, useLighterEffects } from '../desktop/graphics.mjs';
+import { SOFTWARE_RENDERER, isSoftwareRenderer } from '../shared/graphics.js';
 import { tmpDir } from './helpers.js';
 import { fakeGitHub, serve } from './fake-github.js';
 
@@ -81,6 +82,15 @@ test('graphics: hardware or software, and when the pages use lighter effects', (
   assert.equal(useLighterEffects('off', soft), false);
   assert.match(gpuInfoProblem('GPU access not allowed. Reason: GPU access is disabled due to frequent crashes.'), /not in use \(software compositing\)/);
   assert.equal(gpuInfoProblem(''), '');
+  // the software-renderer check lives in shared/graphics.js (the TV page asks it too)
+  for (const name of ['ANGLE (Mesa, llvmpipe (LLVM 17.0.6, 256 bits), OpenGL 4.5)', 'Google SwiftShader', 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)',
+    'softpipe', 'Mesa lavapipe', 'Microsoft Basic Render Driver', 'Software Rasterizer']) {
+    assert.equal(isSoftwareRenderer(name), true, name);
+  }
+  for (const name of ['ANGLE (AMD, AMD Radeon RX 6600 (radeonsi, navi23, LLVM 17.0.6), OpenGL 4.6)', 'ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6)', 'NVIDIA GeForce GTX 1060/PCIe/SSE2', '', null, undefined]) {
+    assert.equal(isSoftwareRenderer(name), false, String(name));
+  }
+  assert.ok(SOFTWARE_RENDERER instanceof RegExp);
   assert.match(graphicsLine({ kind: 'xwayland', ozone: 'x11', session: 'wayland', features: { gpu_compositing: 'disabled_software' }, renderer: 'llvmpipe', lighter: true }), /display system xwayland \(ozone x11\).*gpu_compositing disabled_software.*renderer llvmpipe.*lighter effects on/);
 });
 
@@ -421,11 +431,17 @@ test('packaging: every module the desktop app imports is in the installer (elect
     assert.ok(shipped(file), `${file} is imported by the desktop app but not in the installer's files`);
     const src = await fs.readFile(path.join(import.meta.dirname, '..', file), 'utf8');
     for (const [, rel] of src.matchAll(/(?:^import [^'"]*|require\()['"](\.{1,2}\/[^'"]+)['"]/gm)) {
-      if (rel.startsWith('../server/') || rel.startsWith('../shared/')) continue; // shipped whole
-      await walk(path.posix.normalize(path.posix.join(path.posix.dirname(file), rel)));
+      const dep = path.posix.normalize(path.posix.join(path.posix.dirname(file), rel));
+      if (rel.startsWith('../server/') || rel.startsWith('../shared/')) { // shipped whole: checked, not walked
+        assert.ok(shipped(dep), `${dep} is imported by ${file} but not in the installer's files`);
+        seen.add(dep);
+        continue;
+      }
+      await walk(dep);
     }
   };
   await walk(main);
   await walk('desktop/preload.cjs');
   assert.ok(seen.has('desktop/graphics.mjs'));
+  assert.ok(seen.has('shared/graphics.js'), 'desktop/graphics.mjs imports shared/graphics.js');
 });

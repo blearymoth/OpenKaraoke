@@ -435,7 +435,7 @@ try {
     const fig = document.querySelector('.photo-flash');
     if (!fig) return null;
     const a = fig.getBoundingClientRect();
-    const b = document.getElementById('cdg').getBoundingClientRect();
+    const b = document.getElementById('lyrics').getBoundingClientRect(); // the lyric box
     const overlap = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
     return { corner: fig.classList.contains('corner'), overlap, img: Math.round(fig.querySelector('img').getBoundingClientRect().width), right: Math.round(window.innerWidth - a.right) };
   });

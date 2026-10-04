@@ -12,6 +12,8 @@ export class CdgWriter {
     this.chunks = [];
     this.count = 0;
     this.screen = new Uint8Array(W * H);
+    this.hOffset = 0;
+    this.vOffset = 0;
   }
 
   /** Current time in seconds (packets written / 300). */
@@ -30,7 +32,11 @@ export class CdgWriter {
 
   /** Pads with empty (non-CDG) packets until `seconds`. */
   padTo(seconds) {
-    const n = Math.round(seconds * CDG_PACKETS_PER_SECOND) - this.count;
+    this.padPackets(Math.round(seconds * CDG_PACKETS_PER_SECOND) - this.count);
+  }
+
+  /** `n` empty packets (none when n ≤ 0). */
+  padPackets(n) {
     if (n > 0) {
       this.chunks.push(new Uint8Array(CDG_PACKET_SIZE * n));
       this.count += n;
@@ -79,6 +85,8 @@ export class CdgWriter {
   /** hCmd/vCmd: 0 none, 1 right/down, 2 left/up. */
   scroll(copy, color, hCmd = 0, hOffset = 0, vCmd = 0, vOffset = 0) {
     this.packet(copy ? CDG_INSTR.SCROLL_COPY : CDG_INSTR.SCROLL_PRESET, [color, (hCmd << 4) | hOffset, (vCmd << 4) | vOffset]);
+    this.hOffset = Math.min(hOffset & 7, 5);
+    this.vOffset = Math.min(vOffset & 15, 11);
     const dx = hCmd === 1 ? 6 : hCmd === 2 ? -6 : 0;
     const dy = vCmd === 1 ? 12 : vCmd === 2 ? -12 : 0;
     if (!dx && !dy) return;
@@ -91,6 +99,36 @@ export class CdgWriter {
         this.screen[y * W + x] = sx >= 0 && sx < W && sy >= 0 && sy < H ? src[sy * W + sx] : color;
       }
     }
+  }
+
+  /**
+   * Glides the picture up `px` CD+G pixels, one pixel every `packetsPerStep` packets, the way
+   * smooth-scrolling discs do it: the vertical offset steps 1..11, then the memory moves up 12
+   * rows (vCmd 2) with the offset back at 0. Before each 12-row band starts to come into view,
+   * `stage(n)` (optional; n = 0, 1, … in this glide) gives it as 300×12 indices and it is drawn
+   * into the hidden tile row 17 (only the tiles that change; that step takes longer). `copy`:
+   * SCROLL_COPY (the top tile row wraps round to the bottom), else SCROLL_PRESET, filling with
+   * `fill`.
+   */
+  glide(px, packetsPerStep = 10, { copy = true, fill = 0, stage = null } = {}) {
+    let band = 0;
+    for (let s = 0; s < px; s++) {
+      const from = this.count;
+      if (this.vOffset === 0 && stage) {
+        const strip = stage(band++);
+        if (strip) this.drawBand(17, strip);
+      }
+      const off = (this.vOffset + 1) % 12;
+      this.scroll(copy, fill, 0, this.hOffset, off ? 0 : 2, off);
+      this.padPackets(from + packetsPerStep - this.count);
+    }
+  }
+
+  /** Draws 300×12 indices into tile row `row` (only the tiles that differ). */
+  drawBand(row, strip) {
+    const target = this.screen.slice();
+    target.set(strip.subarray(0, W * 12), row * 12 * W);
+    this.drawFrame(target);
   }
 
   /** Emits the tile packets needed to turn the current screen into `target` (300×216 indices). */

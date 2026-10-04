@@ -19,6 +19,9 @@ await fs.mkdir(out, { recursive: true });
 const { chromium } = loadPlaywright();
 const { app, base } = await startParty();
 app.settings.update({ playback: { startPaused: true } }); // the intro waits for "play": a stable screen
+// Headless Chromium draws in software: the TV would take lighter effects (still backgrounds) by
+// itself, and the drifting aurora checked below would stand still.
+app.settings.update({ display: { lighterEffects: 'off' } });
 const code = app.settings.get('party.roomCode');
 const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
 const errors = [];
@@ -466,31 +469,22 @@ try {
     await shot(tv, `${skin}-tv-singing`);
     await shot(host, `${skin}-host-playing`);
     await shot(guest, `${skin}-guest-playing`);
-    // the title card (its first 6.5 s) lies over the bottom lines of the lyrics: in Studio its band is
-    // opaque under the singer's name, the title and the artist
+    // the title strip (the song's first seconds) is one line in the band above the lyrics, never
+    // over them: in Studio its band is opaque under the singer's name, the title and the artist
     if (skin === 'studio') {
-      check(await tv.$('.titlecard') !== null, 'studio: the title card is up while the song starts');
+      check(await tv.$('.titlecard') !== null, 'studio: the title strip is up while the song starts');
       const hold = (on) => tv.evaluate((p) => { for (const a of document.getAnimations()) if (a.animationName === 'card-out') p ? a.pause() : a.play(); }, on);
-      await hold(true); // (it stays up while the lyrics draw)
-      // the lyrics have a line under the end of the "title by artist" line (where Party's band fades out)
-      const underCard = await tv.waitForFunction(() => {
-        const cv = document.getElementById('cdg');
-        const line = document.querySelector('.titlecard .ellipsis > span');
-        if (!cv || !line) return false;
-        const a = line.getBoundingClientRect();
-        const c = cv.getBoundingClientRect();
-        const [sx, sy] = [cv.width / c.width, cv.height / c.height];
-        const x0 = Math.max(0, Math.floor((a.left + a.width * 0.6 - c.left) * sx));
-        const y0 = Math.max(0, Math.floor((a.top - c.top) * sy));
-        const w = Math.min(cv.width, Math.ceil((a.right - c.left) * sx)) - x0;
-        const h = Math.min(cv.height, Math.ceil((a.bottom - c.top) * sy)) - y0;
-        if (w <= 0 || h <= 0) return false;
-        const d = cv.getContext('2d').getImageData(x0, y0, w, h).data;
-        for (let o = 0; o < d.length; o += 4) if (d[o + 3] > 200 && d[o] + d[o + 1] + d[o + 2] > 300) return true;
-        return false;
-      }, null, { timeout: 8000, polling: 100 }).then(() => true, () => false);
-      check(underCard, 'studio: the lyrics have a line under the title card’s artist line');
-      await tvTextOver(tv, 'TV singing: the title card over the lyrics');
+      await hold(true);
+      const strip = await tv.evaluate(() => {
+        const card = document.querySelector('.titlecard');
+        const a = card.getBoundingClientRect();
+        const b = document.getElementById('lyrics').getBoundingClientRect();
+        const texts = [...card.querySelectorAll('b, .tc-song')];
+        const oneLine = texts.length === 2 && texts.every((e) => e.getClientRects().length === 1 && e.getBoundingClientRect().bottom <= a.bottom + 1 && e.getBoundingClientRect().top >= a.top - 1);
+        return { gap: Math.round(b.top - a.bottom), apart: a.bottom <= b.top + 1 || a.top >= b.bottom - 1 || a.right <= b.left + 1 || a.left >= b.right - 1, oneLine };
+      });
+      check(strip.apart && strip.oneLine, `studio: the title strip is one line above the lyrics, clear of them (${strip.gap} px)`);
+      await tvTextOver(tv, 'TV singing: the title strip');
       await hold(false);
       // a mirror screen: "Mirror display (muted)" sits on a navy chip in the bottom-right corner, and
       // the ticker leaves room for it, so the host's message never runs under it

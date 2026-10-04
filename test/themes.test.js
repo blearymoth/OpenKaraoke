@@ -350,6 +350,31 @@ test('every token the app uses is defined (by the skins, a rule, or the code tha
   assert.deepEqual(generated.sort(), ['confetti', 'singer', 'wheel', 'wheel-ink'], 'the numbered tokens the code builds');
 });
 
+test('base.css + tv.css: the lyrics plate is a token of each skin; nothing over the lyrics has a filter', () => {
+  for (const id of THEME_IDS) {
+    assert.equal(skins[id].get('--lyrics-plate-rgb'), 'var(--night-rgb)', `${id}: the plate is the skin's night colour`);
+    assert.equal(skins[id].get('--lyrics-plate-alpha'), '0.9', `${id}: 10 % see-through`);
+    const keys = [...skins[id].keys()];
+    assert.equal(keys.indexOf('--lyrics-plate-rgb'), keys.indexOf('--photo-filter') + 1, `${id}: next to the other TV picture tokens`);
+  }
+  const lyricRules = tvRules.filter((r) => r.selectors.some((sel) => /#lyrics|\.lyr-window|#cdg/.test(sel) && !/::before/.test(sel)));
+  assert.ok(lyricRules.length >= 4, 'the lyric box rules');
+  for (const r of lyricRules) {
+    for (const prop of ['filter', 'backdrop-filter', '-webkit-backdrop-filter', 'mask', '-webkit-mask', 'mask-image']) {
+      assert.equal(Object.hasOwn(r.decls, prop), false, `${r.selectors.join(', ')}: no ${prop} (it redraws the lyrics in software)`);
+    }
+    if (r.selectors.some((sel) => /\.lyr-window|#cdg/.test(sel))) assert.equal(Object.hasOwn(r.decls, 'border-radius'), false, `${r.selectors.join(', ')}: no rounded clip`);
+  }
+  const plate = (look) => tvRules.find((r) => r.selectors.includes(`#lyrics[data-look="${look}"] .lyr-plate`))?.decls ?? {};
+  assert.equal(plate('panel').background, 'rgba(var(--lyrics-plate-rgb), var(--lyrics-plate-alpha))');
+  assert.match(plate('disc').background, /^var\(--disc-border/, 'the disc look’s frame: the disc’s border colour (set from its palette)');
+  assert.equal(plate('clear').display, 'none');
+  const shade = tvRules.find((r) => r.selectors.includes('.art-shade'));
+  assert.ok(shade && !Object.hasOwn(shade.decls, 'backdrop-filter'), 'the TV’s picture shade has no backdrop blur');
+  assert.equal(tvRules.some((r) => r.selectors.some((sel) => /(^|\s)\.scrim\b/.test(sel))), false, 'the TV no longer uses the dialogs’ .scrim');
+  assert.equal(tvRules.some((r) => r.selectors.some((sel) => /^\.lite-fx\b/.test(sel))), false, 'lighter effects: :is(.lite-fx, .lite-auto)');
+});
+
 test('no colour is hard-coded outside the skin blocks (CSS and browser code)', async () => {
   // Black, white and greys are shared on purpose (shadows, photo prints, slider thumbs, video
   // backdrops, print pages); every colour with a hue comes from a token, so a new screen can't
@@ -701,12 +726,20 @@ test('TV CSS: Studio game screens add no glow that drops their text below 7:1', 
   }
 });
 
-test('TV CSS: Studio’s title card and ticker are opaque under their text (they sit over the lyrics or a video)', () => {
+test('TV CSS: Studio’s title card and ticker are opaque under their text (they sit over a video or a picture)', () => {
   const studio = skins.studio;
   const rgbOf = (name) => `#${studio.get(`${name}-rgb`).split(',').map((v) => Number(v).toString(16).padStart(2, '0')).join('')}`;
-  // While a song starts, the singer's name and the song's title and artist slide in over the bottom
-  // lyric line (or a video): the band fades out only in its right padding, never under the text.
+  // While a song starts, the singer's name and the song's title and artist are a one-line strip in
+  // the band above the lyrics (never over them), over a picture or a video: the band fades out only
+  // in its right padding, never under the text.
   const card = tvRules.find((r) => r.selectors.includes('.titlecard') && Object.hasOwn(r.decls, 'padding'));
+  assert.equal(card.decls.top, 'var(--band-top)', 'the title strip is in the band above the lyrics');
+  assert.equal(card.decls.height, 'var(--band-h)', 'as tall as that band allows');
+  const root = tvRules.find((r) => r.selectors.includes(':root') && Object.hasOwn(r.decls, '--band-h'));
+  assert.equal(root.decls['--band-h'], 'min(calc(var(--lyr-band) - 1.4vh), 9vw)', 'the band less a margin (on a narrow screen, less)');
+  assert.equal(root.decls['--band-top'], 'calc((var(--lyr-band) - var(--band-h)) / 2)', 'centred in the band');
+  assert.match(card.decls['max-width'], /var\(--band-end\)/, 'and stops short of the join QR');
+  assert.equal(card.decls['white-space'], 'nowrap', 'one line');
   const pad = card.decls.padding.split(/\s+/);
   const right = pad[1] ?? pad[0];
   const band = studioOverride('.titlecard', 'background')?.decls.background ?? '';

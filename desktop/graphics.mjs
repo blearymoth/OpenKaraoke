@@ -2,6 +2,7 @@
 // whether this PC draws with its graphics card or in software, and whether the pages should use
 // lighter effects. Pure functions (tested in test/desktop.test.js); desktop/main.mjs gathers the
 // facts from Electron and shows them in Settings → About.
+import { isSoftwareRenderer } from '../shared/graphics.js';
 
 export const BACKENDS = ['auto', 'wayland', 'x11'];
 export const LIGHTER = ['auto', 'on', 'off'];
@@ -37,8 +38,6 @@ export function chooseBackend({ platform, env = {}, argv = [], saved = {} }) {
   return { kind: 'wayland', relaunchX11: false, why: x11 ? 'no XWayland (DISPLAY is not set)' : 'default' };
 }
 
-const SOFTWARE = /llvmpipe|softpipe|swiftshader|software|lavapipe|basic render/i;
-
 /**
  * Does this PC draw with its graphics card? `features` = app.getGPUFeatureStatus(); `renderer` =
  * the WebGL renderer string a page sees ('' when WebGL is off). GPU compositing "enabled" alone
@@ -49,7 +48,7 @@ export function gpuVerdict({ features, renderer = '', ready = true }) {
   if (!ready || !features) return { accelerated: null, text: 'Checking…' };
   const compositing = String(features.gpu_compositing || '');
   if (!compositing.startsWith('enabled')) return { accelerated: false, text: 'Software rendering — no graphics acceleration (slow)' };
-  if (SOFTWARE.test(renderer)) return { accelerated: false, text: `Software rendering (${renderer}) — slow` };
+  if (isSoftwareRenderer(renderer)) return { accelerated: false, text: `Software rendering (${renderer}) — slow` };
   return { accelerated: true, text: 'Hardware accelerated' };
 }
 

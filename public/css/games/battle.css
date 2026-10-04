@@ -166,11 +166,18 @@
 .tv .bt-final .bt-standings .avatar { width: 6.4vh; height: 6.4vh; font-size: 3.8vh; }
 
 /* over the karaoke while a battle song is on */
-.bt-badge { position: absolute; top: 3vh; left: 2.5vw; display: grid; gap: 0.8vh; max-width: 55vw; padding: 1.4vh 2.6vh; border-radius: 2vh; background: rgba(var(--night-rgb), 0.9); border: 0.3vh solid var(--neon); box-shadow: var(--glow-badge); z-index: 4; animation: tv-fade 0.5s var(--ease) both; }
-.bt-badge-kicker { font-size: 2.4vh; font-weight: 800; color: var(--bulb); text-transform: uppercase; letter-spacing: 0.08em; }
-.bt-badge-vs { display: flex; align-items: center; gap: 1.2vh; min-width: 0; font-size: 3vh; font-weight: 700; }
+/* One line in the band above the lyrics (tv.css --lyr-band), in place of the song's title strip. */
+.bt-badge {
+  --h: var(--band-h);
+  position: absolute; top: var(--band-top); left: 2.5vw; height: var(--h); box-sizing: border-box; max-width: min(70vw, calc(100vw - 2.5vw - var(--band-end)));
+  display: flex; align-items: center; gap: 1.6vh; padding: 0 2.6vh; border-radius: 2vh; white-space: nowrap;
+  background: rgba(var(--night-rgb), 0.9); border: 0.3vh solid var(--neon); box-shadow: var(--glow-badge); z-index: 4; animation: tv-fade 0.5s var(--ease) both;
+}
+.bt-badge-kicker { flex: none; font-size: min(calc(var(--h) * 0.34), 2.4vh); font-weight: 800; color: var(--bulb); text-transform: uppercase; letter-spacing: 0.08em; }
+.bt-badge-vs { display: flex; align-items: center; gap: 1.2vh; min-width: 0; font-size: min(calc(var(--h) * 0.44), 3vh); font-weight: 700; }
 .bt-badge-vs em { font-style: normal; color: var(--neon); font-weight: 800; }
-.bt-badge .avatar { width: 4.6vh; height: 4.6vh; font-size: 2.8vh; }
+.bt-badge .avatar { flex: none; width: min(calc(var(--h) * 0.7), 4.6vh); height: min(calc(var(--h) * 0.7), 4.6vh); font-size: min(calc(var(--h) * 0.42), 2.8vh); }
+#app:has(.bt-badge) .titlecard { display: none; }
 
 /* ---- phones --------------------------------------------------------------------------------- */
 .g-guest.battle .g-h1 { text-align: center; overflow-wrap: anywhere; }

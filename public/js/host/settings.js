@@ -11,6 +11,9 @@ import { HotspotBlock } from './hotspot.js';
 import { GraphicsBlock } from './graphics.js';
 import { DisplayRow, PairingRow } from './devices.js';
 
+/** display.lyricsLook (shared/lyrics.js; the Playback tab offers it too, in short). */
+const LYRICS_LOOK_OPTIONS = [['panel', 'On a dark panel (easiest to read)'], ['clear', 'Over the background, with an outline'], ['disc', 'As the disc made them']];
+
 const SECTIONS = [
   {
     id: 'party', title: 'Party', icon: 'sparkles', fields: [
@@ -73,8 +76,10 @@ const SECTIONS = [
     id: 'display', title: 'TV display', icon: 'tv', fields: [
       { path: 'display.background', label: 'Background', type: 'select', options: [['art', 'Cover art and artist photos'], ['photos', 'Guests’ photos'], ['visualizer', 'Moving lights'], ['plain', 'Plain']] },
       { path: 'display.fanart', label: 'Artist photos behind the lyrics', type: 'bool', help: 'Slowly moving photos of the artist when there are some (see Artwork); otherwise the blurred cover.', when: (s) => s.display.background === 'art' },
-      { path: 'display.cdgTransparent', label: 'Show the background behind the lyrics', type: 'bool' },
-      { path: 'display.cdgSmoothing', label: 'Smooth lyrics text', type: 'bool', help: 'Rounder, sharper-looking letters on big screens.' },
+      { path: 'display.lyricsLook', label: 'Lyrics', type: 'select', options: LYRICS_LOOK_OPTIONS, help: 'The dark panel and the outline fix each disc’s colours so the words stand out: dark words on a light disc turn light and dim colours get brighter. Choose “As the disc made them” if a disc looks wrong.' },
+      { path: 'display.lyricsMotion', label: 'Scrolling lyrics', type: 'select', options: [['smooth', 'Glide smoothly'], ['disc', 'Step exactly like the disc']], help: 'Some discs scroll the words up one pixel at a time. Glide smoothly evens out those steps; the words stay within 3 disc pixels of where the disc puts them.' },
+      { path: 'display.cdgSmoothing', label: 'Smooth lyrics text', type: 'bool', help: 'On: rounded letters. Off: the disc’s square pixels, each exactly the same size on the TV (the lyrics may be a little smaller).' },
+      { path: 'display.lighterEffects', label: 'Lighter effects on the TV', type: 'select', options: [['auto', 'Automatic'], ['on', 'On'], ['off', 'Off']], help: 'Still backgrounds and no blur, so the lyrics stay smooth on a PC without graphics acceleration. Automatic turns them on when the TV draws in software or slows down while lyrics play. The desktop app’s own choice (Settings → About → Graphics) still applies to its windows.' },
       { path: 'display.showQr', label: 'QR code in the corner while singing', type: 'bool' },
       { path: 'display.showTitleCard', label: 'Singer and song at the start of each song', type: 'bool' },
       { path: 'display.showUpNext', label: '“Up next” reminder near the end of a song', type: 'bool' },

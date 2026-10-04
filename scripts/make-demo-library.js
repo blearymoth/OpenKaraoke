@@ -62,6 +62,16 @@ export const DEMO_SONGS = [
       'Lower the key if you must', 'High notes only, in me we trust',
     ],
   },
+  {
+    // a smooth scroller: the lyrics glide up one CD+G pixel at a time, like many commercial discs
+    artist: 'Zephyr Lane', title: 'Gliding Home', brand: 'OK', bpm: 100, root: 55, prog: [0, 5, 7, 5], scroll: true,
+    lyrics: [
+      'Slowly rolling down the line', 'Every word arrives in time',
+      'Up it glides and fades away', 'Here it comes, so sing it, hey',
+      'Lights are low and voices high', 'Watch the verses drifting by',
+      'One more line and we are home', 'Never singing on our own',
+    ],
+  },
 ];
 
 // ---- audio ---------------------------------------------------------------------
@@ -226,16 +236,13 @@ export function wrapLine(text, max = 276) {
   return best && best.worst <= max ? best.rows : [text];
 }
 
-/** Karaoke graphics: title card during the intro, then pages of up to 4 rows with a colour wipe. */
-export function makeCdg(song, timing) {
-  const { duration, barSec, introBars, lineBars } = timing;
+/** The colour table, presets and title card every demo track starts with. */
+function startCdg(song) {
   const w = new CdgWriter();
   w.loadColors(PALETTE);
   w.memoryPreset(BG, 2);
   w.borderPreset(BG);
-  let frame = w.screen.slice();
-
-  // title card
+  const frame = w.screen.slice();
   for (let y = 70; y < 150; y++) frame.fill(BAND, y * 300 + CDG_VISIBLE_X, y * 300 + CDG_VISIBLE_X + 288);
   const title = song.title.replace(/\s*\((?:Duet|Multiplex)\)/i, '');
   drawText(frame, title, centeredX(title), 82, TITLE, { shadowColor: SHADOW });
@@ -243,7 +250,24 @@ export function makeCdg(song, timing) {
   const demo = 'OpenKaraoke demo track';
   drawText(frame, demo, centeredX(demo), 172, SUB);
   w.drawFrame(frame);
+  return w;
+}
 
+/** The outro: a clear screen that thanks the singer. */
+function endCdg(w, at, duration) {
+  w.padTo(Math.max(w.time, at));
+  const frame = new Uint8Array(w.screen.length).fill(BG);
+  drawText(frame, 'Thank you!', centeredX('Thank you!'), 96, TITLE, { shadowColor: SHADOW });
+  w.drawFrame(frame);
+  w.padTo(duration);
+  return w.toBuffer();
+}
+
+/** Karaoke graphics: title card during the intro, then pages of up to 4 rows with a colour wipe. */
+export function makeCdg(song, timing) {
+  if (song.scroll) return makeScrollingCdg(song, timing);
+  const { duration, barSec, introBars, lineBars } = timing;
+  const w = startCdg(song);
   const lineDur = lineBars * barSec;
   const firstLine = introBars * barSec;
 
@@ -277,7 +301,7 @@ export function makeCdg(song, timing) {
   for (const page of pages) {
     const pageStart = firstLine + page.lines[0].index * lineDur;
     w.padTo(Math.max(w.time, pageStart - barSec * 0.75));
-    frame = new Uint8Array(w.screen.length);
+    const frame = new Uint8Array(w.screen.length);
     const drawPage = (activeIndex, progress) => {
       frame.fill(BG);
       let k = 0;
@@ -303,13 +327,72 @@ export function makeCdg(song, timing) {
       }
     }
   }
-  // outro: clear and thank the singer
-  w.padTo(Math.max(w.time, firstLine + song.lyrics.length * lineDur + 0.5));
-  frame = new Uint8Array(w.screen.length).fill(BG);
-  drawText(frame, 'Thank you!', centeredX('Thank you!'), 96, TITLE, { shadowColor: SHADOW });
-  w.drawFrame(frame);
-  w.padTo(duration);
-  return w.toBuffer();
+  return endCdg(w, firstLine + song.lyrics.length * lineDur + 0.5, duration);
+}
+
+/**
+ * Karaoke graphics that scroll the way many commercial discs do: the lyrics are one tall sheet
+ * (a line every 24 px); while a line is sung it sits third from the top, then the sheet glides up
+ * 24 px, one CD+G pixel every 5 packets (0.4 s). The rows about to come into view are drawn ahead
+ * into the hidden tile rows (row 17, and row 0, which SCROLL_COPY wraps round to row 17). Every
+ * lyric line must fit on one row.
+ */
+export function makeScrollingCdg(song, timing) {
+  const { duration, barSec, introBars, lineBars } = timing;
+  const LINE = 24;
+  const TOP = 48; // sheet row of the first line: where the sung line sits on screen
+  const w = startCdg(song);
+  const lineDur = lineBars * barSec;
+  const firstLine = introBars * barSec;
+  const lines = song.lyrics.map((text) => ({ text, x: centeredX(text), width: textWidth(text), hx: -1 }));
+  const sheetRows = TOP + lines.length * LINE + 216;
+  const sheet = new Uint8Array(300 * sheetRows).fill(BG);
+  const drawSheet = () => {
+    sheet.fill(BG);
+    const strip = new Uint8Array(300 * 216);
+    lines.forEach((l, i) => {
+      strip.fill(255);
+      drawText(strip, l.text, l.x, 0, TEXT, { highlightX: l.hx, highlightColor: HIGHLIGHT, shadowColor: SHADOW });
+      const y0 = TOP + i * LINE;
+      for (let y = 0; y < LINE; y++) {
+        for (let x = 0; x < 300; x++) if (strip[y * 300 + x] !== 255) sheet[(y0 + y) * 300 + x] = strip[y * 300 + x];
+      }
+    });
+  };
+  // memory at scroll position s: rows 12..215 show sheet rows s..s+203, rows 0..11 the band after them
+  const target = (s) => {
+    const t = new Uint8Array(300 * 216).fill(BG);
+    for (let y = 0; y < 216; y++) {
+      const sy = y < CDG_VISIBLE_Y ? s + 204 + y : s + y - CDG_VISIBLE_Y;
+      t.set(sheet.subarray(sy * 300, sy * 300 + 300), y * 300);
+      t.fill(BG, y * 300, y * 300 + CDG_VISIBLE_X);
+      t.fill(BG, y * 300 + CDG_VISIBLE_X + 288, y * 300 + 300);
+    }
+    return t;
+  };
+  w.padTo(Math.max(w.time, firstLine - barSec));
+  w.memoryPreset(BG, 2);
+  drawSheet();
+  w.drawFrame(target(0));
+  let s = 0;
+  lines.forEach((line, i) => {
+    const start = firstLine + i * lineDur;
+    const sing = lineDur * 0.85;
+    for (let t = 0; t <= sing + 1e-6; t += 0.05) {
+      w.padTo(start + t);
+      line.hx = line.x + Math.round(Math.min(1, t / sing) * line.width);
+      drawSheet();
+      w.drawFrame(target(s));
+    }
+    line.hx = 999;
+    if (i === lines.length - 1) return;
+    w.padTo(start + lineDur * 0.88);
+    w.glide(LINE, 5);
+    s += LINE;
+    drawSheet();
+    w.drawFrame(target(s)); // the next two bands, out of sight
+  });
+  return endCdg(w, firstLine + lines.length * lineDur + 0.5, duration);
 }
 
 // ---- main -------------------------------------------------------------------------

@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { fold, compact, editDistance, similarity, shortId, splitCredits, formatDuration } from '../shared/text.js';
 import { qrSvg, wifiPayload } from '../server/util/qr.js';
-import { Settings, parseArgs, makeRoomCode } from '../server/config.js';
+import { Settings, DEFAULT_SETTINGS, migrateSettings, parseArgs, makeRoomCode } from '../server/config.js';
+import { LYRICS_LOOKS } from '../shared/lyrics.js';
 import { isLocalAddress, lanAddresses } from '../server/util/net.js';
 import { deviceLabel } from '../server/util/useragent.js';
 import { tmpDir } from './helpers.js';
@@ -61,6 +64,71 @@ test('settings sanitise unknown keys and types', async () => {
   await again.load();
   assert.equal(again.get('party.name'), 'Friday');
   assert.equal(again.get('queue.mode'), 'rotation', 'defaults merged in');
+});
+
+test('settings: the lyrics look, scrolling and lighter effects take only their listed values', async () => {
+  const s = new Settings(await tmpDir());
+  await s.load();
+  assert.equal(s.get('display.lyricsLook'), 'panel');
+  assert.equal(s.get('display.lyricsMotion'), 'smooth');
+  assert.equal(s.get('display.lighterEffects'), 'auto');
+  assert.equal(s.get('display.cdgSmoothing'), true);
+  assert.equal(Object.hasOwn(DEFAULT_SETTINGS.display, 'cdgTransparent'), false, 'display.cdgTransparent is gone');
+  s.update({ display: { lyricsLook: 'clear', lyricsMotion: 'disc', lighterEffects: 'on' } });
+  assert.deepEqual([s.get('display.lyricsLook'), s.get('display.lyricsMotion'), s.get('display.lighterEffects')], ['clear', 'disc', 'on']);
+  for (const bad of ['Panel', '', 'lines', 'classic', '__proto__', 'constructor', 'toString', 3, null, ['disc'], { look: 'disc' }, true]) {
+    s.update({ display: { lyricsLook: bad, lyricsMotion: bad, lighterEffects: bad } });
+    assert.deepEqual([s.get('display.lyricsLook'), s.get('display.lyricsMotion'), s.get('display.lighterEffects')], ['clear', 'disc', 'on'], `${JSON.stringify(bad)} is ignored`);
+  }
+  s.update({ display: { lyricsLook: 'bogus', showQr: false } });
+  assert.equal(s.get('display.showQr'), false, 'the valid half of an update still applies');
+  assert.equal(s.get('display.lyricsLook'), 'clear');
+  for (const look of LYRICS_LOOKS) {
+    s.update({ display: { lyricsLook: look } });
+    assert.equal(s.get('display.lyricsLook'), look);
+  }
+  await s.flush();
+});
+
+test('settings: "show the background behind the lyrics" off becomes the disc look', async () => {
+  const off = { display: { cdgTransparent: false, background: 'art' } };
+  assert.equal(migrateSettings(off), true);
+  assert.equal(off.display.lyricsLook, 'disc', 'the disc’s own background, as before');
+  assert.equal(Object.hasOwn(off.display, 'cdgTransparent'), false);
+  assert.equal(off.display.background, 'art');
+  const on = { display: { cdgTransparent: true } };
+  assert.equal(migrateSettings(on), true);
+  assert.equal(Object.hasOwn(on.display, 'cdgTransparent'), false, 'removed');
+  assert.equal(Object.hasOwn(on.display, 'lyricsLook'), false, 'the look stays the default');
+  const chosen = { display: { cdgTransparent: false, lyricsLook: 'clear' } };
+  migrateSettings(chosen);
+  assert.equal(chosen.display.lyricsLook, 'clear', 'a look chosen since is kept');
+  const current = { appearance: { theme: 'studio', accent: '' }, display: { lyricsLook: 'clear', lyricsMotion: 'disc', lighterEffects: 'off', cdgSmoothing: false } };
+  const before = structuredClone(current);
+  assert.equal(migrateSettings(current), false, 'settings saved without it are left alone');
+  assert.deepEqual(current, before);
+  const edited = { appearance: { theme: 'studio', accent: '' }, display: { lyricsLook: 'neon', lighterEffects: 7 } };
+  assert.equal(migrateSettings(edited), true);
+  assert.deepEqual([edited.display.lyricsLook, edited.display.lighterEffects], ['panel', 'auto'], 'a value no version offers: the default');
+
+  // through the settings file: the defaults are merged in first, then the old switch moves over
+  const dir = await tmpDir();
+  await fs.writeFile(path.join(dir, 'settings.json'), JSON.stringify({ display: { cdgTransparent: false, cdgSmoothing: false } }));
+  const s = new Settings(dir);
+  await s.load();
+  assert.equal(s.get('display.lyricsLook'), 'disc');
+  assert.equal(s.get('display.cdgSmoothing'), false);
+  assert.equal(s.get('display.cdgTransparent'), undefined);
+  await s.flush();
+  const saved = JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'));
+  assert.equal(saved.display.lyricsLook, 'disc');
+  assert.equal(Object.hasOwn(saved.display, 'cdgTransparent'), false);
+  const dir2 = await tmpDir();
+  await fs.writeFile(path.join(dir2, 'settings.json'), JSON.stringify({ display: { cdgTransparent: true } }));
+  const s2 = new Settings(dir2);
+  await s2.load();
+  assert.equal(s2.get('display.lyricsLook'), 'panel');
+  assert.equal(s2.get('display.cdgTransparent'), undefined);
 });
 
 test('parseArgs / room codes / network helpers', () => {

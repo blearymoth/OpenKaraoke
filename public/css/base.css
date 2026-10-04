@@ -164,6 +164,8 @@
   --art-scrim: 0.65; /* artist photos, guests' photos) is dimmed to brightness 0.4, then darkened by this scrim at its */
   --fanart-filter: brightness(0.4) saturate(0.95); /* centre (edges: 0.72), so ink-2 text keeps 7:1 (the TV's target) */
   --photo-filter: brightness(0.4); /* even over a white patch; a guest's new photo still shows bright first, in its frame */
+  --lyrics-plate-rgb: var(--night-rgb); /* the lyrics' dark panel (display.lyricsLook 'panel') and how opaque it is: */
+  --lyrics-plate-alpha: 0.9; /* shared/lyrics.js makes every lyric colour 7:1 on it, even with a white picture behind */
   --mosaic-opacity: 0.26;
   --mosaic-filter: saturate(0.75);
   --corner-qr-bg: rgba(255, 255, 255, 0.96);
@@ -337,6 +339,8 @@
   --art-scrim: 0.25;
   --fanart-filter: brightness(0.62) saturate(1.1);
   --photo-filter: brightness(0.6);
+  --lyrics-plate-rgb: var(--night-rgb);
+  --lyrics-plate-alpha: 0.9;
   --mosaic-opacity: 0.38;
   --mosaic-filter: none;
   --corner-qr-bg: rgba(255, 248, 230, 0.96);

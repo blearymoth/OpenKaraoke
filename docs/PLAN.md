@@ -188,6 +188,8 @@ server/
 shared/
   text.js               ✅ normalisation, ids, distances
   cdg.js                ✅ isomorphic CDG decoder (browser renderer + server "lyrics frame" picker)
+  lyrics.js             ✅ readable lyrics: looks, colour keying, readable palette, colour roles, scroll timeline (§9.5)
+  graphics.js           ✅ which WebGL renderers draw in software (TV lighter effects, desktop Graphics)
   protocol.js           ✅ shared constants shared by server and clients
   themes.js             ✅ skins (Studio, Party): ids, names, appearance validation
   quiz.js wheel.js applause.js   ✅ game rules shared by the server and the TV/phones
@@ -196,7 +198,8 @@ public/
   host.html tv.html guest.html   ✅ app shells (import maps not needed; import /js/... directly)
   css/                  ✅ base.css (skin tokens: Studio + Party), host.css, tv.css, guest.css
   js/vendor/            ✅ preact.js (Preact+hooks+htm), signalsmith-stretch.mjs
-  js/lib/               ✅ ws-client.js, store.js, components.js, icons.js, audio-engine.js, cdg-canvas.js, theme.js
+  js/lib/               ✅ ws-client.js, store.js, components.js, icons.js, audio-engine.js, theme.js,
+                           lyrics-renderer.js + frame-clock.js (the TV's lyrics, §9.5), cdg-canvas.js (the quiz's lyrics frame)
   js/host/ js/tv/ js/guest/   ✅ views/components per app
   js/games/             ✅ one module per game: host Setup/Control, TV scene/overlay, phone view
   fonts/ img/           ✅ bundled OFL fonts (Bricolage Grotesque + Figtree), app icon
@@ -207,6 +210,7 @@ bin/
 scripts/
   scan-report.js        ✅ validate a library from the CLI
   artwork-check.js      ✅ live check of the artwork providers (run on the PC; --save refreshes fixtures)
+  lyrics-check.js       ✅ how the readable lyrics treat a real library: PNG contact sheets + report (§9.5)
   vendor.js             ✅ rebuild vendored libs
 test/                   ✅ node:test suites + e2e/ (Playwright scripts, `npm run e2e`)
 docs/                   ✅ PLAN (this), HANDOFF, RESEARCH, LIBRARY
@@ -415,10 +419,11 @@ view even from this computer: their own vote, no file paths, no explicit version
 ## 9. TV display & playback
 
 ### 9.1 Page structure (`/tv`)
-Layers (bottom → top): background (art/visualiser/photos) · CDG canvas (transparent bg) or video ·
-overlays (lower-third "🎤 Name — Title · Artist" for 6 s at start, top-right small QR, bottom
-ticker with next singers + message, "Up next" banner in the last 20 s, progress bar,
-floating reactions, announcements) · full-screen scenes (idle lobby, intro card, games, recap).
+Layers (bottom → top): background (art/visualiser/photos) · the lyric box (§9.5) or video ·
+overlays, all outside the lyric box (a one-line "🎤 Name · Title by Artist" strip above the
+lyrics for the first 8 s, the join QR in the side margin, bottom ticker with next singers +
+message, "Up next" banner in the last 20 s, progress bar, reactions rising in the right margin,
+announcements) · full-screen scenes (idle lobby, intro card, games, recap).
 
 Idle lobby: party name, big QR + join URL + room code, Wi-Fi QR (optional), animated cover
 mosaic / visualiser, "Up next" if queue has entries, library size.
@@ -433,10 +438,13 @@ mosaic / visualiser, "Up next" if queue has entries, library size.
   (col·6, row·12); bit 5 is the left-most pixel.
 - Scroll: hCmd (1 = right 6 px, 2 = left), vCmd (1 = down 12 px, 2 = up); Copy wraps, Preset
   fills with colour; h/v offsets (0–5 / 0–11) shift the displayed image for smooth scrolling.
-- Render: palette → RGBA ImageData; **transparent background** mode makes the memory-preset
-  colour (and border) alpha 0 so art/visuals show through; add CSS drop-shadow for legibility.
-- Seeking backwards = reset + replay packets from 0 (≈90k packets, < 20 ms). Track dirty tiles;
-  optional Scale2x (EPX) on the index buffer before palette mapping for smooth big-screen text.
+- Render: see §9.5 (the TV) — palette → RGBA through a colour table, the background colours keyed
+  out by what is on screen, no CSS filter. Define Transparent (28) is parsed but never keyed (it
+  is a 16-entry table, and keying it can hide white text). `seek()` ignores a time that is not a
+  number; the latest Scroll Preset fill colour is kept in `scrollFill`.
+- Seeking backwards = reset + replay packets from 0 (≈90k packets, a few ms; `scroll()` copies
+  whole rows). Scale2x (EPX) on the index buffer before palette mapping for smooth big-screen
+  text (`scale2xRect` redoes only a rectangle).
 - Server-side use: pick a "lyrics frame" for quiz rounds (time with most non-background pixels
   between 30 % and 70 % of the song).
 
@@ -464,6 +472,120 @@ mosaic / visualiser, "Up next" if queue has entries, library size.
   (the last flag auto-accepts the microphone prompt for the applause meter; the profile is TV-only).
 - Mirrors: `/tv?display=mirror` — muted, fetch CDG only, estimate position from `time` messages
   and a ping/pong clock offset (`serverNow = Date.now() + offset`).
+
+### 9.5 Readable lyrics
+The owner: "The scrolling lyrics dont work well, the way the page renders. Create a more fool
+proof way to easily read the text." What was wrong (measured): on a PC that draws without a
+graphics card the TV ran at ≈5 fps while the lyrics changed (0.8 fps at 4K), so a glide showed as
+2–4 jumps — two `drop-shadow` filters on the canvas, the background shade picking up the dialogs'
+`.scrim` backdrop blur, Ken Burns, and a full redraw for every 1-pixel scroll step; light discs
+turned into dark words on dark art (their background was keyed out whatever its colour); weak
+disc palettes; opaque strips in a disc's scroll-fill or border colour; the title card, reactions
+and banners over the lyrics; letters changing shape at non-integer scales; and any backward step
+of the clock replaying the whole song.
+
+**The rule: never put a CSS filter, mask, backdrop-filter or rounded clip on an element whose
+content moves or changes every frame.** In software drawing each one redraws its whole area on
+every frame. Legibility comes from still elements (the plate) and from the pixels (the outline).
+
+**Settings** (Settings → TV display; lists and defaults in `shared/lyrics.js`, an invalid value in
+an update is dropped):
+- `display.lyricsLook`: `panel` (default) "On a dark panel", `clear` "Over the background, with an
+  outline", `disc` "As the disc made them". The admin panel's Playback tab switches it too.
+- `display.lyricsMotion`: `smooth` (default) or `disc` (the disc's own 1-pixel steps).
+- `display.cdgSmoothing` (on): Scale2x, filtered scaling; off: the disc's square pixels, a whole
+  number of device pixels each (the lyrics may be a little smaller).
+- `display.lighterEffects`: `auto` (default), `on`, `off` (below).
+- Migration: a saved `display.cdgTransparent: false` (the old "Show the background behind the
+  lyrics" switch) becomes `lyricsLook: 'disc'`; the key is removed either way.
+
+**The looks.** All three keep today's box (min(86vh, 86vw / 1.5) high, 3:2, centred) and have no
+filter. *panel*: a still, rounded plate behind the window in
+`rgba(var(--lyrics-plate-rgb), var(--lyrics-plate-alpha))` (tokens in both skins: `--night-rgb`,
+0.9); the disc's background colours are keyed out and its colours made readable on the plate.
+*clear*: no plate; keyed, readable colours and a 1-CD+G-pixel dark outline baked into the pixels
+(`--shade-rgb` at 0.9; with lighter effects the still radial shade under the lyrics). *disc*:
+nothing keyed or changed, opaque, in a frame of the disc's border colour (`--disc-border`, set
+from its palette) with a box-shadow.
+
+**The renderer** (`public/js/lib/lyrics-renderer.js`; DOM in `tv.html`: `#lyrics` >
+`.lyr-plate` + `.lyr-window` (overflow hidden, square corners) > `canvas#cdg`):
+- The canvas holds the decoder's whole 300×216 memory (with smoothing its Scale2x, 600×432). The
+  disc's scroll offsets and the smoothed scroll are a `translate()` of the canvas in whole device
+  pixels: a 1-pixel scroll step costs no redraw, only a compositor move. A 12-row memory move
+  redraws, and the transform drops by 12 rows in the same frame (12·k is whole, so they cancel).
+- `layout()` (load, resize, devicePixelRatio change, smoothing change): the box height snapped to
+  a multiple of 16 device pixels (smoothing) or to a whole k per CD+G pixel (`pixelated`),
+  placed in whole device pixels; it publishes `--lyr-left/top/w/h` for the overlay layout.
+- `render(t)` every animation frame: a backward step under 0.3 s is held (jitter, mirrors); the
+  decoder catches up; a redraw only when its memory or the colour table changed: the rectangle of
+  memory that differs from what was drawn (grown by 2 pixels for the outline and Scale2x) goes
+  through a 17-entry colour table (16 + the outline) and `putImageData` of that rectangle only.
+  Colour tables are cached by key (last 64).
+- The quiz's lyrics frame keeps `CdgRenderer` (`js/lib/cdg-canvas.js`).
+
+**Scroll smoothing** (`scrollTimeline`, `scrollShift`): at load one pass over the scroll packets
+gives S = 12·(rows moved) + offset at every change. A disc with at least 8 one- or two-pixel steps
+is smoothed with a box mean over the widest of 60/45/30/20/10 packets that stays within 3 CD+G
+pixels of the disc; jumps of more than 2 pixels (page turns) are never smoothed. The window loses
+up to 3 rows at the top and bottom (the insets), which hides rows the smoothing would show early
+or late.
+
+**Frame clock** (`public/js/lib/frame-clock.js`): the lyrics' time advances with the animation
+frame's timestamp × tempo and is pulled 8% per frame towards the media clock; it never steps back
+while playing, snaps to the media clock on a jump of more than 0.25 s and follows it when paused.
+Reset on load, stop and a display change.
+
+**Colours** (`shared/lyrics.js`, pure):
+- Keying, at every redraw, from the window's histogram: colours covering ≥ 35% (kept down to 20%),
+  the memory-preset colour at ≥ 10%, the latest scroll-preset fill colour when it is on screen,
+  the border colour when it shows nowhere but the strip the offsets uncover, and any colour that
+  looks the same (OKLab ΔE < 0.02) as a keyed one. Nothing keyed (a picture screen): shown as is.
+- Colour roles, from a load-time pass over the song (a screen every 0.5 s, in 8 ms slices, never
+  mid-song statistics): areas, edges (outlines, halos) and fills (everything else); until it
+  finishes every colour is a fill.
+- `readablePalette` (OKLab, hue and chroma kept): dark words on a light background flip to light
+  on dark; fills rise to 7:1 or more against the plate over mid-grey (the brightest backdrop the
+  skins leave), keeping their order and at least 0.12 ΔE apart (sung and unsung stay apart); halos
+  stay at least 0.35 L below the dimmest fill; a disc that already reads well is left byte for
+  byte.
+
+**Lyric-safe layout** (`tv.css`, `--lyr-side`, `--lyr-band`, `--band-h`…): nothing shown with the
+lyrics covers the box (checked at 1920×1080, 1280×720, 1366×768, 1024×768, 1280×1024, 2560×1080 and
+a 720×1280 mirror): the title strip, "Up next" and Paused are one line in the band above the box;
+the join QR sits in the side margin at 17:10 and wider, a row in that band below; reactions rise
+in the right margin (hidden on portrait screens); the progress bar is on the ticker's top edge;
+the pass-the-mic band and the battle badge use the band, the photo flash the side margin.
+
+**Lighter effects anywhere** (`public/js/tv/lighter.js`): `html.lite-auto` gives every TV page
+what the desktop app's `.lite-fx` gives its windows — still backgrounds (no drift or Ken Burns,
+and the photo slideshows behind a song hold still), no blur. `on`: always;
+`off`: never; `auto`: when the browser draws in software (a WebGL context with
+`failIfMajorPerformanceCaveat` fails, or its renderer is a software one — `shared/graphics.js`)
+or when two 120-frame windows while lyrics play have a median frame gap above 1.35× the best seen
+or 50 ms (it stays until the page reloads; the reason is logged once and kept in
+`data-lite-reason`). The host's preview and the queue board never decide by themselves. The
+desktop app marks its pages with this PC's choice (`data-lighter`); its "off" wins over `auto`.
+The TV's art shade is `.art-shade` (the dialogs' `.scrim` brought a full-screen backdrop blur).
+
+**Budget** (software drawing, a busy photo, a smooth-scrolling disc): 1080p ≥ 40 fps with Ken
+Burns, 60 with lighter effects; 4K with lighter effects ≥ 45 fps during a glide; ≤ 2 ms of script
+per frame, ≤ 5 ms for a colour-table change. Measured in headless Chromium (SwiftShader, 4 cores,
+the repro library's smooth scroller, a bright busy artist photo), before → after: 1080p with Ken
+Burns 5 → 47 fps; 1080p with lighter effects 60 (glide 60); 1920×1080 at 2× (4K pixels) with
+lighter effects 60 (glide 60); a 3840×2160 viewport 0.8 → 9 fps without and 34 → 55 fps with
+lighter effects, but the frames that move the lyrics take two refreshes there (≈33 fps while
+gliding): the compositor's bilinear scaling of the moving canvas over the 5-megapixel window is
+the cost in software (nearest-neighbour costs half). With "Smooth lyrics text" off (whole-number
+scale, `pixelated`) that viewport glides at 54–60 fps. Script per frame: 0.3 ms median, 0.5 ms at
+the 95th percentile, 3–4 ms worst (a 12-row move redraws the whole canvas); a colour-table change
+with an empty cache 2.5 ms (the first, not yet compiled, ≈10 ms); no decoder replay while playing.
+Under lighter effects the slideshows behind a song (artist photos, guests' photos) hold still: a
+new full-screen picture froze software drawing for ≈0.25 s at 1080p and 2.4 s at 4K.
+
+**Tests**: `test/lyrics.test.js` (archetype discs, keying, roles, timeline), `test/frame-clock.test.js`,
+`test/cdg.test.js`, settings in `test/util.test.js`, tokens and lyric-box rules in
+`test/themes.test.js`, `test/e2e/lyrics.mjs`; on a real library, `scripts/lyrics-check.js`.
 
 ## 10. Host app (`/host`)
 Layout: top bar (logo, party name, room code chip → invite modal, TV status, search box),
@@ -581,6 +703,11 @@ JS that needs a colour (QR codes) reads the token. The app icon follows the skin
 original), and the favicon links and `/favicon.ico` point at the skin's icon. Settings saved before skins existed: a custom
 `display.accent` became `appearance.accent`, the old default pink was dropped.
 
+**Lyrics on the TV** — `display.lyricsLook` (`panel` | `clear` | `disc`), `display.lyricsMotion`
+(`smooth` | `disc`), `display.cdgSmoothing`, `display.lighterEffects` (`auto` | `on` | `off`), §9.5.
+A value not on its list is ignored in an update and reset to the default in a saved file; the old
+`display.cdgTransparent: false` became `lyricsLook: 'disc'`.
+
 ## 15. Persistence (`data/`, git-ignored)
 `settings.json`, `secret.json`, `library.json` (catalog cache), `state.json` (party state),
 `history.jsonl`, `meta.json` (artwork/metadata), `vocals.json` (what the TV found in each
@@ -602,6 +729,11 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
   ordering, ETA, limits, quiz scoring/distractors, battle brackets, auth tokens, settings.
 - CDG: generate a synthetic CDG in a test (tile writes, colour tables, scroll) and assert the
   framebuffer; also decode a real `.cdg` from the drive when available (local only).
+- Readable lyrics (§9.5): archetype discs for the readable palette, keying, roles and the scroll
+  timeline (`test/lyrics.test.js`), the frame clock, and `test/e2e/lyrics.mjs` on the TV (no filter,
+  overlays clear of the lyric box at seven screen sizes, a light disc at 7:1, a glide without a
+  decoder replay, fill/border strips keyed, the disc look, lighter effects, mirror and preview).
+  On a real library: `node scripts/lyrics-check.js "<drive>"` (contact sheets to look through).
 - E2E (optional devDependency `playwright-core` with system Chromium): host + tv + 2 guests
   in one browser, queue → intro → play → ended; screenshot each screen.
 - Library smoke test: `node scripts/scan-report.js "<drive>"`.

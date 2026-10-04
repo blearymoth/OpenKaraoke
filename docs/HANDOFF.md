@@ -1,16 +1,16 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-02 (end of the third build session plus the desktop app, run in a cloud
-sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`._
+_Last updated: 2026-10-04 (readable lyrics, after the third build session and the desktop app,
+run in a cloud sandbox without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), seven party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 433/433; `npm run e2e` → 14 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 465/465; `npm run e2e` → 15 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `admin.mjs` and
-  `versions.mjs` the admin panel and version votes); `npm --prefix desktop test` → 46/46 (the
+  `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics); `npm --prefix desktop test` → 46/46 (the
   desktop app, also against the built installer). Every milestone also went through an independent review
   whose confirmed findings were fixed and re-verified (table below).
 - **Skins** (after session 3): Settings → Appearance switches every screen between **Studio**
@@ -40,6 +40,12 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
   "Control" page and a mini player. Each **version** of a song now shows how often it was sung
   here, and guests (on what they heard tonight) and the host vote it up or down: the votes choose
   the default version. See "Admin panel and version votes" below.
+- **Readable lyrics** (after the admin panel): the TV's lyrics are drawn a new way so they stay
+  smooth and readable on any PC and disc — a dark panel behind them by default, light discs and
+  weak colours fixed, smooth-scrolling discs glide, nothing on screen covers them, and lighter
+  effects come on by themselves where the TV draws without a graphics card. Settings → TV
+  display: **Lyrics**, **Scrolling lyrics**, **Lighter effects on the TV**. See "Readable
+  lyrics" below; check a real library with `node scripts/lyrics-check.js` (checklist item 17).
 - **Nothing in session 3 could touch real hardware or the internet**: the artwork providers were
   unreachable from the sandbox (parsers are tested against fixtures built from the documented
   response shapes), and sound, microphone, TV legibility and phones need the PC. Work through
@@ -143,6 +149,7 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
 3. **Real CDGs are still the biggest open risk** (all test CDGs come from our own writer):
    play 2–3 songs from different brands (Sound Choice, Zoom, Sunfly) and check colours,
    highlight wipes and page changes. The quiz "lyrics peek" round and the TV mosaic also use them.
+   For the TV's readable lyrics see item 17.
 4. **Speakers**: break music volume (Settings → Playback), quiz clips (helium/slow-mo quality,
    clicks at clip edges), wheel ticks and fanfare, fades between break music and songs,
    Bluetooth latency (Settings → Playback → Lyrics timing).
@@ -199,6 +206,21 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
     smooth with it on (Graphics in Settings → About)? If not, hide it (remembered). Devices →
     Identify on each screen; a phone's host page (PIN) → Control. Vote a version down from a
     phone after it plays and check the next request of that song gets the other version.
+
+17. **Readable lyrics** (see "Readable lyrics" below): first
+    `node scripts/lyrics-check.js "/run/media/<user>/<drive>/<folder>" --sample 200 --out /tmp/lyrics-check`
+    — it picks 200 random discs (plain .cdg; zipped tracks are skipped) and writes contact sheets
+    (`sheet-001.png`…: each disc in the panel, clear and disc looks at three moments) and
+    `report.json` (scrolls? keyed colours, flipped, halos tamed, DEFINE_TRANSPARENT). Look through
+    the sheets: words readable on the panel, nothing that should be text keyed away, no block of a
+    background colour left. Then on the TV, from across the room, in both skins: a smooth-scrolling
+    disc (glides, no jumps; Settings → TV display → Scrolling lyrics "Step exactly like the disc"
+    for comparison), a light disc (dark words on white or cream: should show light words on the
+    panel), a paging disc, and each look (Playback tab → Lyrics look). When lighter effects come
+    on by themselves the TV page logs why (`OpenKaraoke TV: lighter effects (…)` in the console,
+    `data-lite-reason` on the page).
+    Note the discs that look wrong (artist, title, brand) and what you saw; "As the disc made
+    them" is the fallback for a party.
 
 ## How it fits together (new in session 3)
 - `server/app.js` wires `ArtworkService` (`server/artwork/service.js`) next to the library;
@@ -264,8 +286,8 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
   rows on the TV (up-next chips, the queue board, game results, leaderboards, the recap's rows)
   are a navy surface, never a white wash, which would lift a bright picture under their text
   (highlighted rows a lighter navy), the recap has no accent glow under its slides, the title
-  card that slides in while a song starts (over the bottom lyric line) is opaque under all of its
-  text and fades out only in its right padding, the ticker is an even band (it lies over a
+  strip shown while a song starts (one line above the lyrics since "Readable lyrics") is opaque
+  under all of its text and fades out only in its right padding, the ticker is an even band (it lies over a
   video's frame), and so is everything else that crosses the lyrics or a video: the
   pass-the-mic band fades out only within its side padding, a guest's name under a reaction sits
   on a navy chip, and so does a mirror screen's "Mirror display (muted)" (its ticker leaves
@@ -286,7 +308,7 @@ sandbox without the owner's PC or drive). Everything is pushed to GitHub `main`.
   white lyrics or video, and that no TV rule in ink-3, a white wash or a translucent black fill
   behind text lacks its Studio counterpart; `test/e2e/themes.mjs` checks the TV screens, and
   measures the lobby, intro and queue board pixel by pixel over a white guest photo and the swept
-  aurora, and the title card over the lyrics; `test/e2e/game-party.mjs` keeps the pass-the-mic
+  aurora, and the title strip, one line clear of the lyrics; `test/e2e/game-party.mjs` keeps the pass-the-mic
   text clear of the band's side padding).
   Disabled buttons go neutral grey, a switch that is
   on has a dark knob, the current bottom tab has a pill behind its icon, losing quiz answers and
@@ -366,7 +388,9 @@ dependencies and still runs with `node server/index.js`).
     card and driver, GPU-process crashes, screens, both windows' frame rate, size and zoom;
     **Copy report**, chrome://gpu (also Help menu); one line in the log at start.
   - **Lighter effects** (`.lite-fx` on the pages; Automatic = on when drawing in software):
-    still backgrounds, no backdrop blur, a still shade instead of the lyrics' drop-shadow filter.
+    still backgrounds, no backdrop blur (the lyrics have no filter at all any more, see "Readable
+    lyrics"). The TV page now does the same by itself in any browser (`html.lite-auto`, Settings →
+    TV display); the app marks its pages with this PC's choice and its "Off" wins there.
   - For every PC: the TV writes the music level only on the aurora (it restyled the whole page
     every frame), and the host's seek bar animates only while a song plays.
 - Profile: `~/.config/OpenKaraoke` (`data/` = the server's data folder, `logs/openkaraoke.log`,
@@ -602,6 +626,107 @@ player is a mini player (tap it for the full Playback page).
   `decorateVersions`, views), the desktop's `okDesktop.tv`. Tests: `test/versions.test.js`,
   `test/version-votes.test.js`, `test/devices.test.js`, `test/e2e/admin.mjs`, `test/e2e/versions.mjs`.
 
+## Readable lyrics (after the admin panel)
+**Why**: the owner — "The scrolling lyrics dont work well, the way the page renders. Create a
+more fool proof way to easily read the text." Three diagnoses found (and measured): on a PC
+drawing without a graphics card the TV ran at ≈5 fps while the lyrics changed (0.8 fps at 4K)
+— two drop-shadow filters on the lyrics canvas, the background shade inheriting the dialogs'
+backdrop blur (`.scrim`), Ken Burns, and a full redraw for every 1-pixel scroll step — so a glide
+showed as 2–4 jumps; light discs became dark words on dark art; weak disc colours; opaque strips
+in a disc's fill or border colour; the title card, reactions and banners over the lyrics; letters
+changing shape at a non-integer scale; and any small backward step of the clock replaying the
+whole song. Three designs were judged; the spec built from the winner is PLAN §9.5.
+
+**What the host sees** — Settings → TV display:
+- **Lyrics**: "On a dark panel (easiest to read)" (default), "Over the background, with an
+  outline", "As the disc made them". Also in the admin panel's Playback tab → On the TV →
+  "Lyrics look", to switch while a disc is on.
+- **Scrolling lyrics**: "Glide smoothly" (default; within 3 disc pixels of the disc) or "Step
+  exactly like the disc".
+- **Smooth lyrics text** (as before; off now means the disc's square pixels at a whole size).
+- **Lighter effects on the TV**: Automatic (default) / On / Off.
+- Migration: a party that had "Show the background behind the lyrics" off gets "As the disc made
+  them"; the old setting is gone.
+
+**What the TV does** (PLAN §9.5 has the details):
+- `public/js/lib/lyrics-renderer.js`: the decoder's whole memory on a canvas inside a clipping
+  window; scrolling is a compositor transform (a 1-pixel step redraws nothing), a change redraws
+  only the rectangle that changed; the box keeps its size and place, snapped to whole device
+  pixels. No filter, mask or rounded clip on anything that moves (the rule in PLAN §9.5).
+- `shared/lyrics.js`: which colours are background (by what is on screen: big areas, the preset
+  colour, the scroll-fill colour, the border colour in the strip the offsets uncover), the
+  colour roles (a pass over the song at load), the readable palette (light-on-dark, 7:1 on the
+  panel, halos tamed, discs that read well left alone) and the scroll timeline that smooths
+  one-pixel steps.
+- `public/js/lib/frame-clock.js`: the lyrics' time moves on with the animation frames and never
+  steps back while playing (a 2 ms step back used to replay the song).
+- Overlays stay out of the lyric box at every screen shape: the title is a one-line strip above
+  the lyrics, "Up next" and Paused share that band, the join QR is in the side margin (a row in
+  the band on screens narrower than 17:10), reactions rise in the right margin, the progress bar sits on
+  the ticker. The pass-the-mic band and badge and the battle badge follow.
+- `public/js/tv/lighter.js`: lighter effects (still backgrounds — no drift, no Ken Burns, no new
+  slideshow picture behind a song — and no blur) on any TV page when the
+  browser draws in software or the frames slow down while lyrics play; never by themselves in
+  the host's preview or the queue board; the desktop app's per-PC "Off" wins. `shared/graphics.js`
+  has the software-renderer check (the desktop app uses it too).
+- Decoder (`shared/cdg.js`): `scroll()` copies whole rows, `seek(NaN)` is ignored, the
+  scroll-fill colour is recorded, Define Transparent is never keyed (it could hide white text).
+  The quiz keeps its own renderer (`js/lib/cdg-canvas.js`), now keying only the preset colour.
+- Demo library: a 7th track, "Zephyr Lane - Gliding Home", scrolls smoothly (`CdgWriter.glide`).
+
+**Measured** (headless Chromium in the sandbox, SwiftShader software drawing on 4 cores, a bright
+busy artist photo with Ken Burns, a smooth-scrolling disc; frames a second, before → after;
+budget from PLAN §9.5):
+
+| Screen | Lighter effects off | Lighter effects on (= Automatic here) | Budget |
+| --- | --- | --- | --- |
+| 1920×1080 | 5 → 47 | 59 → 60, glides at 60 | ≥ 40 off, 60 on ✔ |
+| 1920×1080 at 2× (4K pixels) | 5 → 47 | 59 → 60, glides at 60 | ≥ 45 on a glide ✔ |
+| 3840×2160 at 1× | 0.8 → 9 | 34 → 55, but **≈33 while gliding** | ≥ 45 on a glide ✘ |
+| 3840×2160, "Smooth lyrics text" off | → 11 | → 59, glides at 54 | ✔ |
+
+While gliding with lighter effects the words move 3–5 device pixels a frame at 1080p (before:
+jumps of up to 13 disc pixels, ≈60 device pixels, at 5 fps). Script: 0.3 ms a frame (0.5 ms at the
+95th percentile, 3–4 ms for a 12-row move); a colour-table change 2.5 ms (≈10 ms the very first
+time); no decoder replay while playing. The miss at a 3840×2160 viewport is the compositor's
+bilinear scaling of the moving canvas over the 5-megapixel window in software (nearest-neighbour
+halves it; hiding the whole background changes nothing): each moving frame takes two refreshes
+there. The fixes would change the look (nearest-neighbour at a non-integer scale shimmers) or
+were rejected (a canvas at screen resolution). On a 4K TV driven without a graphics card,
+"Smooth lyrics text" off glides at 54–60 fps; a 4K desktop at 200% scaling (the 2× row) is fine
+either way. Found while measuring and fixed: under lighter effects the slideshows behind a song
+(artist photos every 20 s, guests' photos every 12 s) now hold still — each new picture froze
+software drawing, lyrics included, for ≈0.25 s at 1080p and 2.4 s at 4K.
+
+**Tests**: `test/lyrics.test.js` (archetype discs A–J in both skins, keying, roles, timeline),
+`test/frame-clock.test.js`, `test/cdg.test.js` (row-wise scroll against the old per-pixel one),
+settings and migration in `test/util.test.js`, tokens and lyric-box rules in `test/themes.test.js`,
+the desktop's packaged `shared/` modules in `test/desktop.test.js`; end to end
+`test/e2e/lyrics.mjs`: no filter on the lyrics, every overlay clear of the box at six screen sizes
+and a portrait mirror, a cream light disc at 7:1 or more on the panel, the demo scroller gliding
+with no decoder replay, a disc's scroll-fill and border strips keyed out, the disc look opaque in
+its border-colour frame, lighter effects auto/on/off, the mirror and the host's preview, the
+settings on a phone. Other e2e scripts now measure `#lyrics` (the canvas is larger than the box)
+and set lighter effects off where they check moving backgrounds (headless Chromium draws in
+software, so the TV would turn them on).
+
+**Decisions**
+1. Dropped (judged): decoder snapshots, device-resolution canvases and Scale4x (too slow in
+   software drawing), CSS masks or fades at the window's edges, a "classic" look that keeps the
+   old path, a lines-only look, colour statistics that change mid-song, and a frame-rate watchdog
+   with a fixed 50 fps floor remembered across reloads (it would misfire on 24/30 Hz TV modes).
+2. The panel is the default: it is the only look that guarantees 7:1 over any picture.
+3. The smoothing never moves the words more than 3 disc pixels from where the disc puts them, and
+   page turns are never smoothed.
+
+**Known issues**: in the clear look the 1-pixel outline of a line just outside the window can
+show as a row of dots on the window's edge one row before the line arrives; a 12-row memory move
+redraws the whole canvas (≈3–5 ms of script); the scroll timeline takes ≈5–7 ms at load for a
+4-minute scroller and the colour-role pass ≈100–300 ms of processor time, in 8 ms slices; a
+battle disc's purple title box (under 35% of the window) stays an opaque block on the panel;
+the "Reconnecting…" pill can reach ≈3 px into the box at 16:9; in Party the mirror badge still
+overlaps the end of the ticker message on narrow screens (as before).
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, optional
@@ -611,6 +736,8 @@ player is a mini player (tap it for the full Playback page).
   during the first artwork crawl.
 
 ## Known limitations / TODOs
+- Readable lyrics on a 4K screen at 100% scaling without a graphics card: ≈33 fps while the
+  words glide (55 otherwise); "Smooth lyrics text" off glides at 54–60 (see "Readable lyrics").
 - Desktop app: Linux x64 only; no code signing; the AppImage on Ubuntu 24.04 needs
   `--no-sandbox` (or use the .deb). Updates of a private fork need a token (above).
 - Catalog rebuild after a rescan with changes blocks the server ≈3–4 s at 90k tracks (the

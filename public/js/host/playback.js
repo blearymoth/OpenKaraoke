@@ -11,6 +11,10 @@ import { IntroStatus, TransportButtons, SeekBar, VolumeControl, canOpenTv, openT
 import { VocalsControl } from './vocals.js';
 import { LOOPBACK } from './preview.js';
 import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
+import { normalizeLyricsLook } from '/shared/lyrics.js';
+
+/** display.lyricsLook in a narrow row (Settings → TV display has the long names). */
+const LYRICS_LOOK_SHORT = [['panel', 'On a dark panel'], ['clear', 'With an outline'], ['disc', 'As the disc made them']];
 
 const LABELS = { intro: 'Getting ready', ready: 'Ready to start', playing: 'Singing now', paused: 'Paused' };
 
@@ -240,6 +244,10 @@ function VideoSection({ state, narrow }) {
         <div class="qs-row"><span>Lyrics timing<br /><span class="hint">Raise it if the lyrics run behind the music.</span></span>
           <${Stepper} label="Lyrics" value=${offset} display=${`${offset > 0 ? '+' : ''}${offset} ms`} min=${-2000} max=${2000} step=${50}
             onChange=${(v) => saveSetting('playback.lyricOffsetMs', v, { quiet: true })} onReset=${() => saveSetting('playback.lyricOffsetMs', 0, { quiet: true })} /></div>
+        <label class="qs-row"><span>Lyrics look</span>
+          <select class="select" value=${normalizeLyricsLook(settings.display.lyricsLook)} aria-label="Lyrics look" onChange=${(e) => saveSetting('display.lyricsLook', e.currentTarget.value, { quiet: true })}>
+            ${LYRICS_LOOK_SHORT.map(([v, l]) => html`<option value=${v}>${l}</option>`)}
+          </select></label>
         <div class="qs-row"><span>QR code in the corner</span>
           <${Switch} checked=${!!settings.display.showQr} label="QR code in the corner" onChange=${(v) => saveSetting('display.showQr', v, { quiet: true })} /></div>
       </div>

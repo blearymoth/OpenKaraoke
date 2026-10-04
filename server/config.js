@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { JsonDoc, deepMerge, isPlainObject } from './util/jsonfile.js';
 import { THEMES, DEFAULT_THEME, ACCENT_RE, normalizeAccent, normalizeAppearance } from '../shared/themes.js';
+import { LYRICS_LOOKS, LYRICS_MOTIONS, LIGHTER_EFFECTS, DEFAULT_LYRICS_LOOK, DEFAULT_LYRICS_MOTION, DEFAULT_LIGHTER_EFFECTS } from '../shared/lyrics.js';
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const PUBLIC_DIR = path.join(APP_ROOT, 'public');
@@ -83,8 +84,12 @@ export const DEFAULT_SETTINGS = {
     background: 'art', // 'art' | 'visualizer' | 'photos' | 'plain'
     fanart: true, // artist photos (from TheAudioDB / Fanart.tv) instead of the blurred cover when there are some
     visualizer: 'aurora',
-    cdgSmoothing: true,
-    cdgTransparent: true,
+    // The lyrics (shared/lyrics.js): 'panel' (on a dark plate) | 'clear' (over the background, with
+    // an outline) | 'disc' (as the disc made them); scrolling 'smooth' (glides) | 'disc' (steps).
+    lyricsLook: DEFAULT_LYRICS_LOOK,
+    lyricsMotion: DEFAULT_LYRICS_MOTION,
+    cdgSmoothing: true, // rounded letters (Scale2x); off: the disc's square pixels, each a whole number of screen pixels
+    lighterEffects: DEFAULT_LIGHTER_EFFECTS, // 'auto' | 'on' | 'off': still backgrounds, no blur, on the TV page
     showQr: true,
     showTicker: true,
     tickerMessage: '',
@@ -211,11 +216,18 @@ export class Settings extends JsonDoc {
       if (look.accent && !ACCENT_RE.test(look.accent)) delete look.accent;
       else look.accent = normalizeAccent(look.accent);
     }
+    // The same for the choices from a list (the TV's lyrics and effects).
+    for (const [key, list] of DISPLAY_CHOICES) {
+      if (clean.display && Object.hasOwn(clean.display, key) && !(typeof patch.display[key] === 'string' && list.includes(patch.display[key]))) delete clean.display[key];
+    }
     deepMerge(this.data, clean);
     this.save();
     return clean;
   }
 }
+
+/** Settings in `display` that take one value from a list (anything else is ignored). */
+const DISPLAY_CHOICES = [['lyricsLook', LYRICS_LOOKS], ['lyricsMotion', LYRICS_MOTIONS], ['lighterEffects', LIGHTER_EFFECTS]];
 
 /** The accent colour every party had before skins existed (display.accent's old default). */
 export const LEGACY_ACCENT = '#ff3d8b';
@@ -224,6 +236,8 @@ export const LEGACY_ACCENT = '#ff3d8b';
  * Brings settings saved by an older version up to date, in place. Returns true when something
  * changed. display.accent became appearance.accent: a colour the owner picked is kept, the old
  * default is dropped (so existing parties get the default skin with its own accent).
+ * display.cdgTransparent became display.lyricsLook: "off" (the disc's own background) is the
+ * look 'disc'; "on" was the default and the new default look takes over.
  */
 export function migrateSettings(data) {
   let changed = false;
@@ -236,6 +250,19 @@ export function migrateSettings(data) {
     if (legacy && legacy !== LEGACY_ACCENT && !data.appearance.accent) data.appearance.accent = legacy;
     delete data.display.accent;
     changed = true;
+  }
+  if (isPlainObject(data.display) && Object.hasOwn(data.display, 'cdgTransparent')) {
+    // (the defaults are merged in before this runs: a look still at the default was not chosen)
+    const chosen = LYRICS_LOOKS.includes(data.display.lyricsLook) && data.display.lyricsLook !== DEFAULT_LYRICS_LOOK;
+    if (data.display.cdgTransparent === false && !chosen) data.display.lyricsLook = 'disc';
+    delete data.display.cdgTransparent;
+    changed = true;
+  }
+  for (const [key, list] of DISPLAY_CHOICES) { // a value no version offers (an edited file): the default
+    if (isPlainObject(data.display) && Object.hasOwn(data.display, key) && !list.includes(data.display[key])) {
+      data.display[key] = DEFAULT_SETTINGS.display[key];
+      changed = true;
+    }
   }
   // 8080 was the default before, and many programs use it: parties move to the new default.
   if (isPlainObject(data.server) && data.server.port === LEGACY_PORT) {

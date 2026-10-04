@@ -37,20 +37,18 @@
 .rl-flash .who { display: flex; align-items: center; gap: 3.5vh; min-width: 0; max-width: 100%; }
 .rl-flash .who .name { max-width: none; min-width: 0; }
 
-/* While lyrics are on screen: a band in the margin above them, like the ticker in the margin
-   below. The lyrics are min(86vh, 86vw / 1.5) tall and centred, so that margin is
-   max(7vh, 50vh - 28.667vw): the band fills it (up to 16vh) and never covers a lyric line.
+/* While lyrics are on screen: a band in the margin above them (tv.css --lyr-band), like the
+   ticker in the margin below: it fills that margin (up to 16vh) and never covers a lyric line.
    Every size is capped by the screen width as well, since a narrow screen has a tall margin.
-   The join QR card in the top-right corner (tv.css .corner-qr: 2.5vw from the edge, 15.4vh
-   wide) stays visible: the band stops short of it (.qr). */
+   The join QR card stays visible: the band stops short of it (.qr; tv.css --band-end). */
 .rl-flash.top {
-  --band: min(max(7vh, calc(50vh - 28.667vw)), 16vh);
+  --band: var(--lyr-band);
   top: 0; height: var(--band); transform: none; flex-wrap: nowrap; gap: min(calc(var(--band) * 0.34), 1.8vw);
   padding: 0 2.5vw; border-top-width: 0; border-bottom-width: min(calc(var(--band) * 0.08), 0.7vh);
   animation: rl-in-top 0.45s var(--ease) both, rl-out-top 0.4s ease 3.6s forwards;
 }
 :root:not([data-theme="party"]) .rl-flash.top { background: linear-gradient(90deg, rgba(var(--night-rgb), 0), rgba(var(--night-rgb), 0.95) 2.5vw, rgba(var(--night-rgb), 0.95) calc(100% - 2.5vw), rgba(var(--night-rgb), 0)); }
-.rl-flash.top.qr { right: calc(4vw + 15.4vh); }
+.rl-flash.top.qr { right: var(--band-end); }
 .rl-flash.top .kick { font-size: min(calc(var(--band) * 0.56), 3.2vw); line-height: 1; }
 .rl-flash.top .arrow { font-size: min(calc(var(--band) * 0.62), 3.5vw); margin-right: 2vw; } /* (room for its nudge) */
 .rl-flash.top .who { gap: min(calc(var(--band) * 0.3), 1.6vw); }
@@ -66,23 +64,37 @@
   .rl-flash.top .avatar { width: min(calc(var(--band) * 0.5), 7vw); height: min(calc(var(--band) * 0.5), 7vw); font-size: min(calc(var(--band) * 0.3), 4.2vw); }
   .rl-flash.top .name { font-size: min(calc(var(--band) * 0.46), 5.6vw); }
 }
-/* The other notices along the top edge (tv.css) wait while the band is up (4 s), and come back
-   when it has gone: the "Up next, get ready" banner (top left, right in the band's path; the
-   ticker at the bottom still says who's next) and the Paused pill (top centre: moved down below
-   the band it would cover the first lyric line, the one the new singer picks up). */
-#app:has(.rl-flash.top) :is(.upnext-banner, .paused-pill) { visibility: hidden; }
+/* The other notices in the band (tv.css) wait while the band is up (4 s), and come back when it
+   has gone: the song's title strip, the "Up next, get ready" banner (the ticker at the bottom
+   still says who's next) and the Paused pill (moved down below the band it would cover the first
+   lyric line, the one the new singer picks up). Below 17:10 the join QR is a row at the band's
+   right end: it waits too, and the band takes the whole width (a long name stays whole). */
+#app:has(.rl-flash.top) :is(.upnext-banner, .paused-pill, .titlecard) { visibility: hidden; }
+@media (max-aspect-ratio: 17/10) {
+  #app:has(.rl-flash.top) .corner-qr { visibility: hidden; }
+  .rl-flash.top.qr { right: 0; }
+}
 @keyframes rl-in-top { from { opacity: 0; transform: translateY(-100%); } }
 @keyframes rl-out-top { to { opacity: 0; transform: translateY(-100%); } }
 @keyframes rl-nudge { to { transform: translateX(2vw); } }
 @keyframes rl-pop { from { opacity: 0; transform: scale(0.4); } }
 
+/* Who holds the mic: a small card in the margin right of the lyrics, above the ticker (the name
+   under the mic and the avatar); below 17:10, where that margin is thin, a pill at the right end of
+   the band above them, left of the join QR. */
 .rl-badge {
-  position: absolute; right: 2.5vw; bottom: 10vh; z-index: 4; display: flex; align-items: center; gap: 1.4vh;
-  max-width: 34vw; padding: 1.2vh 2.6vh 1.2vh 1.6vh; border-radius: 99vh;
+  position: absolute; right: 1vw; bottom: 10vh; z-index: 4; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0.6vh 1vh;
+  max-width: calc(var(--lyr-side) - 1.5vw); box-sizing: border-box; padding: 1vh 1.4vh; border-radius: 2vh; white-space: nowrap;
   background: rgba(var(--night-rgb), 0.88); border: 0.3vh solid color-mix(in srgb, var(--neon) 60%, transparent);
   font-size: 3vh; animation: tv-fade 0.5s var(--ease) both;
 }
-.rl-badge .avatar { width: 5.5vh; height: 5.5vh; font-size: 3.2vh; }
+.rl-badge .avatar { flex: none; width: 5.5vh; height: 5.5vh; font-size: 3.2vh; }
+.rl-badge b { flex-basis: 100%; min-width: 0; text-align: center; }
+@media (max-aspect-ratio: 17/10) {
+  .rl-badge { --h: var(--band-h); top: var(--band-top); bottom: auto; right: var(--band-end); height: var(--h); max-width: 40vw; flex-wrap: nowrap; gap: 1.4vh; padding: 0 calc(var(--h) * 0.3) 0 calc(var(--h) * 0.12); border-radius: 99vh; font-size: min(calc(var(--h) * 0.4), 3vh); }
+  .rl-badge .avatar { width: calc(var(--h) * 0.72); height: calc(var(--h) * 0.72); font-size: calc(var(--h) * 0.42); }
+  .rl-badge b { flex-basis: auto; text-align: start; }
+}
 
 /* ---- phones ------------------------------------------------------------------------------ */
 .g-guest.relay { text-align: center; }

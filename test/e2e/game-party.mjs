@@ -131,18 +131,26 @@ async function flashGeometry(tv, name) {
     const nameEl = flash.querySelector('.name');
     const parts = [...flash.querySelectorAll('.kick, .arrow, .avatar, .name')].map((e) => e.getBoundingClientRect());
     const pad = getComputedStyle(flash);
-    const qr = document.querySelector('.corner-qr')?.getBoundingClientRect();
+    const qrEl = document.querySelector('.corner-qr'); // (below 17:10 it waits while the band is up)
+    const qr = qrEl && getComputedStyle(qrEl).visibility === 'visible' ? qrEl.getBoundingClientRect() : null;
+    // the lyric box; the canvas holds the disc's whole memory, moved inside the box's window
+    const box = document.getElementById('lyrics').getBoundingClientRect();
+    const win = document.querySelector('.lyr-window').getBoundingClientRect();
     const canvas = document.getElementById('cdg');
     const c = canvas.getBoundingClientRect();
     const px = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
     let lit = -1;
-    for (let y = 0; y < canvas.height && lit < 0; y++) for (let x = 0; x < canvas.width; x++) if (px[(y * canvas.width + x) * 4 + 3] > 0) { lit = y; break; }
+    for (let y = 0; y < canvas.height && lit < 0; y++) {
+      const sy = c.top + ((y + 0.5) / canvas.height) * c.height;
+      if (sy < win.top || sy > win.bottom) continue; // (rows out of the window are not shown)
+      for (let x = 0; x < canvas.width; x++) if (px[(y * canvas.width + x) * 4 + 3] > 0) { lit = y; break; }
+    }
     return {
       top: flash.classList.contains('top'), flashTop: f.top, flashBottom: f.bottom, flashLeft: f.left, flashRight: f.right, flashWidth: f.width, overflow: flash.scrollWidth - flash.clientWidth,
       partsLeft: Math.min(...parts.map((r) => r.left)), partsRight: Math.max(...parts.map((r) => r.right)), qrLeft: qr ? qr.left : null,
       padLeft: parseFloat(pad.paddingLeft), padRight: parseFloat(pad.paddingRight),
       nameCut: nameEl.scrollWidth > nameEl.clientWidth + 1, nameSize: parseFloat(getComputedStyle(nameEl).fontSize), vw: innerWidth, vh: innerHeight,
-      lyricsShown: canvas.classList.contains('show'), cdgTop: c.top, firstLit: lit < 0 ? null : c.top + (lit / canvas.height) * c.height,
+      lyricsShown: canvas.classList.contains('show'), cdgTop: box.top, firstLit: lit < 0 ? null : c.top + (lit / canvas.height) * c.height,
     };
   });
 }

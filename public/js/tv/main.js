@@ -6,6 +6,7 @@ import { Icon } from '../lib/icons.js';
 import { TvController } from './controller.js';
 import { GAME_UI } from '../games/index.js';
 import { BreakPlayer } from './break-player.js';
+import { LighterEffects } from './lighter.js';
 import { applyAppearance, followAppearance, qrSrc, appIcon } from '../lib/theme.js';
 import { DENIED_MESSAGES, CHANNEL_MODES, TEMPO_STEP, formatKey, formatTempo, singerColor } from '/shared/protocol.js';
 import { formatLead, LEAD_PRESETS } from '/shared/vocals.js';
@@ -40,16 +41,22 @@ const roleOf = (display) => (muted ? 'mirror' : display);
 const now = () => conn.serverNow();
 // The preview on a host device other than this computer: no music video (a cover instead).
 const noVideo = preview && params.get('video') === '0';
+const lyricsBox = document.getElementById('lyrics');
+const canvas = document.getElementById('cdg');
 const controller = new TvController({
   conn,
-  canvas: document.getElementById('cdg'),
+  lyrics: { lyrics: lyricsBox, plate: lyricsBox.querySelector('.lyr-plate'), win: lyricsBox.querySelector('.lyr-window'), canvas },
   video: document.getElementById('video'),
   audio: document.getElementById('audio'),
   noVideo,
 });
+// Still backgrounds and no blur where this page draws in software (decided here only on a real TV
+// screen: not in the host's preview or on the queue board).
+const lighter = new LighterEffects({ auto: !preview && !board });
 
 conn.on('welcome', (m) => {
   applyAppearance(m.state.appearance);
+  lighter.set(m.state.display?.lighterEffects);
   noteArt(m.art);
   resume = typeof m.resume === 'string' ? m.resume : undefined;
   store.update({ state: m.state, display: roleOf(m.display), denied: null });
@@ -66,6 +73,7 @@ const applyBreak = (st) => {
 
 conn.on('state', (m) => {
   applyAppearance(m.state.appearance);
+  lighter.set(m.state.display?.lighterEffects);
   store.update({ state: m.state });
   controller.apply(m.state);
   applyBreak(m.state);
@@ -105,7 +113,7 @@ let reactionId = 0;
 function addReaction(m) {
   if (store.get().state?.display?.showReactions === false) return;
   const id = ++reactionId;
-  const r = { id, emoji: m.emoji, name: m.name, x: 62 + Math.random() * 30, dx: `${Math.round((Math.random() - 0.5) * 16)}vw` };
+  const r = { id, emoji: m.emoji, name: m.name, rx: Math.round(Math.random() * 1000) / 1000 }; // where in the right margin (tv.css .reaction)
   store.update((s) => ({ reactions: [...s.reactions.slice(-24), r] }));
   setTimeout(() => store.update((s) => ({ reactions: s.reactions.filter((x) => x.id !== id) })), 4400);
 }
@@ -205,23 +213,36 @@ if (!preview) {
 
 // ---- animation loop: lyrics, progress bar, visualiser level ------------------------------
 
-const canvas = document.getElementById('cdg');
-const stageEl = document.getElementById('stage');
 let lastFrame = 0;
+let showing = false;
+let bar = null; // the progress bar's fill, and the device pixel it was drawn to
+let barPx = -1;
 function loop(t) {
   requestAnimationFrame(loop);
   if (preview && t - lastFrame < 33) return; // the preview: 30 frames a second are plenty
   lastFrame = t;
-  controller.frame();
+  controller.frame(t);
   const st = store.get().state;
-  const showCdg = !!(st?.current && controller.cdg.loaded && ['playing', 'paused'].includes(st.player.state));
-  canvas.classList.toggle('show', showCdg);
-  canvas.classList.toggle('pixelated', st?.display?.cdgSmoothing === false);
-  stageEl.classList.toggle('boxed', st?.display?.cdgTransparent === false);
-  const bar = document.querySelector('.progress i');
+  const show = !!(st?.current && controller.lyrics.loaded && ['playing', 'paused'].includes(st.player.state));
+  if (show !== showing) {
+    showing = show;
+    lyricsBox.classList.toggle('show', show);
+    canvas.classList.toggle('show', show);
+  }
+  lighter.frame(t, show && st.player.state === 'playing');
+  // The progress bar: written only when its end moves to another device pixel.
+  if (!bar?.isConnected) {
+    bar = document.querySelector('.progress i');
+    barPx = -1;
+  }
   if (bar) {
     const dur = controller.duration();
-    bar.style.width = `${dur ? Math.min(100, (controller.position() / dur) * 100) : 0}%`;
+    const frac = dur ? Math.min(1, Math.max(0, controller.position() / dur)) : 0;
+    const px = Math.round(frac * innerWidth * devicePixelRatio);
+    if (px !== barPx) {
+      barPx = px;
+      bar.style.width = `${frac * 100}%`;
+    }
   }
   // The music's level for the aurora's blobs: set on the aurora only (not the whole page, which
   // would restyle every element every frame), and only when it changed visibly.
@@ -248,25 +269,32 @@ function Background() {
     return html`
       <div class="art-bg" key=${cur.songId} style=${{ backgroundImage: `url(${cur.mystery ? appIcon() : artUrl(cur.songId, 500)})` }}></div>
       ${fanart && html`<${FanartShow} artistKey=${art.fanart} count=${art.fanartCount || 1} key=${art.fanart} />`}
-      <div class="scrim"></div>`;
+      <div class="art-shade"></div>`;
   }
   const photos = state?.photos?.list || [];
-  if (mode === 'photos' && photos.length) return html`<${PhotoShow} photos=${photos} singing=${!!singing} /><div class="scrim"></div>`;
+  if (mode === 'photos' && photos.length) return html`<${PhotoShow} photos=${photos} singing=${!!singing} /><div class="art-shade"></div>`;
   if (mode === 'art' && !cur && state?.mosaic?.length >= 4) return html`<${Mosaic} ids=${state.mosaic} />`;
   return html`<div class="aurora"><i></i><i></i><i></i></div>`;
 }
 
+/**
+ * Lighter effects (js/tv/lighter.js, or the desktop app's .lite-fx): the slideshows behind a song
+ * hold still. In software drawing a new full-screen picture froze the TV, lyrics included, for
+ * ≈0.25 s at 1080p and over 2 s at 4K.
+ */
+const holdSlides = () => document.documentElement.classList.contains('lite-auto') || document.documentElement.classList.contains('lite-fx');
+
 /** The artist's photos, one after the other, slowly zooming (Ken Burns). */
 function FanartShow({ artistKey, count }) {
   const [i, setI] = useState(0);
-  useInterval(() => setI((x) => (x + 1) % count), count > 1 ? 20000 : null);
+  useInterval(() => !holdSlides() && setI((x) => (x + 1) % count), count > 1 ? 20000 : null);
   return html`<div class="fanart-bg" key=${i} style=${{ backgroundImage: `url(${artistArtUrl(artistKey, 'fanart', { i, size: 1000 })})` }}></div>`;
 }
 
 /** Guests' photos, one after the other with a slow zoom (the newest first). */
-function PhotoShow({ photos }) {
+function PhotoShow({ photos, singing }) {
   const [i, setI] = useState(0);
-  useInterval(() => setI((x) => x + 1), photos.length > 1 ? 12000 : null);
+  useInterval(() => !(singing && holdSlides()) && setI((x) => x + 1), photos.length > 1 ? 12000 : null);
   const p = photos[(photos.length - 1 - (i % photos.length) + photos.length) % photos.length];
   return html`<div class="photo-bg" key=${p.id} style=${{ backgroundImage: `url(/api/photos/${encodeURIComponent(p.id)})` }}></div>`;
 }
@@ -313,7 +341,7 @@ function App() {
     ${st.rating && !gameScene && p.state !== 'playing' && p.state !== 'paused' && html`<${RatingOverlay} r=${st.rating} />`}
     ${st.photos?.flash && !gameScene && html`<${PhotoFlash} flash=${st.photos.flash} singing=${!!st.current && p.state !== 'idle'} />`}
     ${st.announcement && html`<div class="announce" key=${st.announcement.id}><div>${st.announcement.text}</div></div>`}
-    <div class="reactions">${s.reactions.map((r) => html`<div class="reaction" key=${r.id} style=${{ left: `${r.x}%`, '--dx': r.dx }}><b>${r.emoji}</b>${r.name && html`<span>${r.name}</span>`}</div>`)}</div>
+    <div class="reactions">${s.reactions.map((r) => html`<div class="reaction" key=${r.id} style=${{ '--rx': r.rx }}><b>${r.emoji}</b>${r.name && html`<span>${r.name}</span>`}</div>`)}</div>
     ${s.status !== 'open' && html`<div class="conn-lost">Reconnecting to the server…</div>`}
     ${s.display === 'mirror' && !muted && html`<div class="mirror-badge">Mirror display (muted)</div>`}
     ${s.toast && html`<div class="conn-lost" style="background:var(--stage-3);color:var(--ink)">${s.toast}</div>`}
@@ -591,11 +619,15 @@ function Singing({ st }) {
   const next = st.game?.showSongs && !st.game.ended ? null : st.queue[0]; // a battle decides who's next
   const showUpNext = d.showUpNext !== false && next && dur > 0 && dur - pos < 20 && dur - pos > 1;
   const ticker = d.showTicker !== false && (st.queue.length || d.tickerMessage);
+  // Overlays never cover the lyrics (tv.css, "lyric-safe layout"): who sings what is a one-line
+  // strip in the band above them for the first seconds; the up-next banner and the Paused pill
+  // take that band when they're up.
+  const titleStrip = d.showTitleCard !== false && pos < 8 && !showUpNext && p.state !== 'paused';
   return html`<div class=${`scene ${ticker ? 'with-ticker' : ''}`}>
-    ${d.showTitleCard !== false && pos < 12 && html`<div class="titlecard" key=${cur.id}>
-      ${cur.art?.cover && !cur.mystery && html`<img class="tc-cover" src=${artUrl(cur.songId, 250)} alt="" />`}
+    ${titleStrip && html`<div class="titlecard" key=${cur.id}>
       <span class="avatar" style=${{ '--avatar': singerColor(cur.singers[0]?.color) }}>${cur.singers[0]?.emoji || '🎤'}</span>
-      <div class="ellipsis"><b class="display ellipsis">${singersText(cur.singers) || 'Sing along!'}</b><span>${cur.title} by ${cur.artist}</span></div>
+      <b class="display ellipsis">${singersText(cur.singers) || 'Sing along!'}</b>
+      <span class="tc-song ellipsis">· ${cur.title} by ${cur.artist}</span>
     </div>`}
     ${d.showQr !== false && (st.hotspot
       ? html`<div class="corner-qr two">
@@ -605,7 +637,7 @@ function Singing({ st }) {
       : html`<div class="corner-qr"><img src=${qrSrc(st.info.joinUrl)} alt="" /><span>${st.info.roomCode}</span></div>`)}
     ${showUpNext && html`<div class="upnext-banner">
       <span class="avatar" style=${{ '--avatar': singerColor(next.singers[0]?.color) }}>${next.singers[0]?.emoji || '🎤'}</span>
-      <div><small>Up next, get ready</small><b>${singersText(next.singers) || 'Next song'}</b></div>
+      <small>Up next, get ready</small><b class="ellipsis">${singersText(next.singers) || 'Next song'}</b>
     </div>`}
     ${ticker && html`<div class="ticker">
       ${st.queue.length > 0 && html`<span class="label">Up next</span>`}

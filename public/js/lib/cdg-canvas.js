@@ -69,10 +69,7 @@ export class CdgRenderer {
     const idx = d.visibleIndices(this.indices);
     const src = this.smoothing ? scale2x(idx, W, H, this.big) : idx;
     this.alpha.fill(255);
-    if (this.transparent) {
-      this.alpha[d.bgColor] = 0;
-      if (d.transparentColor >= 0) this.alpha[d.transparentColor] = 0;
-    }
+    if (this.transparent) this.alpha[d.bgColor] = 0; // DEFINE_TRANSPARENT is not keyed (it could hide the text)
     indicesToRgba(src, d.palette, this.image.data, this.alpha);
     this.g.putImageData(this.image, 0, 0);
     return true;

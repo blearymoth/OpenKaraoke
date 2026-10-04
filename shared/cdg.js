@@ -55,7 +55,8 @@ export class CdgDecoder {
     this.vOffset = 0;
     this.borderColor = 0;
     this.bgColor = 0;
-    this.transparentColor = -1;
+    this.transparentColor = -1; // parsed for compatibility; nothing keys it (it is a 16-entry table, not one colour)
+    this.scrollFill = -1; // the colour the latest SCROLL_PRESET filled the uncovered rows/columns with
     this.version++;
   }
 
@@ -64,6 +65,7 @@ export class CdgDecoder {
    * (a whole song decodes in a few milliseconds). Returns true when the image changed.
    */
   seek(t) {
+    if (!Number.isFinite(t)) return false;
     const target = Math.max(0, Math.min(this.packetCount, Math.floor(t * CDG_PACKETS_PER_SECOND)));
     let changed = false;
     if (target < this.position) {
@@ -152,22 +154,36 @@ export class CdgDecoder {
     const vCmd = (v & 0x30) >> 4;
     const hOff = Math.min(h & 0x07, 5);
     const vOff = Math.min(v & 0x0f, 11);
-    let changed = hOff !== this.hOffset || vOff !== this.vOffset;
+    const changed = hOff !== this.hOffset || vOff !== this.vOffset;
     this.hOffset = hOff;
     this.vOffset = vOff;
     const dx = hCmd === 1 ? 6 : hCmd === 2 ? -6 : 0; // 1 = right, 2 = left
     const dy = vCmd === 1 ? 12 : vCmd === 2 ? -12 : 0; // 1 = down, 2 = up
     if (!dx && !dy) return changed;
+    if (!copy) this.scrollFill = color;
+    // Row by row (rows are contiguous): the shifted part of the source row, then the part that
+    // wraps round (copy) or the fill colour (preset).
     const src = this.pixels;
     const dst = this.scratch;
     for (let y = 0; y < H; y++) {
       let sy = y - dy;
       if (copy) sy = (sy + H) % H;
-      const inY = sy >= 0 && sy < H;
-      for (let x = 0; x < W; x++) {
-        let sx = x - dx;
-        if (copy) sx = (sx + W) % W;
-        dst[y * W + x] = inY && sx >= 0 && sx < W ? src[sy * W + sx] : color;
+      const d = y * W;
+      if (sy < 0 || sy >= H) {
+        dst.fill(color, d, d + W);
+        continue;
+      }
+      const s = sy * W;
+      if (dx > 0) {
+        dst.set(src.subarray(s, s + W - dx), d + dx);
+        if (copy) dst.set(src.subarray(s + W - dx, s + W), d);
+        else dst.fill(color, d, d + dx);
+      } else if (dx < 0) {
+        dst.set(src.subarray(s - dx, s + W), d);
+        if (copy) dst.set(src.subarray(s, s - dx), d + W + dx);
+        else dst.fill(color, d + W + dx, d + W);
+      } else {
+        dst.set(src.subarray(s, s + W), d);
       }
     }
     this.pixels = dst;
@@ -210,18 +226,26 @@ export class CdgDecoder {
  * which makes blocky CDG text look smooth on a big TV.
  */
 export function scale2x(src, w, h, out = new Uint8Array(w * h * 4)) {
+  return scale2xRect(src, w, h, 0, 0, w, h, out);
+}
+
+/**
+ * Scale2x of the rectangle [x0, x1) × [y0, y1) of `src` (w × h) into `out` (2w × 2h); the rest
+ * of `out` is left as it was (the TV redraws only what changed).
+ */
+export function scale2xRect(src, w, h, x0, y0, x1, y1, out) {
   const ow = w * 2;
-  for (let y = 0; y < h; y++) {
+  for (let y = y0; y < y1; y++) {
     const up = (y > 0 ? y - 1 : y) * w;
     const row = y * w;
     const down = (y < h - 1 ? y + 1 : y) * w;
-    for (let x = 0; x < w; x++) {
+    let o = y * 2 * ow + x0 * 2;
+    for (let x = x0; x < x1; x++, o += 2) {
       const p = src[row + x];
       const a = src[up + x];
       const b = src[row + (x < w - 1 ? x + 1 : x)];
       const c = src[row + (x > 0 ? x - 1 : x)];
       const d = src[down + x];
-      const o = y * 2 * ow + x * 2;
       out[o] = c === a && c !== d && a !== b ? a : p;
       out[o + 1] = a === b && a !== c && b !== d ? b : p;
       out[o + ow] = d === c && d !== b && c !== a ? c : p;

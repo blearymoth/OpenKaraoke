@@ -125,10 +125,12 @@ export class WsClient {
 /**
  * Starts a server on the demo library; artwork comes from a fake provider network (never the
  * internet). `hotspot` options go to the party hotspot (a fake NetworkManager: never the real one).
+ * `addTracks(dir)`: writes more tracks into the library folder before it is scanned.
  */
-export async function startParty({ crawl = false, hotspot } = {}) {
+export async function startParty({ crawl = false, hotspot, addTracks } = {}) {
   const lib = await tmpDir('ok-e2e-lib-');
   await makeDemoLibrary(lib, { log: () => {} });
+  if (addTracks) await addTracks(lib);
   const dataDir = await tmpDir('ok-e2e-data-');
   const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch: fakeArtFetch({ unknown: new Set(['dj hush']) }), crawl, hotspot });
   await app.library.scan();

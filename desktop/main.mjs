@@ -189,10 +189,15 @@ function run() {
     return gpuVerdict({ features: gfx.features, renderer: gfx.renderer, ready: gfx.ready });
   }
 
-  /** Lighter effects (CSS under .lite-fx) on the app's own windows, when chosen or when the PC draws in software. */
+  /**
+   * Lighter effects (CSS under .lite-fx) on the app's own windows, when chosen or when the PC draws
+   * in software. data-lighter carries this PC's choice: 'off' keeps the TV page's own automatic
+   * lighter effects (public/js/tv/lighter.js) away too.
+   */
   function applyLighter(win) {
     if (!win || win.isDestroyed() || !ours(win.webContents.getURL())) return;
-    win.webContents.executeJavaScript(`document.documentElement.classList.toggle('lite-fx', ${gfx.lighter})`).catch(() => {});
+    const choice = JSON.stringify(readDisplaySettings().lighter);
+    win.webContents.executeJavaScript(`document.documentElement.classList.toggle('lite-fx', ${gfx.lighter}); document.documentElement.dataset.lighter = ${choice};`).catch(() => {});
   }
   function updateGraphics() {
     gfx.lighter = useLighterEffects(readDisplaySettings().lighter, verdict());

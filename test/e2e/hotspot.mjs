@@ -123,7 +123,7 @@ try {
   await tv.waitForSelector('#cdg.show', { timeout: 15000 }).catch(() => {});
   const overlap = await tv.evaluate(() => {
     const a = document.querySelector('.corner-qr').getBoundingClientRect();
-    const b = document.getElementById('cdg').getBoundingClientRect();
+    const b = document.getElementById('lyrics').getBoundingClientRect(); // the lyric box
     return Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
   });
   check(overlap === 0, `the two codes stay clear of the lyrics (${overlap} px² overlap)`);

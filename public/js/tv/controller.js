@@ -2,15 +2,19 @@
 // The server decides WHAT plays and whether it should be playing; this display decides
 // WHEN (it owns the media clock) and reports its position back (PLAN §3, §6.2).
 import { AudioEngine } from '../lib/audio-engine.js';
-import { CdgRenderer } from '../lib/cdg-canvas.js';
+import { LyricsRenderer, lyricsColours } from '../lib/lyrics-renderer.js';
+import { FrameClock } from '../lib/frame-clock.js';
+import { normalizeLyricsLook } from '/shared/lyrics.js';
 
 export class TvController extends EventTarget {
-  constructor({ conn, canvas, video, audio, noVideo = false }) {
+  /** lyrics: the lyric box's elements ({ lyrics, plate, win, canvas }, see js/lib/lyrics-renderer.js). */
+  constructor({ conn, lyrics, video, audio, noVideo = false }) {
     super();
     this.conn = conn;
     this.noVideo = noVideo; // the host's preview on another device: a poster instead of the music video
     this.engine = new AudioEngine();
-    this.cdg = new CdgRenderer(canvas);
+    this.lyrics = new LyricsRenderer(lyrics, lyricsColours());
+    this.clock = new FrameClock(); // the lyrics' time: even steps, never back (js/lib/frame-clock.js)
     this.video = video;
     this.audio = audio;
     this.display = 'main';
@@ -79,7 +83,8 @@ export class TvController extends EventTarget {
     this.readySent = null;
     this.mirror = null;
     this.engine.unload();
-    this.cdg.unload();
+    this.lyrics.unload();
+    this.clock.reset();
     this.video.pause();
     this.video.hidden = true;
     this.changed();
@@ -89,6 +94,7 @@ export class TvController extends EventTarget {
     if (kind === this.display) return;
     this.display = kind;
     this.entryId = null; // reload in the new role
+    this.clock.reset();
     if (this.state) this.apply(this.state);
   }
 
@@ -96,7 +102,11 @@ export class TvController extends EventTarget {
     this.state = state;
     const p = state.player;
     const cur = state.current;
-    this.cdg.setOptions({ smoothing: state.display.cdgSmoothing !== false, transparent: state.display.cdgTransparent !== false });
+    // The look and the skin's plate and outline colours (re-read: a skin switch came just before).
+    this.lyrics.setOptions({
+      look: normalizeLyricsLook(state.display.lyricsLook), motion: state.display.lyricsMotion, smoothing: state.display.cdgSmoothing !== false,
+      ...lyricsColours(),
+    });
     this.engine.normalize = state.playback.normalize !== false;
     // A game playing its own clips between songs (music quiz) sets key/tempo/channels itself.
     const fx = (!cur && this.gameAudio) || p;
@@ -146,7 +156,8 @@ export class TvController extends EventTarget {
     this.seekSeq = p.seek?.seq ?? null;
     this.mirror = null;
     this.engine.unload();
-    this.cdg.unload();
+    this.lyrics.unload();
+    this.clock.reset();
     this.video.hidden = true;
     this.kind = cur?.media?.kind || null;
     this.changed();
@@ -172,12 +183,13 @@ export class TvController extends EventTarget {
           this.fetchCdg(media.cdg),
         ]);
         if (this.entryId !== entryId) return;
-        this.cdg.load(bytes);
+        this.lyrics.load(bytes);
       } else {
         const bytes = await this.fetchCdg(media.cdg);
         if (this.entryId !== entryId) return;
-        this.cdg.load(bytes);
+        this.lyrics.load(bytes);
       }
+      this.clock.reset();
       if (this.entryId !== entryId) return;
       const start = this.state.player.pos || 0; // resume after a display reconnect
       if (start > 0.5 && this.display === 'main') this.engine.seek(start);
@@ -245,11 +257,13 @@ export class TvController extends EventTarget {
     return clipEnd ? Math.min(dur || clipEnd, clipEnd) : dur;
   }
 
-  /** Draws the lyrics for the current time (call every animation frame). */
-  frame() {
-    if (!this.cdg.loaded) return;
+  /** Draws the lyrics for the current time (call every animation frame with its timestamp). */
+  frame(ts) {
+    if (!this.lyrics.loaded) return;
+    const playing = this.display === 'main' ? this.engine.playing : !!this.mirror?.playing;
+    const t = this.clock.tick(ts, this.position(), this.state?.player.tempo || 1, playing);
     const offset = (this.state?.playback.lyricOffsetMs || 0) / 1000;
-    this.cdg.render(this.position() + offset);
+    this.lyrics.render(t + offset);
   }
 
   report() {

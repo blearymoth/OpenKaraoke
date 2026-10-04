@@ -84,13 +84,18 @@ Shared (`shared/`, imported by server and browser): `text.js`, `cdg.js` (CD+G de
 Scale2x, RGBA), `protocol.js` (constants: channel modes, key/tempo ranges, reactions,
 avatars, denial messages), `themes.js` (the skins' ids/names, validation of `settings.appearance`),
 `vocals.js` (lead vocal on multiplex tracks: the channel matrix, what a track allows, the channel
-analysis — PLAN §21).
+analysis — PLAN §21), `lyrics.js` (readable lyrics: the looks' settings, colour keying, colour
+roles, the readable palette, the scroll timeline — PLAN §9.5), `graphics.js` (which WebGL
+renderers draw in software).
 
 Browser (`public/`, plain ES modules, Preact + htm)
 - `tv.html` + `js/tv/` — `controller.js` (follows server state, owns the media clock, reports
-  `tv.ready/status/ended/error/audio`), `main.js` (lobby, intro, lyrics overlays, shortcuts).
+  `tv.ready/status/ended/error/audio`), `main.js` (lobby, intro, lyrics overlays, shortcuts),
+  `lighter.js` (lighter effects by themselves: software drawing, slow frames).
 - `js/lib/audio-engine.js` — Signalsmith buffer mode (key/tempo) + element mode; channel
-  matrix, loudness, fades. `js/lib/cdg-canvas.js` — CDG renderer.
+  matrix, loudness, fades. `js/lib/lyrics-renderer.js` — the TV's lyrics (decoder memory on a
+  canvas moved by a transform, dirty rectangles, looks); `js/lib/frame-clock.js` — the lyrics'
+  even, never-backward clock; `js/lib/cdg-canvas.js` — the quiz's CDG renderer.
 - `host.html` + `js/host/` — `main.js` (shell, routes, PIN screen, shortcuts), `state.js`,
   `player.js` (slim bar, phones' mini player), `panel.js` (the admin panel: Queue / Playback /
   Devices tabs; the phones' Control page), `queue.js`, `playback.js` (now playing + version vote,
@@ -114,8 +119,10 @@ Desktop app (`desktop/`, Electron; see docs/HANDOFF.md "Desktop app")
   `electron-builder.config.cjs` (installers), `test/app.mjs` (end to end).
 - `.github/workflows/desktop.yml` releases `v<major.minor>.<run>` for every app change on main.
 
-Tests (`test/`): node:test suites + helpers; `test/e2e/` Playwright scripts. Dev tooling:
-`scripts/lib/cdg-writer.js` (+ `cdg-font.js`) writes synthetic CDGs for tests and the demo.
+Tests (`test/`): node:test suites + helpers; `test/e2e/` Playwright scripts (`lyrics.mjs`: the
+TV's readable lyrics). Dev tooling: `scripts/lib/cdg-writer.js` (+ `cdg-font.js`) writes
+synthetic CDGs for tests and the demo; `scripts/lyrics-check.js` (+ `lib/png.js`) checks the
+readable lyrics on a real library (PNG contact sheets).
 
 Planned modules and their responsibilities are specified in `docs/PLAN.md` §4.
 

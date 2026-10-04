@@ -15,7 +15,12 @@
   <div id="bg"></div>
   <div id="stage">
     <video id="video" playsinline hidden></video>
-    <canvas id="cdg" width="576" height="384" aria-label="Lyrics"></canvas>
+    <div id="lyrics" data-look="panel">
+      <div class="lyr-plate"></div>
+      <div class="lyr-window">
+        <canvas id="cdg" width="600" height="432" aria-label="Lyrics"></canvas>
+      </div>
+    </div>
   </div>
   <audio id="audio" preload="auto" hidden></audio>
   <div id="app"></div>

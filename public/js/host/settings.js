@@ -7,6 +7,7 @@ import { store, act, openDialog, toast, chooseFolder, saveSetting } from './stat
 import { CHANNEL_MODES, CHANNEL_LABELS } from '/shared/protocol.js';
 import { THEMES, THEME_IDS, DEFAULT_THEME, accentInk } from '/shared/themes.js';
 import { UpdatesBlock } from './updates.js';
+import { SystemBlock } from './system.js';
 import { HotspotBlock } from './hotspot.js';
 import { GraphicsBlock } from './graphics.js';
 import { DisplayRow, PairingRow } from './devices.js';
@@ -368,6 +369,7 @@ function About({ state }) {
   return html`<div class="about">
     <p><b>OpenKaraoke ${state.info.version}</b> — your own karaoke party server. ${plural(state.library.songs, 'song')} from ${plural(state.library.tracks, 'track')}.</p>
     <p class="hint">Addresses of this computer: ${state.info.lanUrls.join(', ') || 'none found'}.</p>
+    <${SystemBlock} />
     <${UpdatesBlock} />
     <${GraphicsBlock} />
     <h3 class="section-title">Keyboard shortcuts</h3>

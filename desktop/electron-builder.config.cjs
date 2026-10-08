@@ -1,7 +1,10 @@
 // Linux installers for the desktop app: `npm --prefix desktop run dist` → desktop/dist/
-//   OpenKaraoke-<version>.AppImage   download, make it executable, run (no installation)
-//   openkaraoke-<version>.x86_64.rpm  Fedora / openSUSE (sudo dnf install ./…rpm)
-//   openkaraoke_<version>_amd64.deb   Ubuntu / Debian / Mint (sudo apt install ./…deb)
+//   OpenKaraoke-Setup.zip             THE download, for any Linux: unpack it, double-click
+//                                     "Install OpenKaraoke" (the AppImage below) — a setup window
+//                                     installs it for this person (desktop/setup.mjs)
+//   OpenKaraoke-<version>.AppImage   the same program on its own (the updater downloads it)
+//   openkaraoke-<version>.x86_64.rpm  Fedora / openSUSE, for everyone (dnf install ./…rpm)
+//   openkaraoke_<version>_amd64.deb   Ubuntu / Debian / Mint, for everyone (apt install ./…deb)
 // The app is the repository itself (server/, public/, shared/ and desktop/), unpacked (no asar):
 // the server reads its pages and media from ordinary files, exactly as with `node server/index.js`.
 // OPENKARAOKE_VERSION overrides package.json's version (the release workflow numbers every build).
@@ -44,7 +47,10 @@ module.exports = {
     'desktop/main.mjs',
     'desktop/displays.mjs',
     'desktop/graphics.mjs',
+    'desktop/install.mjs',
     'desktop/preload.cjs',
+    'desktop/setup.mjs',
+    'desktop/setup/**/*',
     'desktop/update-logic.mjs',
     'desktop/updater.mjs',
     'desktop/build/icons/512x512.png',
@@ -73,8 +79,16 @@ module.exports = {
       },
     },
   },
+  // The static AppImage runtime: no libfuse2 needed (Ubuntu 22.04 and later don't have it), and
+  // its AppRun adds --no-sandbox by itself where user namespaces are off (Ubuntu 24.04's AppArmor).
+  toolsets: { appimage: '1.0.3' },
   appImage: { artifactName: 'OpenKaraoke-${version}.${ext}' },
   rpm: { artifactName: 'openkaraoke-${version}.${arch}.${ext}', packageName: 'openkaraoke' },
   deb: { artifactName: 'openkaraoke_${version}_${arch}.${ext}', packageName: 'openkaraoke' },
   publish: null,
+  // OpenKaraoke-Setup.zip from the AppImage (desktop/pack-setup.cjs).
+  afterAllArtifactBuild: (result) => {
+    const appImage = result.artifactPaths.find((p) => p.endsWith('.AppImage'));
+    return appImage ? [require('./pack-setup.cjs').makeSetupZip(appImage)] : [];
+  },
 };

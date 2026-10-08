@@ -1,17 +1,18 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-04 (readable lyrics, after the third build session and the desktop app,
-run in a cloud sandbox without the owner's PC or drive)._
+_Last updated: 2026-10-08 (the one-download installer, after readable lyrics; run in a cloud
+sandbox without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), seven party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 465/465; `npm run e2e` → 15 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 484/484; `npm run e2e` → 15 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `admin.mjs` and
-  `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics); `npm --prefix desktop test` → 46/46 (the
-  desktop app, also against the built installer). Every milestone also went through an independent review
+  `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics); `npm --prefix desktop test` → 46/46 + 28/28 (the
+  desktop app, also against the built installer, and the setup window; the release workflow also
+  runs the setup test against the real AppImage from `OpenKaraoke-Setup.zip`). Every milestone also went through an independent review
   whose confirmed findings were fixed and re-verified (table below).
 - **Skins** (after session 3): Settings → Appearance switches every screen between **Studio**
   (the new default, midnight navy and teal) and **Party** (the original neon look) — see
@@ -46,14 +47,24 @@ run in a cloud sandbox without the owner's PC or drive)._
   effects come on by themselves where the TV draws without a graphics card. Settings → TV
   display: **Lyrics**, **Scrolling lyrics**, **Lighter effects on the TV**. See "Readable
   lyrics" below; check a real library with `node scripts/lyrics-check.js` (checklist item 17).
+- **One-download installer** (2026-10-08, version 0.2): the primary way to install is now **one
+  file for any 64-bit Linux PC**, `OpenKaraoke-Setup.zip` (README links to
+  `releases/latest/download/OpenKaraoke-Setup.zip`). Unzip it with a double-click, double-click
+  **Install OpenKaraoke**: a setup window installs the app for this person (no password, no
+  terminal, no npm/Node — Electron brings its own), with a menu entry, a desktop shortcut and an
+  Uninstall on right-click. Uninstall, start at login and **server mode** (the party keeps running
+  when the window is closed) are in Settings → About. Running from the source code is now the
+  "advanced" way. See "One-download installer" below; checklist item 18 is the test on a fresh PC
+  (the owner's uncle had tried `npm --prefix desktop install` in his home folder — the
+  mongoose/mongodb warnings in his screenshot came from another project there, not OpenKaraoke).
 - **Nothing in session 3 could touch real hardware or the internet**: the artwork providers were
   unreachable from the sandbox (parsers are tested against fixtures built from the documented
   response shapes), and sound, microphone, TV legibility and phones need the PC. Work through
   the **owner checklist** below before the next party.
-- Start as before: `bin/openkaraoke.sh --library "/run/media/<user>/<drive>/<collection folder>"`,
-  open `http://localhost:6527/host`, then **Open TV display** (or `bin/open-tv.sh`) — or
-  install the desktop app (below).
-  To start it automatically at login: `bin/install-service.sh --library "…"`.
+- Install: the one download (README, "Install"). From the source code (advanced):
+  `bin/openkaraoke.sh --library "/run/media/<user>/<drive>/<collection folder>"`, open
+  `http://localhost:6527/host`, then **Open TV display** (or `bin/open-tv.sh`); at login:
+  `bin/install-service.sh --library "…"` (the installed app: Settings → About instead).
 
 ## What was built in session 3
 
@@ -221,6 +232,16 @@ run in a cloud sandbox without the owner's PC or drive)._
     `data-lite-reason` on the page).
     Note the discs that look wrong (artist, title, brand) and what you saw; "As the disc made
     them" is the fallback for a party.
+18. **The installer on a fresh PC** (best: the uncle's Ubuntu 24.04, as a normal user): open the
+    README's **Download OpenKaraoke for Linux** link in Firefox → in Files, Downloads,
+    double-click `OpenKaraoke-Setup.zip` (an "Install OpenKaraoke" file appears) → double-click
+    it → the setup window → **Install** → **Start OpenKaraoke** → choose the karaoke folder →
+    Open TV display. Then check: OpenKaraoke in the applications menu (and the dock icon on its
+    windows), the desktop icon starts it without "Allow launching", right-click → **Uninstall
+    OpenKaraoke** asks and removes it. Also double-click the zip from Firefox's download list: if
+    an archive manager opens instead of Files unpacking it, note it (README "If something doesn't
+    work" says to use Extract). If double-clicking "Install OpenKaraoke" does nothing, run it in
+    a terminal (`~/Downloads/"Install OpenKaraoke"`) and note what it prints (FUSE).
 
 ## How it fits together (new in session 3)
 - `server/app.js` wires `ArtworkService` (`server/artwork/service.js`) next to the library;
@@ -401,10 +422,11 @@ dependencies and still runs with `node server/index.js`).
   takes the next free one and saves it; `--port`/`$PORT` stay fixed (exit 78 if busy). One
   server per data folder: `data/server.json` (pid, boot id, port; stale ones are taken over) —
   `bin/open-tv.sh` reads the port from it.
-- **Installers**: `npm --prefix desktop run dist` → `desktop/dist/` AppImage, .rpm, .deb
-  (`desktop/electron-builder.config.cjs`; the app is unpacked, no asar). The .deb/.rpm install
-  to `/opt/OpenKaraoke` with a menu entry; the .deb adds an AppArmor profile (Ubuntu 24.04
-  needs one for Electron's sandbox; the AppImage there needs `--no-sandbox`).
+- **Installers**: `npm --prefix desktop run dist` → `desktop/dist/` `OpenKaraoke-Setup.zip`
+  (the one download, see "One-download installer"), the AppImage (static runtime: no libfuse2),
+  .rpm, .deb (`desktop/electron-builder.config.cjs`; the app is unpacked, no asar). The .deb/.rpm
+  install to `/opt/OpenKaraoke` with a menu entry; the .deb adds an AppArmor profile (Ubuntu 24.04
+  needs one for Electron's sandbox; the AppImage's AppRun runs without the sandbox there).
 - **Updates** (`desktop/updater.mjs`, `desktop/update-logic.mjs`, `public/js/host/updates.js`):
   checks GitHub's latest release 30 s after the start and every 6 h (switch in Settings →
   About) and when asked; a newer version shows a pill in the top bar. **Download and install**:
@@ -751,6 +773,69 @@ title card being painted over); an even half frame rate (every frame two refresh
 turn lighter effects on (it looks the same as a 30 Hz TV mode); the "Reconnecting…" pill can reach ≈3 px into the box at 16:9; in Party the mirror badge still
 overlaps the end of the ticker message on narrow screens (as before).
 
+## One-download installer (after readable lyrics)
+**Why**: the owner's uncle (Ubuntu 24.04, not technical) couldn't set the app up — he went the
+developer way (`npm --prefix desktop install` in his home folder; the warnings were another
+project's). The owner asked for one "Windows-style" installer with everything inside, run from a
+GUI, the server mode becoming the secondary way.
+
+**What** (version 0.2; `desktop/install.mjs`, `desktop/setup.mjs` + `desktop/setup/`,
+`desktop/pack-setup.cjs`, `public/js/host/system.js`):
+- **One download for any Linux**: `OpenKaraoke-Setup.zip` (no version in the name, so
+  `releases/latest/download/OpenKaraoke-Setup.zip` always works) holds the AppImage as
+  **Install OpenKaraoke**, mode 0755 — a browser saves downloads without the permission to run
+  them; a zip keeps it (written "made by Unix": unzip and libarchive, which GNOME Files uses,
+  both keep rwxr-xr-x — checked). Made by electron-builder's `afterAllArtifactBuild` hook,
+  stored (the AppImage is compressed already).
+- **The AppImage needs nothing installed**: electron-builder's static runtime
+  (`toolsets.appimage: '1.0.3'`) instead of the old one that needed libfuse2 (gone since Ubuntu
+  22.04 — the main reason AppImages fail there); its AppRun probes `unshare -Ur true` and adds
+  `--no-sandbox` only where user namespaces are blocked (Ubuntu 24.04's AppArmor), so the README's
+  old "Ubuntu 24.04 needs --no-sandbox" step is gone. Checked here: the built AppImage mounts
+  with `fusermount3` as a normal user and runs sandboxed; without any FUSE it prints "Cannot
+  mount AppImage" (no fallback) — every desktop distro has fuse3.
+- **The setup window** (`desktop/setup.mjs`): an AppImage that isn't the installed copy starts
+  the setup instead of the app (`startMode`): Install (options: desktop shortcut — on, start at
+  login — off), Update (an older copy installed), "OpenKaraoke is installed" (Start / Install
+  again (repair) / Uninstall…), a note when the .deb/.rpm is installed, "Run it without
+  installing" (remembered per file in `~/.config/OpenKaraoke/setup.json`: that file then starts
+  as the app). It uses a throwaway browser profile and starts no server (the app may be open at
+  the same time), and serves its page itself through `okapp://app` (desktop/setup/ + public/ +
+  shared/: the app's own styles, fonts, Preact). "Start OpenKaraoke" starts the installed copy
+  detached, without this AppImage's variables (`launchEnv`).
+- **Installed for one person, like "Install for me only"** (no password): the AppImage in
+  `~/.local/share/OpenKaraoke/OpenKaraoke.AppImage`, its icon and `install.json` there, the menu
+  entry `~/.local/share/applications/openkaraoke.desktop` (the window's app id, so the dock shows
+  the icon; right-click action "Uninstall OpenKaraoke" = `--uninstall`), a desktop shortcut
+  (executable + `gio set … metadata::trusted true`, so GNOME's and KDE's desktops start it
+  without asking), `~/.config/autostart/openkaraoke.desktop` when chosen. Every entry carries
+  `X-OpenKaraoke-Install=user`: only those are ever updated or removed. The in-app updater
+  already replaces the running AppImage in place, so the installed copy updates itself; at each
+  start it puts back a missing menu entry or icon and notes its version (`refresh`).
+- **Uninstall from the GUI**: right-click the menu entry (with the app closed it asks in a
+  system dialog; with it open, the open app asks), Settings → About → Uninstall…, or the setup
+  window. "Also delete my settings, song index and pictures" removes `~/.config/OpenKaraoke`
+  after the app has ended (a detached `sh` waits for its pid: its own browser profile is in
+  there), never anything that could be more than that (`safeDataDir`). A .deb/.rpm copy is
+  removed with `pkexec apt-get/dnf/zypper/rpm` (`removeCommand`).
+- **Settings → About → On this computer** (desktop app only): how this copy is installed (for
+  you / straight from its file / .deb / .rpm / source), **Install on this computer** for a copy
+  run straight from its file, **Uninstall…**, **Start OpenKaraoke when I log in**, and **Keep
+  the party running when this window is closed** — server mode from the GUI (`startup.json`):
+  closing the host window leaves the server, the TV window and the phones going (a notification
+  says so once); starting OpenKaraoke again brings the window back (`second-instance`).
+- Existing AppImage users: after updating to 0.2 the next start shows the setup once (their
+  AppImage isn't the installed copy) — Install, or "Run it without installing" (remembered).
+
+**Tests**: `test/install.test.js` (paths, desktop-entry quoting checked by parsing it back, start
+modes, install / repair / uninstall in a temp home — only our files, the settings guard, the
+zip's bytes and mode); `desktop/test/setup.mjs` (28 checks from the source: run without
+installing, install with start at login, Start, setup again → repair, the installed app's Settings
+→ About switches, server mode, Uninstall…, setup-window uninstall with the settings, the menu
+entry's `--uninstall`); with `SETUP_APPIMAGE=<the real AppImage>` 20 checks against the real
+file, the installed copy really starting (the release workflow runs it, unzipped from the zip,
+with `APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1`; also passed here with FUSE mounting).
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, optional
@@ -762,8 +847,13 @@ overlaps the end of the ticker message on narrow screens (as before).
 ## Known limitations / TODOs
 - Readable lyrics on a 4K screen at 100% scaling without a graphics card: ≈33 fps while the
   words glide (55 otherwise); "Smooth lyrics text" off glides at 54–60 (see "Readable lyrics").
-- Desktop app: Linux x64 only; no code signing; the AppImage on Ubuntu 24.04 needs
-  `--no-sandbox` (or use the .deb). Updates of a private fork need a token (above).
+- Desktop app: Linux x64 only (no arm64, no Windows or macOS); no code signing. Updates of a
+  private fork need a token (above).
+- The installer (an AppImage) needs FUSE (`fusermount3`/`fusermount`, on every desktop distro
+  since 2022): on a system without it double-clicking does nothing visible (the error goes to
+  the terminal); the .deb/.rpm work there. Where Ubuntu 24.04 restricts user namespaces the app
+  runs without Chromium's sandbox (the AppImage's AppRun adds `--no-sandbox` by itself; the
+  .deb keeps the sandbox through its AppArmor profile).
 - Catalog rebuild after a rescan with changes blocks the server ≈3–4 s at 90k tracks (the
   TV keeps playing; host/guest UIs pause). Could move to a worker thread.
 - Provider parsers are verified against documented shapes only — see checklist item 1.

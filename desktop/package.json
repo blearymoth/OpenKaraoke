@@ -9,7 +9,7 @@
   "scripts": {
     "postinstall": "install-electron",
     "start": "electron .",
-    "test": "node test/app.mjs",
+    "test": "node test/app.mjs && node test/setup.mjs",
     "dist": "electron-builder --linux --config electron-builder.config.cjs --publish never"
   },
   "devDependencies": {

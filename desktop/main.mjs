@@ -4,7 +4,11 @@
 // sound and the PC's microphone (applause meter) allowed straight away. Guests' phones still
 // join over the network with the QR code on the TV. Updates come from the repository's releases
 // (desktop/updater.mjs).
-import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, screen, session, shell } from 'electron';
+// The download (OpenKaraoke-Setup.zip → "Install OpenKaraoke") is this same app: started as an
+// AppImage that isn't the installed copy, it shows the setup window instead (desktop/setup.mjs,
+// desktop/install.mjs); started with --uninstall (the menu entry's Uninstall), it removes itself.
+import { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, screen, session, shell } from 'electron';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
@@ -16,6 +20,9 @@ import { logger, setLogSink } from '../server/util/log.js';
 import { THEMES, DEFAULT_THEME } from '../shared/themes.js';
 import { centredBounds, displayFor, nextDisplay, tvDisplay, visibleBounds } from './displays.mjs';
 import { chooseBackend, displaySettings, gpuInfoProblem, gpuVerdict, graphicsLine, useLighterEffects, BACKENDS, LIGHTER } from './graphics.mjs';
+import { install, installPaths, isInstalledCopy, portableFiles, readInstall, refresh, removeLaterCommand, setAutostart, startMode, startsAtLogin, uninstall } from './install.mjs';
+import { prepareSetup, runSetup } from './setup.mjs';
+import { installKind, removeCommand } from './update-logic.mjs';
 import { Updater } from './updater.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -36,7 +43,13 @@ const openExternal = process.env.OPENKARAOKE_TEST_EXTERNAL
   : (url) => shell.openExternal(url);
 
 app.setName('OpenKaraoke');
-app.setPath('userData', process.env.OPENKARAOKE_USER_DATA || path.join(app.getPath('appData'), 'OpenKaraoke'));
+const USER_DATA = process.env.OPENKARAOKE_USER_DATA || path.join(app.getPath('appData'), 'OpenKaraoke');
+// Where "Install OpenKaraoke" puts the app for this person (desktop/install.mjs), and what this
+// start is for: the setup window, the menu entry's Uninstall, or the app.
+const PATHS = installPaths({ desktopDir: app.getPath('desktop') });
+const MODE = startMode({ argv: process.argv, env: process.env, paths: PATHS, portable: portableFiles(USER_DATA) });
+if (MODE === 'setup') prepareSetup(); // a profile of its own: the app may be open at the same time
+else app.setPath('userData', USER_DATA);
 
 /**
  * The display system (desktop/graphics.mjs): on a Wayland desktop (Ubuntu, Fedora/GNOME) the app
@@ -44,7 +57,7 @@ app.setPath('userData', process.env.OPENKARAOKE_USER_DATA || path.join(app.getPa
  * draws slowly on some PCs, is a choice in Settings → About (userData/display.json), started
  * through a restart with --ozone-platform=x11.
  */
-const DISPLAY_FILE = path.join(app.getPath('userData'), 'display.json');
+const DISPLAY_FILE = path.join(USER_DATA, 'display.json');
 function readDisplaySettings() {
   try {
     return displaySettings(JSON.parse(fs.readFileSync(DISPLAY_FILE, 'utf8')));
@@ -55,11 +68,15 @@ function readDisplaySettings() {
 const BACKEND = chooseBackend({ platform: process.platform, env: process.env, argv: process.argv, saved: readDisplaySettings() });
 const WAYLAND = BACKEND.kind === 'wayland'; // the TV window can't be placed by the app
 
-if (BACKEND.relaunchX11) {
+if (MODE === 'setup') {
+  runSetup({ paths: PATHS, userData: USER_DATA, version: VERSION, icon: ICON, log: logger('setup') });
+} else if (BACKEND.relaunchX11 && MODE === 'app') {
   app.relaunch({ execPath: process.env.APPIMAGE || process.execPath, args: [...process.argv.slice(1), '--ozone-platform=x11'] });
   app.exit(0);
 } else if (!app.requestSingleInstanceLock()) {
-  app.quit(); // already running: that one comes to the front (second-instance below)
+  // Already running: that one comes to the front (second-instance below) — or, for the menu
+  // entry's Uninstall, asks and removes itself.
+  app.quit();
 } else {
   run();
 }
@@ -78,6 +95,8 @@ function run() {
   let logFile = '';
   const dataDir = path.join(app.getPath('userData'), 'data');
   const stateFile = path.join(app.getPath('userData'), 'window-state.json');
+  // Server mode: { background } — closing the window leaves the party running (Settings → About).
+  const startupFile = path.join(app.getPath('userData'), 'startup.json');
 
   // ---- small helpers ------------------------------------------------------------------------
   const ours = (url) => {
@@ -387,7 +406,8 @@ function run() {
     };
     for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) hostWin.on(ev, remember);
     hostWin.on('close', (e) => {
-      if (quitting || !server?.app.room?.s.current) return;
+      // (In server mode closing the window doesn't stop anything.)
+      if (quitting || inBackground() || !server?.app.room?.s.current) return;
       const choice = dialog.showMessageBoxSync(hostWin, {
         type: 'question',
         buttons: ['Quit', 'Keep singing'],
@@ -401,10 +421,172 @@ function run() {
     });
     hostWin.on('closed', () => {
       hostWin = null;
+      if (!quitting && inBackground()) {
+        tellBackground(); // server mode: the TV window, the phones and the party carry on
+        return;
+      }
       closeOtherWindows(); // the TV (and a songbook or table card) at once: saving the party can take seconds
       app.quit();
     });
     hostWin.loadURL(`${base}/host`);
+  }
+
+  /** The host window again (started again from the menu, the menu entry's Uninstall, server mode). */
+  function showHost() {
+    if (!base) return;
+    if (!hostWin) {
+      createHostWindow();
+      return;
+    }
+    if (hostWin.isMinimized()) hostWin.restore();
+    hostWin.show();
+    hostWin.focus();
+  }
+
+  // ---- this computer: installed how, start at login, server mode, uninstall -------------------
+  /** Whether closing the window leaves the party running (server mode). */
+  function inBackground() {
+    try {
+      return JSON.parse(fs.readFileSync(startupFile, 'utf8'))?.background === true;
+    } catch {
+      return false;
+    }
+  }
+  let toldBackground = false;
+  function tellBackground() {
+    if (toldBackground) return;
+    toldBackground = true;
+    const note = { title: 'OpenKaraoke keeps running', body: 'The party goes on for the TV and the guests’ phones. Open OpenKaraoke from your applications menu to see the window again, or to quit.' };
+    if (process.env.OPENKARAOKE_TEST_EXTERNAL) (globalThis.okNotified ||= []).push(note.title);
+    else if (Notification.isSupported()) new Notification({ ...note, icon: ICON }).show();
+  }
+
+  /**
+   * How this copy is installed: 'user' (by "Install OpenKaraoke", for this person), 'portable'
+   * (an AppImage run from where it is), 'deb' / 'rpm' (for everyone), 'source', 'unknown'.
+   */
+  let how = '';
+  function installedHow() {
+    if (how) return how;
+    if (process.env.APPIMAGE) how = isInstalledCopy(process.env.APPIMAGE, PATHS) ? 'user' : 'portable';
+    else how = installKind({ env: process.env, packaged: app.isPackaged, execPath: process.execPath, run: (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8', timeout: 5000 }) });
+    return how;
+  }
+  /** What starts this copy (the start at login), or null (the source code). */
+  function launchCommand() {
+    const kind = installedHow();
+    if (kind === 'user') return [PATHS.appImage];
+    if (kind === 'portable') return [process.env.APPIMAGE];
+    return app.isPackaged ? [process.execPath] : null;
+  }
+  const tilde = (p) => (p.startsWith(`${os.homedir()}/`) ? `~/${p.slice(os.homedir().length + 1)}` : p);
+  async function systemState() {
+    const kind = installedHow();
+    return {
+      how: kind,
+      version: VERSION,
+      where: kind === 'user' ? tilde(PATHS.dir) : kind === 'portable' ? tilde(process.env.APPIMAGE) : kind === 'deb' || kind === 'rpm' ? path.dirname(process.execPath) : '',
+      installedCopy: !!(await readInstall(PATHS)),
+      atLogin: startsAtLogin(PATHS),
+      canAtLogin: !!launchCommand(),
+      background: inBackground(),
+      canInstall: kind === 'portable',
+      canUninstall: ['user', 'deb', 'rpm'].includes(kind),
+    };
+  }
+  const has = (cmd) => spawnSync('sh', ['-c', `command -v ${cmd}`], { stdio: 'ignore' }).status === 0;
+  const quiet = (cmd, args) => new Promise((resolve) => {
+    const child = spawn(cmd, args, { stdio: 'ignore' });
+    const timer = setTimeout(() => child.kill(), 10_000);
+    child.on('error', () => { clearTimeout(timer); resolve(false); });
+    child.on('close', (code) => { clearTimeout(timer); resolve(code === 0); });
+  });
+
+  /**
+   * A question or a message in the system's own dialog. Test hook: OPENKARAOKE_TEST_ANSWER (JSON,
+   * e.g. {"response":0,"checkboxChecked":true}) answers every one (a virtual X server can't click
+   * a GTK dialog); each is noted in globalThis.okAsked.
+   */
+  function ask(parent, options) {
+    if (process.env.OPENKARAOKE_TEST_ANSWER) {
+      (globalThis.okAsked ||= []).push(options.message);
+      return Promise.resolve(JSON.parse(process.env.OPENKARAOKE_TEST_ANSWER));
+    }
+    return parent && !parent.isDestroyed() ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options);
+  }
+
+  /**
+   * Removes OpenKaraoke from this computer: this person's copy (desktop/install.mjs), or the .deb /
+   * .rpm with the system's password prompt; with removeData also the settings, song index and
+   * pictures (once the app has ended: its own browser profile is in the same folder). Then it
+   * says so and quits. Resolves to { ok } or { ok: false, error }.
+   */
+  async function doUninstall({ removeData = false } = {}) {
+    const kind = installedHow();
+    try {
+      if (kind === 'user') {
+        await uninstall({ paths: PATHS, removeData: false, run: quiet });
+      } else if (kind === 'deb' || kind === 'rpm') {
+        const cmd = removeCommand(kind, has);
+        if (!cmd) return { ok: false, error: 'This computer has no password prompt for removing programs: remove “openkaraoke” in your software centre.' };
+        const code = await new Promise((resolve) => {
+          const child = spawn(cmd[0], cmd.slice(1), { stdio: 'ignore' });
+          child.on('error', () => resolve(-1));
+          child.on('close', resolve);
+        });
+        // pkexec: 126 = the password prompt was dismissed, 127 = not authorised.
+        if (code === 126 || code === 127) return { ok: false, error: 'Uninstalling was cancelled.' };
+        if (code !== 0) return { ok: false, error: `Removing the package failed (${cmd.slice(1, 3).join(' ')}: exit ${code}).` };
+        await setAutostart({ paths: PATHS, on: false });
+      } else {
+        return { ok: false, error: kind === 'portable' ? 'This copy isn’t installed: it runs straight from its file — just delete that file.' : 'This copy runs from the source code: there is nothing to uninstall.' };
+      }
+    } catch (e) {
+      log.error('uninstall failed', e);
+      return { ok: false, error: e.message };
+    }
+    log.info(`uninstalled (${kind})${removeData ? ', the settings go when the app has quit' : ''}`);
+    if (removeData) {
+      const cmd = removeLaterCommand(app.getPath('userData'), process.pid);
+      if (cmd) spawn(cmd[0], cmd.slice(1), { detached: true, stdio: 'ignore' }).unref();
+    }
+    quitting = true;
+    closeOtherWindows();
+    hostWin?.hide();
+    await ask(null, { type: 'info', title: 'OpenKaraoke', message: 'OpenKaraoke has been removed', detail: removeData ? 'It is no longer on this computer, nor are its settings. Your songs are where they were.' : 'It is no longer on this computer. Your songs, settings and song index are kept, should you install it again.', buttons: ['OK'] });
+    app.quit();
+    return { ok: true };
+  }
+
+  /** The menu entry's "Uninstall OpenKaraoke": asks in the system's dialog, then removes it. */
+  async function askUninstall(parent) {
+    const kind = installedHow();
+    if (!['user', 'deb', 'rpm'].includes(kind)) {
+      await ask(parent, { type: 'info', title: 'OpenKaraoke', message: 'Nothing to uninstall', detail: kind === 'portable' ? 'This copy isn’t installed: it runs straight from its file — just delete that file.' : 'This copy runs from the source code.', buttons: ['OK'] });
+      return false;
+    }
+    const r = await ask(parent, {
+      type: 'question',
+      title: 'Uninstall OpenKaraoke',
+      message: 'Uninstall OpenKaraoke?',
+      detail: kind === 'user'
+        ? 'OpenKaraoke, its menu entry and its desktop shortcut are removed from this computer. Your songs are not touched.'
+        : 'OpenKaraoke is removed from this computer for everyone: your computer asks for your password. Your songs are not touched.',
+      checkboxLabel: 'Also delete my settings, song index and pictures',
+      buttons: ['Uninstall', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (r.response !== 0) return false;
+    const done = await doUninstall({ removeData: !!r.checkboxChecked });
+    if (!done.ok) await ask(parent, { type: 'error', title: 'OpenKaraoke', message: 'OpenKaraoke could not be removed', detail: done.error, buttons: ['OK'] });
+    return done.ok;
+  }
+
+  /** The installed copy keeps its menu entry, icon and version note in order (after an update too). */
+  async function integrate() {
+    if (installedHow() !== 'user') return;
+    if (await refresh({ paths: PATHS, version: VERSION, iconFrom: ICON, run: quiet })) log.info('menu entry and install note brought up to date');
   }
 
   // ---- the TV window ------------------------------------------------------------------------
@@ -720,6 +902,34 @@ function run() {
         return { ok: false, error: e.message };
       }
     });
+    ipcMain.handle('okd:system', async (event, what, value) => {
+      if (!fromUs(event)) throw new Error('Not allowed');
+      try {
+        if (what === 'get') return { ok: true, state: await systemState() };
+        if (what === 'set') {
+          if (typeof value?.background === 'boolean') await fsp.writeFile(startupFile, JSON.stringify({ background: value.background }));
+          if (typeof value?.atLogin === 'boolean') {
+            const command = launchCommand();
+            if (!command) throw new Error('This copy runs from the source code: it can’t start by itself.');
+            await setAutostart({ paths: PATHS, on: value.atLogin, command, icon: installedHow() === 'user' ? PATHS.icon : ICON });
+          }
+          return { ok: true, state: await systemState() };
+        }
+        if (what === 'install') {
+          if (installedHow() !== 'portable') throw new Error('This copy is installed already.');
+          await install({ from: process.env.APPIMAGE, paths: PATHS, iconFrom: ICON, version: VERSION, shortcut: value?.shortcut !== false, atLogin: startsAtLogin(PATHS), run: quiet });
+          log.info(`installed ${VERSION} in ${PATHS.dir} (from Settings → About)`);
+          return { ok: true, state: await systemState() };
+        }
+        if (what === 'uninstall') {
+          const r = await doUninstall({ removeData: value?.removeData === true });
+          return r.ok ? { ok: true } : { ok: false, error: r.error };
+        }
+        return { ok: false, error: 'Unknown request' };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    });
     ipcMain.handle('okd:update', async (event, what, value) => {
       if (!fromUs(event)) throw new Error('Not allowed');
       if (!updater) return { ok: false, error: 'Updates aren’t ready yet.' };
@@ -738,11 +948,10 @@ function run() {
   }
 
   // ---- start and stop -----------------------------------------------------------------------
-  app.on('second-instance', () => {
-    if (!hostWin) return;
-    if (hostWin.isMinimized()) hostWin.restore();
-    hostWin.show();
-    hostWin.focus();
+  app.on('second-instance', (_event, argv) => {
+    if (MODE === 'uninstall') return; // this one is asking already
+    showHost(); // (in server mode the window may be gone: it comes back)
+    if (argv.includes('--uninstall')) askUninstall(hostWin); // the menu entry's Uninstall, while the app is open
   });
 
   app.on('before-quit', (e) => {
@@ -764,11 +973,19 @@ function run() {
         app.quit();
       });
   });
-  app.on('window-all-closed', () => app.quit());
+  app.on('window-all-closed', () => {
+    if (!quitting && inBackground()) return; // server mode: the party goes on without windows
+    app.quit();
+  });
   // Logging out or shutting down (SIGTERM), Ctrl+C in a terminal, the terminal closing: like Quit.
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, () => app.quit());
 
   app.whenReady().then(async () => {
+    if (MODE === 'uninstall') { // the menu entry's Uninstall, with the app closed: ask, remove, done
+      await askUninstall(null);
+      app.quit();
+      return;
+    }
     fs.mkdirSync(dataDir, { recursive: true });
     openLog();
     log.info(`OpenKaraoke ${VERSION} (desktop), data in ${dataDir}`);
@@ -790,7 +1007,8 @@ function run() {
     createHostWindow();
     watchDisplays();
     startUpdater();
-    log.info(`display system: ${BACKEND.kind} (${BACKEND.why})`);
+    integrate().catch((e) => log.warn('could not check the menu entry', e.message || e));
+    log.info(`display system: ${BACKEND.kind} (${BACKEND.why}); installed: ${installedHow()}`);
     // The graphics status comes with the GPU process's first report; without one, read it anyway.
     setTimeout(() => {
       if (gfx.ready) return;

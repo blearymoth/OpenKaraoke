@@ -101,6 +101,24 @@ export function installCommand(kind, file, has) {
   return null;
 }
 
+/**
+ * The command that removes the installed .deb or .rpm with the system's password prompt
+ * (Settings → About → Uninstall), or null when there is no way (then the software centre does it).
+ */
+export function removeCommand(kind, has) {
+  if (!has('pkexec')) return null;
+  if (kind === 'deb') {
+    if (has('apt-get')) return ['pkexec', 'apt-get', 'remove', '-y', 'openkaraoke'];
+    if (has('dpkg')) return ['pkexec', 'dpkg', '--remove', 'openkaraoke'];
+  }
+  if (kind === 'rpm') {
+    if (has('dnf')) return ['pkexec', 'dnf', 'remove', '-y', 'openkaraoke'];
+    if (has('zypper')) return ['pkexec', 'zypper', '--non-interactive', 'remove', 'openkaraoke'];
+    if (has('rpm')) return ['pkexec', 'rpm', '-e', 'openkaraoke'];
+  }
+  return null;
+}
+
 /** A release from the GitHub API as the app shows it. */
 export function releaseInfo(release) {
   if (!release || typeof release !== 'object') return null;

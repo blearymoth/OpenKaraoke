@@ -7,6 +7,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const update = (what, value) => ipcRenderer.invoke('okd:update', what, value);
 const graphics = (what, value) => ipcRenderer.invoke('okd:graphics', what, value);
 const tv = (what, value) => ipcRenderer.invoke('okd:tv', what, value);
+const system = (what, value) => ipcRenderer.invoke('okd:system', what, value);
 
 // The menu's "Check for updates…" shows Settings → About.
 ipcRenderer.on('okd:show', (_event, hash) => {
@@ -46,6 +47,19 @@ contextBridge.exposeInMainWorld('okDesktop', Object.freeze({
     set: (patch) => graphics('set', { backend: patch?.backend, lighter: patch?.lighter }),
     restart: () => graphics('restart'),
     gpuPage: () => graphics('gpu-page'),
+  }),
+  /**
+   * This computer (Settings → About): how this copy is installed, Install (a copy run straight from
+   * its file), Uninstall, start at login and server mode. Each call resolves to { ok, state } or
+   * { ok: false, error }; state = { how ('user' | 'portable' | 'deb' | 'rpm' | 'source' | 'unknown'),
+   * version, where, installedCopy, atLogin, canAtLogin, background, canInstall, canUninstall }.
+   * uninstall() ends with the app quitting.
+   */
+  system: Object.freeze({
+    get: () => system('get'),
+    set: (patch) => system('set', { atLogin: patch?.atLogin, background: patch?.background }),
+    install: () => system('install'),
+    uninstall: (options) => system('uninstall', { removeData: !!options?.removeData }),
   }),
   /** Calls fn({ text, level }) when the app has something to tell (e.g. how to move the TV window). */
   onNotice: (fn) => {

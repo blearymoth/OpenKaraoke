@@ -1,0 +1,44 @@
+/* The setup window (desktop/setup.mjs): one card in the middle, the skin's own tokens only. */
+
+html, body.setup { height: 100%; }
+body.setup { margin: 0; background: var(--night); color: var(--ink); display: grid; place-items: center; overflow: auto; }
+#app { width: min(620px, 100% - 48px); padding: 28px 0; }
+
+.setup-head { display: flex; align-items: center; gap: 16px; margin-bottom: 26px; }
+.setup-head img { width: 56px; height: 56px; flex: none; }
+.setup-head b { display: block; font-family: var(--font-display); font-size: 22px; }
+.setup-head span { color: var(--ink-2); font-size: 14px; }
+
+.setup h1 { font-family: var(--font-display); font-size: 30px; line-height: 1.15; margin: 0 0 12px; }
+.setup .lead { font-size: 17px; line-height: 1.45; color: var(--ink-2); margin: 0 0 18px; }
+.setup p { line-height: 1.5; }
+
+.facts { list-style: none; margin: 0 0 22px; padding: 0; display: grid; gap: 8px; }
+.facts li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; font-size: 15px; }
+.facts .icon { color: var(--neon); margin-top: 2px; }
+
+.options { display: grid; gap: 4px; margin: 0 0 24px; padding: 6px 16px; border-radius: var(--r-lg); background: var(--stage); border: 1px solid var(--line); }
+.option { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 10px 0; cursor: pointer; }
+.option + .option { border-top: 1px solid var(--line); }
+.option b { font-weight: 600; }
+.option small { display: block; color: var(--ink-3); font-size: 13px; margin-top: 2px; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 4px 0 18px; }
+.links { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.links button { background: none; border: 0; padding: 4px 0; color: var(--ink-2); font: inherit; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.links button:hover { color: var(--ink); }
+.links button.danger { color: var(--bad); }
+
+.where { font-size: 13px; color: var(--ink-3); overflow-wrap: anywhere; }
+.note { padding: 12px 14px; border-radius: var(--r-lg); background: var(--stage); border: 1px solid var(--line); color: var(--ink-2); font-size: 14px; margin: 0 0 18px; }
+.warn { color: var(--bulb); }
+.error-box { padding: 12px 14px; border-radius: var(--r-lg); background: var(--bad-bg); color: var(--bad-bg-ink); font-size: 14px; margin: 0 0 18px; overflow-wrap: anywhere; }
+
+.bar { height: 10px; border-radius: 99px; background: var(--stage-3); overflow: hidden; margin: 18px 0 10px; }
+.bar i { display: block; height: 100%; width: 0; background: var(--neon); transition: width 0.2s ease; }
+
+.done-mark { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; background: var(--ok-bg); color: var(--ok); margin-bottom: 18px; }
+.done-mark .icon { width: 34px; height: 34px; }
+
+.check-row { display: flex; gap: 10px; align-items: center; margin: 0 0 22px; cursor: pointer; }
+.check-row input { width: 18px; height: 18px; accent-color: var(--neon); }

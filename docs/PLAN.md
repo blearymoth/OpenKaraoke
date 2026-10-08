@@ -1199,3 +1199,55 @@ WAI-ARIA tabs with arrow/Home/End keys); on phones it is the Control page.
 - Views: host `current.version` `{ label, count, plays, up, down, mine, host, status }`, guests
   `{ label, count, plays, up, down }` + `me.versionVote`, `rules.versionVotes`; the TV none.
 
+
+## 23. Installing: one download for any Linux PC
+
+**Goal** (owner, 2026-10-08): one "Windows-style" installer with everything inside — no npm, no
+Node.js, no terminal, no extra packages — for any machine, run from a GUI; the server run from
+the source code becomes the secondary, advanced way. (The owner's uncle, on Ubuntu 24.04, had
+tried the developer route and failed.)
+
+**The download**: `OpenKaraoke-Setup.zip` on every release (no version in its name; the README
+links to `releases/latest/download/OpenKaraoke-Setup.zip`). Inside, one file: **Install
+OpenKaraoke**, the AppImage, mode 0755 (a browser saves files without the permission to run them;
+a zip made "by Unix" keeps it — Files on GNOME unpacks with libarchive, which honours it). Steps:
+double-click the zip, double-click "Install OpenKaraoke", Install.
+
+**The AppImage** (electron-builder, `toolsets.appimage: '1.0.3'`): the static type-2 runtime
+needs only `fusermount3`/`fusermount` (every desktop distro), not libfuse2; its AppRun adds
+`--no-sandbox` only where unprivileged user namespaces are blocked (Ubuntu 24.04 AppArmor).
+Electron carries Node and Chromium, so nothing else is needed. The .deb/.rpm stay for whoever
+prefers a system package (installed for everyone, with a password).
+
+**The setup** (`desktop/setup.mjs`, `desktop/setup/`; file work in `desktop/install.mjs`):
+the app decides at start what it is for (`startMode`): `--uninstall` → uninstall; an AppImage
+that isn't the installed copy (and wasn't chosen to "run without installing") → the setup
+window; else the app. The setup window runs on a throwaway profile, starts no server, and serves
+its page through its own `okapp://app` scheme (desktop/setup/, public/, shared/). Pages: Install
+(desktop shortcut on, start at login off), Update (older copy installed), Installed (Start /
+Install again / Uninstall…), a note when a system package is installed, Installing (progress),
+Done (Start OpenKaraoke / Close), Uninstall? (also delete the settings), Removed, Failed.
+
+**Per-user install** (no password, XDG): `$XDG_DATA_HOME/OpenKaraoke/` (`OpenKaraoke.AppImage`,
+`openkaraoke.png`, `install.json`), `$XDG_DATA_HOME/applications/openkaraoke.desktop` (named
+after the window's app id; action "Uninstall OpenKaraoke" → `--uninstall`), the desktop shortcut
+(`app.getPath('desktop')/OpenKaraoke.desktop`, executable, `metadata::trusted`), optional
+`$XDG_CONFIG_HOME/autostart/openkaraoke.desktop`. Entries carry `X-OpenKaraoke-Install=user`; only
+those are touched. Exec values are quoted and escaped per the Desktop Entry Specification. The
+installed copy updates itself (the updater swaps its AppImage) and repairs its entries at start.
+
+**Uninstall** (GUI only): the menu entry's action, Settings → About → Uninstall…, or the setup
+window; removes the program, entries and icon; optionally `~/.config/OpenKaraoke` (after the app
+has ended — a detached `sh` waits for its pid — and only that folder). A .deb/.rpm is removed with
+pkexec + apt-get/dpkg/dnf/zypper/rpm.
+
+**Server mode in the app** (Settings → About, `startup.json`): "Keep the party running when this
+window is closed" — closing the host window leaves the server, the TV window and the phones
+going; a second start brings the window back. "Start OpenKaraoke when I log in" writes the
+autostart entry for however this copy is installed. The source-code server (`node
+server/index.js`, `bin/install-service.sh`) is unchanged.
+
+**Tests**: `test/install.test.js`; `desktop/test/setup.mjs` (from the source, and with
+`SETUP_APPIMAGE` against the real AppImage — the release workflow does, unzipped from the zip).
+
+**Not covered**: Windows, macOS and arm64 Linux; a system without any FUSE (use the .deb/.rpm).

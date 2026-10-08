@@ -1,6 +1,8 @@
 # The desktop app for Linux (desktop/): every change to the app on main is tested, built
-# (AppImage, .rpm, .deb), tested again as the built app, and published as the latest GitHub
-# release. The app's updater (desktop/updater.mjs) follows the latest release.
+# (OpenKaraoke-Setup.zip — the one download for everybody —, AppImage, .rpm, .deb), tested again
+# as the built app and as the real setup, and published as the latest GitHub release. The README
+# links to releases/latest/download/OpenKaraoke-Setup.zip; the app's updater
+# (desktop/updater.mjs) follows the latest release.
 #   Version: major.minor from package.json, then this workflow's run number (0.1.42, 0.1.43, …).
 #   Only the 10 newest releases are kept (the installers are about 100 MB each).
 name: Desktop app
@@ -73,9 +75,19 @@ jobs:
           npm install --global playwright-core@1.56.1
           npm --prefix desktop test
 
+      - name: Test the setup (the real AppImage from OpenKaraoke-Setup.zip)
+        timeout-minutes: 10
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1' # no FUSE needed on the runner
+          NO_CLEANUP: '1' # two copies of the same AppImage share the folder it is unpacked to
+        run: |
+          unzip -q -o desktop/dist/OpenKaraoke-Setup.zip -d desktop/dist/setup
+          test -x "desktop/dist/setup/Install OpenKaraoke"
+          SETUP_APPIMAGE="desktop/dist/setup/Install OpenKaraoke" node desktop/test/setup.mjs
+
       - name: Checksums
         working-directory: desktop/dist
-        run: sha256sum OpenKaraoke-*.AppImage openkaraoke-*.rpm openkaraoke_*.deb | tee SHA256SUMS
+        run: sha256sum OpenKaraoke-Setup.zip OpenKaraoke-*.AppImage openkaraoke-*.rpm openkaraoke_*.deb | tee SHA256SUMS
 
       - name: Release notes
         run: |
@@ -92,7 +104,7 @@ jobs:
         run: |
           # A draft first, published once every file is up: the updater never sees half a release.
           gh release create "v$VERSION" --draft --target "$GITHUB_SHA" --title "OpenKaraoke $VERSION" --notes-file notes.md \
-            desktop/dist/OpenKaraoke-*.AppImage desktop/dist/openkaraoke-*.rpm desktop/dist/openkaraoke_*.deb desktop/dist/SHA256SUMS
+            desktop/dist/OpenKaraoke-Setup.zip desktop/dist/OpenKaraoke-*.AppImage desktop/dist/openkaraoke-*.rpm desktop/dist/openkaraoke_*.deb desktop/dist/SHA256SUMS
           gh release edit "v$VERSION" --draft=false --latest
 
       - name: Keep the 10 newest releases

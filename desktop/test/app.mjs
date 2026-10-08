@@ -71,7 +71,9 @@ const launch = () => electron.launch({
   executablePath: executable,
   // Sandboxing needs a setuid helper or user namespaces, which containers often lack; a fake
   // microphone so that the TV's microphone permission can be tried for real.
-  args: ['--no-sandbox', '--use-fake-device-for-media-stream', ...appArgs],
+  // --no-setup: this copy "is" an AppImage (for the updater) that isn't installed, which would
+  // otherwise show the setup window (desktop/test/setup.mjs tests that).
+  args: ['--no-sandbox', '--use-fake-device-for-media-stream', '--no-setup', ...appArgs],
   env,
   timeout: 60_000,
 });

@@ -44,8 +44,9 @@ bin/open-tv.sh                             # TV page in Chrome kiosk mode on the
 npm run vendor                             # rebuild vendored libs after `npm install`
 npm --prefix desktop install               # the desktop app's Electron + electron-builder (once)
 npm --prefix desktop start                 # run the desktop app from the source
-npm --prefix desktop test                  # desktop app end to end (Playwright + Xvfb); APP=<built exe> tests a build
-npm --prefix desktop run dist              # AppImage, .rpm, .deb in desktop/dist/ (OPENKARAOKE_VERSION=x.y.z)
+npm --prefix desktop test                  # desktop app + setup window end to end (Playwright + Xvfb); APP=<built exe> tests a build
+npm --prefix desktop run dist              # OpenKaraoke-Setup.zip (THE download), AppImage, .rpm, .deb in desktop/dist/ (OPENKARAOKE_VERSION=x.y.z)
+SETUP_APPIMAGE=<built AppImage> node desktop/test/setup.mjs   # the setup end to end against the real AppImage
 ```
 
 ## Code map
@@ -102,18 +103,28 @@ Browser (`public/`, plain ES modules, Preact + htm)
   Devices tabs; the phones' Control page), `queue.js`, `playback.js` (now playing + version vote,
   sound, live preview, TV window), `devices.js` (screens, host devices, guests), `menu.js`,
   `views.js`, `dialogs.js`, `settings.js`, `hotspot.js` (party hotspot block + banner),
-  `vocals.js` (Lead control + Vocals dialog), `graphics.js` (Settings → About → Graphics, desktop app).
+  `vocals.js` (Lead control + Vocals dialog), `graphics.js` (Settings → About → Graphics, desktop app),
+  `system.js` (Settings → About → On this computer, desktop app).
 - `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts.
 - `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`, `versions.js`
   (version names/labels, thumbs up/down),
   `components.js`, `icons.js`, `theme.js` (follows the skin live, `token()` for code that needs
   a colour). CSS: `css/base.css` (the two skins' tokens + components), `host.css`, `tv.css`, `guest.css`.
 
-Desktop app (`desktop/`, Electron; see docs/HANDOFF.md "Desktop app")
+Desktop app (`desktop/`, Electron; see docs/HANDOFF.md "Desktop app" and "One-download installer")
+- The primary way to install (PLAN §23): `OpenKaraoke-Setup.zip` → "Install OpenKaraoke" (the
+  AppImage, static runtime). `install.mjs` — no Electron: where a per-user install goes (XDG),
+  desktop entries (Exec quoting, `X-OpenKaraoke-Install` marks ours), `startMode` (setup /
+  uninstall / app), install / refresh / uninstall, autostart, the settings-folder guard.
+  `setup.mjs` + `setup/` — the setup window (throwaway profile, no server, its page served through
+  `okapp://app`). `pack-setup.cjs` — the zip (stored, Unix mode 0755), made by electron-builder's
+  `afterAllArtifactBuild`.
 - `main.mjs` — runs `startServer()` in-process, host window, TV window (full screen on another
   screen, autoplay + microphone allowed for our own pages only), menu, single instance, saving
   on quit, native Wayland (TV moved by the person, full screen on the move) or an XWayland
-  restart when chosen; `okDesktop.tv` state for the host's Playback tab. `displays.mjs` (pure placement), `graphics.mjs` (display system, GPU
+  restart when chosen; `okDesktop.tv` state for the host's Playback tab; `okDesktop.system`
+  (Settings → About → On this computer: install/uninstall, start at login, server mode =
+  keep running when the window is closed, `startup.json`); the menu entry's `--uninstall`. `displays.mjs` (pure placement), `graphics.mjs` (display system, GPU
   verdict, lighter effects), `preload.cjs` (`window.okDesktop`: openTv, pickFolder, updates,
   graphics, onNotice — the host page checks for it), `updater.mjs` + `update-logic.mjs`
   (GitHub releases; the token only ever goes to the API, redirects are followed by hand),

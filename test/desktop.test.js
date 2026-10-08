@@ -442,6 +442,14 @@ test('packaging: every module the desktop app imports is in the installer (elect
   };
   await walk(main);
   await walk('desktop/preload.cjs');
+  await walk('desktop/setup/preload.cjs');
   assert.ok(seen.has('desktop/graphics.mjs'));
   assert.ok(seen.has('shared/graphics.js'), 'desktop/graphics.mjs imports shared/graphics.js');
+  assert.ok(seen.has('desktop/setup.mjs') && seen.has('desktop/install.mjs'), 'the setup window and the installer are walked');
+  // The setup window's page is loaded through its own scheme, not imported: shipped whole.
+  for (const f of await fs.readdir(path.join(import.meta.dirname, '..', 'desktop', 'setup'))) {
+    assert.ok(shipped(`desktop/setup/${f}`), `desktop/setup/${f} is not in the installer's files`);
+  }
+  assert.match(src0, /toolsets: \{ appimage: '1\.0\.3' \}/, 'the static AppImage runtime (no libfuse2 needed)');
+  assert.match(src0, /afterAllArtifactBuild:[\s\S]*makeSetupZip/, 'OpenKaraoke-Setup.zip is made with the AppImage');
 });

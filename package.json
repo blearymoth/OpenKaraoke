@@ -1,6 +1,6 @@
 {
   "name": "openkaraoke",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Self-hosted web karaoke party app for Linux: plays your local CDG+MP3/MP4 library with a TV second screen, QR-code guest lobby, key/tempo control, singer rotation, battles and a music quiz.",
   "type": "module",
   "main": "server/index.js",

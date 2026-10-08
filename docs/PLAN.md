@@ -7,7 +7,7 @@ Status legend: ✅ done · 🟡 partly done · ⬜ not started. Section numbers 
 
 ## 1. Goals
 
-Build a **web-based karaoke app as fully featured as KaraFun Web**, but for the owner's own
+Build a **fully featured web-based karaoke app** for the owner's own
 local library, running entirely on their **Linux PC** (no cloud):
 
 1. Play a **~90,000-track CDG+MP3 library** from a USB drive (also: zipped MP3+G, MP4/WEBM video).
@@ -18,7 +18,7 @@ local library, running entirely on their **Linux PC** (no cloud):
    MusicBrainz/Cover Art Archive, TheAudioDB, optional iTunes/Fanart.tv) and cached locally.
 5. **Party games**: singing Battle, Music Quiz, roulette wheel, polls, pass-the-mic, applause
    meter, audience ratings, party recap.
-6. Everything KaraFun-like: key change, tempo, singer rotation, approvals, limits, favourites,
+6. Everything a karaoke night needs: key change, tempo, singer rotation, approvals, limits, favourites,
    playlists, history, explicit filter, background music between singers, ticker, themes.
 
 Non-goals (for now): internet hosting, accounts, streaming catalogues, pitch-graded scoring
@@ -90,7 +90,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P1 Wi-Fi QR code on the TV lobby (SSID/password from settings).
 
 ### Host app
-- ✅ P0 KaraFun-style layout: sidebar nav, top search, main content, right queue panel, bottom
+- ✅ P0 Familiar layout: sidebar nav, top search, main content, right queue panel, bottom
   player bar (transport, seek, key ±, tempo ±, channel mode, volume, TV status).
 - ✅ P0 Views: Home, Search, Artists (A–Z), Tags/Collections, Popular, Song details (versions,
   preview on host headphones), Singers, Requests (approvals), History, Settings.
@@ -621,7 +621,7 @@ The owner: "I want this app to have several different popular methods of display
 its readable and not jittery or confusing." Three layouts, `display.lyricsLayout` (Settings → TV
 display → **Lyrics layout**, and the admin panel's Playback tab → On the TV):
 - `page` (default) **Pages, as on the disc** — §9.5, unchanged.
-- `lines` **Two lines at a time** — the line being sung and the next one, as karaoke bars, KaraFun
+- `lines` **Two lines at a time** — the line being sung and the next one, as karaoke bars
   and karaoke videos show them. Two places, one above the other; lines take them in turn (line j of
   a verse is in place j % 2), so a line never moves once it is up, and the next line is always up
   while one is sung. A line comes in when the line two before it is sung (it lingers up to 0.25 s,
@@ -683,7 +683,7 @@ are 6.9 % of the screen high at 1920×1080 (≥ 4.5 %: legible across a room) an
 and its plate; the looks have no filter; a disc that never re-colours keeps its pages; a switch while
 singing, the mirror and the host's preview follow. In software drawing (headless Chromium) the
 scrolling list runs at 60 fps at 1920×1080 and at 3840×2160 with lighter effects, 0.3 ms of script a
-frame (95th percentile). On a real Sound Choice disc (a public sample, not in the repository) the pass
+frame (95th percentile). On a real commercial disc (a public sample, not in the repository) the pass
 finds all 101 lines in sung order (100 % of its re-colouring) in ≈150 ms; the disc shows some lines
 only 0.4 s before they are sung (its page turns); two lines show every line 0.57 s or more ahead
 (median 2.8 s), the scrolling list shows each line from the start of the song.
@@ -715,7 +715,7 @@ thumbs up / down.
 Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safari 16+ / Android Chrome.
 
 ## 12. Artwork & metadata
-- Providers (see RESEARCH §3): **Deezer** (no key; ~50 req/5 s; `artist:"…" track:"…"`
+- Providers (see RESEARCH §1): **Deezer** (no key; ~50 req/5 s; `artist:"…" track:"…"`
   strict search; `cover_{small,medium,big,xl}` = 56/250/500/1000 px; artist `picture_*`;
   `explicit_lyrics`; `rank`; album `/album/{id}` gives genre + release_date),
   **MusicBrainz + Cover Art Archive** (1 req/s, UA `OpenKaraoke/0.1 ( contact )`;
@@ -762,7 +762,7 @@ Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safar
 All games are server state machines (`server/games/*.js`) with a public view for TV/phones.
 Phones auto-join when they send an answer/vote; the host controls start/next/end.
 
-1. **Music Quiz** (KaraFun Quiz / Karaoke Mugen blind test style): N questions (5–30), timer
+1. **Music Quiz** (blind-test style): N questions (5–30), timer
    10–30 s, 4 choices on phones (Kahoot colours/shapes). Round types: *Intro* (first seconds of
    the backing track, CDG hidden), *Mid-song snippet*, *Name the artist*, *Lyrics peek*
    (static CDG frame from the middle of the song, no audio), *Cover zoom* (needs art),
@@ -786,7 +786,7 @@ Phones auto-join when they send an answer/vote; the host controls start/next/end
 7. **Ratings & recap**: optional 1–5 ★ after each song; "Party recap" screen (top singers,
    most-sung artists, crowd favourite, total songs/time).
 8. Not possible with CDG (no melody/lyric text): pitch-scored singing, "finish the lyric".
-   Could be added later for UltraStar `.txt` songs if the owner adds any.
+   Could be added later for songs that come with melody data, if the owner adds any.
 
 ## 14. Settings reference
 The single source of truth is `DEFAULT_SETTINGS` in `server/config.js`; `Settings.update()`

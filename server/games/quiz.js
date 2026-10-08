@@ -1,4 +1,4 @@
-// Music quiz (PLAN §13.1, KaraFun-quiz / blind-test style). The TV plays a short clip (intro,
+// Music quiz (PLAN §13.1, blind-test style). The TV plays a short clip (intro,
 // snippet, helium, slow-mo, backwards…), shows a lyrics screen or a zooming cover; phones answer
 // on four Kahoot tiles; fast right answers score more, streaks earn a bonus.
 //

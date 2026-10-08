@@ -826,9 +826,9 @@ plans' guarantees on all of them) and `test/e2e/layouts.mjs` (33 checks; ≈1,50
 recorded and checked against the plan: no move outside a glide, never backwards, no opacity jump,
 each wipe pixel-exact, the sung line always up and the next one by its middle; letters 7:1 on the
 panel and 6.9 % of the screen high; 60 fps at 1080p and 4K in software drawing, 0.3 ms of script a
-frame). Real discs: two public samples from GitHub projects (a Sound Choice disc and a home-made one;
-kept out of the repository) — all 101 and 38 lines found in order, 100 % of the singing; on the Sound
-Choice disc the two-line layout shows every line 0.57 s or more ahead (median 2.8 s) where the disc's
+frame). Real discs: two public samples from GitHub projects (a commercial disc and a home-made one;
+kept out of the repository) — all 101 and 38 lines found in order, 100 % of the singing; on the commercial
+disc the two-line layout shows every line 0.57 s or more ahead (median 2.8 s) where the disc's
 own page turns give 0.4 s.
 
 **Known limits**: two lines can't show a line before the line two before it is sung, so after a very

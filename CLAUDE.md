@@ -1,6 +1,6 @@
 # OpenKaraoke — guide for Claude Code
 
-OpenKaraoke is a self-hosted, KaraFun-style karaoke party app that runs on the owner's
+OpenKaraoke is a self-hosted karaoke party app that runs on the owner's
 **Linux PC**. A small Node.js server indexes a local karaoke library (≈90,000 CDG+MP3 tracks
 on a USB drive) and serves three browser apps over the home network:
 
@@ -11,8 +11,8 @@ on a USB drive) and serves three browser apps over the home network:
 | Guest | `/j/<ROOM>` (QR code) | party guests on their phones: search, request songs, react, play games |
 
 **Start here:** read `docs/HANDOFF.md` (current status + next steps), then `docs/PLAN.md`
-(full spec, architecture, protocol, roadmap). `docs/RESEARCH.md` has the feature research
-and artwork-API facts; `docs/LIBRARY.md` describes how karaoke libraries are laid out and named.
+(full spec, architecture, protocol, roadmap). `docs/RESEARCH.md` has the artwork-API
+facts; `docs/LIBRARY.md` describes how karaoke libraries are laid out and named.
 
 ## Hard rules
 

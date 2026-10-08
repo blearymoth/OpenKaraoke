@@ -1,4 +1,4 @@
-// Online artwork & metadata providers (PLAN §12, RESEARCH §3). Each provider only builds
+// Online artwork & metadata providers (PLAN §12, RESEARCH §1). Each provider only builds
 // request URLs and turns responses into normalised candidates; the network, rate limits and
 // caching live in service.js, so everything here is pure and tested against saved fixtures.
 //

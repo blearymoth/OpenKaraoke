@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fold, compact, editDistance, similarity, shortId, splitCredits, formatDuration } from '../shared/text.js';
 import { qrSvg, wifiPayload } from '../server/util/qr.js';
 import { Settings, DEFAULT_SETTINGS, migrateSettings, parseArgs, makeRoomCode } from '../server/config.js';
-import { LYRICS_LOOKS } from '../shared/lyrics.js';
+import { LYRICS_LOOKS, LYRICS_LAYOUTS } from '../shared/lyrics.js';
 import { isLocalAddress, lanAddresses } from '../server/util/net.js';
 import { deviceLabel } from '../server/util/useragent.js';
 import { tmpDir } from './helpers.js';
@@ -87,6 +87,24 @@ test('settings: the lyrics look, scrolling and lighter effects take only their l
     s.update({ display: { lyricsLook: look } });
     assert.equal(s.get('display.lyricsLook'), look);
   }
+  await s.flush();
+});
+
+test('settings: the lyrics layout takes only its listed values', async () => {
+  const s = new Settings(await tmpDir());
+  await s.load();
+  assert.equal(s.get('display.lyricsLayout'), 'page', 'the disc’s pages by default');
+  for (const layout of LYRICS_LAYOUTS) {
+    s.update({ display: { lyricsLayout: layout } });
+    assert.equal(s.get('display.lyricsLayout'), layout);
+  }
+  for (const bad of ['Lines', '', 'panel', '__proto__', 'toString', 2, null, ['scroll'], { layout: 'lines' }]) {
+    s.update({ display: { lyricsLayout: bad } });
+    assert.equal(s.get('display.lyricsLayout'), 'scroll', `${JSON.stringify(bad)} is ignored`);
+  }
+  const edited = { appearance: { theme: 'studio', accent: '' }, display: { lyricsLayout: 'karaoke' } };
+  assert.equal(migrateSettings(edited), true);
+  assert.equal(edited.display.lyricsLayout, 'page', 'a value no version offers: the default');
   await s.flush();
 });
 

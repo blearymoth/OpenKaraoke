@@ -13,6 +13,8 @@ import { GraphicsBlock } from './graphics.js';
 import { DisplayRow, PairingRow } from './devices.js';
 
 /** display.lyricsLook (shared/lyrics.js; the Playback tab offers it too, in short). */
+/** display.lyricsLayout (the Playback tab offers it too, in short). */
+const LYRICS_LAYOUT_OPTIONS = [['page', 'Pages, as on the disc'], ['lines', 'Two lines at a time'], ['scroll', 'Scrolling list, like music apps']];
 const LYRICS_LOOK_OPTIONS = [['panel', 'On a dark panel (easiest to read)'], ['clear', 'Over the background, with an outline'], ['disc', 'As the disc made them']];
 
 const SECTIONS = [
@@ -77,6 +79,7 @@ const SECTIONS = [
     id: 'display', title: 'TV display', icon: 'tv', fields: [
       { path: 'display.background', label: 'Background', type: 'select', options: [['art', 'Cover art and artist photos'], ['photos', 'Guests’ photos'], ['visualizer', 'Moving lights'], ['plain', 'Plain']] },
       { path: 'display.fanart', label: 'Artist photos behind the lyrics', type: 'bool', help: 'Slowly moving photos of the artist when there are some (see Artwork); otherwise the blurred cover.', when: (s) => s.display.background === 'art' },
+      { path: 'display.lyricsLayout', label: 'Lyrics layout', type: 'select', options: LYRICS_LAYOUT_OPTIONS, help: 'Two lines: the line being sung and the next one, big, like a karaoke bar. Scrolling: every line in a list that glides up, the line being sung in the middle. Both show each line well before it is sung (a disc often shows its next page only at the last moment). A disc whose lines can’t be followed is shown as pages.' },
       { path: 'display.lyricsLook', label: 'Lyrics', type: 'select', options: LYRICS_LOOK_OPTIONS, help: 'The dark panel and the outline fix each disc’s colours so the words stand out: dark words on a light disc turn light and dim colours get brighter. Choose “As the disc made them” if a disc looks wrong.' },
       { path: 'display.lyricsMotion', label: 'Scrolling lyrics', type: 'select', options: [['smooth', 'Glide smoothly'], ['disc', 'Step exactly like the disc']], help: 'Some discs scroll the words up one pixel at a time. Glide smoothly evens out those steps; the words stay within 3 disc pixels of where the disc puts them.' },
       { path: 'display.cdgSmoothing', label: 'Smooth lyrics text', type: 'bool', help: 'On: rounded letters. Off: the disc’s square pixels, each exactly the same size on the TV (the lyrics may be a little smaller).' },

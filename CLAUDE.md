@@ -1,6 +1,6 @@
 # OpenKaraoke — guide for Claude Code
 
-OpenKaraoke is a self-hosted, KaraFun-style karaoke party app that runs on the owner's
+OpenKaraoke is a self-hosted karaoke party app that runs on the owner's
 **Linux PC**. A small Node.js server indexes a local karaoke library (≈90,000 CDG+MP3 tracks
 on a USB drive) and serves three browser apps over the home network:
 
@@ -11,8 +11,8 @@ on a USB drive) and serves three browser apps over the home network:
 | Guest | `/j/<ROOM>` (QR code) | party guests on their phones: search, request songs, react, play games |
 
 **Start here:** read `docs/HANDOFF.md` (current status + next steps), then `docs/PLAN.md`
-(full spec, architecture, protocol, roadmap). `docs/RESEARCH.md` has the feature research
-and artwork-API facts; `docs/LIBRARY.md` describes how karaoke libraries are laid out and named.
+(full spec, architecture, protocol, roadmap). `docs/RESEARCH.md` has the artwork-API
+facts; `docs/LIBRARY.md` describes how karaoke libraries are laid out and named.
 
 ## Hard rules
 
@@ -85,9 +85,11 @@ Shared (`shared/`, imported by server and browser): `text.js`, `cdg.js` (CD+G de
 Scale2x, RGBA), `protocol.js` (constants: channel modes, key/tempo ranges, reactions,
 avatars, denial messages), `themes.js` (the skins' ids/names, validation of `settings.appearance`),
 `vocals.js` (lead vocal on multiplex tracks: the channel matrix, what a track allows, the channel
-analysis — PLAN §21), `lyrics.js` (readable lyrics: the looks' settings, colour keying, colour
-roles, the readable palette, the scroll timeline — PLAN §9.5), `graphics.js` (which WebGL
-renderers draw in software).
+analysis — PLAN §21), `lyrics.js` (readable lyrics: the looks' and layouts' settings, colour keying,
+colour roles, the readable palette, the scroll timeline — PLAN §9.5), `lyric-lines.js` (a disc's
+sung lines, found in one pass: each pixel's unsung/sung colour and moment — PLAN §9.6),
+`lyric-layout.js` (when and where lines show: two lines, the scrolling list; pure functions of the
+time), `graphics.js` (which WebGL renderers draw in software).
 
 Browser (`public/`, plain ES modules, Preact + htm)
 - `tv.html` + `js/tv/` — `controller.js` (follows server state, owns the media clock, reports
@@ -96,7 +98,8 @@ Browser (`public/`, plain ES modules, Preact + htm)
   pure, judges the frames).
 - `js/lib/audio-engine.js` — Signalsmith buffer mode (key/tempo) + element mode; channel
   matrix, loudness, fades. `js/lib/lyrics-renderer.js` — the TV's lyrics (decoder memory on a
-  canvas moved by a transform, dirty rectangles, looks); `js/lib/frame-clock.js` — the lyrics'
+  canvas moved by a transform, dirty rectangles, looks; picks the layout);
+  `js/lib/lyric-lines-view.js` — the two-line and scrolling layouts (a canvas per line); `js/lib/frame-clock.js` — the lyrics'
   even, never-backward clock; `js/lib/cdg-canvas.js` — the quiz's CDG renderer.
 - `host.html` + `js/host/` — `main.js` (shell, routes, PIN screen, shortcuts), `state.js`,
   `player.js` (slim bar, phones' mini player), `panel.js` (the admin panel: Queue / Playback /
@@ -131,10 +134,11 @@ Desktop app (`desktop/`, Electron; see docs/HANDOFF.md "Desktop app" and "One-do
   `electron-builder.config.cjs` (installers), `test/app.mjs` (end to end).
 - `.github/workflows/desktop.yml` releases `v<major.minor>.<run>` for every app change on main.
 
-Tests (`test/`): node:test suites + helpers; `test/e2e/` Playwright scripts (`lyrics.mjs`: the
-TV's readable lyrics). Dev tooling: `scripts/lib/cdg-writer.js` (+ `cdg-font.js`) writes
+Tests (`test/`): node:test suites + helpers (`lyric-discs.js`: discs in real discs' styles);
+`test/e2e/` Playwright scripts (`lyrics.mjs`: the TV's readable lyrics; `layouts.mjs`: the lyric
+layouts, every frame checked against the plan). Dev tooling: `scripts/lib/cdg-writer.js` (+ `cdg-font.js`) writes
 synthetic CDGs for tests and the demo; `scripts/lyrics-check.js` (+ `lib/png.js`) checks the
-readable lyrics on a real library (PNG contact sheets).
+readable lyrics and the layouts on a real library (PNG contact sheets).
 
 Planned modules and their responsibilities are specified in `docs/PLAN.md` §4.
 

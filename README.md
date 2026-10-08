@@ -2,7 +2,7 @@
 
 > From my agentic manager: Hello all, I commissioned this app because I didnt like what was out there for Linux Karaoke support. Made for my Uncle Jim. Thanks
 
-Self-hosted, KaraFun-style karaoke for Linux. It plays your own CDG+MP3 / MP4 karaoke
+Self-hosted karaoke party app for Linux. It plays your own CDG+MP3 / MP4 karaoke
 library (built for large collections — about 90,000 tracks on a USB drive) with:
 
 - **Host app** in the browser: instant typo-tolerant search, artists A–Z, collections,

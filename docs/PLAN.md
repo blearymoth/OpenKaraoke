@@ -7,7 +7,7 @@ Status legend: ✅ done · 🟡 partly done · ⬜ not started. Section numbers 
 
 ## 1. Goals
 
-Build a **web-based karaoke app as fully featured as KaraFun Web**, but for the owner's own
+Build a **fully featured web-based karaoke app** for the owner's own
 local library, running entirely on their **Linux PC** (no cloud):
 
 1. Play a **~90,000-track CDG+MP3 library** from a USB drive (also: zipped MP3+G, MP4/WEBM video).
@@ -18,7 +18,7 @@ local library, running entirely on their **Linux PC** (no cloud):
    MusicBrainz/Cover Art Archive, TheAudioDB, optional iTunes/Fanart.tv) and cached locally.
 5. **Party games**: singing Battle, Music Quiz, roulette wheel, polls, pass-the-mic, applause
    meter, audience ratings, party recap.
-6. Everything KaraFun-like: key change, tempo, singer rotation, approvals, limits, favourites,
+6. Everything a karaoke night needs: key change, tempo, singer rotation, approvals, limits, favourites,
    playlists, history, explicit filter, background music between singers, ticker, themes.
 
 Non-goals (for now): internet hosting, accounts, streaming catalogues, pitch-graded scoring
@@ -55,6 +55,8 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P1 Background behind transparent CDG: blurred cover / artist fanart (Ken-Burns), idle cover mosaic, audio
   visualiser, guest photos, or plain colour. CDG smoothing (Scale2x) for crisp text on big TVs.
 - ✅ P1 Lyric sync offset setting (ms) and automatic output-latency compensation (getOutputTimestamp).
+- ✅ P1 **Lyric layouts** (§9.6): the disc's own pages, **two lines at a time** (karaoke-bar style)
+  or a **scrolling list** (like music apps), from the sung lines found in each CD+G disc.
 - ⬜ P2 Mic monitoring with reverb/echo on the PC (localhost only, latency warning).
 
 ### Second screen & displays
@@ -88,7 +90,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P1 Wi-Fi QR code on the TV lobby (SSID/password from settings).
 
 ### Host app
-- ✅ P0 KaraFun-style layout: sidebar nav, top search, main content, right queue panel, bottom
+- ✅ P0 Familiar layout: sidebar nav, top search, main content, right queue panel, bottom
   player bar (transport, seek, key ±, tempo ±, channel mode, volume, TV status).
 - ✅ P0 Views: Home, Search, Artists (A–Z), Tags/Collections, Popular, Song details (versions,
   preview on host headphones), Singers, Requests (approvals), History, Settings.
@@ -614,6 +616,84 @@ timeline), `test/frame-clock.test.js`, `test/frame-watch.test.js`,
 `test/cdg.test.js`, settings in `test/util.test.js`, tokens and lyric-box rules in
 `test/themes.test.js`, `test/e2e/lyrics.mjs`; on a real library, `scripts/lyrics-check.js`.
 
+### 9.6 Lyric layouts
+The owner: "I want this app to have several different popular methods of displaying text. Verify
+its readable and not jittery or confusing." Three layouts, `display.lyricsLayout` (Settings → TV
+display → **Lyrics layout**, and the admin panel's Playback tab → On the TV):
+- `page` (default) **Pages, as on the disc** — §9.5, unchanged.
+- `lines` **Two lines at a time** — the line being sung and the next one, as karaoke bars
+  and karaoke videos show them. Two places, one above the other; lines take them in turn (line j of
+  a verse is in place j % 2), so a line never moves once it is up, and the next line is always up
+  while one is sung. A line comes in when the line two before it is sung (it lingers up to 0.25 s,
+  then the new one fades in 0.1 s after it has gone, or at once when that would leave the new one
+  less than 1 s); a verse's first two lines come in 4 s before it, with a countdown (three dots,
+  one goes out a second) over the first line; a pause of more than 8 s ends a verse and clears the
+  screen 1.5 s after its last line.
+- `scroll` **Scrolling list, like music apps** — every line in one column, the line being sung in
+  focus 40 % down the box at full strength, the lines to come at 60 %, the ones sung at 38 %; the
+  column glides to the next line in 0.45 s (smoothstep: starts and ends at rest), ending as it
+  starts, never before the line before is nearly done (after a pause of more than 3 s the next line
+  comes into focus 2.5 s early, with the countdown); lines sung together (starting within 0.5 s, a
+  duet) are one stop, in focus together. Lines fade out towards the box's edges.
+Both keep the lyric box of §9.5 (so every overlay rule holds), its look (panel, clear outline,
+disc colours) and the readable palette; every line of a song is drawn at the same scale: the
+widest line fills 96 % of the box (and, scrolling, at least four lines and their gaps fit), a
+whole number of device pixels per CD+G pixel with smoothing off.
+
+**Finding the lines** (`shared/lyric-lines.js`, `analyzeLines` / `linesAsync`, once per song in 8 ms
+slices; ≈60–200 ms of processor time for a 3–5 minute disc): CD+G is pictures, not text, so the
+lines are the disc's own letters. One pass over the packets judges every tile once its packets stop
+(NORMAL + XOR writes of one tile are one change): letters re-coloured without being erased are
+being sung (a highlight bar painted behind them counts); a tile that erases letters is a redraw (a
+page written over a page); a re-colouring the other way than the disc's wipes so far (sung back to
+unsung) is a redraw too. Where singing starts outside any line, a line is born: the band of rows
+with ink around it (gaps of up to 3 empty rows, at most 64 rows: a taller band is a picture). The
+line keeps its own copy of its pixels — each one's unsung colour, its sung colour and the packet it
+turned (its first change in the biggest burst of changes; changes more than 1.5 s before or after
+it belong to page redraws) — so it can be drawn before it is on the disc's screen and after the disc
+erased it. It ends when the screen is cleared, 30 % of it is erased, a tile writes other letters over
+it, or it scrolls out of sight (scrolls move it with the memory). Background colours are the
+window's big colours, the preset colour and the scroll fill (as §9.5's keying, without the
+look-alikes and holds). Ink more than 3 pixels from any sung pixel is dropped (leftovers). Lines with
+fewer than 24 (or 5 %) sung pixels are dropped; the rest are sorted by when they start. A disc with
+fewer than 4 lines, or less than 60 % of its re-colouring inside them, is not followed: the TV shows
+its pages (`data-layout="page"` with `data-layout-wanted` the choice) — titles, info cards,
+countdown squares, "INSTRUMENTAL", words that are never sung and discs that never re-colour never
+become lines. While the pass runs (a moment as the song loads) nothing is shown (`data-layout="wait"`).
+
+**Drawing** (`public/js/lib/lyric-lines-view.js`, inside `.lyr-window`, the page's canvas hidden): one
+small canvas per line shown, made when it comes up (Scale2x with smoothing, the outline of the clear
+look baked in, the colour table of `lyricsLut` for its palette and keying with the song's colour
+roles); redrawn only while its pixels turn (the number sung at the moment changes); moved by a
+`translate` in whole device pixels and faded by `opacity` — no filter, mask or rounded clip. Where
+and how visible every line is comes from pure functions of the song time (`shared/lyric-layout.js`:
+`twoLinePlan`/`shown`, `scrollPlan`/`focusAt`/`stopAt`/`scrollAlpha`, `countdownAt`, `lineScale`):
+the TV, a mirror and the host's preview draw the same thing at the same moment, and nothing moves
+that the plan doesn't move. The panel's plate is a band behind the two lines (the whole box when
+scrolling); the disc look puts the disc's background colour in the window.
+
+**Verified** (`test/e2e/layouts.mjs`, every animation frame of ≈60 s of songs recorded and checked
+against the plan worked out in Node from the disc): the clock never goes back; a two-line line never
+moves; the scrolling list puts every line exactly where the plan says on every frame, moves only in
+glides, never back, never faster than 1.5× a glide's mean speed; opacity never changes faster than
+the quickest fade; each line's sung pixels are the disc's own at that moment (pixel count); the line
+being sung is always fully up, the next one up by its middle, lines never overlap and appear in sung
+order; a 12 s instrumental clears the screen; the letters (every fill colour) reach 7:1 on the panel,
+are 6.9 % of the screen high at 1920×1080 (≥ 4.5 %: legible across a room) and stay inside the box
+and its plate; the looks have no filter; a disc that never re-colours keeps its pages; a switch while
+singing, the mirror and the host's preview follow. In software drawing (headless Chromium) the
+scrolling list runs at 60 fps at 1920×1080 and at 3840×2160 with lighter effects, 0.3 ms of script a
+frame (95th percentile). On a real commercial disc (a public sample, not in the repository) the pass
+finds all 101 lines in sung order (100 % of its re-colouring) in ≈150 ms; the disc shows some lines
+only 0.4 s before they are sung (its page turns); two lines show every line 0.57 s or more ahead
+(median 2.8 s), the scrolling list shows each line from the start of the song.
+
+**Known limits**: with two places, a line can come in only once the line two before it is sung, so
+after a very short line (0.2–0.5 s, "SHE CRIED") the next one has about that long — the scrolling
+list has no such limit; lines sung together with the line before (a duet) come in as soon as a place
+is free; a line the disc draws wider than its screen is cut where the disc cuts it; colour-cycling
+wipes (the palette changes, not the pixels) are not seen as singing (such a disc keeps its pages).
+
 ## 10. Host app (`/host`)
 Layout: top bar (logo, party name, room code chip → invite modal, TV status, search box),
 left nav, main view, right **admin panel** (tabs Queue / Playback / Devices — §22), bottom player
@@ -635,7 +715,7 @@ thumbs up / down.
 Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safari 16+ / Android Chrome.
 
 ## 12. Artwork & metadata
-- Providers (see RESEARCH §3): **Deezer** (no key; ~50 req/5 s; `artist:"…" track:"…"`
+- Providers (see RESEARCH §1): **Deezer** (no key; ~50 req/5 s; `artist:"…" track:"…"`
   strict search; `cover_{small,medium,big,xl}` = 56/250/500/1000 px; artist `picture_*`;
   `explicit_lyrics`; `rank`; album `/album/{id}` gives genre + release_date),
   **MusicBrainz + Cover Art Archive** (1 req/s, UA `OpenKaraoke/0.1 ( contact )`;
@@ -682,7 +762,7 @@ Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safar
 All games are server state machines (`server/games/*.js`) with a public view for TV/phones.
 Phones auto-join when they send an answer/vote; the host controls start/next/end.
 
-1. **Music Quiz** (KaraFun Quiz / Karaoke Mugen blind test style): N questions (5–30), timer
+1. **Music Quiz** (blind-test style): N questions (5–30), timer
    10–30 s, 4 choices on phones (Kahoot colours/shapes). Round types: *Intro* (first seconds of
    the backing track, CDG hidden), *Mid-song snippet*, *Name the artist*, *Lyrics peek*
    (static CDG frame from the middle of the song, no audio), *Cover zoom* (needs art),
@@ -706,7 +786,7 @@ Phones auto-join when they send an answer/vote; the host controls start/next/end
 7. **Ratings & recap**: optional 1–5 ★ after each song; "Party recap" screen (top singers,
    most-sung artists, crowd favourite, total songs/time).
 8. Not possible with CDG (no melody/lyric text): pitch-scored singing, "finish the lyric".
-   Could be added later for UltraStar `.txt` songs if the owner adds any.
+   Could be added later for songs that come with melody data, if the owner adds any.
 
 ## 14. Settings reference
 The single source of truth is `DEFAULT_SETTINGS` in `server/config.js`; `Settings.update()`
@@ -730,7 +810,8 @@ JS that needs a colour (QR codes) reads the token. The app icon follows the skin
 original), and the favicon links and `/favicon.ico` point at the skin's icon. Settings saved before skins existed: a custom
 `display.accent` became `appearance.accent`, the old default pink was dropped.
 
-**Lyrics on the TV** — `display.lyricsLook` (`panel` | `clear` | `disc`), `display.lyricsMotion`
+**Lyrics on the TV** — `display.lyricsLayout` (`page` | `lines` | `scroll`, §9.6),
+`display.lyricsLook` (`panel` | `clear` | `disc`), `display.lyricsMotion`
 (`smooth` | `disc`), `display.cdgSmoothing`, `display.lighterEffects` (`auto` | `on` | `off`), §9.5.
 A value not on its list is ignored in an update and reset to the default in a saved file; the old
 `display.cdgTransparent: false` became `lyricsLook: 'disc'`.
@@ -761,6 +842,9 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
   overlays clear of the lyric box at seven screen sizes, a light disc at 7:1, a glide without a
   decoder replay, fill/border strips keyed, the disc look, lighter effects, mirror and preview).
   On a real library: `node scripts/lyrics-check.js "<drive>"` (contact sheets to look through).
+- Lyric layouts (§9.6): `test/lyric-lines.test.js` on discs in real discs' styles
+  (`test/lyric-discs.js`) and the demo library; `test/e2e/layouts.mjs` records every frame on the
+  TV and checks it against the plan (readable, not jittery, not confusing — see §9.6).
 - E2E (optional devDependency `playwright-core` with system Chromium): host + tv + 2 guests
   in one browser, queue → intro → play → ended; screenshot each screen.
 - Library smoke test: `node scripts/scan-report.js "<drive>"`.

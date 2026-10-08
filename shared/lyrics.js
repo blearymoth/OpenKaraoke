@@ -18,17 +18,25 @@ import {
 
 /** display.lyricsLook: on a dark panel, over the background with an outline, as the disc made them. */
 export const LYRICS_LOOKS = ['panel', 'clear', 'disc'];
+/**
+ * display.lyricsLayout: the disc's own pages; two lines at a time (the line being sung and the
+ * next one, karaoke-bar style); a scrolling list with the line being sung in focus (like music
+ * apps). The last two re-arrange the disc's sung lines (shared/lyric-lines.js, PLAN §9.6).
+ */
+export const LYRICS_LAYOUTS = ['page', 'lines', 'scroll'];
 /** display.lyricsMotion: glide smoothly, or step exactly like the disc. */
 export const LYRICS_MOTIONS = ['smooth', 'disc'];
 /** display.lighterEffects on the TV page. */
 export const LIGHTER_EFFECTS = ['auto', 'on', 'off'];
 export const DEFAULT_LYRICS_LOOK = 'panel';
 export const DEFAULT_LYRICS_MOTION = 'smooth';
+export const DEFAULT_LYRICS_LAYOUT = 'page';
 export const DEFAULT_LIGHTER_EFFECTS = 'auto';
 
 const oneOf = (list, value, fallback) => (typeof value === 'string' && list.includes(value) ? value : fallback);
 export const normalizeLyricsLook = (v) => oneOf(LYRICS_LOOKS, v, DEFAULT_LYRICS_LOOK);
 export const normalizeLyricsMotion = (v) => oneOf(LYRICS_MOTIONS, v, DEFAULT_LYRICS_MOTION);
+export const normalizeLyricsLayout = (v) => oneOf(LYRICS_LAYOUTS, v, DEFAULT_LYRICS_LAYOUT);
 export const normalizeLighterEffects = (v) => oneOf(LIGHTER_EFFECTS, v, DEFAULT_LIGHTER_EFFECTS);
 
 // ---- constants ----------------------------------------------------------------------------------

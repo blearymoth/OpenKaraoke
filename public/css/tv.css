@@ -43,6 +43,19 @@ body.tv.idle-cursor, body.tv.idle-cursor * { cursor: none !important; }
 #cdg { position: absolute; left: 0; top: 0; }
 /* panel (the default): a dark plate, 10% see-through; the disc's background colours are keyed out
    and its colours made readable on it */
+/* The other layouts (js/lib/lyric-lines-view.js): the disc's lines, each its own canvas, moved and
+   faded by transform and opacity only. The page's canvas hides meanwhile; 'wait': the lines are
+   being found (a moment as a song loads). */
+#lyrics:not([data-layout="page"]) #cdg { visibility: hidden; }
+#lyrics[data-layout="wait"] .lyr-plate { visibility: hidden; }
+.lyr-lines { position: absolute; inset: 0; pointer-events: none; }
+#lyrics[data-layout="page"] .lyr-lines, #lyrics[data-layout="wait"] .lyr-lines { display: none; }
+.lyr-line { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform, opacity; }
+/* countdown before a line that follows a pause: three dots above its start, one goes out a second */
+.lyr-count { position: absolute; left: 0; top: 0; display: none; gap: calc(var(--dot) * 0.7); }
+.lyr-count.on { display: flex; }
+.lyr-count i { width: var(--dot); height: var(--dot); border-radius: 50%; background: var(--neon); opacity: 0.18; }
+.lyr-count i.lit { opacity: 1; }
 #lyrics[data-look="panel"] .lyr-plate { background: rgba(var(--lyrics-plate-rgb), var(--lyrics-plate-alpha)); }
 /* clear: over the background, an outline baked into the letters */
 #lyrics[data-look="clear"] .lyr-plate { display: none; }

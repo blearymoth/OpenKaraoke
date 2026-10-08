@@ -105,6 +105,7 @@ export class TvController extends EventTarget {
     // The look and the skin's plate and outline colours (re-read: a skin switch came just before).
     this.lyrics.setOptions({
       look: normalizeLyricsLook(state.display.lyricsLook), motion: state.display.lyricsMotion, smoothing: state.display.cdgSmoothing !== false,
+      layout: state.display.lyricsLayout,
       ...lyricsColours(),
     });
     this.engine.normalize = state.playback.normalize !== false;

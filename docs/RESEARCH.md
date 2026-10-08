@@ -1,83 +1,10 @@
-# Research notes (September 2026)
+# Artwork research notes (September 2026)
 
-Collected while planning OpenKaraoke. Section 3's Deezer/iTunes field names come from the
+Collected while planning OpenKaraoke's cover art and metadata. Section 1's Deezer/iTunes field names come from the
 official docs and captured responses; they could not be fetched live from the build
 environment, so **verify them with one live request from the PC** before relying on them.
 
-## 1. KaraFun (Web, Windows, Mac, iOS/Android, TV) — the reference product
-
-**Player controls**
-- Key and tempo up/down, remembered per song; vocal guide on/off with separate lead/backing
-  vocal volumes (needs multitrack stems — not available for CDG+MP3).
-- "Ask options" dialog when queueing: singer name, key, tempo, vocals.
-- **Start in pause**: next song waits for the singer to press play.
-- Keyboard shortcuts for key, tempo, mute lead, ±5 s seek.
-
-**Display**: singer name shown at song start; light/dark theme; **dual screen** (separate
-lyrics window for the TV while the queue stays on the host screen); photos sent by guests
-appear under the lyrics; green-screen mode (Windows).
-
-**Remote control (QR lobby)**: QR code or remote code opens a browser page — no install.
-Guests browse the catalogue, queue songs, see what's coming up, send photos, join Quiz/Battle.
-Host sees who is connected. Pro: permission management, admin rights for chosen guests,
-hide karaoke/battle on guest phones, permanent printable QR code, up to 100 guests.
-
-**Singer rotation (Pro, 2025)**: groups (person / table / team, default one per phone); one
-song per group in turn; "those who haven't sung yet are prioritised"; "play with priority
-after" override; guests only see their own requests; rotation view vs classic queue view.
-
-**Library**: favourites, playlists, history, offline sync, BPM/key metadata, Vocal Match.
-
-**Between songs**: background music (5 built-in tunes, own MP3s on Windows); Automix (2026)
-picks music that fits the next song; scrolling banner with upcoming singers + custom message.
-
-**Games**
-- **Quiz**: 2–1,000 players answer on phones via QR. Round types: Riff, Intro, Missing Lyrics,
-  Helium, Stretched Tempo, Rewind, Band Builder, Music Culture. "Interlude": after an answer,
-  guests can sing a ~30 s karaoke snippet of that song.
-- **Battle** (2026): phones as microphones with real-time pitch scoring, "flames", live
-  leaderboard; **Battle Versus**: team duets with a podium. (Needs melody data — we substitute
-  audience voting / applause meter, see PLAN §13.)
-
-**Parental control**: explicit songs show an "E" tag but won't play; password to disable.
-
-**Gap OpenKaraoke fills**: KaraFun for Windows removed playback of local CDG/MP3/MP4 files.
-
-## 2. Features from other karaoke apps worth copying
-
-`[OK]` works with CDG+MP3 · `[NOTES]` needs melody/pitch data.
-
-- **Karaoke Mugen**: public suggestion list + operator-curated play list; crowd poll for the
-  next song; per-guest quotas (songs or minutes) freed by likes/time; smart insert
-  (first-time requesters first), balancing, smart shuffle; intros/outros/jingles/sponsors;
-  blind-test quiz (hide video/lyrics/sound, 25 s to guess, bonus < 10 s, 30 s reveal, fuzzy
-  answer matching); open/limited/closed guest interface; announcements; mystery songs;
-  blacklist/whitelist; random autoplay when the queue is empty. [OK]
-- **Karaoke Eternal** (open source, closest architecture): round-robin queue ("a latecomer
-  sings right after the next-up singer"), password rooms, QR join, stars, MP3+G incl. zipped,
-  MilkDrop visualisations behind CDG with background removed automatically. [OK]
-- **OpenKJ**: rotation with saved regulars, rotation ticker on the CDG screen, break music
-  that fades around each track, idle slideshow, remote requests, key/tempo/EQ, silence detection. [OK]
-- **AllKaraoke.party**: browser UltraStar game; phones become mics by scanning a QR code
-  ("Remote Mic", 1–4 players) with pitch scoring and duel mode. [NOTES]
-  (Note: phone mics need HTTPS — getUserMedia isn't available on plain-http LAN pages.)
-- **UltraStar Deluxe / Vocaluxe / Performous / UltraStar Play**: Duel, Blind, Until 5000,
-  Team duel with "pass the mic" cue, jokers to re-roll songs, Medley, Tic-Tac-Toe, Challenge,
-  tournaments. Scoring [NOTES]; jokers, hand-off cues and brackets work with voting. [OK]
-- **SingStar**: Battle, Duet, Pass the Mic (teams); Celebration mode randomly picks singer,
-  song and style. Random-picker structure [OK].
-- **Let's Sing**: Classic, Feat. (duets), Mixtape (5 short extracts), Let's Party (teams),
-  World Contest, phone-as-mic. Mixtape-style medleys [OK].
-- **Singa Party Mode**: join by QR or 4-letter code without account; host accepts, reorders,
-  removes requests. [OK]
-- **Lucky Voice**: "Pass the Mic" on-screen prompts; "Feeling Lucky?" random singer+song pairing. [OK]
-- **Smule**: async duets, "Moments" (sing one section). Mostly needs recording.
-- **Stingray**: vocals on/off, 100-song queue, casting, animated backdrops. [OK except vocals]
-- **Common party games** [OK]: song/singer roulette or theme wheel; name-that-tune on the intro;
-  missing lyrics (mask the CDG); helium/stretched/reversed rounds; duet-battle brackets with
-  phone voting; applause meter; karaoke bingo; blind singer; musical chairs.
-
-## 3. Cover art & graphics services
+## 1. Cover art & graphics services
 
 | Service | Auth | Rate limit | Images | Notes |
 | --- | --- | --- | --- | --- |
@@ -118,14 +45,6 @@ trackTimeMillis`.
    the host a "fix artwork" screen for low-confidence matches. Keep it private/non-commercial.
 
 ## Sources
-KaraFun: karafun.com/features, karafun.com/remote, karafun.com/help (web_610, web_484, web_487,
-web_483, windows_404, general_176), karafun.com/blog/1511 (singer rotation), /blog/1670 (quiz),
-/blog/1522 (interlude), /blog/1749 & /blog/1771 (battle), /blog/1755 (party games),
-karafun.com/pro, business.karafun.com, App Store listing id431050674.
-Other apps: mugen.karaokes.moe/en/features.html, docs.karaokes.moe, karaoke-eternal.com (+ GitHub
-CHANGELOG), github.com/OpenKJ/OpenKJ, allkaraoke.party, github.com/UltraStar-Deluxe/USDX/wiki/Party-Mode,
-Vocaluxe GameDesignDocument, performous.org, en.wikipedia.org/wiki/SingStar, singa.com/blog/introducing-party-mode-karaoke,
-luckyvoice.com/blog/lucky-voice-karaoke-software-games, stingray.com.
 Artwork: developers.deezer.com/termsofuse, navidrome.org/docs/usage/integration/external-services,
 performance-partners.apple.com/search-api, developer.apple.com iTunes Search API docs,
 musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting, musicbrainz.org/doc/Cover_Art_Archive/API,

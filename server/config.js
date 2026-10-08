@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { JsonDoc, deepMerge, isPlainObject } from './util/jsonfile.js';
 import { THEMES, DEFAULT_THEME, ACCENT_RE, normalizeAccent, normalizeAppearance } from '../shared/themes.js';
-import { LYRICS_LOOKS, LYRICS_MOTIONS, LIGHTER_EFFECTS, DEFAULT_LYRICS_LOOK, DEFAULT_LYRICS_MOTION, DEFAULT_LIGHTER_EFFECTS } from '../shared/lyrics.js';
+import { LYRICS_LOOKS, LYRICS_MOTIONS, LYRICS_LAYOUTS, LIGHTER_EFFECTS, DEFAULT_LYRICS_LOOK, DEFAULT_LYRICS_MOTION, DEFAULT_LYRICS_LAYOUT, DEFAULT_LIGHTER_EFFECTS } from '../shared/lyrics.js';
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const PUBLIC_DIR = path.join(APP_ROOT, 'public');
@@ -88,6 +88,8 @@ export const DEFAULT_SETTINGS = {
     // an outline) | 'disc' (as the disc made them); scrolling 'smooth' (glides) | 'disc' (steps).
     lyricsLook: DEFAULT_LYRICS_LOOK,
     lyricsMotion: DEFAULT_LYRICS_MOTION,
+    // how the lines are laid out: 'page' (the disc's pages) | 'lines' (two at a time) | 'scroll' (a scrolling list)
+    lyricsLayout: DEFAULT_LYRICS_LAYOUT,
     cdgSmoothing: true, // rounded letters (Scale2x); off: the disc's square pixels, each a whole number of screen pixels
     lighterEffects: DEFAULT_LIGHTER_EFFECTS, // 'auto' | 'on' | 'off': still backgrounds, no blur, on the TV page
     showQr: true,
@@ -227,7 +229,7 @@ export class Settings extends JsonDoc {
 }
 
 /** Settings in `display` that take one value from a list (anything else is ignored). */
-const DISPLAY_CHOICES = [['lyricsLook', LYRICS_LOOKS], ['lyricsMotion', LYRICS_MOTIONS], ['lighterEffects', LIGHTER_EFFECTS]];
+const DISPLAY_CHOICES = [['lyricsLook', LYRICS_LOOKS], ['lyricsMotion', LYRICS_MOTIONS], ['lyricsLayout', LYRICS_LAYOUTS], ['lighterEffects', LIGHTER_EFFECTS]];
 
 /** The accent colour every party had before skins existed (display.accent's old default). */
 export const LEGACY_ACCENT = '#ff3d8b';

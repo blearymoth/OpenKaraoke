@@ -1,4 +1,4 @@
-// Host app (/host): KaraFun-style layout — top bar, navigation, main view, the admin panel (queue,
+// Host app (/host): sidebar layout — top bar, navigation, main view, the admin panel (queue,
 // playback, devices) and the player bar; on phones the panel is a "Control" page and the player
 // a mini player.
 import { html, render, useEffect, useRef, useState } from '../vendor/preact.js';

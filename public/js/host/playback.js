@@ -11,9 +11,11 @@ import { IntroStatus, TransportButtons, SeekBar, VolumeControl, canOpenTv, openT
 import { VocalsControl } from './vocals.js';
 import { LOOPBACK } from './preview.js';
 import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
-import { normalizeLyricsLook } from '/shared/lyrics.js';
+import { normalizeLyricsLook, normalizeLyricsLayout } from '/shared/lyrics.js';
 
 /** display.lyricsLook in a narrow row (Settings → TV display has the long names). */
+/** display.lyricsLayout in a narrow row. */
+const LYRICS_LAYOUT_SHORT = [['page', 'Pages'], ['lines', 'Two lines'], ['scroll', 'Scrolling']];
 const LYRICS_LOOK_SHORT = [['panel', 'On a dark panel'], ['clear', 'With an outline'], ['disc', 'As the disc made them']];
 
 const LABELS = { intro: 'Getting ready', ready: 'Ready to start', playing: 'Singing now', paused: 'Paused' };
@@ -244,6 +246,10 @@ function VideoSection({ state, narrow }) {
         <div class="qs-row"><span>Lyrics timing<br /><span class="hint">Raise it if the lyrics run behind the music.</span></span>
           <${Stepper} label="Lyrics" value=${offset} display=${`${offset > 0 ? '+' : ''}${offset} ms`} min=${-2000} max=${2000} step=${50}
             onChange=${(v) => saveSetting('playback.lyricOffsetMs', v, { quiet: true })} onReset=${() => saveSetting('playback.lyricOffsetMs', 0, { quiet: true })} /></div>
+        <label class="qs-row"><span>Lyrics layout</span>
+          <select class="select" value=${normalizeLyricsLayout(settings.display.lyricsLayout)} aria-label="Lyrics layout" onChange=${(e) => saveSetting('display.lyricsLayout', e.currentTarget.value, { quiet: true })}>
+            ${LYRICS_LAYOUT_SHORT.map(([v, l]) => html`<option value=${v}>${l}</option>`)}
+          </select></label>
         <label class="qs-row"><span>Lyrics look</span>
           <select class="select" value=${normalizeLyricsLook(settings.display.lyricsLook)} aria-label="Lyrics look" onChange=${(e) => saveSetting('display.lyricsLook', e.currentTarget.value, { quiet: true })}>
             ${LYRICS_LOOK_SHORT.map(([v, l]) => html`<option value=${v}>${l}</option>`)}

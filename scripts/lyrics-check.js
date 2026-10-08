@@ -2,8 +2,11 @@
 // Checks how the TV's readable lyrics (shared/lyrics.js, docs/PLAN.md §9) treat a real karaoke
 // library: for a random sample of discs, whether they scroll pixel by pixel (and the smoothing
 // chosen), which colours are keyed as background, whether the palette is flipped (dark words on
-// a light disc), whether halos are tamed, and whether the disc uses DEFINE_TRANSPARENT. Writes PNG
-// contact sheets (the panel, clear and disc looks at three moments of each disc) to look through.
+// a light disc), whether halos are tamed, and whether the disc uses DEFINE_TRANSPARENT; and for the
+// other layouts (PLAN §9.6) whether its sung lines can be followed (else the TV keeps its pages, and
+// why), how many, and how early a line shows in the two-line layout against the disc's own page
+// turns. Writes PNG contact sheets (the panel, clear and disc looks at three moments of each disc,
+// then the two-line layout at the middle moment) to look through.
 // Plain .cdg files only (zipped tracks are skipped). Dev tool: not used at runtime.
 //
 //   node scripts/lyrics-check.js "<karaoke folder>" [--sample 200] [--out folder] [--seed 1]
@@ -15,6 +18,8 @@ import {
   contrast, ScreenKeying, lyricsLut, maskColours, outlineIndices, oklab, panelBackdrop, readablePalette, roleStats, rolesFromStats, scrollTimeline,
   CONTRAST_TARGET,
 } from '../shared/lyrics.js';
+import { analyzeLines } from '../shared/lyric-lines.js';
+import { twoLinePlan, shown } from '../shared/lyric-layout.js';
 import { GLYPHS, FONT_HEIGHT } from './lib/cdg-font.js';
 import { encodePng } from './lib/png.js';
 
@@ -87,6 +92,42 @@ function tile(dec, look, K, main, roles) {
   return out;
 }
 
+/** One 288×192 tile of the two-line layout at time t (panel look), or a grey tile saying why not. */
+function linesTile(a, t, roles) {
+  const out = new Uint8Array(TW * TH * 4);
+  const panel = panelBackdrop(PLATE);
+  for (let i = 0; i < TW * TH; i++) out.set([...panel, 255], i * 4);
+  if (!a.ok) {
+    for (let i = 0; i < TW * TH; i++) out.set([60, 60, 60, 255], i * 4);
+    text(out, TW, 6, 80, `pages: ${a.reason}`.slice(0, 40), [255, 200, 120]);
+    return out;
+  }
+  const plan = twoLinePlan(a.lines);
+  const hMax = Math.max(...a.lines.map((l) => l.h));
+  const top = Math.round(TH * 0.6 - hMax - 6);
+  const p = Math.floor(t * 300);
+  a.lines.forEach((l, j) => {
+    const alpha = shown(plan[j], t);
+    if (alpha <= 0) return;
+    const lut = lyricsLut('panel', l.palette, l.K, l.main, roles, PLATE, OUTLINE);
+    const ox = Math.round((TW - l.w) / 2);
+    const oy = top + plan[j].slot * (hMax + 12) + Math.round((hMax - l.h) / 2);
+    for (let y = 0; y < l.h; y++) {
+      for (let x = 0; x < l.w; x++) {
+        const i = y * l.w + x;
+        const word = lut[l.at[i] > 0 && l.at[i] <= p ? l.sung[i] : l.unsung[i]];
+        const a8 = ((word >>> 24) / 255) * alpha;
+        if (!a8 || ox + x >= TW || oy + y >= TH || oy + y < 0) continue;
+        const o = ((oy + y) * TW + ox + x) * 4;
+        out[o] = Math.round((word & 255) * a8 + out[o] * (1 - a8));
+        out[o + 1] = Math.round(((word >>> 8) & 255) * a8 + out[o + 1] * (1 - a8));
+        out[o + 2] = Math.round(((word >>> 16) & 255) * a8 + out[o + 2] * (1 - a8));
+      }
+    }
+  });
+  return out;
+}
+
 function text(img, w, x, y, str, rgb) {
   for (const ch of str) {
     const g = GLYPHS.get(ch.charCodeAt(0)) || GLYPHS.get(63);
@@ -105,13 +146,14 @@ function text(img, w, x, y, str, rgb) {
 }
 
 const rows = [];
-const totals = { discs: 0, failed: 0, scrolling: 0, smoothed: 0, flipped: 0, halosTamed: 0, defineTransparent: 0, pictureScreens: 0, weakBefore: 0 };
+const totals = { discs: 0, failed: 0, scrolling: 0, smoothed: 0, flipped: 0, halosTamed: 0, defineTransparent: 0, pictureScreens: 0, weakBefore: 0, linesOk: 0, earlier: 0 };
+const pageReasons = new Map();
 let sheet = [];
 let sheetNo = 0;
 
 function writeSheet() {
   if (!sheet.length) return;
-  const cols = LOOKS.length * 3;
+  const cols = LOOKS.length * 3 + 1;
   const w = cols * (TW + 4) - 4;
   const h = sheet.length * (TH + LABEL + 6);
   const img = new Uint8Array(w * h * 4);
@@ -171,6 +213,12 @@ for (const file of sample) {
     }
     for (const look of LOOKS) tiles.push(tile(dec, look, K, main, roles));
   }
+  const lines = analyzeLines(bytes);
+  tiles.push(linesTile(lines, times[Math.floor(times.length / 2)], roles));
+  // how early each line shows: the disc (from when it is drawn) and the two-line layout
+  const plan = lines.ok ? twoLinePlan(lines.lines) : [];
+  const leadDisc = lines.lines.length ? Math.min(...lines.lines.map((l) => l.start - l.appear)) : null;
+  const leadOurs = plan.length ? Math.min(...lines.lines.map((l, j) => l.start - plan[j].in)) : null;
   const row = {
     file: rel,
     seconds: Math.round(dec.duration),
@@ -184,6 +232,7 @@ for (const file of sample) {
     pictureScreens: pictures,
     defineTransparent: transparent,
     times,
+    lines: { ok: lines.ok, reason: lines.reason, count: lines.lines.length, coverage: +lines.coverage.toFixed(3), leadDisc: leadDisc === null ? null : +leadDisc.toFixed(2), leadTwoLines: leadOurs === null ? null : +leadOurs.toFixed(2) },
   };
   rows.push(row);
   if (tl) totals.scrolling++;
@@ -193,6 +242,9 @@ for (const file of sample) {
   if (transparent) totals.defineTransparent++;
   if (pictures) totals.pictureScreens++;
   if (weak) totals.weakBefore++;
+  if (lines.ok) totals.linesOk++;
+  else pageReasons.set(lines.reason.replace(/\d+/g, 'N'), (pageReasons.get(lines.reason.replace(/\d+/g, 'N')) || 0) + 1);
+  if (lines.ok && leadOurs > leadDisc) totals.earlier++;
   const flags = [
     tl ? `scrolls (box ${row.smoothing.boxMs} ms, insets ${tl.insTop}/${tl.insBot})` : '',
     flip ? 'flipped' : '',
@@ -200,9 +252,10 @@ for (const file of sample) {
     weak ? 'weak colours fixed' : '',
     transparent ? `DEFINE_TRANSPARENT ×${transparent}` : '',
     pictures ? `${pictures} picture screen(s)` : '',
+    lines.ok ? `${lines.lines.length} lines (${Math.round(lines.coverage * 100)} % of the singing), two lines show each ${leadOurs.toFixed(1)} s+ ahead (the disc ${leadDisc.toFixed(1)} s)` : `kept as pages (${lines.reason})`,
   ].filter(Boolean).join(', ');
   console.log(`${rel}\n    keyed ${row.keyed.join(',') || '-'}; roles ${roles.sig}${flags ? `; ${flags}` : ''}`);
-  sheet.push({ label: `${totals.discs}. ${path.basename(file, path.extname(file))}  [panel | clear | disc at ${times.join(' s, ')} s]`, tiles });
+  sheet.push({ label: `${totals.discs}. ${path.basename(file, path.extname(file))}  [panel | clear | disc at ${times.join(' s, ')} s | two lines]`, tiles });
   if (sheet.length === PER_SHEET) writeSheet();
 }
 writeSheet();
@@ -211,4 +264,6 @@ fs.writeFileSync(path.join(outDir, 'report.json'), JSON.stringify({ root, totals
 console.log(`\n${totals.discs} discs: ${totals.scrolling} scroll pixel by pixel (${totals.smoothed} smoothed), ${totals.flipped} flipped to light text,`);
 console.log(`${totals.weakBefore} had lyric colours under 7:1, ${totals.halosTamed} had halos tamed, ${totals.defineTransparent} use DEFINE_TRANSPARENT,`);
 console.log(`${totals.pictureScreens} show a picture screen (nothing keyed)${totals.failed ? `; ${totals.failed} unreadable` : ''}.`);
+console.log(`Layouts: ${totals.linesOk} of ${totals.discs} discs can be shown as two lines / scrolling (${totals.earlier} show their lines earlier than the disc does);`);
+console.log(`kept as pages: ${[...pageReasons].map(([r, n]) => `${n} × ${r}`).join(', ') || 'none'}.`);
 console.log(`Contact sheets (${sheetNo}) and report.json in ${outDir}`);

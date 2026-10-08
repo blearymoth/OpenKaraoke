@@ -15,8 +15,10 @@
 import { CdgDecoder, scale2xRect, CDG_WIDTH as MW, CDG_HEIGHT as MH, CDG_VISIBLE_X as VX, CDG_VISIBLE_Y as VY, CDG_VISIBLE_WIDTH as VW, CDG_VISIBLE_HEIGHT as VH } from '/shared/cdg.js';
 import {
   ScreenKeying, lyricsLut, outlineIndices, rolesFromHist, rolesFromStats, roleStatsAsync, scrollShift, scrollTimeline,
-  normalizeLyricsLook, normalizeLyricsMotion,
+  normalizeLyricsLook, normalizeLyricsMotion, normalizeLyricsLayout,
 } from '/shared/lyrics.js';
+import { linesAsync } from '/shared/lyric-lines.js';
+import { LineView } from './lyric-lines-view.js';
 import { token } from './theme.js';
 
 const MEM = MW * MH;
@@ -53,6 +55,10 @@ export class LyricsRenderer {
     this.plate = options.plate || { rgb: [0, 0, 0], a: 0.9 };
     this.outline = options.outline || { rgb: [0, 0, 0], a: 0.9 };
     this.lyrics.dataset.look = this.look;
+    this.layoutWanted = normalizeLyricsLayout(options.layout);
+    this.lines = null; // the song's sung lines (shared/lyric-lines.js): null while they are being found
+    this.lineView = new LineView(win); // the other layouts: two lines, a scrolling list
+    this.lineView.setStyle({ look: this.look, smoothing: this.smoothing, plate: this.plate, outline: this.outline });
     this.decoder = null;
     this.timeline = null;
     this.roles = null; // the song's colour roles, once the load-time pass is done
@@ -82,7 +88,10 @@ export class LyricsRenderer {
    * disc's square pixels (a whole number of device pixels each); motion: 'smooth' | 'disc';
    * plate, outline: { rgb: [r, g, b], a } (lyricsColours()).
    */
-  setOptions({ look = this.look, smoothing = this.smoothing, motion = this.motion, plate = this.plate, outline = this.outline } = {}) {
+  setOptions({ look = this.look, smoothing = this.smoothing, motion = this.motion, plate = this.plate, outline = this.outline, layout = this.layoutWanted } = {}) {
+    layout = normalizeLyricsLayout(layout);
+    const relayoutLines = layout !== this.layoutWanted;
+    this.layoutWanted = layout;
     look = normalizeLyricsLook(look);
     motion = normalizeLyricsMotion(motion);
     smoothing = smoothing !== false;
@@ -91,7 +100,19 @@ export class LyricsRenderer {
     Object.assign(this, { look, smoothing, motion, plate, outline });
     if (this.lyrics.dataset.look !== look) this.lyrics.dataset.look = look;
     if (recolour) this.stale = true;
-    if (relayout) this.layout();
+    this.lineView.setStyle({ look, smoothing, plate, outline });
+    if (relayout || relayoutLines) this.layout();
+  }
+
+  /**
+   * The layout shown: the one chosen when the song's lines could be followed; 'wait' while they
+   * are being found (nothing is shown for that moment, rather than a page that would vanish);
+   * else 'page'.
+   */
+  get layoutShown() {
+    if (this.layoutWanted === 'page' || !this.decoder) return 'page';
+    if (!this.lines) return 'wait';
+    return this.lines.ok ? this.layoutWanted : 'page';
   }
 
   get loaded() {
@@ -114,6 +135,7 @@ export class LyricsRenderer {
     this.decoder = new CdgDecoder(bytes);
     this.timeline = scrollTimeline(this.decoder.bytes);
     this.roles = null;
+    this.lineView.setStyle({ roles: null });
     this.keying = new ScreenKeying();
     this.lastT = null;
     this.drawnVersion = -1;
@@ -122,13 +144,26 @@ export class LyricsRenderer {
       if (!stats || gen !== this.gen) return;
       this.roles = rolesFromStats(stats);
       this.stale = true;
+      this.lineView.setStyle({ roles: this.roles });
     }, () => {}); // no statistics: every colour stays a fill
+    this.lines = null;
+    this.lineView.clear();
+    linesAsync(this.decoder.bytes, { cancelled: () => gen !== this.gen }).then((lines) => {
+      if (!lines || gen !== this.gen) return;
+      this.lines = lines;
+      this.lineView.setSong(lines.ok ? lines : null);
+      this.layout();
+    }, () => {
+      if (gen === this.gen) this.lines = { ok: false, reason: 'failed', lines: [] };
+    });
     this.g.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.layout();
   }
 
   unload() {
     this.gen++;
+    this.lines = null;
+    this.lineView.clear();
     this.decoder = null;
     this.timeline = null;
     this.roles = null;
@@ -166,7 +201,8 @@ export class LyricsRenderer {
     const boxH = VH * k;
     const left = Math.round((view.innerWidth * dpr - boxW) / 2);
     const top = Math.round((view.innerHeight * dpr - boxH) / 2);
-    const ins = this.insets;
+    const shownLayout = this.layoutShown;
+    const ins = shownLayout === 'page' ? this.insets : { top: 0, bottom: 0 };
     const insTop = Math.round(ins.top * k);
     const insBot = Math.round(ins.bottom * k);
     const px = (v) => `${v / dpr}px`;
@@ -197,6 +233,15 @@ export class LyricsRenderer {
     this.insTopDev = insTop;
     this.full = true;
     this.lastTf = '';
+    if (this.lyrics.dataset.layout !== shownLayout) this.lyrics.dataset.layout = shownLayout;
+    this.lyrics.dataset.layoutWanted = this.layoutWanted;
+    const lined = shownLayout === 'lines' || shownLayout === 'scroll';
+    if (lined) this.lineView.setLayout(shownLayout, { w: boxW, h: boxH, dpr });
+    // the panel's plate: behind the two lines only (a band), else the whole box
+    const band = lined ? this.lineView.plateBand() : null;
+    Object.assign(this.plateEl.style, band ? { top: px(band.top), bottom: 'auto', height: px(band.height) } : { top: '', bottom: '', height: '' });
+    const first = lined ? this.lines.lines[0] : null;
+    this.win.style.background = first && this.look === 'disc' ? `rgb(${[0, 1, 2].map((i) => first.palette[first.main * 3 + i])})` : '';
     if (this.decoder && this.lastT !== null) this.render(this.lastT);
   }
 
@@ -208,6 +253,13 @@ export class LyricsRenderer {
     if (this.lastT !== null && t < this.lastT && this.lastT - t < HOLD) t = this.lastT;
     this.lastT = t;
     d.seek(t); // a real seek back replays the song from the start: a few milliseconds
+    const shownLayout = this.layoutShown;
+    if (shownLayout !== this.lyrics.dataset.layout) this.layout();
+    if (shownLayout !== 'page') {
+      this.full = true; // (the page is drawn whole when it shows again)
+      if (shownLayout !== 'wait') this.lineView.render(t);
+      return false;
+    }
     const drew = d.version !== this.drawnVersion || this.stale || this.full ? this.update() : false;
     let v = d.vOffset;
     if (this.motion === 'smooth' && this.timeline) v += scrollShift(this.timeline, t * 300, d.position);

@@ -1,16 +1,17 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-08 (the one-download installer, after readable lyrics; run in a cloud
-sandbox without the owner's PC or drive)._
+_Last updated: 2026-10-08 (lyric layouts: two lines and a scrolling list, after the installer;
+run in a cloud sandbox without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), seven party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 484/484; `npm run e2e` → 15 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 497/497; `npm run e2e` → 16 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `admin.mjs` and
-  `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics); `npm --prefix desktop test` → 46/46 + 35/35 (the
+  `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
+  `layouts.mjs` the lyric layouts); `npm --prefix desktop test` → 46/46 + 35/35 (the
   desktop app, also against the built installer, and the setup window; the release workflow also
   runs the setup test against the real AppImage from `OpenKaraoke-Setup.zip`). Every milestone also went through an independent review
   whose confirmed findings were fixed and re-verified (table below).
@@ -47,6 +48,13 @@ sandbox without the owner's PC or drive)._
   effects come on by themselves where the TV draws without a graphics card. Settings → TV
   display: **Lyrics**, **Scrolling lyrics**, **Lighter effects on the TV**. See "Readable
   lyrics" below; check a real library with `node scripts/lyrics-check.js` (checklist item 17).
+- **Lyric layouts** (2026-10-08, after the installer): Settings → TV display → **Lyrics layout**
+  (also in the Playback tab): **Pages, as on the disc** (default, as before), **Two lines at a
+  time** (the line being sung and the next one, karaoke-bar style) or **Scrolling list, like music
+  apps**. The TV finds each disc's sung lines when a song loads and re-arranges the disc's own
+  letters; a disc whose lines can't be followed stays as pages. Checked frame by frame for
+  readability, jitter and confusion — see "Lyric layouts" below; on the real library run
+  `node scripts/lyrics-check.js` (checklist item 17: its sheets now end with the two-line layout).
 - **One-download installer** (2026-10-08, version 0.2): the primary way to install is now **one
   file for any 64-bit Linux PC**, `OpenKaraoke-Setup.zip` (README links to
   `releases/latest/download/OpenKaraoke-Setup.zip`). Unzip it with a double-click, double-click
@@ -232,6 +240,14 @@ sandbox without the owner's PC or drive)._
     `data-lite-reason` on the page).
     Note the discs that look wrong (artist, title, brand) and what you saw; "As the disc made
     them" is the fallback for a party.
+    **Lyric layouts** (see "Lyric layouts" below): the same run of `lyrics-check.js` prints, per
+    disc, how many sung lines it found (or why the disc stays as pages) and how early the two-line
+    layout shows each line against the disc's own page turns; the last picture of each row of the
+    sheets is the two-line layout. At the end it counts the discs that can use the layouts and the
+    reasons for the rest. Look for lines cut in two, two lines merged into one, junk in a line, or a
+    disc kept as pages that clearly has a wipe. Then on the TV: Settings → TV display → Lyrics
+    layout → Two lines, then Scrolling list, on a paging disc, a smooth-scrolling one and a duet
+    (from across the room: can you always tell which line to sing, and what comes next?).
 18. **The installer on a fresh PC** (best: the uncle's Ubuntu 24.04, as a normal user): open the
     README's **Download OpenKaraoke for Linux** link in Firefox → in Files, Downloads,
     double-click `OpenKaraoke-Setup.zip` (an "Install OpenKaraoke" file appears) → double-click
@@ -772,6 +788,53 @@ the same screen stay hidden while what is left of that background is most of tha
 title card being painted over); an even half frame rate (every frame two refreshes) does not
 turn lighter effects on (it looks the same as a 30 Hz TV mode); the "Reconnecting…" pill can reach ≈3 px into the box at 16:9; in Party the mirror badge still
 overlaps the end of the ticker message on narrow screens (as before).
+
+## Lyric layouts (after the installer)
+**Why**: the owner — "I want this app to have several different popular methods of displaying
+text. Verify its readable and not jittery or confusing." The library is CD+G: the lyrics are
+pictures, not text, so the TV now finds each disc's **sung lines** (the disc's own letters, each
+pixel's unsung and sung colour and the moment it turns) and re-arranges them. PLAN §9.6 has the
+spec, the measurements and the known limits.
+
+**What the host sees**: Settings → TV display → **Lyrics layout**: "Pages, as on the disc"
+(default: unchanged), "Two lines at a time", "Scrolling list, like music apps"; the Playback tab's
+On the TV has it in short. The looks (panel, outline, disc colours), smoothing and lighter effects
+apply to every layout.
+
+**What the TV does**:
+- `shared/lyric-lines.js`: one pass over the packets as the song loads (8 ms slices, ≈60–200 ms):
+  letters re-coloured without being erased are being sung; a line is the band of ink around where
+  singing starts; it keeps its own pixels until the screen is cleared, it is erased or written over,
+  or it scrolls away. Page redraws (tiles that erase, re-colouring back to the unsung colour) and
+  stray pixels far from the line's burst of changes are not singing; ink more than 3 px from
+  anything sung is dropped. Fewer than 4 lines or under 60 % of the re-colouring in them: the disc
+  stays as pages.
+- `shared/lyric-layout.js`: pure functions of the song time — two places taken in turn (a line never
+  moves; the next line is up while one is sung; a line comes in at least 1 s before it is sung when
+  the line two before is done by then; a verse's first two lines 4 s early with a three-dot
+  countdown; a pause over 8 s clears the screen) and the scrolling plan (one 0.45 s eased glide per
+  line, ending as it starts; duet lines sung together share one stop; brightness 1 / 0.6 / 0.38).
+- `public/js/lib/lyric-lines-view.js`: one small canvas per line shown, redrawn only while it is sung,
+  moved and faded by transform/opacity in whole device pixels (no filter); inside today's lyric box,
+  so every overlay rule still holds. `lyrics-renderer.js` picks the layout (`data-layout` on
+  `#lyrics`: `page`, `lines`, `scroll`, or `wait` for the moment the pass runs).
+
+**Verified**: `test/lyric-lines.test.js` (12 tests: every line of four disc styles — pages with a
+late page turn and an instrumental, rolling replacement with a highlight bar, a duet with two lines
+sung at once, a disc that never re-colours — and of every demo song, at the disc's own moments; the
+plans' guarantees on all of them) and `test/e2e/layouts.mjs` (33 checks; ≈1,500 animation frames
+recorded and checked against the plan: no move outside a glide, never backwards, no opacity jump,
+each wipe pixel-exact, the sung line always up and the next one by its middle; letters 7:1 on the
+panel and 6.9 % of the screen high; 60 fps at 1080p and 4K in software drawing, 0.3 ms of script a
+frame). Real discs: two public samples from GitHub projects (a Sound Choice disc and a home-made one;
+kept out of the repository) — all 101 and 38 lines found in order, 100 % of the singing; on the Sound
+Choice disc the two-line layout shows every line 0.57 s or more ahead (median 2.8 s) where the disc's
+own page turns give 0.4 s.
+
+**Known limits**: two lines can't show a line before the line two before it is sung, so after a very
+short line the next one has only that long (the scrolling list has no such limit); colour-cycling
+wipes are not followed (pages); a line the disc draws wider than its screen stays cut. Not tried on
+the owner's library (checklist item 17).
 
 ## One-download installer (after readable lyrics)
 **Why**: the owner's uncle (Ubuntu 24.04, not technical) couldn't set the app up — he went the

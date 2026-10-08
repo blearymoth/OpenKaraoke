@@ -165,7 +165,24 @@ try {
   await win.click('button.primary:has-text("Install")');
   await win.waitForSelector('h1:has-text("OpenKaraoke is installed")', { timeout: 60_000 });
   check(exists(paths.menuEntry) && exists(paths.autostart), 'repair puts the menu entry back (the start at login switch shows what is set: on)');
-  await win.click('button:has-text("Close")');
+  await win.click('button:has-text("Close")').catch(() => {}); // (the setup quits: the click may not see its end)
+  await closed(app);
+  app = null;
+  // An older copy installed: the setup offers to update it.
+  const note = JSON.parse(await fs.readFile(paths.info, 'utf8'));
+  await fs.writeFile(paths.info, JSON.stringify({ ...note, version: '0.0.1' }));
+  app = await launch(setupFile);
+  win = await app.firstWindow();
+  await win.waitForSelector('h1', { timeout: 30_000 });
+  const updateTitle = await win.textContent('h1');
+  const lead = (await win.textContent('.lead')).replace(/\s+/g, ' ');
+  check(updateTitle === 'Update OpenKaraoke' && /Version 0\.0\.1 is installed/.test(lead) && await win.isVisible('button.primary:has-text("Update")'),
+    `an older copy installed: "${updateTitle}" (${lead.slice(0, 60)}…)`);
+  await shot(win, 'setup-3b-update');
+  await win.click('button.primary:has-text("Update")');
+  await win.waitForSelector('h1:has-text("OpenKaraoke is installed")', { timeout: 60_000 });
+  check(JSON.parse(await fs.readFile(paths.info, 'utf8')).version !== '0.0.1', 'Update installs this version over it');
+  await win.click('button:has-text("Close")').catch(() => {}); // (the setup quits: the click may not see its end)
   await closed(app);
   app = null;
 
@@ -205,13 +222,24 @@ try {
     await back.evaluate(() => { location.hash = '#/settings/about'; });
     await back.waitForSelector('.section-title:has-text("On this computer")', { timeout: 20_000 });
     await back.click('label.switch:has(input[aria-label="Keep the party running when this window is closed"])');
-    // Uninstall… from Settings → About, keeping the settings.
-    await back.click('button:has-text("Uninstall…")');
-    await back.waitForSelector('.uninstall-ask');
-    await shot(back, 'app-about-uninstall');
+    await poll(async () => JSON.parse(await fs.readFile(path.join(userData, 'startup.json'), 'utf8')).background === false, 5000);
+    // Quit OpenKaraoke (a visible way out, for server mode): saves and ends.
+    const ended = app.waitForEvent('close', { timeout: 30_000 }).then(() => true, () => false);
+    await back.click('button:has-text("Quit OpenKaraoke")');
+    check(await ended && !exists(path.join(userData, 'data', 'server.json')), 'Settings → About → Quit OpenKaraoke saves the party and quits');
+    app = await launch(paths.appImage);
+    const again = await app.firstWindow();
+    await again.waitForURL(/\/host/, { timeout: 60_000 });
+    await again.evaluate(() => { location.hash = '#/settings/about'; });
+    await again.waitForSelector('.section-title:has-text("On this computer")', { timeout: 20_000 });
+    // Uninstall… asks in the system's own dialog (answered here), keeping the settings.
+    await app.evaluate(() => { process.env.OPENKARAOKE_TEST_ANSWER = JSON.stringify({ response: 1 }); });
+    await again.click('button:has-text("Uninstall…")');
+    await sleep(800);
+    check(exists(paths.appImage) && (await app.evaluate(() => globalThis.okAsked || [])).includes('Uninstall OpenKaraoke?'), 'Uninstall… asks first in the system’s own dialog; Cancel changes nothing');
     const gone = app.waitForEvent('close', { timeout: 30_000 }).catch(() => {});
-    await app.evaluate(() => { process.env.OPENKARAOKE_TEST_ANSWER = JSON.stringify({ response: 0 }); });
-    await back.click('.uninstall-ask button:has-text("Uninstall")');
+    await app.evaluate(() => { process.env.OPENKARAOKE_TEST_ANSWER = JSON.stringify({ response: 0, checkboxChecked: false }); });
+    await again.click('button:has-text("Uninstall…")');
     await gone;
     app = null;
     check(!exists(paths.appImage) && !exists(paths.menuEntry) && !exists(paths.shortcut) && !exists(paths.autostart) && !exists(paths.dir),
@@ -226,20 +254,31 @@ try {
   if ((await win.textContent('h1')) === 'Install OpenKaraoke') {
     await win.click('button.primary:has-text("Install")');
     await win.waitForSelector('h1:has-text("OpenKaraoke is installed")', { timeout: 60_000 });
-    await win.click('button:has-text("Close")');
+    await win.click('button:has-text("Close")').catch(() => {}); // (the setup quits: the click may not see its end)
     await closed(app);
     app = await launch(setupFile);
     win = await app.firstWindow();
     await win.waitForSelector('h1:has-text("OpenKaraoke is installed")', { timeout: 30_000 });
   }
+  // OpenKaraoke open meanwhile: the setup quits it on request before uninstalling.
+  let running = await launch(paths.appImage);
+  await (await running.firstWindow()).waitForURL(/\/host/, { timeout: 60_000 });
   await win.click('button:has-text("Uninstall OpenKaraoke…")');
   await win.waitForSelector('h1:has-text("Uninstall OpenKaraoke?")');
+  await win.waitForSelector('button:has-text("Quit OpenKaraoke for me")', { timeout: 10_000 });
+  check(await win.isDisabled('button.danger:has-text("Uninstall")'), 'with OpenKaraoke open, Uninstall waits — and offers to quit it');
+  await shot(win, 'setup-5-running');
+  const runningGone = running.waitForEvent('close', { timeout: 30_000 }).then(() => true, () => false);
+  await win.click('button:has-text("Quit OpenKaraoke for me")');
+  check(await runningGone, '“Quit OpenKaraoke for me” ends the open OpenKaraoke (the party saved)');
+  running = null;
+  await win.waitForSelector('button.danger:has-text("Uninstall"):not([disabled])', { timeout: 30_000 });
   await win.check('.check-row input[type="checkbox"]');
   await shot(win, 'setup-5-ask-uninstall');
   await win.click('button.danger:has-text("Uninstall")');
   await win.waitForSelector('h1:has-text("OpenKaraoke has been removed")', { timeout: 30_000 });
-  check(!exists(paths.appImage) && !exists(paths.menuEntry) && !exists(userData), 'Uninstall in the setup window removes the app and, when ticked, the settings');
-  await win.click('button:has-text("Close")');
+  check(!exists(paths.appImage) && !exists(paths.menuEntry) && !exists(userData), 'Uninstall in the setup window removes the app and, when ticked, what it saved (Trash or deleted)');
+  await win.click('button:has-text("Close")').catch(() => {}); // (the setup quits: the click may not see its end)
   await closed(app);
   app = null;
 
@@ -251,7 +290,7 @@ try {
   await win.click('button.primary:has-text("Install")');
   await win.waitForSelector('h1:has-text("OpenKaraoke is installed")', { timeout: 60_000 });
   check(!exists(paths.shortcut), 'no desktop shortcut when it is switched off');
-  await win.click('button:has-text("Close")');
+  await win.click('button:has-text("Close")').catch(() => {}); // (the setup quits: the click may not see its end)
   await closed(app);
   app = null;
   const asked = await new Promise((resolve) => {
@@ -263,6 +302,15 @@ try {
     child.on('close', (code) => { clearTimeout(timer); resolve(code); });
   });
   check(asked === 0 && !exists(paths.appImage) && !exists(paths.menuEntry), `the menu entry's Uninstall asks, removes it and ends (exit ${asked})`);
+
+  // ---- 7. A release's own AppImage (OpenKaraoke-<version>.AppImage) starts as the app --------
+  const releaseFile = await download('OpenKaraoke-9.9.9.AppImage');
+  app = await launch(releaseFile);
+  const direct = await app.firstWindow();
+  await direct.waitForURL(/\/host/, { timeout: 60_000 }).catch(() => {});
+  check(/\/host/.test(direct.url()), `a release's own AppImage file starts as the app, no setup (${direct.url().replace(/^http:\/\/[^/]+/, '')})`);
+  await app.close();
+  app = null;
 } catch (e) {
   failed = true;
   check(false, `unexpected error: ${e.stack || e.message}`);

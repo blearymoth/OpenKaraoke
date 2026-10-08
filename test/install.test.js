@@ -10,8 +10,9 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { tmpDir } from './helpers.js';
 import {
-  desktopEntry, execArg, install, installPaths, isInstalledCopy, launchEnv, menuEntry, ours, portableFiles, readInstall, refresh,
-  rememberPortable, removeLaterCommand, removeUserData, runningServer, safeDataDir, setAutostart, setupFile, startMode, startsAtLogin, uninstall,
+  backupOf, desktopEntry, entryCommand, execArg, install, installPaths, isInstalledCopy, launchEnv, menuEntry, ours, ownAppImage, parseExec,
+  portableFiles, readInstall, refresh, rememberPortable, removeLaterCommand, removeUserData, runningServer, safeDataDir, setAutostart, setupFile,
+  startMode, startsAtLogin, uninstall,
 } from '../desktop/install.mjs';
 import { removeCommand } from '../desktop/update-logic.mjs';
 
@@ -19,45 +20,6 @@ const require = createRequire(import.meta.url);
 const { crc32, makeSetupZip, writeZip, SETUP_NAME, ZIP_NAME } = require('../desktop/pack-setup.cjs');
 const ROOT = path.resolve(import.meta.dirname, '..');
 
-/** Reads an Exec value back the way a desktop reads it (Desktop Entry Specification). */
-function parseExec(value) {
-  let s = '';
-  for (let i = 0; i < value.length; i++) {
-    if (value[i] === '\\' && i + 1 < value.length) {
-      const c = value[++i];
-      s += { s: ' ', n: '\n', t: '\t', r: '\r' }[c] ?? c;
-    } else {
-      s += value[i];
-    }
-  }
-  const args = [];
-  let cur = null;
-  for (let i = 0; i < s.length;) {
-    const c = s[i];
-    if (c === ' ') {
-      if (cur !== null) args.push(cur);
-      cur = null;
-      i++;
-    } else if (c === '"') {
-      cur ??= '';
-      i++;
-      while (i < s.length && s[i] !== '"') {
-        if (s[i] === '\\' && i + 1 < s.length) {
-          cur += s[i + 1];
-          i += 2;
-        } else {
-          cur += s[i++];
-        }
-      }
-      i++;
-    } else {
-      cur = (cur ?? '') + c;
-      i++;
-    }
-  }
-  if (cur !== null) args.push(cur);
-  return args.map((a) => a.replace(/%%/g, '%'));
-}
 const execOf = (entry, section = 'Desktop Entry') => {
   const block = entry.split(/\n(?=\[)/).find((b) => b.startsWith(`[${section}]`));
   return parseExec(/^Exec=(.*)$/m.exec(block)[1]);
@@ -105,14 +67,27 @@ test('install: what a start is for — the setup, the Uninstall action, or the a
   await fs.mkdir(paths.dir, { recursive: true });
   await fs.writeFile(paths.appImage, 'x');
   const download = path.join(dir, 'Downloads', 'Install OpenKaraoke');
-  assert.equal(startMode({ argv: ['openkaraoke'], env: { APPIMAGE: download }, paths }), 'setup', 'the download');
-  assert.equal(startMode({ argv: ['openkaraoke'], env: { APPIMAGE: paths.appImage }, paths }), 'app', 'the installed copy');
+  assert.equal(startMode({ argv: ['openkaraoke'], appImage: download, paths }), 'setup', 'the download');
+  assert.equal(startMode({ argv: ['openkaraoke'], appImage: paths.appImage, paths }), 'app', 'the installed copy');
   await fs.symlink(paths.appImage, path.join(dir, 'link.AppImage'));
-  assert.equal(startMode({ argv: [], env: { APPIMAGE: path.join(dir, 'link.AppImage') }, paths }), 'app', 'through a link');
-  assert.equal(startMode({ argv: [], env: {}, paths }), 'app', 'a .deb/.rpm or the source code');
-  assert.equal(startMode({ argv: ['x', '--no-setup'], env: { APPIMAGE: download }, paths }), 'app');
-  assert.equal(startMode({ argv: [], env: { APPIMAGE: download }, paths, portable: [download] }), 'app', '“Run it without installing” was chosen for this file');
-  assert.equal(startMode({ argv: ['x', '--uninstall'], env: { APPIMAGE: paths.appImage }, paths }), 'uninstall');
+  assert.equal(startMode({ argv: [], appImage: path.join(dir, 'link.AppImage'), paths }), 'app', 'through a link');
+  assert.equal(startMode({ argv: [], appImage: '', paths }), 'app', 'a .deb/.rpm or the source code');
+  assert.equal(startMode({ argv: ['x', '--no-setup'], appImage: download, paths }), 'app');
+  assert.equal(startMode({ argv: [], appImage: download, paths, portable: [download] }), 'app', '“Run it without installing” was chosen for this file');
+  assert.equal(startMode({ argv: ['x', '--uninstall'], appImage: paths.appImage, paths }), 'uninstall');
+  // A release's own AppImage (the "other downloads", and every copy from before the installer —
+  // the updater keeps its name) starts as the app: Settings → About offers to install it.
+  for (const name of ['OpenKaraoke-0.1.12.AppImage', 'OpenKaraoke-0.2.30.AppImage', 'openkaraoke-1.0.0-arm64.AppImage']) {
+    assert.equal(startMode({ argv: [], appImage: path.join(dir, 'Apps', name), paths }), 'app', name);
+  }
+  assert.equal(startMode({ argv: [], appImage: path.join(dir, 'Downloads', 'Install OpenKaraoke (1)'), paths }), 'setup');
+  // $APPIMAGE counts only for the program inside that AppImage (a build), or from the source code.
+  assert.equal(ownAppImage({ env: { APPIMAGE: '/a/X.AppImage', APPDIR: '/tmp/.mount_X1' }, execPath: '/tmp/.mount_X1/openkaraoke', packaged: true }), '/a/X.AppImage');
+  assert.equal(ownAppImage({ env: { APPIMAGE: '/a/Other.AppImage', APPDIR: '/tmp/.mount_Ot2' }, execPath: '/opt/OpenKaraoke/openkaraoke', packaged: true }), '', 'inherited from another AppImage');
+  assert.equal(ownAppImage({ env: { APPIMAGE: '/a/X.AppImage' }, execPath: '/opt/OpenKaraoke/openkaraoke', packaged: true }), '', 'no APPDIR');
+  assert.equal(ownAppImage({ env: { APPIMAGE: '/a/X.AppImage', APPDIR: '/tmp/.mount_X1' }, execPath: '/tmp/.mount_X10/openkaraoke', packaged: true }), '', 'a folder whose name only starts the same');
+  assert.equal(ownAppImage({ env: { APPIMAGE: '/a/X.AppImage' }, execPath: '/x/electron', packaged: false }), '/a/X.AppImage', 'from the source code: as it is');
+  assert.equal(ownAppImage({ env: {}, execPath: '/x', packaged: true }), '');
   assert.ok(isInstalledCopy(paths.appImage, paths));
   assert.ok(!isInstalledCopy('', paths));
   // Remembered per file, newest first, ten at most.
@@ -165,11 +140,30 @@ test('install: installing, repairing and uninstalling for one person — only ou
   assert.ok(progress.at(-1) === 1 && progress.length >= 2, 'progress reported');
   assert.deepEqual(ran, [['gio', 'set', paths.shortcut, 'metadata::trusted', 'true'], ['update-desktop-database', path.dirname(paths.menuEntry)]]);
   assert.deepEqual(await readInstall(paths), { version: '0.2.5', installedAt: 1000, shortcut: true });
-  assert.equal(startMode({ argv: [], env: { APPIMAGE: download }, paths }), 'setup');
-  assert.equal(startMode({ argv: [], env: { APPIMAGE: paths.appImage }, paths }), 'app');
+  assert.equal(startMode({ argv: [], appImage: download, paths }), 'setup');
+  assert.equal(startMode({ argv: [], appImage: paths.appImage, paths }), 'app');
   for (const f of await fs.readdir(paths.dir)) assert.ok(!f.endsWith('.part'), `no leftover ${f}`);
 
+  // Someone else's entries in our places are kept aside, never overwritten, and come back at uninstall.
+  const mine = '[Desktop Entry]\nName=Mine\nExec=/home/x/OpenKaraoke.AppImage --no-sandbox\n';
+  await fs.rm(paths.shortcut);
+  await fs.writeFile(paths.shortcut, mine);
+  await fs.writeFile(paths.menuEntry, mine);
+  await install({ from: download, paths, iconFrom: icon, version: '0.2.5', shortcut: true, run });
+  assert.ok(ours(paths.shortcut) && ours(paths.menuEntry), 'ours in place');
+  assert.equal(await fs.readFile(backupOf(paths.shortcut), 'utf8'), mine, 'theirs kept aside');
+  assert.equal(await fs.readFile(backupOf(paths.menuEntry), 'utf8'), mine);
+  await install({ from: download, paths, iconFrom: icon, version: '0.2.5', shortcut: true, run });
+  assert.equal(await fs.readFile(backupOf(paths.menuEntry), 'utf8'), mine, 'a second install doesn’t replace the backup with ours');
+  await uninstall({ paths, run });
+  assert.equal(await fs.readFile(paths.shortcut, 'utf8'), mine, 'theirs back after uninstalling');
+  assert.equal(await fs.readFile(paths.menuEntry, 'utf8'), mine);
+  assert.ok(!fsSync.existsSync(backupOf(paths.menuEntry)));
+  await fs.rm(paths.menuEntry);
+  await install({ from: download, paths, iconFrom: icon, version: '0.2.5', shortcut: false, run });
+
   // Again: no shortcut, start at login; someone else's shortcut of the same name stays.
+  await fs.rm(paths.shortcut, { force: true });
   await fs.writeFile(paths.shortcut, '[Desktop Entry]\nName=Mine\nExec=/usr/bin/true\n');
   await install({ from: download, paths, iconFrom: icon, version: '0.2.6', shortcut: false, atLogin: true, run });
   assert.equal(await fs.readFile(paths.shortcut, 'utf8'), '[Desktop Entry]\nName=Mine\nExec=/usr/bin/true\n', 'not ours: kept');
@@ -182,6 +176,9 @@ test('install: installing, repairing and uninstalling for one person — only ou
   assert.ok(ours(paths.shortcut) && !fsSync.existsSync(paths.autostart));
   await setAutostart({ paths, on: true, command: ['/opt/OpenKaraoke/openkaraoke'], icon: 'x' });
   assert.deepEqual(execOf(await fs.readFile(paths.autostart, 'utf8')), ['/opt/OpenKaraoke/openkaraoke']);
+  assert.deepEqual(entryCommand(paths.autostart), ['/opt/OpenKaraoke/openkaraoke']);
+  await setAutostart({ paths, on: false, onlyFor: paths.appImage });
+  assert.ok(startsAtLogin(paths), 'the start at login of another copy (the .deb) is left alone');
   await setAutostart({ paths, on: false });
   assert.ok(!startsAtLogin(paths));
 
@@ -216,7 +213,10 @@ test('install: installing, repairing and uninstalling for one person — only ou
 
   await install({ from: download, paths, iconFrom: icon, version: '0.2.9', run });
   await fs.writeFile(path.join(paths.dir, 'something-of-yours.txt'), 'x');
+  // What a copy or an update left half done goes too.
+  for (const f of ['OpenKaraoke.AppImage.part-123', '.OpenKaraoke.AppImage.update', '.OpenKaraoke.AppImage.update.part']) await fs.writeFile(path.join(paths.dir, f), 'x');
   await uninstall({ paths, removeData: true, userData, run });
+  assert.deepEqual(await fs.readdir(paths.dir), ['something-of-yours.txt'], 'only the stranger’s file is left');
   assert.ok(!fsSync.existsSync(userData), 'settings, song index and pictures removed when asked');
   assert.ok(fsSync.existsSync(path.join(paths.dir, 'something-of-yours.txt')), 'a folder with other files in it stays');
 });
@@ -224,10 +224,21 @@ test('install: installing, repairing and uninstalling for one person — only ou
 test('install: deleting the settings only ever deletes the app’s own folder', async () => {
   const home = '/home/jim';
   assert.ok(safeDataDir('/home/jim/.config/OpenKaraoke', home));
-  for (const bad of ['/', '/home', home, '/home/jim/', '/home/jim/.config', '/home/jim/.local/share', 'relative/OpenKaraoke', '', null]) {
+  for (const bad of ['/', '/home', home, '/home/jim/', '/home/jim/.config', '/home/jim/.local/share', 'relative/OpenKaraoke', '', null, '/home/jim/Documents', '/srv/data']) {
     assert.ok(!safeDataDir(bad, home), String(bad));
   }
-  assert.equal(await removeUserData('/home/jim/.config', home), false);
+  assert.equal(await removeUserData('/home/jim/.config', { home }), false);
+  // To the Trash when it can be (it can be got back), else deleted.
+  const tdir = await tmpDir();
+  const profile = path.join(tdir, 'cfg', 'OpenKaraoke');
+  await fs.mkdir(path.join(profile, 'data'), { recursive: true });
+  const trashed = [];
+  assert.equal(await removeUserData(profile, { home: '/nonexistent-home', trash: async (d) => { trashed.push(d); await fs.rename(d, path.join(tdir, 'Trash')); return true; } }), true);
+  assert.deepEqual(trashed, [profile]);
+  assert.ok(fsSync.existsSync(path.join(tdir, 'Trash', 'data')) && !fsSync.existsSync(profile));
+  await fs.mkdir(profile, { recursive: true });
+  assert.equal(await removeUserData(profile, { home: '/nonexistent-home', trash: async () => false }), true, 'no Trash: deleted');
+  assert.ok(!fsSync.existsSync(profile));
   const cmd = removeLaterCommand('/home/jim/.config/OpenKaraoke', 4242, home);
   assert.deepEqual(cmd.slice(0, 2), ['sh', '-c']);
   assert.deepEqual(cmd.slice(-2), ['4242', '/home/jim/.config/OpenKaraoke'], 'the folder is an argument, never part of the script');
@@ -238,13 +249,27 @@ test('install: deleting the settings only ever deletes the app’s own folder', 
   const data = path.join(dir, 'Profile', 'OpenKaraoke');
   await fs.mkdir(path.join(data, 'data'), { recursive: true });
   const { spawn } = await import('node:child_process');
+  // A PATH with sleep and rm but no gio: deleted.
+  const bin = path.join(dir, 'bin');
+  await fs.mkdir(bin);
+  for (const tool of ['sleep', 'rm']) {
+    const where = ['/usr/bin', '/bin'].map((d) => path.join(d, tool)).find((f) => fsSync.existsSync(f));
+    await fs.symlink(where, path.join(bin, tool));
+  }
   const sleeper = spawn('sleep', ['0.6']); // (reaped by this process's event loop, like the desktop reaps the app)
   const c = removeLaterCommand(data, sleeper.pid, '/nonexistent-home');
   const t0 = Date.now();
-  const code = await new Promise((resolve) => spawn(c[0], c.slice(1), { stdio: 'ignore' }).on('close', resolve));
+  const code = await new Promise((resolve) => spawn('/bin/sh', c.slice(1), { stdio: 'ignore', env: { PATH: bin } }).on('close', resolve));
   assert.equal(code, 0);
   assert.ok(Date.now() - t0 >= 300, 'waited for the process to end');
   assert.ok(!fsSync.existsSync(data));
+  // With gio: "gio trash -- <folder>" (a stand-in that only writes down how it was called).
+  await fs.mkdir(data, { recursive: true });
+  const called = path.join(dir, 'gio-called.txt');
+  await fs.writeFile(path.join(bin, 'gio'), `#!/bin/sh\nprintf '%s\\n' "$@" > '${called}'\nexit 0\n`, { mode: 0o755 });
+  const c2 = removeLaterCommand(data, 2 ** 22 + 4321, '/nonexistent-home');
+  await new Promise((resolve) => spawn('/bin/sh', c2.slice(1), { stdio: 'ignore', env: { PATH: bin } }).on('close', resolve));
+  assert.equal(await fs.readFile(called, 'utf8'), `trash\n--\n${data}\n`);
 });
 
 test('install: whether OpenKaraoke runs on a data folder (its lock)', async () => {

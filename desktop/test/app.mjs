@@ -267,7 +267,7 @@ try {
   check(external.length === 2 && external.every((u) => u === 'https://example.com/'), `both go to the normal browser instead (${JSON.stringify(external)})`);
 
   // A second start of the app: the running one comes to the front, nothing else happens.
-  const second = spawn(executable, ['--no-sandbox', ...appArgs], { env, stdio: 'ignore' });
+  const second = spawn(executable, ['--no-sandbox', '--no-setup', ...appArgs], { env, stdio: 'ignore' });
   const secondExit = await new Promise((resolve) => {
     const t = setTimeout(() => resolve('still running'), 20_000);
     second.on('exit', (code) => { clearTimeout(t); resolve(code); });

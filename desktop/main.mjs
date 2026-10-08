@@ -20,7 +20,7 @@ import { logger, setLogSink } from '../server/util/log.js';
 import { THEMES, DEFAULT_THEME } from '../shared/themes.js';
 import { centredBounds, displayFor, nextDisplay, tvDisplay, visibleBounds } from './displays.mjs';
 import { chooseBackend, displaySettings, gpuInfoProblem, gpuVerdict, graphicsLine, useLighterEffects, BACKENDS, LIGHTER } from './graphics.mjs';
-import { install, installPaths, isInstalledCopy, portableFiles, readInstall, refresh, removeLaterCommand, setAutostart, startMode, startsAtLogin, uninstall } from './install.mjs';
+import { install, installPaths, isInstalledCopy, ownAppImage, portableFiles, readInstall, refresh, removeLaterCommand, setAutostart, startMode, startsAtLogin, uninstall } from './install.mjs';
 import { prepareSetup, runSetup } from './setup.mjs';
 import { installKind, removeCommand } from './update-logic.mjs';
 import { Updater } from './updater.mjs';
@@ -47,7 +47,8 @@ const USER_DATA = process.env.OPENKARAOKE_USER_DATA || path.join(app.getPath('ap
 // Where "Install OpenKaraoke" puts the app for this person (desktop/install.mjs), and what this
 // start is for: the setup window, the menu entry's Uninstall, or the app.
 const PATHS = installPaths({ desktopDir: app.getPath('desktop') });
-const MODE = startMode({ argv: process.argv, env: process.env, paths: PATHS, portable: portableFiles(USER_DATA) });
+const APPIMAGE = ownAppImage({ env: process.env, execPath: process.execPath, packaged: app.isPackaged });
+const MODE = startMode({ argv: process.argv, appImage: APPIMAGE, paths: PATHS, portable: portableFiles(USER_DATA) });
 if (MODE === 'setup') prepareSetup(); // a profile of its own: the app may be open at the same time
 else app.setPath('userData', USER_DATA);
 
@@ -69,7 +70,7 @@ const BACKEND = chooseBackend({ platform: process.platform, env: process.env, ar
 const WAYLAND = BACKEND.kind === 'wayland'; // the TV window can't be placed by the app
 
 if (MODE === 'setup') {
-  runSetup({ paths: PATHS, userData: USER_DATA, version: VERSION, icon: ICON, log: logger('setup') });
+  runSetup({ from: APPIMAGE, paths: PATHS, userData: USER_DATA, version: VERSION, icon: ICON, log: logger('setup') });
 } else if (BACKEND.relaunchX11 && MODE === 'app') {
   app.relaunch({ execPath: process.env.APPIMAGE || process.execPath, args: [...process.argv.slice(1), '--ozone-platform=x11'] });
   app.exit(0);
@@ -468,16 +469,21 @@ function run() {
   let how = '';
   function installedHow() {
     if (how) return how;
-    if (process.env.APPIMAGE) how = isInstalledCopy(process.env.APPIMAGE, PATHS) ? 'user' : 'portable';
-    else how = installKind({ env: process.env, packaged: app.isPackaged, execPath: process.execPath, run: (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8', timeout: 5000 }) });
+    if (APPIMAGE) how = isInstalledCopy(APPIMAGE, PATHS) ? 'user' : 'portable';
+    else how = installKind({ env: {}, packaged: app.isPackaged, execPath: process.execPath, run: (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8', timeout: 5000 }) });
     return how;
   }
   /** What starts this copy (the start at login), or null (the source code). */
   function launchCommand() {
     const kind = installedHow();
     if (kind === 'user') return [PATHS.appImage];
-    if (kind === 'portable') return [process.env.APPIMAGE];
+    if (kind === 'portable') return [APPIMAGE];
     return app.isPackaged ? [process.execPath] : null;
+  }
+  /** The icon a start-at-login entry shows: one that stays (not inside an AppImage's temporary folder). */
+  function entryIcon() {
+    if (installedHow() === 'user') return PATHS.icon;
+    return process.env.APPDIR && ICON.startsWith(`${process.env.APPDIR}/`) ? 'openkaraoke' : ICON;
   }
   const tilde = (p) => (p.startsWith(`${os.homedir()}/`) ? `~/${p.slice(os.homedir().length + 1)}` : p);
   async function systemState() {
@@ -485,7 +491,7 @@ function run() {
     return {
       how: kind,
       version: VERSION,
-      where: kind === 'user' ? tilde(PATHS.dir) : kind === 'portable' ? tilde(process.env.APPIMAGE) : kind === 'deb' || kind === 'rpm' ? path.dirname(process.execPath) : '',
+      where: kind === 'user' ? tilde(PATHS.dir) : kind === 'portable' ? tilde(APPIMAGE) : kind === 'deb' || kind === 'rpm' ? path.dirname(process.execPath) : '',
       installedCopy: !!(await readInstall(PATHS)),
       atLogin: startsAtLogin(PATHS),
       canAtLogin: !!launchCommand(),
@@ -507,37 +513,43 @@ function run() {
    * e.g. {"response":0,"checkboxChecked":true}) answers every one (a virtual X server can't click
    * a GTK dialog); each is noted in globalThis.okAsked.
    */
-  function ask(parent, options) {
+  function systemDialog(parent, options) {
     if (process.env.OPENKARAOKE_TEST_ANSWER) {
       (globalThis.okAsked ||= []).push(options.message);
       return Promise.resolve(JSON.parse(process.env.OPENKARAOKE_TEST_ANSWER));
     }
     return parent && !parent.isDestroyed() ? dialog.showMessageBox(parent, options) : dialog.showMessageBox(options);
   }
+  const KEEP_NOTE = 'Your songs are never touched.';
+  const DATA_BOX = 'Also delete what OpenKaraoke saved — settings, playlists, favourites, history, song index and pictures (they go to the Trash)';
 
   /**
-   * Removes OpenKaraoke from this computer: this person's copy (desktop/install.mjs), or the .deb /
-   * .rpm with the system's password prompt; with removeData also the settings, song index and
-   * pictures (once the app has ended: its own browser profile is in the same folder). Then it
-   * says so and quits. Resolves to { ok } or { ok: false, error }.
+   * Removes OpenKaraoke from this computer — `kind`: this person's copy ('user',
+   * desktop/install.mjs), or this .deb / .rpm with the system's password prompt; with removeData
+   * also what it saved (~/.config/OpenKaraoke, once the app has ended: its own browser profile is
+   * in there; to the Trash). Says so, then quits — unless the copy removed isn't this one and its
+   * data stays. Resolves to { ok } or { ok: false, error }.
    */
-  async function doUninstall({ removeData = false } = {}) {
-    const kind = installedHow();
+  async function doUninstall({ removeData = false, kind = installedHow() } = {}) {
+    if (updater?.busy()) return { ok: false, error: 'An update is being downloaded or installed: try again in a minute.' };
     try {
       if (kind === 'user') {
         await uninstall({ paths: PATHS, removeData: false, run: quiet });
       } else if (kind === 'deb' || kind === 'rpm') {
         const cmd = removeCommand(kind, has);
         if (!cmd) return { ok: false, error: 'This computer has no password prompt for removing programs: remove “openkaraoke” in your software centre.' };
-        const code = await new Promise((resolve) => {
-          const child = spawn(cmd[0], cmd.slice(1), { stdio: 'ignore' });
-          child.on('error', () => resolve(-1));
-          child.on('close', resolve);
+        const { code, stderr } = await new Promise((resolve) => {
+          const child = spawn(cmd[0], cmd.slice(1), { stdio: ['ignore', 'ignore', 'pipe'] });
+          let err = '';
+          child.stderr.on('data', (d) => { err = (err + d).slice(-2000); });
+          child.on('error', (e) => resolve({ code: -1, stderr: e.message }));
+          child.on('close', (c) => resolve({ code: c, stderr: err }));
         });
-        // pkexec: 126 = the password prompt was dismissed, 127 = not authorised.
+        // pkexec: 126 = the password prompt was dismissed, 127 = not authorised or no prompt available.
+        if ((code === 126 || code === 127) && /authentication agent|no agent/i.test(stderr)) return { ok: false, error: 'This computer can’t ask for your password here: remove “openkaraoke” in your software centre.' };
         if (code === 126 || code === 127) return { ok: false, error: 'Uninstalling was cancelled.' };
-        if (code !== 0) return { ok: false, error: `Removing the package failed (${cmd.slice(1, 3).join(' ')}: exit ${code}).` };
-        await setAutostart({ paths: PATHS, on: false });
+        if (code !== 0) return { ok: false, error: `Removing the package failed: ${String(stderr || '').trim().split('\n').slice(-1)[0] || `exit ${code}`}` };
+        await setAutostart({ paths: PATHS, on: false, onlyFor: process.execPath });
       } else {
         return { ok: false, error: kind === 'portable' ? 'This copy isn’t installed: it runs straight from its file — just delete that file.' : 'This copy runs from the source code: there is nothing to uninstall.' };
       }
@@ -545,7 +557,13 @@ function run() {
       log.error('uninstall failed', e);
       return { ok: false, error: e.message };
     }
-    log.info(`uninstalled (${kind})${removeData ? ', the settings go when the app has quit' : ''}`);
+    log.info(`uninstalled (${kind})${removeData ? ', the saved data goes to the Trash when the app has quit' : ''}`);
+    const thisCopy = kind === installedHow();
+    if (!thisCopy && !removeData) {
+      // The menu entry's Uninstall removed this person's copy while another copy runs: it goes on.
+      await systemDialog(hostWin, { type: 'info', title: 'OpenKaraoke', message: 'OpenKaraoke has been removed', detail: `The copy installed for you is gone. This one keeps running. ${KEEP_NOTE}`, buttons: ['OK'] });
+      return { ok: true };
+    }
     if (removeData) {
       const cmd = removeLaterCommand(app.getPath('userData'), process.pid);
       if (cmd) spawn(cmd[0], cmd.slice(1), { detached: true, stdio: 'ignore' }).unref();
@@ -553,34 +571,40 @@ function run() {
     quitting = true;
     closeOtherWindows();
     hostWin?.hide();
-    await ask(null, { type: 'info', title: 'OpenKaraoke', message: 'OpenKaraoke has been removed', detail: removeData ? 'It is no longer on this computer, nor are its settings. Your songs are where they were.' : 'It is no longer on this computer. Your songs, settings and song index are kept, should you install it again.', buttons: ['OK'] });
+    await systemDialog(null, { type: 'info', title: 'OpenKaraoke', message: 'OpenKaraoke has been removed', detail: removeData ? `It is no longer on this computer; what it saved is in the Trash. ${KEEP_NOTE}` : `It is no longer on this computer. ${KEEP_NOTE} Your settings, playlists and song index are kept, should you install it again.`, buttons: ['OK'] });
     app.quit();
     return { ok: true };
   }
 
-  /** The menu entry's "Uninstall OpenKaraoke": asks in the system's dialog, then removes it. */
-  async function askUninstall(parent) {
-    const kind = installedHow();
+  /**
+   * Asks in the system's own dialog, then removes OpenKaraoke. From the menu entry's Uninstall
+   * (`menuEntry`) that is the copy installed for this person, whichever copy is running; from
+   * Settings → About it is this copy. Resolves to { ok, cancelled } or { ok: false, error }.
+   */
+  async function askUninstall(parent, { menuEntry = false } = {}) {
+    let kind = installedHow();
+    if (menuEntry) kind = (await readInstall(PATHS)) ? 'user' : 'none';
     if (!['user', 'deb', 'rpm'].includes(kind)) {
-      await ask(parent, { type: 'info', title: 'OpenKaraoke', message: 'Nothing to uninstall', detail: kind === 'portable' ? 'This copy isn’t installed: it runs straight from its file — just delete that file.' : 'This copy runs from the source code.', buttons: ['OK'] });
-      return false;
+      const detail = kind === 'portable' ? 'This copy isn’t installed: it runs straight from its file — just delete that file.' : kind === 'none' ? 'OpenKaraoke isn’t installed for you on this computer.' : 'This copy runs from the source code.';
+      await systemDialog(parent, { type: 'info', title: 'OpenKaraoke', message: 'Nothing to uninstall', detail, buttons: ['OK'] });
+      return { ok: false, error: detail };
     }
-    const r = await ask(parent, {
+    const r = await systemDialog(parent, {
       type: 'question',
       title: 'Uninstall OpenKaraoke',
       message: 'Uninstall OpenKaraoke?',
       detail: kind === 'user'
-        ? 'OpenKaraoke, its menu entry and its desktop shortcut are removed from this computer. Your songs are not touched.'
-        : 'OpenKaraoke is removed from this computer for everyone: your computer asks for your password. Your songs are not touched.',
-      checkboxLabel: 'Also delete my settings, song index and pictures',
+        ? `OpenKaraoke, its menu entry and its desktop shortcut are removed from this computer. ${KEEP_NOTE}`
+        : `OpenKaraoke is removed from this computer for everyone: your computer asks for your password. ${KEEP_NOTE}`,
+      checkboxLabel: DATA_BOX,
       buttons: ['Uninstall', 'Cancel'],
       defaultId: 1,
       cancelId: 1,
     });
-    if (r.response !== 0) return false;
-    const done = await doUninstall({ removeData: !!r.checkboxChecked });
-    if (!done.ok) await ask(parent, { type: 'error', title: 'OpenKaraoke', message: 'OpenKaraoke could not be removed', detail: done.error, buttons: ['OK'] });
-    return done.ok;
+    if (r.response !== 0) return { ok: false, cancelled: true };
+    const done = await doUninstall({ removeData: !!r.checkboxChecked, kind });
+    if (!done.ok) await systemDialog(parent, { type: 'error', title: 'OpenKaraoke', message: 'OpenKaraoke could not be removed', detail: done.error, buttons: ['OK'] });
+    return done;
   }
 
   /** The installed copy keeps its menu entry, icon and version note in order (after an update too). */
@@ -911,19 +935,24 @@ function run() {
           if (typeof value?.atLogin === 'boolean') {
             const command = launchCommand();
             if (!command) throw new Error('This copy runs from the source code: it can’t start by itself.');
-            await setAutostart({ paths: PATHS, on: value.atLogin, command, icon: installedHow() === 'user' ? PATHS.icon : ICON });
+            await setAutostart({ paths: PATHS, on: value.atLogin, command, icon: entryIcon() });
           }
           return { ok: true, state: await systemState() };
         }
         if (what === 'install') {
           if (installedHow() !== 'portable') throw new Error('This copy is installed already.');
-          await install({ from: process.env.APPIMAGE, paths: PATHS, iconFrom: ICON, version: VERSION, shortcut: value?.shortcut !== false, atLogin: startsAtLogin(PATHS), run: quiet });
+          await install({ from: APPIMAGE, paths: PATHS, iconFrom: ICON, version: VERSION, shortcut: value?.shortcut !== false, atLogin: startsAtLogin(PATHS), run: quiet });
           log.info(`installed ${VERSION} in ${PATHS.dir} (from Settings → About)`);
           return { ok: true, state: await systemState() };
         }
         if (what === 'uninstall') {
-          const r = await doUninstall({ removeData: value?.removeData === true });
-          return r.ok ? { ok: true } : { ok: false, error: r.error };
+          // Always confirmed in the system's own dialog (a page never removes anything by itself).
+          const r = await askUninstall(hostWin);
+          return r.ok ? { ok: true } : { ok: false, cancelled: !!r.cancelled, error: r.cancelled ? '' : r.error };
+        }
+        if (what === 'quit') {
+          app.quit();
+          return { ok: true };
         }
         return { ok: false, error: 'Unknown request' };
       } catch (e) {
@@ -951,7 +980,7 @@ function run() {
   app.on('second-instance', (_event, argv) => {
     if (MODE === 'uninstall') return; // this one is asking already
     showHost(); // (in server mode the window may be gone: it comes back)
-    if (argv.includes('--uninstall')) askUninstall(hostWin); // the menu entry's Uninstall, while the app is open
+    if (argv.includes('--uninstall')) askUninstall(hostWin, { menuEntry: true }); // the menu entry's Uninstall, while the app is open
   });
 
   app.on('before-quit', (e) => {
@@ -982,7 +1011,7 @@ function run() {
 
   app.whenReady().then(async () => {
     if (MODE === 'uninstall') { // the menu entry's Uninstall, with the app closed: ask, remove, done
-      await askUninstall(null);
+      await askUninstall(null, { menuEntry: true });
       app.quit();
       return;
     }

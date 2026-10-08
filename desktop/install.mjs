@@ -115,17 +115,35 @@ export function isInstalledCopy(file, paths) {
 }
 
 /**
+ * The AppImage this process runs from, or ''. $APPIMAGE alone isn't proof: a program started
+ * from inside another AppImage inherits it. In a build it counts only when this program lives in
+ * that AppImage's folder ($APPDIR); from the source code (the tests) it is taken as it is.
+ */
+export function ownAppImage({ env = {}, execPath = '', packaged = true }) {
+  if (!env.APPIMAGE) return '';
+  if (!packaged) return env.APPIMAGE;
+  return env.APPDIR && path.resolve(execPath).startsWith(`${path.resolve(env.APPDIR)}/`) ? env.APPIMAGE : '';
+}
+
+/** A release's own AppImage file (OpenKaraoke-1.2.3.AppImage): someone running the app straight from it. */
+const RELEASE_FILE = /^OpenKaraoke-\d+\.\d+\.\d+([.-][\w.-]*)?\.AppImage$/i;
+
+/**
  * What this start of the app is for:
  *   'uninstall'  the menu entry's "Uninstall OpenKaraoke" (--uninstall);
  *   'setup'      an AppImage that isn't the installed copy — "Install OpenKaraoke" from the
- *                download — unless the person chose to run that file without installing;
+ *                download — unless the person chose to run that file without installing, or it
+ *                is a release's own AppImage file (OpenKaraoke-<version>.AppImage: run on purpose,
+ *                and how the copies before the installer were kept — the updater keeps the name);
  *   'app'        everything else: the installed copy, the .deb/.rpm, the source code.
+ * `appImage` is ownAppImage()'s answer.
  */
-export function startMode({ argv = [], env = {}, paths, portable = [] }) {
+export function startMode({ argv = [], appImage = '', paths, portable = [] }) {
   if (argv.includes('--uninstall')) return 'uninstall';
-  if (!env.APPIMAGE || argv.includes('--no-setup')) return 'app';
-  if (isInstalledCopy(env.APPIMAGE, paths)) return 'app';
-  if (portable.some((p) => typeof p === 'string' && real(p) === real(env.APPIMAGE))) return 'app';
+  if (!appImage || argv.includes('--no-setup')) return 'app';
+  if (isInstalledCopy(appImage, paths)) return 'app';
+  if (RELEASE_FILE.test(path.basename(appImage))) return 'app';
+  if (portable.some((p) => typeof p === 'string' && real(p) === real(appImage))) return 'app';
   return 'setup';
 }
 
@@ -175,14 +193,73 @@ export function runningServer(dataDir) {
 
 async function writeAtomic(file, content, mode) {
   await fsp.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.part`;
+  const tmp = `${file}.part-${process.pid}`;
   await fsp.writeFile(tmp, content, { mode });
   await fsp.chmod(tmp, mode); // writeFile's mode is masked by the umask
   await fsp.rename(tmp, file);
 }
 
+/** Where someone else's entry goes while ours takes its place (put back when ours goes). */
+export const backupOf = (file) => `${file}.before-openkaraoke`;
+
+/**
+ * Writes one of our desktop entries. Someone else's file in its place (one made by hand, a menu
+ * editor's copy) is kept aside, never overwritten, and comes back when ours is removed.
+ */
+async function writeOurs(file, content, mode) {
+  if (fs.existsSync(file) && !ours(file) && !fs.existsSync(backupOf(file))) await fsp.rename(file, backupOf(file));
+  await writeAtomic(file, content, mode);
+}
+
+/** Removes one of our desktop entries (only ours), and puts back what it had replaced. */
 async function removeOurs(file) {
-  if (ours(file)) await fsp.rm(file, { force: true });
+  if (!ours(file)) return;
+  await fsp.rm(file, { force: true });
+  if (fs.existsSync(backupOf(file))) await fsp.rename(backupOf(file), file);
+}
+
+/** Reads an Exec value back into the program and its arguments (the Desktop Entry Specification). */
+export function parseExec(raw) {
+  let s = '';
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === '\\' && i + 1 < raw.length) {
+      const c = raw[++i];
+      s += { s: ' ', n: '\n', t: '\t', r: '\r' }[c] ?? c;
+    } else {
+      s += raw[i];
+    }
+  }
+  const args = [];
+  let cur = null;
+  for (let i = 0; i < s.length;) {
+    if (s[i] === ' ') {
+      if (cur !== null) args.push(cur);
+      cur = null;
+      i++;
+    } else if (s[i] === '"') {
+      cur ??= '';
+      for (i++; i < s.length && s[i] !== '"'; i++) {
+        if (s[i] === '\\' && i + 1 < s.length) i++;
+        cur += s[i];
+      }
+      i++;
+    } else {
+      cur = (cur ?? '') + s[i++];
+    }
+  }
+  if (cur !== null) args.push(cur);
+  return args.map((a) => a.replace(/%%/g, '%'));
+}
+
+/** The command a desktop entry starts ([program, …args]), or null. */
+export function entryCommand(file) {
+  try {
+    const main = fs.readFileSync(file, 'utf8').split(/\n(?=\[)/)[0];
+    const m = /^Exec=(.*)$/m.exec(main);
+    return m ? parseExec(m[1]) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -195,7 +272,8 @@ export async function install({ from, paths, iconFrom, version, shortcut = true,
   await fsp.mkdir(paths.dir, { recursive: true });
   if (!isInstalledCopy(from, paths)) {
     // Next to the old copy first, then swapped in at once: a copy that is running keeps going.
-    const part = `${paths.appImage}.part`;
+    // (A file of this process's own: two setups started at once don't write into each other's.)
+    const part = `${paths.appImage}.part-${process.pid}`;
     const size = (await fsp.stat(from)).size;
     await new Promise((resolve, reject) => {
       const input = fs.createReadStream(from);
@@ -219,10 +297,10 @@ export async function install({ from, paths, iconFrom, version, shortcut = true,
   progress(1);
   await fsp.copyFile(iconFrom, paths.icon);
   const entry = menuEntry(paths);
-  await writeAtomic(paths.menuEntry, entry, 0o644);
+  await writeOurs(paths.menuEntry, entry, 0o644);
   if (shortcut) {
     // Executable and trusted: GNOME's and KDE's desktops start it without asking first.
-    await writeAtomic(paths.shortcut, entry, 0o755);
+    await writeOurs(paths.shortcut, entry, 0o755);
     await run('gio', ['set', paths.shortcut, 'metadata::trusted', 'true']);
   } else {
     await removeOurs(paths.shortcut);
@@ -232,10 +310,13 @@ export async function install({ from, paths, iconFrom, version, shortcut = true,
   await run('update-desktop-database', [path.dirname(paths.menuEntry)]);
 }
 
-/** Writes or removes the start at login (`command` starts this copy). */
-export async function setAutostart({ paths, on, command, icon }) {
-  if (on) await writeAtomic(paths.autostart, autostartEntry(command, icon), 0o644);
-  else await removeOurs(paths.autostart);
+/**
+ * Writes or removes the start at login (`command` starts this copy). Removing with `onlyFor`
+ * (a program) leaves an entry that starts another copy alone.
+ */
+export async function setAutostart({ paths, on, command, icon, onlyFor }) {
+  if (on) await writeOurs(paths.autostart, autostartEntry(command, icon), 0o644);
+  else if (!onlyFor || entryCommand(paths.autostart)?.[0] === onlyFor) await removeOurs(paths.autostart);
 }
 
 /** True when this person's session starts OpenKaraoke (an entry of ours in ~/.config/autostart). */
@@ -244,47 +325,63 @@ export function startsAtLogin(paths) {
 }
 
 /**
- * Takes the installed copy away again: its entries (only ours), the icon, the program, its
- * folder; with `removeData` also `userData` (settings, song index, pictures, logs). Songs are
- * never touched (they are wherever the person keeps them).
+ * Takes the installed copy away again: its entries (only ours; someone else's they had replaced
+ * come back), the icon, the program, its folder; with `removeData` also `userData` (see
+ * removeUserData; `trash(dir)` moves a folder to the Trash, resolving to true when it did).
+ * Songs are never touched (they are wherever the person keeps them).
  */
-export async function uninstall({ paths, removeData = false, userData, run = () => {} }) {
-  await removeOurs(paths.autostart);
+export async function uninstall({ paths, removeData = false, userData, run = () => {}, trash }) {
+  await setAutostart({ paths, on: false, onlyFor: paths.appImage });
   await removeOurs(paths.shortcut);
   await removeOurs(paths.menuEntry);
-  for (const f of [paths.icon, paths.info, `${paths.appImage}.part`, paths.appImage]) await fsp.rm(f, { force: true });
+  let left = [];
+  try {
+    left = await fsp.readdir(paths.dir);
+  } catch { /* no folder */ }
+  // The program, its icon and note, and what a copy or an update left half done.
+  const program = path.basename(paths.appImage);
+  const ourFiles = left.filter((f) => f === program || f.startsWith(`${program}.part`) || f.startsWith(`.${program}.update`));
+  for (const f of [paths.icon, paths.info, ...ourFiles.map((f) => path.join(paths.dir, f))]) await fsp.rm(f, { force: true });
   await fsp.rmdir(paths.dir).catch(() => {}); // only when empty: anything else in it stays
-  if (removeData) await removeUserData(userData);
+  if (removeData) await removeUserData(userData, { trash });
   await run('update-desktop-database', [path.dirname(paths.menuEntry)]);
 }
 
 /**
- * True when `userData` can only be the app's own folder of settings, song index and pictures
- * (~/.config/OpenKaraoke) — never something that could be more than that (/, a home folder,
- * ~/.config itself).
+ * True when `userData` can only be the app's own folder of settings, playlists, history, song
+ * index and pictures (~/.config/OpenKaraoke): named OpenKaraoke, and never something that could
+ * be more than that (/, a home folder, ~/.config itself).
  */
 export function safeDataDir(userData, home = os.homedir()) {
   if (typeof userData !== 'string' || !path.isAbsolute(userData)) return false;
   const dir = path.resolve(userData);
   const forbidden = ['/', home, path.join(home, '.config'), path.join(home, '.local'), path.join(home, '.local', 'share')].map((p) => path.resolve(p));
-  return !forbidden.includes(dir) && dir.split(path.sep).filter(Boolean).length >= 2;
+  return path.basename(dir) === 'OpenKaraoke' && !forbidden.includes(dir) && dir.split(path.sep).filter(Boolean).length >= 2;
 }
 
-/** Deletes the app's own folder of settings, song index and pictures (see safeDataDir). */
-export async function removeUserData(userData, home = os.homedir()) {
+/**
+ * Takes away the app's own folder of settings, playlists, history, song index and pictures (see
+ * safeDataDir): to the Trash when `trash(dir)` can (it can be got back), else deleted.
+ */
+export async function removeUserData(userData, { home = os.homedir(), trash } = {}) {
   if (!safeDataDir(userData, home)) return false;
-  await fsp.rm(path.resolve(userData), { recursive: true, force: true });
+  const dir = path.resolve(userData);
+  if (!fs.existsSync(dir)) return true;
+  if (trash && (await trash(dir).catch(() => false)) && !fs.existsSync(dir)) return true;
+  await fsp.rm(dir, { recursive: true, force: true });
   return true;
 }
 
 /**
- * The shell command that deletes `userData` once process `pid` has ended (the app's own browser
- * profile lives in it, and is written until the very end): for spawn('sh', …), detached. Null
- * when the folder isn't safe to delete.
+ * The shell command that takes `userData` away once process `pid` has ended (the app's own
+ * browser profile lives in it, and is written until the very end): to the Trash (`gio trash`)
+ * when it can, else deleted. For spawn('sh', …), detached. Null when the folder isn't safe to
+ * remove.
  */
 export function removeLaterCommand(userData, pid, home = os.homedir()) {
   if (!safeDataDir(userData, home) || !Number.isSafeInteger(pid)) return null;
-  return ['sh', '-c', 'while kill -0 "$1" 2>/dev/null; do sleep 0.3; done; rm -rf -- "$2"', 'openkaraoke-cleanup', String(pid), path.resolve(userData)];
+  const script = 'while kill -0 "$1" 2>/dev/null; do sleep 0.3; done; gio trash -- "$2" 2>/dev/null || rm -rf -- "$2"';
+  return ['sh', '-c', script, 'openkaraoke-cleanup', String(pid), path.resolve(userData)];
 }
 
 /**

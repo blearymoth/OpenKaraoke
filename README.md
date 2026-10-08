@@ -52,12 +52,14 @@ later: the window moves there by itself. Guests scan the QR code on the TV with 
 
 **Uninstall.** Right-click OpenKaraoke in the applications menu and choose **Uninstall
 OpenKaraoke**, or use Settings → About → **Uninstall…** in the app. Your songs are never
-touched. Your settings and song index stay in `~/.config/OpenKaraoke` unless you tick “Also
-delete my settings”.
+touched. What OpenKaraoke saved (settings, playlists, favourites, history, song index, pictures)
+stays in `~/.config/OpenKaraoke`, unless you tick “Also delete what OpenKaraoke saved”: then it
+goes to the Trash.
 
 **Run OpenKaraoke like a server.** Settings → About → **Start OpenKaraoke when I log in** and
 **Keep the party running when this window is closed**: the TV window and the guests' phones
 carry on while you run the party from a phone or tablet (set a host PIN in Settings → Party).
+To stop it, open OpenKaraoke again and use **Quit OpenKaraoke** in Settings → About.
 
 ### If something doesn't work
 
@@ -78,7 +80,7 @@ The [release page](https://github.com/blearymoth/OpenKaraoke/releases/latest) al
 | --- | --- |
 | `openkaraoke_<version>_amd64.deb` | Ubuntu, Debian, Mint: installs for everyone on the PC (asks for your password) |
 | `openkaraoke-<version>.x86_64.rpm` | Fedora, openSUSE: installs for everyone on the PC (asks for your password) |
-| `OpenKaraoke-<version>.AppImage` | the same program as “Install OpenKaraoke”, on its own |
+| `OpenKaraoke-<version>.AppImage` | the same program as “Install OpenKaraoke”, run straight from the file (Settings → About can install it) |
 
 Settings, the library index and the party are kept in `~/.config/OpenKaraoke`. Your songs stay
 where they are.

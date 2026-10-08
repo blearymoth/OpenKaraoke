@@ -53,13 +53,15 @@ contextBridge.exposeInMainWorld('okDesktop', Object.freeze({
    * its file), Uninstall, start at login and server mode. Each call resolves to { ok, state } or
    * { ok: false, error }; state = { how ('user' | 'portable' | 'deb' | 'rpm' | 'source' | 'unknown'),
    * version, where, installedCopy, atLogin, canAtLogin, background, canInstall, canUninstall }.
-   * uninstall() ends with the app quitting.
    */
   system: Object.freeze({
     get: () => system('get'),
     set: (patch) => system('set', { atLogin: patch?.atLogin, background: patch?.background }),
     install: () => system('install'),
-    uninstall: (options) => system('uninstall', { removeData: !!options?.removeData }),
+    /** Asks in the system's own dialog (with "also delete what it saved"), then removes it and quits. */
+    uninstall: () => system('uninstall'),
+    /** Saves the party and quits (in server mode closing the window doesn't). */
+    quit: () => system('quit'),
   }),
   /** Calls fn({ text, level }) when the app has something to tell (e.g. how to move the TV window). */
   onNotice: (fn) => {

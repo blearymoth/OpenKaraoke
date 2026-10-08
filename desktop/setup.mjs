@@ -70,12 +70,13 @@ function friendly(e, paths) {
 }
 
 /**
- * Shows the setup window. `paths` from installPaths(), `userData` the app's real profile
- * (~/.config/OpenKaraoke: its settings, whether it runs), `icon` the app's icon file.
+ * Shows the setup window. `from` the AppImage this runs from, `paths` from installPaths(),
+ * `userData` the app's real profile (~/.config/OpenKaraoke: its settings, whether it runs),
+ * `icon` the app's icon file.
  */
-export function runSetup({ paths, userData, version, icon, log = console }) {
-  const from = process.env.APPIMAGE;
+export function runSetup({ from, paths, userData, version, icon, log = console }) {
   let win = null;
+  const trash = (dir) => run('gio', ['trash', '--', dir]);
   const tilde = (p) => (p.startsWith(`${os.homedir()}/`) ? `~/${p.slice(os.homedir().length + 1)}` : p);
   const theme = () => {
     try {
@@ -154,13 +155,25 @@ export function runSetup({ paths, userData, version, icon, log = console }) {
       fromPage(event);
       if (runningServer(path.join(userData, 'data'))) return { ok: false, error: 'OpenKaraoke is open: quit it first (OpenKaraoke → Quit), then try again.' };
       try {
-        await uninstall({ paths, removeData: o?.removeData === true, userData, run });
+        await uninstall({ paths, removeData: o?.removeData === true, userData, run, trash });
         log.info?.(`uninstalled from ${paths.dir}${o?.removeData === true ? ' (and the settings)' : ''}`);
         return { ok: true };
       } catch (e) {
         log.error?.('uninstall failed', e);
         return { ok: false, error: friendly(e, paths) };
       }
+    });
+    // "Quit it for me": the open OpenKaraoke saves the party and quits (it treats SIGTERM as Quit).
+    ipcMain.handle('oks:quit-running', async (event) => {
+      fromPage(event);
+      const running = runningServer(path.join(userData, 'data'));
+      if (running) {
+        try {
+          process.kill(running.pid, 'SIGTERM');
+        } catch { /* gone already */ }
+        for (let i = 0; i < 100 && runningServer(path.join(userData, 'data')); i++) await new Promise((r) => setTimeout(r, 200));
+      }
+      return info();
     });
     ipcMain.handle('oks:close', (event) => {
       fromPage(event);

@@ -10,7 +10,7 @@ sandbox without the owner's PC or drive)._
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
 - `npm test` → 484/484; `npm run e2e` → 15 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `admin.mjs` and
-  `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics); `npm --prefix desktop test` → 46/46 + 28/28 (the
+  `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics); `npm --prefix desktop test` → 46/46 + 35/35 (the
   desktop app, also against the built installer, and the setup window; the release workflow also
   runs the setup test against the real AppImage from `OpenKaraoke-Setup.zip`). Every milestone also went through an independent review
   whose confirmed findings were fixed and re-verified (table below).
@@ -795,11 +795,16 @@ GUI, the server mode becoming the secondary way.
   with `fusermount3` as a normal user and runs sandboxed; without any FUSE it prints "Cannot
   mount AppImage" (no fallback) — every desktop distro has fuse3.
 - **The setup window** (`desktop/setup.mjs`): an AppImage that isn't the installed copy starts
-  the setup instead of the app (`startMode`): Install (options: desktop shortcut — on, start at
-  login — off), Update (an older copy installed), "OpenKaraoke is installed" (Start / Install
-  again (repair) / Uninstall…), a note when the .deb/.rpm is installed, "Run it without
-  installing" (remembered per file in `~/.config/OpenKaraoke/setup.json`: that file then starts
-  as the app). It uses a throwaway browser profile and starts no server (the app may be open at
+  the setup instead of the app (`startMode`) — except a release's own file
+  (`OpenKaraoke-<version>.AppImage`, run on purpose; every copy from before the installer is named
+  so, the updater keeps the name), which starts as the app with Install in Settings → About. Pages:
+  Install (options: desktop shortcut — on, start at login — off), **Update** (an older copy
+  installed), "OpenKaraoke is installed" (Start / Install again (repair) / Run this file without
+  installing / Uninstall…), a note when the .deb/.rpm is installed, "Run it without installing"
+  (remembered per file in `~/.config/OpenKaraoke/setup.json`: that file then starts as the app).
+  Uninstalling while OpenKaraoke is open: "Quit OpenKaraoke for me" (SIGTERM to the pid in its
+  data lock — the app saves and quits), then Uninstall. `$APPIMAGE` counts only for the program
+  inside that AppImage (`ownAppImage`: a program started from inside another AppImage inherits it). It uses a throwaway browser profile and starts no server (the app may be open at
   the same time), and serves its page itself through `okapp://app` (desktop/setup/ + public/ +
   shared/: the app's own styles, fonts, Preact). "Start OpenKaraoke" starts the installed copy
   detached, without this AppImage's variables (`launchEnv`).
@@ -809,31 +814,48 @@ GUI, the server mode becoming the secondary way.
   the icon; right-click action "Uninstall OpenKaraoke" = `--uninstall`), a desktop shortcut
   (executable + `gio set … metadata::trusted true`, so GNOME's and KDE's desktops start it
   without asking), `~/.config/autostart/openkaraoke.desktop` when chosen. Every entry carries
-  `X-OpenKaraoke-Install=user`: only those are ever updated or removed. The in-app updater
+  `X-OpenKaraoke-Install=user`: only those are ever updated or removed; someone else's file in
+  one of those places (made by hand, a menu editor's copy) is kept aside as
+  `<name>.before-openkaraoke` and put back when ours goes. The in-app updater
   already replaces the running AppImage in place, so the installed copy updates itself; at each
   start it puts back a missing menu entry or icon and notes its version (`refresh`).
-- **Uninstall from the GUI**: right-click the menu entry (with the app closed it asks in a
-  system dialog; with it open, the open app asks), Settings → About → Uninstall…, or the setup
-  window. "Also delete my settings, song index and pictures" removes `~/.config/OpenKaraoke`
-  after the app has ended (a detached `sh` waits for its pid: its own browser profile is in
-  there), never anything that could be more than that (`safeDataDir`). A .deb/.rpm copy is
-  removed with `pkexec apt-get/dnf/zypper/rpm` (`removeCommand`).
+- **Uninstall from the GUI**: right-click the menu entry (removes the copy installed for this
+  person, whichever copy is open; with the app closed it asks in a system dialog, with it open
+  the open app asks), Settings → About → Uninstall… (always confirmed in the system's own dialog —
+  a page never removes anything by itself), or the setup window. "Also delete what OpenKaraoke
+  saved — settings, playlists, favourites, history, song index and pictures" moves
+  `~/.config/OpenKaraoke` to the Trash (`gio trash`; deleted where there is no Trash) after the
+  app has ended (a detached `sh` waits for its pid: its own browser profile is in there), and
+  only a folder named OpenKaraoke that can't be more than that (`safeDataDir`). Not while an
+  update downloads. A .deb/.rpm copy is removed with `pkexec apt-get/dnf/zypper/rpm`
+  (`removeCommand`); its start at login only goes when it starts that copy.
 - **Settings → About → On this computer** (desktop app only): how this copy is installed (for
   you / straight from its file / .deb / .rpm / source), **Install on this computer** for a copy
   run straight from its file, **Uninstall…**, **Start OpenKaraoke when I log in**, and **Keep
   the party running when this window is closed** — server mode from the GUI (`startup.json`):
   closing the host window leaves the server, the TV window and the phones going (a notification
-  says so once); starting OpenKaraoke again brings the window back (`second-instance`).
-- Existing AppImage users: after updating to 0.2 the next start shows the setup once (their
-  AppImage isn't the installed copy) — Install, or "Run it without installing" (remembered).
+  says so once); starting OpenKaraoke again brings the window back (`second-instance`), and
+  **Quit OpenKaraoke** (Settings → About) is the visible way out.
+- Existing users: an AppImage from before (`OpenKaraoke-<version>.AppImage`, kept by the updater)
+  goes on starting as the app; Settings → About → Install on this computer adds the menu entry.
+  A .deb/.rpm copy is untouched (Settings → About shows it and can uninstall it).
+- **Reviewed** by an independent agent; fixed from it: a second helper named `ask` in
+  `main.mjs`'s `run()` replaced the graphics probe's (every start would have shown an empty
+  dialog and the desktop test hung) — now `systemDialog`; the Update page was unreachable; no
+  visible Quit in server mode; the data checkbox didn't say playlists/history/photos go too;
+  someone else's entries were overwritten; the menu entry's Uninstall acted on whichever copy
+  was open; uninstall during an update download; two setups writing the same temporary file;
+  pkexec without a password agent reported as "cancelled".
 
 **Tests**: `test/install.test.js` (paths, desktop-entry quoting checked by parsing it back, start
 modes, install / repair / uninstall in a temp home — only our files, the settings guard, the
-zip's bytes and mode); `desktop/test/setup.mjs` (28 checks from the source: run without
-installing, install with start at login, Start, setup again → repair, the installed app's Settings
-→ About switches, server mode, Uninstall…, setup-window uninstall with the settings, the menu
-entry's `--uninstall`); with `SETUP_APPIMAGE=<the real AppImage>` 20 checks against the real
-file, the installed copy really starting (the release workflow runs it, unzipped from the zip,
+zip's bytes and mode, someone else's entries kept and put back, the Trash); `desktop/test/setup.mjs`
+(35 checks from the source: run without installing, install with start at login, Start, setup
+again → repair, Update over an older copy, the installed app's Settings → About switches, server
+mode, Quit, Uninstall… with the system dialog, the setup's "Quit OpenKaraoke for me" and uninstall
+with the settings, the menu entry's `--uninstall`, a release-named AppImage starting as the app);
+with `SETUP_APPIMAGE=<the real AppImage>` the same against the real file (the installed app's
+Settings → About part runs from the source only), the installed copy really starting (the release workflow runs it, unzipped from the zip,
 with `APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1`; also passed here with FUSE mounting).
 
 ## Next steps

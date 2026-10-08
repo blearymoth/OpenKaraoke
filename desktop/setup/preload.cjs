@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('okSetup', Object.freeze({
   runHere: () => ipcRenderer.invoke('oks:run-here'),
   /** Removes the installed copy; with removeData also the settings, song index and pictures. */
   uninstall: (options) => ipcRenderer.invoke('oks:uninstall', { removeData: !!options?.removeData }),
+  /** Asks the open OpenKaraoke to save the party and quit; resolves to the new info(). */
+  quitRunning: () => ipcRenderer.invoke('oks:quit-running'),
   close: () => ipcRenderer.invoke('oks:close'),
   /** Calls fn(fraction) while the copy is made; returns the function that stops it. */
   onProgress: (fn) => {

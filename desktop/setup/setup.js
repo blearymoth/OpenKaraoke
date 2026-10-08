@@ -81,6 +81,7 @@ function Installed({ info, go }) {
     </div>
     <div class="links">
       <button onClick=${() => go('welcome-again')}>${newer ? 'Install this older version anyway' : 'Install again (repair)'}</button>
+      <button onClick=${() => go('runHere')}>Run this file without installing</button>
       <button class="danger" onClick=${() => go('ask-uninstall')}>Uninstall OpenKaraoke…</button>
     </div>`;
 }
@@ -118,11 +119,18 @@ function Done({ info, result, go }) {
 
 function AskUninstall({ info, go }) {
   const [removeData, setRemoveData] = useState(false);
+  const [quitting, setQuitting] = useState(false);
+  const quit = async () => {
+    setQuitting(true);
+    await go('quit-running');
+    setQuitting(false);
+  };
   return html`
     <h1>Uninstall OpenKaraoke?</h1>
-    <p class="lead">OpenKaraoke, its menu entry and its desktop shortcut are removed from this computer. Your songs are not touched.</p>
-    <label class="check-row"><input type="checkbox" checked=${removeData} onChange=${(e) => setRemoveData(e.currentTarget.checked)} /> Also delete my settings, song index and pictures</label>
-    ${info.running && html`<p class="note warn">OpenKaraoke is open: quit it first (OpenKaraoke → Quit), then uninstall.</p>`}
+    <p class="lead">OpenKaraoke, its menu entry and its desktop shortcut are removed from this computer. Your songs are never touched.</p>
+    <label class="check-row"><input type="checkbox" checked=${removeData} onChange=${(e) => setRemoveData(e.currentTarget.checked)} /> Also delete what OpenKaraoke saved — settings, playlists, favourites, history, song index and pictures (they go to the Trash)</label>
+    ${info.running && html`<div class="note warn">OpenKaraoke is open right now: it has to quit first (the party is saved).
+      <div class="actions"><button class="btn" disabled=${quitting} onClick=${quit}>${quitting ? 'Quitting…' : 'Quit OpenKaraoke for me'}</button></div></div>`}
     <div class="actions">
       <button class="btn large danger" disabled=${info.running} onClick=${() => go('uninstall', { removeData })}><${Icon} name="trash" /> Uninstall</button>
       <button class="btn ghost large" autofocus onClick=${() => go('back')}>Cancel</button>
@@ -153,7 +161,8 @@ function App() {
   const [progress, setProgress] = useState(0);
 
   const first = (i) => {
-    if (i.installed) return { name: 'installed' };
+    // An older copy installed: the Update page; the same or a newer one: Start / Repair / Uninstall.
+    if (i.installed) return compare(i.version, i.installed.version) > 0 ? { name: 'welcome' } : { name: 'installed' };
     if (i.system) return { name: 'system' };
     return { name: 'welcome' };
   };
@@ -170,9 +179,17 @@ function App() {
 
   const go = async (what, arg) => {
     if (what === 'welcome-again') return setPage({ name: 'welcome', again: true });
-    if (what === 'ask-uninstall') return setPage({ name: 'ask-uninstall' });
+    if (what === 'ask-uninstall') {
+      await reload(); // (whether OpenKaraoke is open right now)
+      return setPage({ name: 'ask-uninstall' });
+    }
     if (what === 'back') return setPage(first(await reload()));
     if (what === 'close') return setup.close();
+    if (what === 'quit-running') {
+      const i = await setup.quitRunning();
+      setInfo(i);
+      return undefined;
+    }
     if (what === 'runHere') {
       const r = await setup.runHere();
       if (!r?.ok) setPage({ name: 'failed', error: r?.error || 'OpenKaraoke could not start.' });

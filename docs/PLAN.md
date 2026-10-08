@@ -1221,29 +1221,34 @@ prefers a system package (installed for everyone, with a password).
 
 **The setup** (`desktop/setup.mjs`, `desktop/setup/`; file work in `desktop/install.mjs`):
 the app decides at start what it is for (`startMode`): `--uninstall` → uninstall; an AppImage
-that isn't the installed copy (and wasn't chosen to "run without installing") → the setup
-window; else the app. The setup window runs on a throwaway profile, starts no server, and serves
+that isn't the installed copy (not a release's own `OpenKaraoke-<version>.AppImage`, and not
+chosen to "run without installing") → the setup window; else the app. `$APPIMAGE` counts only for
+the program inside that AppImage (`ownAppImage`). The setup window runs on a throwaway profile, starts no server, and serves
 its page through its own `okapp://app` scheme (desktop/setup/, public/, shared/). Pages: Install
 (desktop shortcut on, start at login off), Update (older copy installed), Installed (Start /
 Install again / Uninstall…), a note when a system package is installed, Installing (progress),
-Done (Start OpenKaraoke / Close), Uninstall? (also delete the settings), Removed, Failed.
+Done (Start OpenKaraoke / Close), Uninstall? (also delete what it saved; "Quit OpenKaraoke for
+me" while it is open), Removed, Failed.
 
 **Per-user install** (no password, XDG): `$XDG_DATA_HOME/OpenKaraoke/` (`OpenKaraoke.AppImage`,
 `openkaraoke.png`, `install.json`), `$XDG_DATA_HOME/applications/openkaraoke.desktop` (named
 after the window's app id; action "Uninstall OpenKaraoke" → `--uninstall`), the desktop shortcut
 (`app.getPath('desktop')/OpenKaraoke.desktop`, executable, `metadata::trusted`), optional
 `$XDG_CONFIG_HOME/autostart/openkaraoke.desktop`. Entries carry `X-OpenKaraoke-Install=user`; only
-those are touched. Exec values are quoted and escaped per the Desktop Entry Specification. The
+those are touched (someone else's file in their place is kept aside and put back). Exec values are quoted and escaped per the Desktop Entry Specification. The
 installed copy updates itself (the updater swaps its AppImage) and repairs its entries at start.
 
-**Uninstall** (GUI only): the menu entry's action, Settings → About → Uninstall…, or the setup
-window; removes the program, entries and icon; optionally `~/.config/OpenKaraoke` (after the app
-has ended — a detached `sh` waits for its pid — and only that folder). A .deb/.rpm is removed with
-pkexec + apt-get/dpkg/dnf/zypper/rpm.
+**Uninstall** (GUI only, always confirmed in a system dialog or the setup window): the menu
+entry's action (this person's copy), Settings → About → Uninstall… (this copy), or the setup
+window; removes the program, entries and icon; optionally what it saved, `~/.config/OpenKaraoke`
+(settings, playlists, favourites, history, song index, pictures), to the Trash, after the app has
+ended — a detached `sh` waits for its pid — and only a folder named OpenKaraoke. A .deb/.rpm is
+removed with pkexec + apt-get/dpkg/dnf/zypper/rpm. Not while an update downloads.
 
 **Server mode in the app** (Settings → About, `startup.json`): "Keep the party running when this
 window is closed" — closing the host window leaves the server, the TV window and the phones
-going; a second start brings the window back. "Start OpenKaraoke when I log in" writes the
+going; a second start brings the window back; "Quit OpenKaraoke" stops it. "Start OpenKaraoke
+when I log in" writes the
 autostart entry for however this copy is installed. The source-code server (`node
 server/index.js`, `bin/install-service.sh`) is unchanged.
 

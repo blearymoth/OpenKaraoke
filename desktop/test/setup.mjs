@@ -209,8 +209,12 @@ try {
     check(!!bg, 'Keep the party running when this window is closed (server mode) is saved');
     // Server mode: closing the window leaves the app (and the party) running.
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
-    await sleep(1500);
-    const still = await app.evaluate(({ BrowserWindow }) => ({ windows: BrowserWindow.getAllWindows().length, told: globalThis.okNotified || [] })).catch(() => null);
+    let still = null;
+    await poll(async () => {
+      still = await app.evaluate(({ BrowserWindow }) => ({ windows: BrowserWindow.getAllWindows().length, told: globalThis.okNotified || [] }));
+      return still.windows === 0 && still.told.length > 0;
+    }, 10_000);
+    await sleep(500); // (still running a moment later)
     const lock = JSON.parse(await fs.readFile(path.join(userData, 'data', 'server.json'), 'utf8'));
     const serving = await fetch(`http://127.0.0.1:${lock.port}/api/info`).then((r) => r.ok, () => false);
     check(still && still.windows === 0 && serving && still.told.includes('OpenKaraoke keeps running'), `server mode: with the window closed the party server keeps running, and says so (${JSON.stringify(still)})`);
@@ -235,8 +239,9 @@ try {
     // Uninstall… asks in the system's own dialog (answered here), keeping the settings.
     await app.evaluate(() => { process.env.OPENKARAOKE_TEST_ANSWER = JSON.stringify({ response: 1 }); });
     await again.click('button:has-text("Uninstall…")');
-    await sleep(800);
-    check(exists(paths.appImage) && (await app.evaluate(() => globalThis.okAsked || [])).includes('Uninstall OpenKaraoke?'), 'Uninstall… asks first in the system’s own dialog; Cancel changes nothing');
+    const askedFirst = await poll(async () => (await app.evaluate(() => globalThis.okAsked || [])).includes('Uninstall OpenKaraoke?'), 10_000);
+    await poll(async () => !(await again.isDisabled('button:has-text("Uninstall…")')), 10_000); // (the answer is back)
+    check(!!askedFirst && exists(paths.appImage), 'Uninstall… asks first in the system’s own dialog; Cancel changes nothing');
     const gone = app.waitForEvent('close', { timeout: 30_000 }).catch(() => {});
     await app.evaluate(() => { process.env.OPENKARAOKE_TEST_ANSWER = JSON.stringify({ response: 0, checkboxChecked: false }); });
     await again.click('button:has-text("Uninstall…")');

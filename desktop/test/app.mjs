@@ -146,12 +146,18 @@ try {
   const tv = await tvOpened;
   await tv.waitForURL(/\/tv/, { timeout: 20_000 });
   await tv.waitForSelector('.tv', { timeout: 20_000 }).catch(() => {});
-  const tvWin = await app.evaluate(({ BrowserWindow }) => {
-    const w = BrowserWindow.getAllWindows().find((x) => /\/tv/.test(x.webContents.getURL()));
-    return { bounds: w.getBounds(), full: w.isFullScreen(), title: w.getTitle(), menu: w.isMenuBarVisible() };
-  });
-  check(tvWin.bounds.x >= 1280 && tvWin.full, `the TV window is full screen on the second screen (${JSON.stringify(tvWin.bounds)}, full screen ${tvWin.full})`);
-  check(!tvWin.menu, 'the TV window has no menu bar');
+  // Full screen comes a moment after the window shows (main.mjs openTv: shown on its screen first,
+  // then full screen), and the page may be up before that: waited for.
+  let tvWin = null;
+  await poll(async () => {
+    tvWin = await app.evaluate(({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows().find((x) => /\/tv/.test(x.webContents.getURL()));
+      return w && { bounds: w.getBounds(), full: w.isFullScreen(), title: w.getTitle(), menu: w.isMenuBarVisible() };
+    });
+    return tvWin?.full || null;
+  }, 5000);
+  check(!!tvWin && tvWin.bounds.x >= 1280 && tvWin.full, `the TV window is full screen on the second screen (${JSON.stringify(tvWin?.bounds)}, full screen ${tvWin?.full})`);
+  check(!!tvWin && !tvWin.menu, 'the TV window has no menu bar');
   const toast = await host.waitForSelector('.toast:has-text("second screen")', { timeout: 5000 }).then((el) => el.textContent(), () => '');
   check(/second screen/i.test(toast), `the host is told where the TV went ("${toast.trim()}")`);
   await ws.until((s) => s.player?.hasDisplay, 15_000).catch(() => {});

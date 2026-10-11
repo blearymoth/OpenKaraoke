@@ -16,6 +16,7 @@ import { songbookRoutes } from './songbook.js';
 import { RateLimiter } from '../util/ratelimit.js';
 import { Lru } from '../util/lru.js';
 import { defaultMusicDirs } from '../config.js';
+import { rescanForPaths } from '../library/service.js';
 import { logger } from '../util/log.js';
 
 const log = logger('api');
@@ -268,8 +269,9 @@ export function apiRoutes(router, app) {
     for (const p of body.paths) {
       if (typeof p !== 'string' || !path.isAbsolute(p)) throw new HttpError(400, `Not an absolute folder path: ${p}`);
     }
-    await library.setPaths(body.paths);
-    library.scan({ reason: 'folders changed' }).catch((e) => log.error('scan failed', e));
+    const before = library.paths;
+    const roots = rescanForPaths(before, await library.setPaths(body.paths));
+    if (roots.length) library.scan({ reason: 'folders changed', roots }).catch((e) => log.error('scan failed', e));
     return library.status();
   });
 

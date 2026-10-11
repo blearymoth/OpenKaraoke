@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { scanLibrary, previousKey } from '../server/library/scanner.js';
+import { scanLibrary, previousKey, nestedRoots, inNestedRoot } from '../server/library/scanner.js';
 import { listZip, readZipEntry } from '../server/library/zip.js';
 import { tmpDir, writeTree, makeZip } from './helpers.js';
 
@@ -97,4 +97,62 @@ test('corrupt and ZIP64 archives are rejected cleanly (no crash)', async () => {
   await assert.rejects(listZip(bad), /Corrupt/);
   const res = await scanLibrary([dir]);
   assert.equal(res.tracks.length, 0);
+});
+
+test('a library folder inside another is found once, as its own folder', async () => {
+  const root = await fixture();
+  await writeTree(root, {
+    'YouTube Downloads/Rick Astley - Never Gonna Give You Up.mp4': 5000,
+    'YouTube Downloads/Old/Toto - Africa.mp4': 5000,
+  });
+  const inner = path.join(root, 'YouTube Downloads');
+  for (const roots of [[root, inner], [inner, root]]) {
+    const res = await scanLibrary(roots);
+    assert.deepEqual(res.errors, []);
+    const names = res.tracks.map((t) => t.name).sort();
+    assert.equal(names.length, new Set(names).size, `no duplicates (${roots.map((r) => path.basename(r))})`);
+    assert.equal(res.tracks.length, 6);
+    const innerIndex = roots.indexOf(inner);
+    for (const t of res.tracks.filter((x) => /Rick|Toto/.test(x.name))) {
+      assert.equal(t.root, innerIndex, 'the inner folder owns its tracks');
+      assert.ok(!t.dir.startsWith('YouTube Downloads'));
+    }
+  }
+  // Scanning the outer folder alone still skips the inner one (it keeps its own tracks).
+  const outerOnly = await scanLibrary([root, inner], { only: [0] });
+  assert.deepEqual(outerOnly.rootsOnline, [0]);
+  assert.equal(outerOnly.tracks.length, 4);
+  const innerOnly = await scanLibrary([root, inner], { only: [1] });
+  assert.deepEqual(innerOnly.rootsOnline, [1]);
+  assert.deepEqual(innerOnly.tracks.map((t) => t.name).sort(), ['Rick Astley - Never Gonna Give You Up', 'Toto - Africa']);
+});
+
+test('the same folder twice, or a link to another library folder, is not scanned twice', async () => {
+  const root = await fixture();
+  const other = await tmpDir();
+  await writeTree(other, { 'Toto - Africa.mp4': 5000 });
+  const alias = `${root}-alias`;
+  await fs.symlink(root, alias);
+  await fs.symlink(other, path.join(root, 'Linked'));
+  const res = await scanLibrary([root, alias, other]);
+  assert.deepEqual(res.errors, []);
+  assert.deepEqual(res.rootsOnline, [0, 1, 2], 'the alias is there, with nothing of its own');
+  assert.equal(res.tracks.filter((t) => t.root === 1).length, 0);
+  const names = res.tracks.map((t) => t.name);
+  assert.equal(names.length, new Set(names).size);
+  assert.equal(res.tracks.find((t) => t.name === 'Toto - Africa').root, 2);
+});
+
+test('nestedRoots and inNestedRoot', () => {
+  const nested = nestedRoots(['/music', '/music/YouTube', '/music/YouTube/old', '/other', '/music/..hidden', '/music']);
+  assert.deepEqual([...nested[0]].sort(), ['..hidden', 'YouTube', 'YouTube/old']);
+  assert.deepEqual([...nested[1]], ['old']);
+  assert.deepEqual([...nested[2]], []);
+  assert.deepEqual([...nested[3]], []);
+  assert.deepEqual([...nested[5]].sort(), ['', '..hidden', 'YouTube', 'YouTube/old'], 'a repeated folder has nothing of its own');
+  assert.equal(inNestedRoot('YouTube', nested[0]), true);
+  assert.equal(inNestedRoot('YouTube/x', nested[0]), true);
+  assert.equal(inNestedRoot('YouTubeX', nested[0]), false);
+  assert.equal(inNestedRoot('', nested[0]), false);
+  assert.equal(inNestedRoot('A/Adele', nested[5]), true);
 });

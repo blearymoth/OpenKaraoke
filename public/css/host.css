@@ -375,7 +375,8 @@ table.versions .num { text-align: right; }
 .art-candidate .good { color: var(--ok); font-weight: 700; }
 .pill.neon { background: var(--neon-soft); color: var(--ink); }
 .tag-tile.decade b { font-size: 26px; }
-.folder-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r-md); background: var(--night); border: 1px solid var(--line); }
+.folder-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r-md); background: var(--night); border: 1px solid var(--line); }
+.folder-row .grow { flex: 1 1 12rem; }
 .about { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .about .setting { padding: 10px 0; }
 .updates { gap: 12px; }

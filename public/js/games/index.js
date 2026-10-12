@@ -7,6 +7,7 @@ import * as wheel from './wheel.js';
 import * as poll from './poll.js';
 import * as relay from './relay.js';
 import * as applause from './applause.js';
+import * as pitch from './pitch.js';
 import * as recap from './recap.js';
 
-export const GAME_UI = { quiz, battle, wheel, poll, relay, applause, recap };
+export const GAME_UI = { quiz, battle, wheel, poll, relay, applause, pitch, recap };

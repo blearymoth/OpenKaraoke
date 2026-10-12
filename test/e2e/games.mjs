@@ -39,7 +39,7 @@ try {
   await host.goto(`${base}/host#/games`);
   await host.waitForSelector('.game-card');
   const cards = await host.$$eval('.game-card h3', (l) => l.map((x) => x.textContent.trim()));
-  check(cards.length === 7, `games page lists the games (${cards.length})`);
+  check(cards.length === 8, `games page lists the games (${cards.length})`);
 
   const tv = watch(await browser.newPage({ viewport: { width: 1280, height: 720 } }), 'tv');
   await tv.goto(`${base}/tv`);

@@ -53,12 +53,13 @@ function filesFor(names) {
  * @param {object} [opts]
  * @param {string[]} [opts.songs] file base names (default SONGS)
  * @param {typeof fetch} [opts.fetch] artwork network (default: offline)
+ * @param {Function|null} [opts.stemRun] vocal separator (default: none, so tests never spawn Demucs)
  */
-export async function setupRoom(settings = {}, { songs = SONGS, fetch = offlineFetch } = {}) {
+export async function setupRoom(settings = {}, { songs = SONGS, fetch = offlineFetch, stemRun = null } = {}) {
   const lib = await tmpDir('ok-lib-');
   await writeTree(lib, filesFor(songs));
   const dataDir = await tmpDir('ok-data-');
-  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch, crawl: false });
+  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch, crawl: false, stemRun });
   await app.library.scan();
   app.settings.update({ playback: { countdown: 0 }, ...settings });
   const room = app.room;

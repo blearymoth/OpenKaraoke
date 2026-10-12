@@ -37,6 +37,9 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   drive offline/online detection (poll every 20 s), rescan button, "library offline" banner.
 - ✅ P0 Folder picker in host settings (server lists directories; suggest mounted drives under
   `/run/media/$USER`, `/media/$USER`) + CLI `--library`.
+- ✅ P1 A library folder inside another is scanned as its own folder (once). When that split —
+  or folding it back into the parent — changes a track id, plays, votes, vocal analysis and
+  per-track prefs move with the file (§5.1, §22).
 - ✅ P1 Genre / decade browse (host Collections + genre/decade pages, guest chips; metadata from §12), "Most sung here", live "In queue" / "Sung tonight" marks.
 - ✅ P1 Printable songbook (HTML → print to PDF, or CSV) with filters (letter, tag, genre, decade, popular only) — Settings → Library.
 - ⬜ P2 Optional ffmpeg transcoding for AVI/WMV/MPG video when `ffmpeg` is installed.
@@ -230,7 +233,10 @@ desktop/                ✅ the Linux desktop app (Electron + electron-builder, 
 
 ### 5.1 Track (one playable file set) — built by scanner + parser
 ```js
-{ id,                       // shortId(`${dir}/${name}`) – stable across rescans
+{ id,                       // shortId(`${dir}/${name}`) – stable across rescans of the same folders.
+                            // A nested folder that becomes its own root (or is folded back into
+                            // its parent) changes `dir`, so the id changes; the file is the same,
+                            // and plays, votes, vocals and per-track prefs move with it (§22).
   root, dir, name,          // root index into settings.library.paths, relative dir, base name
   kind: 'cdg'|'video'|'zip',
   cdg, audio | video | zip + entries{cdg,audio|video},
@@ -1267,6 +1273,13 @@ WAI-ARIA tabs with arrow/Home/End keys); on phones it is the Control page.
 `{ version, backfilled, tracks: { <trackId>: { p, v: { '@host' | deviceId: 1 | -1 } } } }`).
 - A completed song (same rule as the song count) adds a play to its version. The first start
   counts the history (`history.jsonl`, streamed; tried again next start when unreadable).
+- **The same file keeps its plays and votes** when a library folder inside another becomes its
+  own root, or is folded back into the parent (`dir` changes, so `shortId(dir/name)` changes).
+  The record is copied onto the new id and the old key dropped — also `vocals.json` and
+  `trackPrefs` (and a song's remembered version, the queue and tonight's list). A different
+  file is never given those records. A renamed or moved file still starts over, and so does a
+  symbolic link whose target path is not the folder that was split. `history.jsonl` is left
+  as written.
 - `version.vote` — guests: a name, not banned, `guests.versionVotes` on, not an explicit version
   under the filter, **heard tonight** (on now or in tonight's history, skipped too — a broken
   version can be voted down), 20 a minute per guest and 120 per 10 min per address; taking one's

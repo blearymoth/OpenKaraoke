@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { LibraryService, trackSignature, remapRoots, rescanForPaths } from '../server/library/service.js';
+import { idMoves, trackReturns } from '../server/library/ids.js';
 import { Settings } from '../server/config.js';
+import { createApp } from '../server/app.js';
+import { HOST_VOTER } from '../server/room/versions.js';
+import { offlineFetch } from './fake-art.js';
 import { tmpDir, writeTree } from './helpers.js';
 
 const FILES = {
@@ -252,6 +256,141 @@ test('the watcher scans only the folder that appeared', async () => {
   const res = await svc.scanning;
   assert.deepEqual(res.folders, [late]);
   assert.equal(svc.catalog.size, 3);
+});
+
+test('idMoves follows one file across a split and a fold, not a neighbour or a removed folder', () => {
+  const oldRoots = ['/m'];
+  const nest = ['/m', '/m/YouTube Downloads'];
+  const toto = { id: 'aaa', root: 0, dir: 'YouTube Downloads/Old', name: 'Toto - Africa' };
+  const near = { id: 'bbb', root: 0, dir: 'YouTubeX', name: 'Toto - Africa' };
+  const adele = { id: 'ccc', root: 0, dir: 'A/Adele', name: 'Adele - Hello' };
+  const toto2 = { id: 'zzz', root: 1, dir: 'Old', name: 'Toto - Africa' };
+  assert.deepEqual(idMoves(oldRoots, [toto, near, adele], nest, [near, adele, toto2]), [{ from: 'aaa', to: 'zzz' }]);
+  assert.deepEqual(idMoves(nest, [near, adele, toto2], oldRoots, [toto, near, adele]), [{ from: 'zzz', to: 'aaa' }]);
+  assert.equal(trackReturns(oldRoots, toto, nest), true);
+  assert.equal(trackReturns(oldRoots, near, nest), false);
+  assert.equal(trackReturns(oldRoots, adele, nest), false);
+  assert.equal(trackReturns(nest, toto2, oldRoots), true, 'folded back into the parent');
+  assert.equal(trackReturns(['/m', '/other'], { root: 1, dir: 'A', name: 'X' }, ['/m']), false, 'a removed folder is not folded back');
+});
+
+test('plays, votes, vocals and prefs follow a folder that becomes its own root, and the fold back', async () => {
+  const root = await tmpDir('ok-lib-');
+  const other = await tmpDir('ok-lib-');
+  await writeTree(root, {
+    ...FILES,
+    'YouTube Downloads/Toto - Africa [KV Karaoke].mp4': 5000,
+    'YouTubeX/Toto - Africa [KV Karaoke].mp4': 5000,
+  });
+  await writeTree(other, { 'Blondie - Call Me [SF Karaoke].mp4': 5000 });
+  const data = await tmpDir('ok-data-');
+  let app = await createApp({ dataDir: data, args: { library: [root, other] }, scan: false, watch: false, fetch: offlineFetch, crawl: false });
+  try {
+    await app.library.scan();
+    const byDir = (dir) => [...app.library.catalog.tracks.values()].find((t) => t.dir === dir);
+    const toto = byDir('YouTube Downloads');
+    const decoy = byDir('YouTubeX');
+    const adele = [...app.library.catalog.tracks.values()].find((t) => t.name.startsWith('Adele'));
+    const blondie = [...app.library.catalog.tracks.values()].find((t) => t.name.startsWith('Blondie'));
+    const oldToto = toto.id;
+    const oldDecoy = decoy.id;
+    const oldAdele = adele.id;
+    const oldBlondie = blondie.id;
+    app.room.versions.addPlay(oldToto);
+    app.room.versions.addPlay(oldToto);
+    app.room.versions.vote(oldToto, HOST_VOTER, 1);
+    app.room.versions.vote(oldToto, 'guest-aaaa', -1);
+    app.room.versions.addPlay(oldDecoy);
+    app.room.versions.addPlay(oldAdele);
+    app.room.versions.addPlay(oldBlondie);
+    app.room.vocals.set(oldToto, { l: 'stereo', s: '', lean: '', a: 1, c: 'low' });
+    app.room.s.trackPrefs[oldToto] = { channel: 'left', layout: 'mpxL' };
+    app.room.s.songPrefs['adele|hello'] = { trackId: oldToto, key: 2 };
+    app.room.s.queue.push({ id: 'q1', trackId: oldToto });
+    app.room.s.tonight.history.unshift({ trackId: oldToto, title: 'Africa' });
+    const historyPath = path.join(data, 'history.jsonl');
+    const historyBody = `${JSON.stringify({ trackId: oldToto, skipped: false })}\n`;
+    await fs.writeFile(historyPath, historyBody);
+
+    const inner = path.join(root, 'YouTube Downloads');
+    await app.room.libraryPaths({ paths: [root, inner] });
+    await app.library.scanning;
+    const moved = [...app.library.catalog.tracks.values()].find((t) => t.name.startsWith('Toto') && t.root === 1);
+    assert.ok(moved, 'the inner folder’s track is back');
+    assert.equal(moved.dir, '');
+    assert.notEqual(moved.id, oldToto);
+    assert.equal(app.room.versions.info(moved.id).plays, 2);
+    assert.equal(app.room.versions.info(moved.id).host, 1);
+    assert.equal(app.room.versions.info(moved.id, 'guest-aaaa').mine, -1);
+    assert.equal(app.room.versions.info(oldToto).plays, 0, 'the old id no longer holds the plays');
+    assert.equal(app.room.versions.info(oldDecoy).plays, 1);
+    assert.equal(byDir('YouTubeX').id, oldDecoy, 'YouTubeX is a different folder');
+    assert.equal(app.room.versions.info(oldAdele).plays, 1);
+    assert.equal(app.room.vocals.get(oldToto), null);
+    assert.equal(app.room.vocals.get(moved.id).l, 'stereo');
+    assert.deepEqual(app.room.s.trackPrefs[moved.id], { channel: 'left', layout: 'mpxL' });
+    assert.equal(app.room.s.trackPrefs[oldToto], undefined);
+    assert.equal(app.room.s.songPrefs['adele|hello'].trackId, moved.id);
+    assert.equal(app.room.s.queue[0].trackId, moved.id);
+    assert.equal(app.room.s.tonight.history[0].trackId, moved.id);
+    assert.equal(await fs.readFile(historyPath, 'utf8'), historyBody, 'history.jsonl is not rewritten');
+    assert.equal(app.room.versions.info(oldBlondie).plays, 1, 'a removed folder keeps its own plays');
+    assert.equal([...app.library.catalog.tracks.values()].some((t) => t.id === oldBlondie), false);
+
+    await app.room.libraryPaths({ paths: [root] });
+    await app.library.scanning;
+    const back = byDir('YouTube Downloads');
+    assert.equal(back.id, oldToto);
+    assert.equal(app.room.versions.info(back.id).plays, 2);
+    assert.equal(app.room.versions.info(back.id).host, 1);
+    assert.equal(app.room.versions.info(moved.id).plays, 0);
+    assert.equal(app.room.s.trackPrefs[back.id].layout, 'mpxL');
+    assert.equal(app.room.s.songPrefs['adele|hello'].trackId, back.id);
+  } finally {
+    await app.close();
+  }
+
+  // Restart after the split was saved but before the new folder was scanned: the next scan still moves them.
+  app = await createApp({ dataDir: data, args: { library: [root] }, scan: false, watch: false, fetch: offlineFetch, crawl: false });
+  try {
+    await app.library.scan();
+    const toto = [...app.library.catalog.tracks.values()].find((t) => t.dir === 'YouTube Downloads');
+    assert.equal(app.room.versions.info(toto.id).plays, 2, 'still on the folded id');
+    const inner = path.join(root, 'YouTube Downloads');
+    await app.library.setPaths([root, inner]);
+    assert.equal([...app.library.catalog.tracks.values()].some((t) => t.name.startsWith('Toto') && t.dir === 'YouTube Downloads'), false);
+    await app.close();
+  } catch (e) {
+    await app.close();
+    throw e;
+  }
+
+  app = await createApp({ dataDir: data, scan: false, watch: false, fetch: offlineFetch, crawl: false });
+  try {
+    const still = [...app.library.catalog.tracks.values()].find((t) => t.name.startsWith('Toto') && !t.dir);
+    assert.equal(still, undefined, 'not scanned yet');
+    const oldId = [...Object.keys(app.room.versions.tracks)].find((id) => app.room.versions.info(id).plays === 2);
+    assert.ok(oldId);
+    await app.library.saving;
+    await app.close();
+  } catch (e) {
+    await app.close();
+    throw e;
+  }
+
+  app = await createApp({ dataDir: data, scan: false, watch: false, fetch: offlineFetch, crawl: false });
+  try {
+    const inner = path.join(root, 'YouTube Downloads');
+    await app.library.scan({ roots: [inner] });
+    const moved = [...app.library.catalog.tracks.values()].find((t) => t.name.startsWith('Toto') && t.root === 1);
+    assert.ok(moved);
+    assert.equal(app.room.versions.info(moved.id).plays, 2);
+    assert.equal(app.room.versions.info(moved.id).host, 1);
+    assert.equal(app.room.vocals.get(moved.id)?.l, 'stereo');
+    assert.equal(app.room.s.trackPrefs[moved.id]?.channel, 'left');
+  } finally {
+    await app.close();
+  }
 });
 
 test('remapRoots drops tracks that a nested library folder owns', () => {

@@ -1,7 +1,7 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-08 (lyric layouts: two lines and a scrolling list, after the installer;
-run in a cloud sandbox without the owner's PC or drive)._
+_Last updated: 2026-10-12 (track ids follow a folder that becomes its own root; lyric layouts
+and the installer are as below. Run in a cloud sandbox without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
@@ -658,7 +658,8 @@ player is a mini player (tap it for the full Playback page).
   control replaces the channel mode on multiplex tracks), not as two "lead/backing" sliders —
   backing vocals change only by version (see above).
 - Not in this change: moving votes along when a file is renamed (a new track id starts over);
-  live updates of other guests' counts in an open song sheet.
+  live updates of other guests' counts in an open song sheet. A folder that becomes its own
+  root is different — see "Track ids when a folder is split or folded" below.
 - Code: `public/js/host/panel.js`, `playback.js`, `devices.js`, `menu.js`, `public/js/lib/versions.js`,
   `server/room/versions.js`, `server/util/useragent.js`, room.js (`displayList`, `versionVote`,
   `decorateVersions`, views), the desktop's `okDesktop.tv`. Tests: `test/versions.test.js`,
@@ -920,6 +921,18 @@ with the settings, the menu entry's `--uninstall`, a release-named AppImage star
 with `SETUP_APPIMAGE=<the real AppImage>` the same against the real file (the installed app's
 Settings → About part runs from the source only), the installed copy really starting (the release workflow runs it, unzipped from the zip,
 with `APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1`; also passed here with FUSE mounting).
+
+## Track ids when a folder is split or folded
+A library folder inside another (Music, and Music/YouTube Downloads) is that folder's own.
+Track ids are `shortId(dir + "/" + name)`, and `dir` is relative to the folder, so the split
+drops the `YouTube Downloads/` prefix and the id changes; folding the folder back into the
+parent changes it the other way. Plays and votes (`data/versions.json`), what the TV found in
+the channels (`data/vocals.json`) and per-track prefs (`trackPrefs`, plus the song's remembered
+version) are copied onto the new id and the old key is dropped, on that scan. The queue, the
+song on now and tonight's list follow the file. A neighbour such as `YouTubeX`, or a library
+folder that was simply removed, is not the same file and keeps its own records.
+A symbolic link whose target is a different path is still scanned once; those plays stay on
+the old id. `history.jsonl` is not rewritten. A renamed file still starts over.
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

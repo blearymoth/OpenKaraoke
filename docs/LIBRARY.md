@@ -47,6 +47,15 @@ The catalog is tuned for about 90,000 tracks (≈50k songs once label versions a
 artists): build ≈2.5–3.5 s, search 3–20 ms (fuzzy fallback ≤100 ms), cache file ≈30 MB JSON,
 heap ≈200–400 MB during the build.
 
+## Numbered MP4 dumps
+
+Some video collections are a single folder of `NNNN. Artist - Title.mp4` (no
+`[Label Karaoke]` tag). The scanner indexes `.mp4` / `.m4v` / `.mov` as video
+tracks and reads the length from the file. The leading catalog number (3–6
+digits, a dot, then a space) is stored as the disc id, so the artist stays
+`Artist`. The TV plays the file on the same `<video>` element as other video
+karaoke. Checked against one real H.264/AAC track from Karaoke Kalinka.
+
 ## Validate on a real library
 ```bash
 node scripts/scan-report.js "<library folder>" --search "someone like you"

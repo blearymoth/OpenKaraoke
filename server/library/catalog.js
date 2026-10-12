@@ -4,7 +4,7 @@ import { fold, compact, editDistance, shortId, splitCredits } from '../../shared
 import { parseName, titleKeyOf, BRAND_NAMES } from './parse.js';
 import { Lru } from '../util/lru.js';
 
-export const PARSER_VERSION = 4;
+export const PARSER_VERSION = 5;
 
 const segKey = (seg) => compact(String(seg).replace(/^the\s+/i, '').replace(/,\s*the$/i, '')) || compact(seg);
 

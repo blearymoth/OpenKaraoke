@@ -51,7 +51,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   song, the singer — §21.
 - ✅ P0 "Next singer" intro card with countdown, then auto-start (or start-paused mode).
 - ✅ P0 Preload next track during the intro; break music fades out when the next song starts.
-- 🟡 P0 Video karaoke (MP4/WEBM) with the same controls (tempo via playbackRate, key via stretch live input) — implemented, untested with real video files.
+- ✅ P0 Video karaoke (MP4/WEBM) with the same controls (tempo via playbackRate, key via stretch live input). MP4/M4V/MOV length is read while scanning; a leading catalog number (`0028. Artist - Title`) is not part of the artist.
 - ✅ P1 Background behind transparent CDG: blurred cover / artist fanart (Ken-Burns), idle cover mosaic, audio
   visualiser, guest photos, or plain colour. CDG smoothing (Scale2x) for crisp text on big TVs.
 - ✅ P1 Lyric sync offset setting (ms) and automatic output-latency compensation (getOutputTimestamp).

@@ -55,6 +55,17 @@ test('flags and tags from annotations', () => {
   const live = parseName('Adele - Someone Like You (Live) [EZ Karaoke]');
   assert.deepEqual(live.variant, ['Live']);
   assert.equal(live.flags.live, true);
+
+  const mpx = parseName('DJ Hush - Quiet Storm (Multiplex) [MX Karaoke]');
+  assert.equal(mpx.flags.mpx, true);
+  assert.equal(mpx.title, 'Quiet Storm');
+  assert.ok(mpx.tags.includes('Multiplex'));
+  const mpxShort = parseName('Queen - Bohemian Rhapsody (MPX) [SC Karaoke]');
+  assert.equal(mpxShort.flags.mpx, true);
+  assert.ok(mpxShort.tags.includes('Multiplex'));
+  const plain = parseName('DJ Hush - Quiet Storm [SF Karaoke]');
+  assert.equal(plain.flags.mpx, undefined);
+  assert.ok(!plain.tags.includes('Multiplex'));
 });
 
 test('grouping keys ignore credit order, "feat." spelling and sub-titles', () => {

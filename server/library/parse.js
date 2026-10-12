@@ -264,6 +264,7 @@ export function parseName(baseName, dirName = '') {
   }
   if (o.flags.medley) o.tags.add('Medleys');
   if (o.flags.explicit) o.tags.add('Explicit');
+  if (o.flags.mpx) o.tags.add('Multiplex');
   for (const v of o.variant) {
     if (/\blive\b/i.test(v)) o.flags.live = true;
     if (/acoustic|unplugged|acoustative/i.test(v)) o.flags.acoustic = true;

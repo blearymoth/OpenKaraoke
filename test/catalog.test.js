@@ -107,6 +107,23 @@ test('a multiplex version is marked on the song row, and does not become the def
   assert.equal(found[0], 'Hello');
 });
 
+test('Multiplex is its own collection, and only songs with a multiplex version', () => {
+  const cat = new Catalog().load(rawTracks([
+    'DJ Hush - Quiet Storm (Multiplex) [MX Karaoke]',
+    'DJ Hush - Quiet Storm [SF Karaoke]',
+    'Queen - Bohemian Rhapsody (MPX) [SC Karaoke]',
+    'Adele - Hello [SF Karaoke]',
+  ]), ['/library']);
+  const tag = cat.tagCounts.find((t) => t.tag === 'Multiplex');
+  assert.equal(tag.count, 2);
+  const titles = cat.byTag('Multiplex').items.map((s) => s.title).sort();
+  assert.deepEqual(titles, ['Bohemian Rhapsody', 'Quiet Storm']);
+  const storm = cat.byTag('Multiplex').items.find((s) => s.title === 'Quiet Storm');
+  assert.equal(storm.versions, 2, 'the song stays one song; the collection is not a second copy of the plain version');
+  assert.equal(cat.byTag('Multiplex', { sort: 'title' }).total, 2);
+  assert.equal(cat.facets().tags.find((t) => t.tag === 'Multiplex').count, 2);
+});
+
 test('cache round trip keeps ids stable', () => {
   const cat = build();
   const cache = JSON.parse(JSON.stringify(cat.toCache()));

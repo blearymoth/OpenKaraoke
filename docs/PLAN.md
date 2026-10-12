@@ -84,7 +84,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P0 QR join → name + emoji → search, browse (popular, artists A–Z, tags), song sheet with
   versions (labels), optional key, "Sing it" → confirmation with position & ETA.
 - ✅ P0 Queue view (own entries highlighted, remove own), now-playing, reactions (floating emojis on TV).
-- ✅ P1 Photo upload (client-side resize, host moderation) → TV photo flash / slideshow background.
+- ✅ P1 Photo upload (in-page camera on the phone, client-side resize, host moderation) → TV photo flash / slideshow background. Add a Photo opens the rear camera when the phone has one; the shutter sends that frame. No gallery or file picker. A blocked or missing camera is said on the phone.
 - ✅ P1 Co-host promotion (host grants playback/queue controls to a guest).
 - ✅ P1 Rate the performance (1–5 ★) after each song → average in history and singer stars.
 - ✅ P1 Wi-Fi QR code on the TV lobby (SSID/password from settings).
@@ -408,7 +408,8 @@ GET  /api/art/artist/:key?type=picture|fanart|logo|cutout
 GET  /media/:trackId/audio     audio (Range) — from file or zip entry
 GET  /media/:trackId/cdg       CDG bytes (gzip when accepted; cache a few in memory)
 GET  /media/:trackId/video     video (Range)
-POST /api/photos               guest photo upload (raw image body ≤ 4 MB, x-guest-token header)
+POST /api/photos               guest photo upload (raw image body ≤ 4 MB, x-guest-token header;
+                               the phone’s camera takes the frame in the page, then resizes it)
 GET  /api/photos/:id           approved photo
 GET  /api/fs/list?path=…       (host only) list sub-folders for the library folder picker
 GET  /api/history?limit        (host only)   GET /api/export/songbook?format=html|csv&…

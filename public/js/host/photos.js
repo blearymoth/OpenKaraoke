@@ -44,7 +44,7 @@ export function Photos() {
     <h2 class="section-title">On the TV (${counts.approved})</h2>
     ${shown.length ? html`<div class="photo-grid">${shown.map((p) => html`<${PhotoTile} key=${p.id} p=${p} />`)}</div>`
       : counts.approved ? html`<p class="muted">Only older ones, not listed here.</p>`
-      : html`<${Empty} icon="📸" title="No photos yet">Guests find “Send a photo to the TV” on the Me tab of their phone.</${Empty}>`}
+      : html`<${Empty} icon="📸" title="No photos yet">Guests tap “Add a Photo” on the Me tab of their phone.</${Empty}>`}
     ${rejected.length > 0 && html`<h2 class="section-title">Not shown (${counts.rejected})</h2><div class="photo-grid">${rejected.map((p) => html`<${PhotoTile} key=${p.id} p=${p} />`)}</div>`}
     <p class="hint">${plural(counts.total, 'photo')} kept in the data folder${unlisted > 0 ? ` (${unlisted.toLocaleString()} older ones aren’t listed here)` : ''}. Past 300, “Not shown” photos go first, then the oldest.</p>
   </div>`;

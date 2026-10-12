@@ -5,7 +5,7 @@ run in a cloud sandbox without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
-  metadata (M5), seven party games plus performance ratings (M6) and the polish list (M7):
+  metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
 - `npm test` → 497/497; `npm run e2e` → 16 Playwright scripts, all green (`themes.mjs` checks
@@ -113,6 +113,8 @@ run in a cloud sandbox without the owner's PC or drive)._
 - **Pass the mic** (during songs the TV flashes the next participant; their phone buzzes).
 - **Applause meter** (the TV page measures the PC microphone for 5 s → 0–100; kiosk TV started
   with `bin/open-tv.sh` gets the mic without a prompt).
+- **Pitch rings** (the singer's pitch moves a ball on the TV; rings scroll in — sing through the
+  hole; party-computer mic only; score = rings cleared; not pitch-graded karaoke).
 - **Party recap** (totals, top singers, best rated, most-sung artists, crowd favourite, game
   winners; auto-advancing slides).
 - **Performance ratings**: after each finished song phones can give 1–5 ★ for 40 s (not for

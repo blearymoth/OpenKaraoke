@@ -70,7 +70,7 @@ export const DENIED_MESSAGES = {
 
 // ---- games (PLAN §13) ------------------------------------------------------------------------
 
-export const GAME_TYPES = ['quiz', 'battle', 'wheel', 'poll', 'relay', 'applause', 'recap'];
+export const GAME_TYPES = ['quiz', 'battle', 'wheel', 'poll', 'relay', 'applause', 'pitch', 'recap'];
 export const GAME_LABELS = {
   quiz: 'Music quiz',
   battle: 'Battle',
@@ -78,6 +78,7 @@ export const GAME_LABELS = {
   poll: 'What’s next? poll',
   relay: 'Pass the mic',
   applause: 'Applause meter',
+  pitch: 'Pitch rings',
   recap: 'Party recap',
 };
 /**

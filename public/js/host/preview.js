@@ -3,6 +3,8 @@
 import { html, useEffect, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { createStore, useStore } from '../lib/store.js';
+import { act } from './state.js';
+import { vocalPreviewTarget } from '/shared/stems.js';
 
 const SINK_KEY = 'ok.previewSink';
 export const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -58,8 +60,8 @@ function remember(dev) {
   if (dev?.deviceId) seen.set(dev.deviceId, { id: dev.deviceId, label: dev.label || 'Headphones', named: true });
 }
 
-/** Starts (or stops, when it is the one playing) the preview of a track. */
-export async function togglePreview(trackId) {
+/** Starts (or stops, when it is the one playing) the preview of a track. `vocal` asks for the guide stem. */
+export async function togglePreview(trackId, { vocal = false } = {}) {
   if (!audio) return;
   const st = previewStore.get();
   if (st.trackId === trackId && st.playing) {
@@ -67,7 +69,18 @@ export async function togglePreview(trackId) {
     return;
   }
   previewStore.set({ trackId, playing: false, error: null });
-  audio.src = `/media/${encodeURIComponent(trackId)}/audio`;
+  let src = `/media/${encodeURIComponent(trackId)}/audio`;
+  if (vocal) {
+    const result = await act('vocal.prepare', { trackId });
+    if (previewStore.get().trackId !== trackId) return;
+    const target = vocalPreviewTarget(trackId, result);
+    if (!target.src) {
+      previewStore.update({ playing: false, trackId: target.error ? null : trackId, error: target.error || null });
+      return;
+    }
+    src = target.src;
+  }
+  audio.src = src;
   await applySink();
   // Stopped (the dialog closed) or another version chosen while the output was being set.
   if (previewStore.get().trackId !== trackId) return;
@@ -84,11 +97,12 @@ export function stopPreview() {
   previewStore.set({ trackId: null, playing: false, error: null });
 }
 
-export function PreviewButton({ trackId }) {
+export function PreviewButton({ trackId, vocal = false }) {
   const st = useStore(previewStore);
   const on = st.trackId === trackId && st.playing;
-  return html`<button class=${`btn small ${on ? 'on' : 'ghost'}`} onClick=${() => togglePreview(trackId)} title="Listen on this computer (not on the TV)">
-    <${Icon} name=${on ? 'pause' : 'headphones'} size=${14} /> ${on ? 'Stop' : 'Preview'}
+  const title = vocal ? 'Guide vocal in headphones (not on the TV)' : 'Listen on this computer (not on the TV)';
+  return html`<button class=${`btn small ${on ? 'on' : 'ghost'}`} onClick=${() => togglePreview(trackId, { vocal })} title=${title}>
+    <${Icon} name=${on ? 'pause' : 'headphones'} size=${14} /> ${on ? 'Stop' : vocal ? 'Vocal' : 'Preview'}
   </button>`;
 }
 

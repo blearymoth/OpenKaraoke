@@ -127,12 +127,12 @@ export class WsClient {
  * internet). `hotspot` options go to the party hotspot (a fake NetworkManager: never the real one).
  * `addTracks(dir)`: writes more tracks into the library folder before it is scanned.
  */
-export async function startParty({ crawl = false, hotspot, addTracks } = {}) {
+export async function startParty({ crawl = false, hotspot, addTracks, stemRun = null } = {}) {
   const lib = await tmpDir('ok-e2e-lib-');
   await makeDemoLibrary(lib, { log: () => {} });
   if (addTracks) await addTracks(lib);
   const dataDir = await tmpDir('ok-e2e-data-');
-  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch: fakeArtFetch({ unknown: new Set(['dj hush']) }), crawl, hotspot });
+  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch: fakeArtFetch({ unknown: new Set(['dj hush']) }), crawl, hotspot, stemRun });
   await app.library.scan();
   app.settings.update({ playback: { countdown: 3 } });
   await app.listen(0, '127.0.0.1');

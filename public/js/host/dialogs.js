@@ -5,6 +5,7 @@ import { useStore, formatTime, artStore } from '../lib/store.js';
 import { Modal, Cover, Spinner, Stepper, useFetch, apiGet, copyText, SongBadges, go, clearFetchCache } from '../lib/components.js';
 import { store, act, closeDialog, openDialog, toast } from './state.js';
 import { PreviewButton, PreviewOutput } from './preview.js';
+import { wantsVocalPreview } from '/shared/stems.js';
 import { qrSrc } from '../lib/theme.js';
 import { VocalsDialog } from './vocals.js';
 import { versionLabel, versionName, VersionVote } from '../lib/versions.js';
@@ -158,7 +159,7 @@ function VersionsTable({ song, songId }) {
           ${many && html`<td class="num" data-label="Sung">${v.plays ? `${v.plays}×` : html`<span class="faint">—</span>`}</td>
             <td><${VersionVote} v=${v} label=${`Votes for ${versionName(v)}`} onVote=${(x) => vote(v, x)} /></td>`}
           <td class="file ellipsis" title=${v.file}>${v.file}</td>
-          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
+          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} vocal=${wantsVocalPreview(v)} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
         </tr>`;
       })}</tbody>
     </table>

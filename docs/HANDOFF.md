@@ -943,7 +943,7 @@ with `APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1`; also passed here with FUSE mount
   TV keeps playing; host/guest UIs pause). Could move to a worker thread.
 - Provider parsers are verified against documented shapes only — see checklist item 1.
 - Years come from Deezer album release dates (a compilation or remaster can show a later year).
-- Video karaoke (MP4/WEBM) is implemented through element mode but untested with real files.
+- Video karaoke (MP4/WEBM) plays in element mode, the same index / serve / TV path as other video. MP4, M4V and MOV length is read from the file's `mvhd` box while scanning. A leading catalog number (`0028. Artist - Title.mp4`) is kept as the disc id and left out of the artist name. AVI/WMV/MPG still need ffmpeg (not built).
 - Phone vibration only works on Android; iPhones get the toast/card only.
 - "Preview on headphones" (Song details → Choose headphones…) needs the browser's
   permission once (Chrome: microphone, to name the outputs); check it on the party PC.

@@ -156,6 +156,25 @@ test('filtered popular lists are cached for paging and rebuilt when the metadata
   assert.ok(!cat.popular({ limit: 50, filter: { exclude } }).items.some((s) => exclude.has(s.id)));
 });
 
+test('a numbered MP4 groups with the same song as a CDG of that artist and title', () => {
+  const cat = new Catalog().load([
+    ...rawTracks(['Adele - Hello [SF Karaoke]']),
+    {
+      root: 0, dir: '', name: '0028. Adele - Hello', kind: 'video',
+      video: '0028. Adele - Hello.mp4', size: 10154505, duration: 294.6,
+    },
+  ], ['/library']);
+  const hit = cat.search('adele hello').items[0];
+  assert.equal(hit.artist, 'Adele');
+  assert.equal(hit.title, 'Hello');
+  assert.equal(hit.versions, 2);
+  assert.equal(hit.duration, 294.6);
+  const video = [...cat.tracks.values()].find((t) => t.kind === 'video');
+  assert.equal(video.p.discId, '0028');
+  assert.equal(video.p.artist, 'Adele');
+  assert.equal(cat.listArtists({ q: 'adele' }).items[0].name, 'Adele');
+});
+
 test('trackScore: the label score on its own — bestTrack is the version with the highest', () => {
   const cat = build();
   for (const prefs of [[], ['#Z'], ['SF', 'ZM']]) {

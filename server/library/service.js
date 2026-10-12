@@ -6,11 +6,13 @@
 //   'changed'  { reason }            the catalog was (re)built
 //   'progress' { dirs, tracks, ... } scan progress (≈4/s while scanning)
 //   'status'   status()              roots went on/offline, a scan started/finished
+//   'ids'      [{ from, to }]        the same file's track id changed (a folder split or folded)
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { scanLibrary, previousKey } from './scanner.js';
-import { Catalog, PARSER_VERSION } from './catalog.js';
+import { scanLibrary, previousKey, nestedRoots, inNestedRoot } from './scanner.js';
+import { Catalog, PARSER_VERSION, assignTrackIds } from './catalog.js';
+import { trackPlace, trackReturns, idMoves } from './ids.js';
 import { readJson, writeJsonAtomic } from '../util/jsonfile.js';
 import { hash32 } from '../../shared/text.js';
 import { logger } from '../util/log.js';
@@ -32,6 +34,9 @@ export class LibraryService extends EventEmitter {
     this.watchIntervalMs = watchIntervalMs;
     this.statTimeoutMs = statTimeoutMs;
     this.scanning = null; // promise while a scan runs
+    this.scanOnly = null; // the folders (indexes) it scans, null = every folder
+    this.next = null; // { reason, only } a scan asked for while another one ran (it follows)
+    this.nextPromise = null;
     this.progress = null;
     this.lastScan = null;
     this.rootsOnline = [];
@@ -41,6 +46,12 @@ export class LibraryService extends EventEmitter {
     this.abort = null;
     this.saving = Promise.resolve();
     this.hasCache = false;
+    // Files that left because a folder was split off or folded back, place → id, until they return.
+    this.departed = new Map();
+    // Id moves not yet applied by the party (a restart finishes them). `pendingMoves` is the
+    // part emitted before anyone was listening.
+    this.unacked = [];
+    this.pendingMoves = [];
   }
 
   /** Configured library folders (absolute paths). */
@@ -70,15 +81,25 @@ export class LibraryService extends EventEmitter {
     const cache = await readJson(this.cacheFile, null);
     const raw = cache ? Catalog.rawFromCache(cache) : null;
     const paths = this.paths;
+    this.departed = departedFromCache(cache);
+    this.unacked = [];
+    this.pendingMoves = [];
+    this.keepMoves(movesFromCache(cache));
     if (raw) {
-      const tracks = remapRoots(raw, cache.roots || [], paths);
+      // Ids are not in the cache. The same list, in this order, is how they were assigned
+      // last time — before a nested folder is dropped, so a split can still find the old id.
+      const oldRoots = Array.isArray(cache.roots) ? cache.roots : [];
+      assignTrackIds(raw);
+      const oldSnap = snapTracks(raw);
+      const tracks = remapRoots(raw, oldRoots, paths);
       this.catalog.load(tracks, paths);
       this.signature = trackSignature(tracks);
       this.lastScan = cache.lastScan || null;
       this.hasCache = true;
       log.info(`loaded ${tracks.length} tracks (${this.catalog.songs.size} songs) from cache in ${Date.now() - t0} ms`);
+      this.settleIds(oldRoots, oldSnap, paths);
       // Re-parsed names (new parser) or dropped folders: store the result so the next start is fast.
-      if (cache.parser !== PARSER_VERSION || tracks.length !== raw.length) this.saveCache();
+      if (cache.parser !== PARSER_VERSION || tracks.length !== raw.length || this.departed.size || this.unacked.length) this.saveCache();
     } else {
       this.catalog.load([], paths);
       this.signature = trackSignature([]);
@@ -91,6 +112,8 @@ export class LibraryService extends EventEmitter {
   saveCache() {
     const data = this.catalog.toCache();
     data.lastScan = this.lastScan;
+    if (this.departed.size) data.departed = Object.fromEntries(this.departed);
+    if (this.unacked.length) data.idMoves = this.unacked.map((m) => ({ from: m.from, to: m.to }));
     this.saving = this.saving
       .then(() => writeJsonAtomic(this.cacheFile, data))
       .then(() => { this.hasCache = true; })
@@ -98,11 +121,38 @@ export class LibraryService extends EventEmitter {
     return this.saving;
   }
 
-  /** Rescans every configured folder. Concurrent calls share one scan. */
-  scan({ reason = 'manual' } = {}) {
-    if (this.scanning) return this.scanning;
-    this.scanning = this.runScan(reason).finally(() => {
+  /**
+   * Rescans the library folders: `roots` (folder paths) = only those, the others keep what they
+   * had; default every folder. A call while a scan runs shares it when that scan covers the same
+   * folders, else it follows (folders asked for meanwhile are scanned together, once).
+   */
+  scan({ reason = 'manual', roots = null } = {}) {
+    let only = null;
+    if (roots) {
+      const paths = this.paths.map((p) => path.resolve(p));
+      only = [...new Set(roots.map((p) => paths.indexOf(typeof p === 'string' ? path.resolve(p) : '')).filter((i) => i >= 0))].sort((a, b) => a - b);
+      if (!only.length) return Promise.resolve(this.lastScan);
+    }
+    if (this.scanning) {
+      if (!this.scanOnly || (only && only.every((i) => this.scanOnly.includes(i)))) return this.scanning;
+      const n = this.next;
+      const merged = !n ? only : !n.only || !only ? null : [...new Set([...n.only, ...only])].sort((a, b) => a - b);
+      this.next = { reason: n ? n.reason : reason, only: merged };
+      this.nextPromise ??= this.scanning.catch(() => {}).then(() => {
+        const job = this.next;
+        this.next = null;
+        this.nextPromise = null;
+        if (!job) return this.lastScan;
+        const paths = this.paths;
+        return this.scan({ reason: job.reason, roots: job.only ? job.only.map((i) => paths[i]).filter(Boolean) : null });
+      });
+      return this.nextPromise;
+    }
+    this.scanOnly = only;
+    // (started a tick later, so the 'status' it sends already says what is being scanned)
+    this.scanning = Promise.resolve().then(() => this.runScan(reason, only)).finally(() => {
       this.scanning = null;
+      this.scanOnly = null;
       this.progress = null;
       this.abort = null;
       this.emit('status', this.status());
@@ -110,7 +160,7 @@ export class LibraryService extends EventEmitter {
     return this.scanning;
   }
 
-  async runScan(reason) {
+  async runScan(reason, only = null) {
     const paths = this.paths;
     const t0 = Date.now();
     if (!paths.length) {
@@ -118,16 +168,20 @@ export class LibraryService extends EventEmitter {
       return this.lastScan;
     }
     if (!sameRoots(this.catalog.roots, paths)) this.remapCatalog(paths);
+    if (only) only = only.filter((i) => i < paths.length);
 
+    const oldRoots = this.catalog.roots.slice();
+    const oldSnap = snapTracks(this.catalog.tracks.values());
     const previous = new Map();
     for (const t of this.catalog.tracks.values()) previous.set(previousKey(t), t);
     this.abort = new AbortController();
     this.progress = { dirs: 0, tracks: 0, queued: 0, startedAt: t0 };
     this.emit('status', this.status());
-    log.info(`scanning ${paths.length} folder(s) (${reason})…`);
+    log.info(only ? `scanning ${only.map((i) => paths[i]).join(', ')} (${reason})…` : `scanning ${paths.length} folder(s) (${reason})…`);
 
     const res = await scanLibrary(paths, {
       previous,
+      only,
       signal: this.abort.signal,
       onProgress: (p) => {
         this.progress = { ...p, startedAt: t0 };
@@ -163,11 +217,14 @@ export class LibraryService extends EventEmitter {
       this.catalog.load(tracks, paths);
       this.signature = sig;
       this.countRoots();
+      this.settleIds(oldRoots, oldSnap, paths);
     }
+    const asked = only || paths.map((p, i) => i);
     this.lastScan = {
       at: Date.now(), ms, reason, changed, dirs: res.dirs,
       tracks: this.catalog.size, delta: this.catalog.size - before,
-      offlineRoots: paths.map((p, i) => (scanned.has(i) ? null : p)).filter(Boolean),
+      ...(only ? { folders: only.map((i) => paths[i]) } : {}),
+      offlineRoots: asked.filter((i) => !scanned.has(i)).map((i) => paths[i]),
       errorCount: res.errors.length, errors: res.errors.slice(0, 20),
     };
     log.info(`scan done in ${(ms / 1000).toFixed(1)} s: ${this.catalog.size} tracks, ${this.catalog.songs.size} songs`
@@ -182,9 +239,13 @@ export class LibraryService extends EventEmitter {
     this.abort?.abort();
   }
 
-  /** Replaces the library folders, keeping tracks of folders that stay, then rescans. */
+  /**
+   * Replaces the library folders, keeping tracks of folders that stay (rescanForPaths() says
+   * which folders need a scan afterwards).
+   */
   async setPaths(paths) {
     const clean = [...new Set((paths || []).filter((p) => typeof p === 'string' && p.trim()).map((p) => path.resolve(p.trim())))];
+    this.next = null; // (a scan waiting for the old folders' indexes)
     this.cancelScan();
     if (this.scanning) await this.scanning.catch(() => {});
     this.settings.update({ library: { paths: clean } });
@@ -196,10 +257,89 @@ export class LibraryService extends EventEmitter {
   }
 
   remapCatalog(newRoots) {
-    const tracks = remapRoots([...this.catalog.tracks.values()], this.catalog.roots, newRoots);
+    const oldRoots = this.catalog.roots.slice();
+    const oldSnap = snapTracks(this.catalog.tracks.values());
+    const tracks = remapRoots([...this.catalog.tracks.values()], oldRoots, newRoots);
     this.catalog.load(tracks, newRoots);
     this.signature = trackSignature(tracks);
     this.countRoots();
+    this.settleIds(oldRoots, oldSnap, newRoots);
+  }
+
+  /**
+   * After the catalog was rebuilt: the same file under a new root (a split, or a fold back
+   * into a parent) gets `{ from, to }` on the `ids` event. Files that will come back stay
+   * in `departed` until that scan. Anything else that disappeared keeps its old id.
+   */
+  settleIds(oldRoots, oldSnap, newRoots) {
+    const prior = [];
+    const seen = new Set();
+    // The catalog's own id wins when a place is also in `departed` (a stale note).
+    for (const t of oldSnap) {
+      const place = trackPlace(oldRoots, t);
+      if (!place || !t.id || seen.has(place)) continue;
+      seen.add(place);
+      prior.push({ id: t.id, place });
+    }
+    for (const [place, id] of this.departed) {
+      if (!place || !id || seen.has(place)) continue;
+      seen.add(place);
+      prior.push({ id, place });
+    }
+    const now = [];
+    const nowPlaces = new Set();
+    for (const t of this.catalog.tracks.values()) {
+      const place = trackPlace(newRoots, t);
+      if (!place || !t.id) continue;
+      now.push(t);
+      nowPlaces.add(place);
+    }
+    const moves = idMoves(null, prior, newRoots, now);
+    for (const t of oldSnap) {
+      const place = trackPlace(oldRoots, t);
+      if (!place || !t.id) continue;
+      if (nowPlaces.has(place)) this.departed.delete(place);
+      else if (trackReturns(oldRoots, t, newRoots)) this.departed.set(place, t.id);
+      else this.departed.delete(place);
+    }
+    for (const place of [...this.departed.keys()]) {
+      if (nowPlaces.has(place) || !placeHeld(place, newRoots)) this.departed.delete(place);
+    }
+    this.keepMoves(moves);
+  }
+
+  /** Queues id moves until the party applies them (`ackIdMoves`). Emits when someone is listening. */
+  keepMoves(moves) {
+    const fresh = [];
+    for (const m of moves || []) {
+      if (!m || typeof m.from !== 'string' || typeof m.to !== 'string' || m.from === m.to) continue;
+      if (!TRACK_ID_RE.test(m.from) || !TRACK_ID_RE.test(m.to)) continue;
+      if (this.unacked.some((x) => x.from === m.from && x.to === m.to)) continue;
+      const rec = { from: m.from, to: m.to };
+      this.unacked.push(rec);
+      fresh.push(rec);
+    }
+    if (!fresh.length) return;
+    log.info(`track ids follow their files: ${fresh.length}`);
+    if (this.listenerCount('ids')) this.emit('ids', fresh);
+    else this.pendingMoves.push(...fresh);
+  }
+
+  /** Moves emitted before a listener existed (startup, while the party is still loading). */
+  takeIdMoves() {
+    const m = this.pendingMoves;
+    this.pendingMoves = [];
+    return m;
+  }
+
+  /** The party has copied the records. Drops them so the next start does not apply them again. */
+  ackIdMoves(moves) {
+    const done = new Set((moves || []).map((m) => `${m.from}\0${m.to}`));
+    if (!done.size || !this.unacked.length) return;
+    const before = this.unacked.length;
+    this.unacked = this.unacked.filter((m) => !done.has(`${m.from}\0${m.to}`));
+    this.pendingMoves = this.pendingMoves.filter((m) => !done.has(`${m.from}\0${m.to}`));
+    if (this.unacked.length !== before && this.hasCache && !this.scanning) this.saveCache();
   }
 
   countRoots() {
@@ -241,9 +381,10 @@ export class LibraryService extends EventEmitter {
     const before = this.rootsOnline.slice();
     const states = await this.checkOnline();
     // A folder that appeared and has never been indexed (e.g. the drive was plugged in
-    // after the server started) is scanned automatically.
-    const needsScan = states.some((s, i) => s && before[i] === false && !this.rootCounts[i]);
-    if (needsScan) this.scan({ reason: 'drive connected' }).catch((e) => log.error('scan failed', e));
+    // after the server started) is scanned automatically — that folder only.
+    const paths = this.paths;
+    const appeared = paths.filter((p, i) => states[i] && before[i] === false && !this.rootCounts[i]);
+    if (appeared.length) this.scan({ reason: 'drive connected', roots: appeared }).catch((e) => log.error('scan failed', e));
   }
 
   /** Absolute path of one file of an indexed track (`part` = cdg | audio | video | zip). */
@@ -264,7 +405,11 @@ export class LibraryService extends EventEmitter {
       tracks: this.catalog.size,
       songs: this.catalog.songs.size,
       artists: this.catalog.artists.size,
-      roots: paths.map((p, i) => ({ path: p, online: !!this.rootsOnline[i], tracks: this.rootCounts[i] || 0 })),
+      roots: paths.map((p, i) => ({
+        path: p, online: !!this.rootsOnline[i], tracks: this.rootCounts[i] || 0,
+        scanning: !!this.scanning && (!this.scanOnly || this.scanOnly.includes(i)),
+        ...(this.next && (!this.next.only || this.next.only.includes(i)) ? { waiting: true } : {}),
+      })),
       offline: paths.length > 0 && this.rootsOnline.some((s) => !s),
       scanning: !!this.scanning,
       progress: this.progress,
@@ -288,23 +433,78 @@ export function trackSignature(tracks) {
   return `${n}:${sum.toString(36)}:${mix.toString(36)}`;
 }
 
+const TRACK_ID_RE = /^[0-9a-z]{1,16}$/;
+
+function snapTracks(tracks) {
+  const out = [];
+  for (const t of tracks) out.push({ id: t.id, root: t.root, dir: t.dir || '', name: t.name });
+  return out;
+}
+
+/** A missing file can still come back when one of the library folders holds its path. */
+function placeHeld(place, roots) {
+  for (const r of roots || []) {
+    if (typeof r !== 'string' || !r) continue;
+    const root = path.resolve(r);
+    if (place === root || place.startsWith(`${root}${path.sep}`)) return true;
+  }
+  return false;
+}
+
+function departedFromCache(cache) {
+  const out = new Map();
+  const src = cache?.departed;
+  if (!src || typeof src !== 'object') return out;
+  for (const [place, id] of Object.entries(src)) {
+    if (typeof place !== 'string' || !path.isAbsolute(place) || typeof id !== 'string' || !TRACK_ID_RE.test(id)) continue;
+    out.set(place, id);
+  }
+  return out;
+}
+
+function movesFromCache(cache) {
+  if (!Array.isArray(cache?.idMoves)) return [];
+  return cache.idMoves.filter((m) => m && typeof m.from === 'string' && typeof m.to === 'string');
+}
+
 function sameRoots(a, b) {
   return a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
-/** Re-indexes `t.root` from one list of folders to another; drops tracks of removed folders. */
+/**
+ * Re-indexes `t.root` from one list of folders to another; drops tracks of removed folders, and
+ * tracks inside a folder that is now a library folder of its own (found there instead: a track is
+ * never in the library twice).
+ */
 export function remapRoots(tracks, oldRoots, newRoots) {
   const norm = (p) => path.resolve(String(p));
   const index = new Map(newRoots.map((p, i) => [norm(p), i]));
   const map = oldRoots.map((p) => index.get(norm(p)));
+  const nested = nestedRoots(newRoots);
   const out = [];
   for (const t of tracks) {
     const r = map[t.root];
-    if (r === undefined) continue;
+    if (r === undefined || inNestedRoot(t.dir || '', nested[r])) continue;
     t.root = r;
     out.push(t);
   }
   return out;
+}
+
+/**
+ * The folders to scan after the library folders changed from `before` to `after`: the new ones,
+ * and a remaining folder that held a removed one (its sub-folder is its own again).
+ */
+export function rescanForPaths(before, after) {
+  const norm = (p) => path.resolve(String(p));
+  const old = new Set(before.map(norm));
+  const now = after.map(norm);
+  const removed = [...old].filter((p) => !now.includes(p));
+  const inside = (outer, p) => {
+    const rel = path.relative(outer, p);
+    return rel !== '' && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+  };
+  return now.filter((p) => !old.has(p) || removed.some((r) => inside(p, r)));
 }
 
 const pendingChecks = new Set(); // folders whose previous check hasn't returned yet

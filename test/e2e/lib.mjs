@@ -138,3 +138,49 @@ export async function startParty({ crawl = false, hotspot, addTracks } = {}) {
   await app.listen(0, '127.0.0.1');
   return { app, base: `http://127.0.0.1:${app.port}` };
 }
+
+/**
+ * A camera the page can open with getUserMedia: a steady red frame with a green corner, so a
+ * test can tell a shutter grab from a file. `window.__cam.mode` is 'ok', 'blocked', 'missing'
+ * or 'strict' (the rear-camera preference is refused, any camera is allowed).
+ */
+export function installFakeCamera() {
+  if (window.__cam) return;
+  const cam = { calls: [], tracks: [], mode: 'ok' };
+  window.__cam = cam;
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 480;
+  canvas.setAttribute('aria-hidden', 'true');
+  // The bitmap stays 640×480; the element itself must not widen the phone.
+  canvas.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+  const ctx = canvas.getContext('2d');
+  const draw = () => {
+    ctx.fillStyle = 'rgb(220, 30, 40)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'rgb(30, 200, 70)';
+    ctx.fillRect(0, 0, 80, 80);
+  };
+  draw();
+  setInterval(draw, 50);
+  const attach = () => {
+    const root = document.documentElement;
+    if (root && !canvas.isConnected) root.appendChild(canvas);
+  };
+  attach();
+  document.addEventListener('DOMContentLoaded', attach);
+  if (!navigator.mediaDevices) navigator.mediaDevices = {};
+  navigator.mediaDevices.getUserMedia = async (constraints) => {
+    cam.calls.push(JSON.parse(JSON.stringify(constraints)));
+    if (cam.mode === 'blocked') throw new DOMException('Permission denied', 'NotAllowedError');
+    if (cam.mode === 'missing') throw new DOMException('Requested device not found', 'NotFoundError');
+    if (cam.mode === 'strict' && constraints?.video?.facingMode) throw new DOMException('facingMode', 'OverconstrainedError');
+    const stream = canvas.captureStream(15);
+    for (const t of stream.getTracks()) {
+      cam.tracks.push(t);
+      const stop = t.stop.bind(t);
+      t.stop = () => stop();
+    }
+    return stream;
+  };
+}

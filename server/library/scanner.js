@@ -18,20 +18,33 @@ export const CDG_BYTES_PER_SECOND = 7200; // 300 packets of 24 bytes
  * @param {Map<string, object>} [opts.previous] key `${root}\u0000${dir}\u0000${name}` -> previous raw track
  * @param {(p: object) => void} [opts.onProgress]
  * @param {AbortSignal} [opts.signal]
+ * @param {number[]} [opts.only] scan only these roots (indexes into `roots`); default all
+ *
+ * A root inside another root is that root's own: the outer one skips its folder, so no track
+ * is found twice (e.g. ~/Music and ~/Music/YouTube Downloads both added).
  */
-export async function scanLibrary(roots, { previous = new Map(), onProgress, signal, concurrency = 8 } = {}) {
+export async function scanLibrary(roots, { previous = new Map(), onProgress, signal, concurrency = 8, only = null } = {}) {
   const tracks = [];
   const errors = [];
   const rootsOnline = [];
   let dirsDone = 0;
   let lastReport = 0;
   const queue = [];
+  // Real paths too: a root reached through a symbolic link, or a link inside one root that leads
+  // to another, is still found once.
+  const real = await Promise.all(roots.map((r) => fs.realpath(r).catch(() => path.resolve(r))));
+  const nestedReal = nestedRoots(real);
+  const nested = nestedRoots(roots).map((inner, i) => new Set([...inner, ...nestedReal[i]]));
 
   for (let r = 0; r < roots.length; r++) {
+    if (only && !only.includes(r)) continue;
     try {
       const st = await fs.stat(roots[r]);
-      if (st.isDirectory()) { queue.push({ root: r, rel: '' }); rootsOnline.push(r); }
-      else errors.push({ path: roots[r], error: 'Not a folder' });
+      if (!st.isDirectory()) errors.push({ path: roots[r], error: 'Not a folder' });
+      else {
+        rootsOnline.push(r);
+        if (!nested[r].has('')) queue.push({ root: r, rel: '' }); // (the same folder as an earlier root: found there)
+      }
     } catch (e) {
       errors.push({ path: roots[r], error: e.code === 'ENOENT' ? 'Folder not found (is the drive plugged in?)' : e.message });
     }
@@ -59,15 +72,23 @@ export async function scanLibrary(roots, { previous = new Map(), onProgress, sig
       if (name.startsWith('.') || name.startsWith('._')) continue;
       let isDir = ent.isDirectory();
       let isFile = ent.isFile();
+      let link = false;
       if (ent.isSymbolicLink()) {
         try {
           const st = await fs.stat(path.join(abs, name));
           isDir = st.isDirectory();
           isFile = st.isFile();
+          link = isDir;
         } catch { continue; }
       }
       if (isDir) {
-        if (!SKIP_DIRS.has(name.toLowerCase())) queue.push({ root, rel: rel ? `${rel}/${name}` : name });
+        const childRel = rel ? `${rel}/${name}` : name;
+        if (SKIP_DIRS.has(name.toLowerCase()) || nested[root].has(childRel)) continue; // (another root: scanned as itself)
+        if (link) {
+          const to = await fs.realpath(path.join(abs, name)).catch(() => '');
+          if (real.some((x, i) => i !== root && x === to)) continue;
+        }
+        queue.push({ root, rel: childRel });
         continue;
       }
       if (!isFile) continue;
@@ -170,6 +191,33 @@ export async function scanLibrary(roots, { previous = new Map(), onProgress, sig
   if (pending.size) await Promise.allSettled([...pending]);
   report(true);
   return { tracks, errors, rootsOnline, aborted: !!signal?.aborted, dirs: dirsDone };
+}
+
+/**
+ * For each root, the folders (relative, '/'-separated) that are other roots: they belong to
+ * those roots, not to this one. Two equal roots: the later one is left to the first.
+ */
+export function nestedRoots(roots) {
+  const abs = roots.map((r) => path.resolve(String(r)));
+  return abs.map((outer, i) => {
+    const inner = new Set();
+    abs.forEach((p, j) => {
+      if (i === j) return;
+      const rel = path.relative(outer, p);
+      if (rel === '') {
+        if (j < i) inner.add(''); // (the same folder as an earlier root: nothing of its own)
+      } else if (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) inner.add(rel.split(path.sep).join('/'));
+    });
+    return inner;
+  });
+}
+
+/** True when a track's folder (`dir`, relative to its root) is inside one of `inner` (nestedRoots()). */
+export function inNestedRoot(dir, inner) {
+  if (!inner.size) return false;
+  if (inner.has('')) return true;
+  for (const x of inner) if (dir === x || dir.startsWith(`${x}/`)) return true;
+  return false;
 }
 
 export function previousKey(t) {

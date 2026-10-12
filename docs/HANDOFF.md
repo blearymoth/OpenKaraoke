@@ -1,17 +1,17 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-08 (lyric layouts: two lines and a scrolling list, after the installer;
-run in a cloud sandbox without the owner's PC or drive)._
+_Last updated: 2026-10-12 (track ids follow a folder that becomes its own root; guest photos:
+Add a Photo opens the camera in the page)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 497/497; `npm run e2e` → 16 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 505/505; `npm run e2e` → 17 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
-  `layouts.mjs` the lyric layouts); `npm --prefix desktop test` → 46/46 + 35/35 (the
+  `layouts.mjs` the lyric layouts, `photos.mjs` the in-page camera); `npm --prefix desktop test` → 46/46 + 35/35 (the
   desktop app, also against the built installer, and the setup window; the release workflow also
   runs the setup test against the real AppImage from `OpenKaraoke-Setup.zip`). Every milestone also went through an independent review
   whose confirmed findings were fixed and re-verified (table below).
@@ -126,9 +126,11 @@ run in a cloud sandbox without the owner's PC or drive)._
   out when the next song starts; skip from the host player bar. Optional **autoplay**: when
   the queue stays empty (`playback.whenQueueEmpty = autoplay`), a popular sing-along for
   "Everyone" is queued.
-- **Guest photos** (`server/room/photos.js`): phones upload a resized picture, the host
-  approves it (Photos page; approval can be turned off), the TV flashes it and can use the
-  photos as its background slideshow.
+- **Guest photos** (`server/room/photos.js`): on the Me tab, **Add a Photo** opens the phone’s
+  camera in the page (the rear camera when there is one) and the shutter sends that frame,
+  resized. There is no gallery and no file picker; a blocked or missing camera is said on the
+  phone. The host approves it (Photos page; approval can be turned off), the TV flashes it and
+  can use the photos as its background slideshow.
 - **Remote display pairing**: a `/tv` on another machine shows a code; the host approves it
   (Settings → Displays lists them and can forget them all, which revokes their tokens). The
   same page shows which screen plays the sound and lets the host make another one the main
@@ -182,7 +184,8 @@ run in a cloud sandbox without the owner's PC or drive)._
    screens, pass-the-mic band, rating card, photo flash, queue board (`/tv?layout=board`),
    intro card with cover/logo. Studio is the default — if you prefer Party as the default for
    your parties, just pick it there (it is remembered).
-7. **Phones on the real Wi-Fi**: join, photo upload from an iPhone and an Android phone,
+7. **Phones on the real Wi-Fi**: join, **Add a Photo** on an iPhone and an Android phone (the
+   camera in the page; plain http on the LAN cannot open it — it needs localhost or https),
    game answers (latency, early close), duet invitation, vibration (Android only — iPhones get
    the toast). Firewall on Fedora: `sudo firewall-cmd --add-port=6527/tcp` (+ `--permanent`;
    the port the host page shows if 6527 was busy).
@@ -296,7 +299,10 @@ run in a cloud sandbox without the owner's PC or drive)._
 8. **Photos need approval by default**: at most 5 waiting per phone, 10 per address, 50 in all
    (a phone with nothing waiting always gets a place); 300 approved/rejected are kept (4 MB each,
    JPEG/PNG/WebP checked by their bytes, uploads checked before their body is read); files live
-   in `data/photos/`.
+   in `data/photos/`. The phone takes the picture with its camera in the page (rear camera when
+   it has one). There is no gallery and no file picker. A blocked or missing camera is said on
+   the phone. Like the microphone, the camera needs a secure page, so a phone on plain LAN http
+   is told it can’t use the camera.
 9. Tests create temp folders through `tmpDir()` (removed on exit) and sparse fake CDGs — the
    sandbox disk filled up with ≈30 GB of leftovers before this was fixed.
 10. **Skins**: Studio is the default (the owner asked for a more professional look); Party is
@@ -660,7 +666,8 @@ player is a mini player (tap it for the full Playback page).
   control replaces the channel mode on multiplex tracks), not as two "lead/backing" sliders —
   backing vocals change only by version (see above).
 - Not in this change: moving votes along when a file is renamed (a new track id starts over);
-  live updates of other guests' counts in an open song sheet.
+  live updates of other guests' counts in an open song sheet. A folder that becomes its own
+  root is different — see "Track ids when a folder is split or folded" below.
 - Code: `public/js/host/panel.js`, `playback.js`, `devices.js`, `menu.js`, `public/js/lib/versions.js`,
   `server/room/versions.js`, `server/util/useragent.js`, room.js (`displayList`, `versionVote`,
   `decorateVersions`, views), the desktop's `okDesktop.tv`. Tests: `test/versions.test.js`,
@@ -922,6 +929,18 @@ with the settings, the menu entry's `--uninstall`, a release-named AppImage star
 with `SETUP_APPIMAGE=<the real AppImage>` the same against the real file (the installed app's
 Settings → About part runs from the source only), the installed copy really starting (the release workflow runs it, unzipped from the zip,
 with `APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1`; also passed here with FUSE mounting).
+
+## Track ids when a folder is split or folded
+A library folder inside another (Music, and Music/YouTube Downloads) is that folder's own.
+Track ids are `shortId(dir + "/" + name)`, and `dir` is relative to the folder, so the split
+drops the `YouTube Downloads/` prefix and the id changes; folding the folder back into the
+parent changes it the other way. Plays and votes (`data/versions.json`), what the TV found in
+the channels (`data/vocals.json`) and per-track prefs (`trackPrefs`, plus the song's remembered
+version) are copied onto the new id and the old key is dropped, on that scan. The queue, the
+song on now and tonight's list follow the file. A neighbour such as `YouTubeX`, or a library
+folder that was simply removed, is not the same file and keeps its own records.
+A symbolic link whose target is a different path is still scanned once; those plays stay on
+the old id. `history.jsonl` is not rewritten. A renamed file still starts over.
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

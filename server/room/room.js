@@ -21,6 +21,8 @@ import { deviceLabel } from '../util/useragent.js';
 import { clampLead, resolveVocals, leadKind, LAYOUTS } from '../../shared/vocals.js';
 import { fold } from '../../shared/text.js';
 import { logger } from '../util/log.js';
+import { rescanForPaths } from '../library/service.js';
+import { rekeyRecords } from '../library/ids.js';
 
 const log = logger('room');
 const SESSION_IDLE_MS = 8 * 3600 * 1000;
@@ -220,6 +222,41 @@ export class Room {
   onLibraryChanged() {
     this.syncPlays();
     this.markDirty();
+  }
+
+  /**
+   * A library folder was split off or folded back: the same file has a new track id.
+   * Plays, votes, the TV's channel analysis and per-track prefs move onto it. The song
+   * that's on, the queue and tonight's list follow so they still point at that file.
+   * history.jsonl is left as it was written (plays are already counted in versions.json).
+   */
+  migrateTrackIds(moves) {
+    const list = (Array.isArray(moves) ? moves : []).filter((m) => m && typeof m.from === 'string' && typeof m.to === 'string' && m.from !== m.to);
+    if (!list.length) return 0;
+    const versions = this.versions.rekey(list);
+    const vocals = this.vocals.rekey(list);
+    const prefs = rekeyRecords(this.s.trackPrefs, list);
+    const map = new Map(list.map((m) => [m.from, m.to]));
+    let pointed = 0;
+    const retarget = (obj) => {
+      if (!obj || typeof obj !== 'object' || typeof obj.trackId !== 'string' || !map.has(obj.trackId)) return;
+      obj.trackId = map.get(obj.trackId);
+      pointed++;
+    };
+    for (const p of Object.values(this.s.songPrefs || {})) retarget(p);
+    retarget(this.s.current);
+    for (const e of this.s.queue || []) retarget(e);
+    for (const e of this.s.pending || []) retarget(e);
+    for (const h of this.s.tonight?.history || []) retarget(h);
+    if (versions) this.versions.flush();
+    if (vocals) this.vocals.flush();
+    if (versions || vocals || prefs || pointed) {
+      if (this.s.current) this.s.player.vocals = this.trackVocals(this.s.current.trackId);
+      this.save();
+      this.doc.flush();
+      this.markDirty();
+    }
+    return versions + vocals + prefs + pointed;
   }
 
   // ---- connections ---------------------------------------------------------------------
@@ -442,7 +479,7 @@ export class Room {
       'hotspot.set': [H, (c, m) => this.hotspotSet(m)],
       'hotspot.config': [H, (c, m) => this.hotspotConfig(m)],
       'hotspot.retry': [H, () => this.hotspotRetry()],
-      'library.rescan': [H, () => this.libraryRescan()],
+      'library.rescan': [H, (c, m) => this.libraryRescan(m)],
       'library.paths': [H, (c, m) => this.libraryPaths(m)],
       'party.new': [H, () => this.partyNew()],
       'history.list': [H, () => this.historyList()],
@@ -1748,16 +1785,26 @@ export class Room {
     return { settings: clean };
   }
 
-  libraryRescan() {
-    this.library.scan({ reason: 'host' }).catch((e) => log.error('scan failed', e));
+  /** Scans every library folder, or one (`m.path`, one of the library's folders). */
+  libraryRescan(m = {}) {
+    let roots = null;
+    if (m.path !== undefined && m.path !== null) {
+      const p = typeof m.path === 'string' ? m.path : '';
+      if (!this.library.paths.includes(p)) fail('That folder isn’t in the library.', 'bad_request');
+      roots = [p];
+    }
+    this.library.scan({ reason: 'host', roots }).catch((e) => log.error('scan failed', e));
     return { status: this.library.status() };
   }
 
   async libraryPaths(m) {
     if (!Array.isArray(m.paths) || m.paths.length > 20) fail('Choose up to 20 folders.', 'bad_request');
     if (m.paths.some((p) => typeof p !== 'string' || !path.isAbsolute(p))) fail('Folders must be absolute paths.', 'bad_request');
-    await this.library.setPaths(m.paths);
-    this.library.scan({ reason: 'folders changed' }).catch((e) => log.error('scan failed', e));
+    const before = this.library.paths;
+    const after = await this.library.setPaths(m.paths);
+    // Only what changed is scanned: a new folder, or a folder that held a removed one.
+    const roots = rescanForPaths(before, after);
+    if (roots.length) this.library.scan({ reason: 'folders changed', roots }).catch((e) => log.error('scan failed', e));
     return { status: this.library.status() };
   }
 

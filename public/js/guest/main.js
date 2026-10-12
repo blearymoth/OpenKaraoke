@@ -318,7 +318,7 @@ async function resizeImage(file, max = 1600) {
     const img = await new Promise((resolve, reject) => {
       const i = new Image();
       i.onload = () => resolve(i);
-      i.onerror = () => reject(new Error('That file is not a picture this phone can read.'));
+      i.onerror = () => reject(new Error('That picture could not be read on this phone.'));
       i.src = url;
     });
     const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
@@ -332,14 +332,185 @@ async function resizeImage(file, max = 1600) {
   }
 }
 
-/** "Send a photo to the TV": pick or take a picture, it's resized and uploaded. */
+function stopStream(stream) {
+  stream?.getTracks().forEach((t) => t.stop());
+}
+
+/** What to tell a guest when the camera cannot be used. No gallery and no file picker. */
+function cameraMessage(e) {
+  switch (e?.name) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+    case 'SecurityError':
+      return 'The camera is blocked. Allow it for this page, then try again.';
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return 'No camera was found on this phone.';
+    case 'NotSupportedError':
+      return 'This page can’t use the camera.';
+    default:
+      return 'The camera could not be opened.';
+  }
+}
+
+/**
+ * The rear camera when the phone has one (`ideal`, so a front-only phone still opens).
+ * A browser that treats that preference as a requirement gets any camera instead.
+ */
+async function openCamera() {
+  const md = navigator.mediaDevices;
+  if (!md?.getUserMedia) throw Object.assign(new Error('no mediaDevices'), { name: 'NotSupportedError' });
+  try {
+    return await md.getUserMedia({ video: { facingMode: { ideal: 'environment' } } });
+  } catch (e) {
+    if (e?.name !== 'OverconstrainedError') throw e;
+    return md.getUserMedia({ video: true });
+  }
+}
+
+/** In-page camera: a shutter grabs one frame. The stream stops when this closes. */
+function CameraCapture({ stream, error: blocked, onClose, onShot }) {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const gone = useRef(false);
+  const shot = useRef(false);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const [failed, setFailed] = useState('');
+  const [ready, setReady] = useState(false);
+  const [taking, setTaking] = useState(false);
+  const error = failed || blocked || '';
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') closeRef.current(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!stream || !video || blocked) return undefined;
+    let cancelled = false;
+    gone.current = false;
+    streamRef.current = stream;
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute('playsinline', '');
+    video.srcObject = stream;
+    const release = () => {
+      const live = streamRef.current;
+      streamRef.current = null;
+      if (video.srcObject) video.srcObject = null;
+      stopStream(live);
+    };
+    const waitForFrame = () => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const tick = () => {
+        if (cancelled) return resolve(false);
+        if (video.videoWidth > 0) return resolve(true);
+        if (Date.now() - t0 > 8000) return reject(Object.assign(new Error('no picture'), { name: 'NotReadableError' }));
+        requestAnimationFrame(tick);
+      };
+      tick();
+    });
+    (async () => {
+      try {
+        await video.play();
+        if (cancelled) return;
+        const got = video.videoWidth > 0 || await waitForFrame();
+        if (!cancelled && got) setReady(true);
+      } catch (e) {
+        if (cancelled) return;
+        release();
+        setReady(false);
+        setFailed(cameraMessage(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+      gone.current = true;
+      release();
+    };
+  }, [stream, blocked]);
+  const take = async () => {
+    const video = videoRef.current;
+    if (shot.current || !ready || !video?.videoWidth) return;
+    shot.current = true;
+    setTaking(true);
+    const release = () => {
+      const stream = streamRef.current;
+      streamRef.current = null;
+      if (video.srcObject) video.srcObject = null;
+      stopStream(stream);
+    };
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      release();
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+      if (!blob) throw new Error('The picture could not be taken.');
+      onShot(blob);
+    } catch (e) {
+      release();
+      if (!gone.current) {
+        shot.current = false;
+        setFailed(e.message || 'The picture could not be taken.');
+        setTaking(false);
+      }
+    }
+  };
+  return html`<div class="cam-capture" role="dialog" aria-modal="true" aria-label="Take a photo">
+    <div class="cam-top">
+      <b>Take a photo</b>
+      <button type="button" class="icon-btn" aria-label="Close" onClick=${onClose}><${Icon} name="x" size=${22} /></button>
+    </div>
+    <div class="cam-stage">
+      <video ref=${videoRef} autoPlay muted playsInline />
+      ${error && html`<p class="cam-msg" role="alert">${error}</p>`}
+      ${!error && !ready && html`<p class="cam-msg">Opening the camera…</p>`}
+    </div>
+    <div class="cam-bottom">
+      ${error
+        ? html`<button type="button" class="btn" onClick=${onClose}>Close</button>`
+        : html`<button type="button" class="cam-shutter" aria-label="Take photo" disabled=${!ready || taking} onClick=${take}></button>`}
+    </div>
+  </div>`;
+}
+
+/** "Send a photo to the TV": the camera takes one frame, it's resized and uploaded. */
 function PhotoCard({ state }) {
   const [busy, setBusy] = useState(false);
+  const [session, setSession] = useState(null); // { opening } | { stream } | { error }
+  const gen = useRef(0);
+  const held = useRef(false);
+  // getUserMedia has to start in the tap, or the phone treats it as blocked.
+  const open = () => {
+    if (busy || held.current) return;
+    held.current = true;
+    const mine = ++gen.current;
+    setSession({ opening: true });
+    openCamera().then((stream) => {
+      if (gen.current !== mine) {
+        stopStream(stream);
+        return;
+      }
+      setSession({ stream });
+    }, (e) => {
+      if (gen.current === mine) setSession({ error: cameraMessage(e) });
+    });
+  };
+  const close = () => {
+    held.current = false;
+    gen.current += 1;
+    stopStream(session?.stream);
+    setSession(null);
+  };
   const send = async (file) => {
     if (!file) return;
     setBusy(true);
     try {
       const blob = await resizeImage(file);
+      if (!blob) throw new Error('The picture could not be sent.');
       const res = await fetch('/api/photos', { method: 'POST', headers: { 'content-type': 'image/jpeg', 'x-guest-token': localStorage.getItem('ok.guestToken') || '' }, body: blob });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`);
@@ -354,10 +525,10 @@ function PhotoCard({ state }) {
   const label = { pending: 'Waiting for the host', approved: 'On the TV', rejected: 'Not shown' };
   return html`<section class="photo-card">
     <h2 class="g-h2">Send a photo to the TV 📸</h2>
-    <label class=${`btn primary block ${busy ? 'disabled' : ''}`}>
-      <input type="file" accept="image/*" hidden disabled=${busy} onChange=${(e) => { send(e.currentTarget.files[0]); e.currentTarget.value = ''; }} />
-      <${Icon} name="plus" size=${18} /> ${busy ? 'Sending…' : 'Choose or take a photo'}
-    </label>
+    <button type="button" class="btn primary block" disabled=${busy || !!session} onClick=${open}>
+      <${Icon} name="plus" size=${18} /> ${busy ? 'Sending…' : 'Add a Photo'}
+    </button>
+    ${session && html`<${CameraCapture} stream=${session.stream} error=${session.error || ''} onClose=${close} onShot=${(blob) => { close(); send(blob); }} />`}
     ${state.rules.photoApproval && html`<p class="hint">The host checks photos before they appear.</p>`}
     ${mine.length > 0 && html`<ul class="my-photos">${mine.map((p) => html`<li key=${p.id}><span class=${`pill ${p.status === 'rejected' ? 'bad' : ''}`}>${label[p.status] || p.status}</span> <span class="faint">${new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></li>`)}</ul>`}
   </section>`;

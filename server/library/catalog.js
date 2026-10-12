@@ -134,6 +134,7 @@ export class Catalog {
   load(rawTracks, roots = this.roots) {
     const t0 = Date.now();
     this.roots = roots;
+    assignTrackIds(rawTracks);
     const tracks = new Map();
     for (const t of rawTracks) {
       if (!t.p || t.pv !== PARSER_VERSION) {
@@ -141,10 +142,7 @@ export class Catalog {
         t.p = parseName(t.name, dirName);
         t.pv = PARSER_VERSION;
       }
-      let id = shortId(`${t.dir}/${t.name}`);
-      if (tracks.has(id)) id = shortId(`${t.root}:${t.dir}/${t.name}`);
-      t.id = id;
-      tracks.set(id, t);
+      tracks.set(t.id, t);
     }
     this.tracks = tracks;
     this._build();
@@ -714,6 +712,22 @@ export class Catalog {
     }
     return out;
   }
+}
+
+/**
+ * `shortId(dir/name)`, or `shortId(rootIndex:dir/name)` when that id is already taken.
+ * Order matters: it is the order `Catalog.load` walks. Ids are not stored in the cache;
+ * recomputing them here, on the same list, reproduces the ids plays and votes were saved under.
+ */
+export function assignTrackIds(list) {
+  const seen = new Set();
+  for (const t of list) {
+    let id = shortId(`${t.dir}/${t.name}`);
+    if (seen.has(id)) id = shortId(`${t.root}:${t.dir}/${t.name}`);
+    seen.add(id);
+    t.id = id;
+  }
+  return list;
 }
 
 export function letterOf(name) {

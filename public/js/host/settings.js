@@ -226,6 +226,9 @@ function SkinCard({ id, on, accent }) {
   </button>`;
 }
 
+/** The last part of a folder path, for short messages. */
+const folderName = (p) => String(p).split(/[\\/]/).filter(Boolean).pop() || p;
+
 function LibrarySection({ state, lib }) {
   const library = state.library;
   const paths = library.roots.map((r) => r.path);
@@ -236,17 +239,21 @@ function LibrarySection({ state, lib }) {
     <div class="setting column">
       <div class="setting-text"><b>Karaoke folders</b><p class="hint">Every sub-folder is included. Files are never changed.</p></div>
       <div class="folders">
-        ${library.roots.map((r) => html`<div class="folder-row">
+        ${library.roots.map((r) => html`<div class="folder-row" data-folder=${r.path}>
           <span class=${`dot ${r.online ? 'on' : 'bad'}`} title=${r.online ? 'Connected' : 'Not found'}></span>
-          <div class="grow"><div class="ellipsis mono">${r.path}</div><div class="hint">${r.online ? plural(r.tracks, 'track') : 'Not connected — plug in the drive'}</div></div>
+          <div class="grow"><div class="ellipsis mono">${r.path}</div><div class="hint">${!r.online ? 'Not connected — plug in the drive'
+            : library.scanning && r.scanning ? 'Scanning…' : r.waiting ? `${plural(r.tracks, 'track')} · scan waiting` : plural(r.tracks, 'track')}</div></div>
+          <button class="btn small ghost folder-scan" disabled=${!r.online || r.scanning || r.waiting} title="Look for new, changed and removed songs in this folder only"
+            onClick=${() => act('library.rescan', { path: r.path })}><${Icon} name="refresh" size=${14} /> Scan</button>
           <button class="btn small ghost danger" onClick=${() => confirm(`Stop using ${r.path}? Its songs disappear from the library.`) && act('library.paths', { paths: paths.filter((p) => p !== r.path) })}>Remove</button>
         </div>`)}
         <div class="btn-row">
           <button class="btn primary" onClick=${add}><${Icon} name="folder" size=${16} /> Add folder</button>
-          <button class="btn" disabled=${library.scanning || !paths.length} onClick=${() => act('library.rescan')}><${Icon} name="refresh" size=${16} /> ${library.scanning ? 'Scanning…' : 'Scan for new songs'}</button>
+          <button class="btn" disabled=${library.scanning || !paths.length} onClick=${() => act('library.rescan')}><${Icon} name="refresh" size=${16} /> ${library.scanning ? 'Scanning…' : paths.length > 1 ? 'Scan all folders' : 'Scan for new songs'}</button>
         </div>
         ${library.scanning && html`<p class="hint">${lib ? `${lib.tracks.toLocaleString()} tracks found in ${lib.dirs.toLocaleString()} folders…` : 'Starting…'}</p>`}
-        ${last && !library.scanning && html`<p class="hint">Last scan ${new Date(last.at).toLocaleString()}: ${plural(last.tracks, 'track')} in ${(last.ms / 1000).toFixed(1)} s${last.errorCount ? `, ${plural(last.errorCount, 'problem')} (e.g. ${last.errors[0]?.error})` : ''}.</p>`}
+        ${last && !library.scanning && html`<p class="hint">Last scan${last.folders ? ` of ${last.folders.map(folderName).join(', ')}` : ''} ${new Date(last.at).toLocaleString()}: ${plural(last.tracks, 'track')} in the library, ${(last.ms / 1000).toFixed(1)} s${last.errorCount ? `, ${plural(last.errorCount, 'problem')} (e.g. ${last.errors[0]?.error})` : ''}.</p>`}
+        ${paths.length > 1 && html`<p class="hint">A folder inside another library folder is counted once, as its own folder.</p>`}
       </div>
     </div>
     <div class="setting">

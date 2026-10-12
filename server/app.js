@@ -36,8 +36,10 @@ const noNetworkManager = async () => {
  * @param {boolean} [opts.crawl] run the background artwork crawler (default true)
  * @param {object} [opts.hotspot] the party hotspot's runner (`run`) and checks — server/start.js
  *   passes the real nmcli, tests scripts/fake-nmcli.mjs; without one NetworkManager is never asked
+ * @param {Function|null} [opts.stemRun] separates a multiplex track's vocal (autokaraoke). Tests
+ *   omit it, so nothing is spawned. server/start.js passes the real runner.
  */
-export async function createApp({ dataDir, args = {}, scan, watch = true, fetch = globalThis.fetch, crawl = true, hotspot: hotspotOpts = {} } = {}) {
+export async function createApp({ dataDir, args = {}, scan, watch = true, fetch = globalThis.fetch, crawl = true, hotspot: hotspotOpts = {}, stemRun = null } = {}) {
   const settings = new Settings(dataDir);
   await settings.load();
   applyArgs(settings, args);
@@ -54,7 +56,7 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   const router = new Router();
   const hub = new Hub();
   // `instance` tells this process apart from another server on the same address (/api/health).
-  const app = { dataDir, settings, library, artwork, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [] };
+  const app = { dataDir, settings, library, artwork, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [], stemRun };
 
   // The party hotspot (PLAN §20).
   const hotspot = new Hotspot({

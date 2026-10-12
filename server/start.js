@@ -9,6 +9,8 @@ import { acquireDataLock } from './util/datalock.js';
 import { probePort, findFreePort } from './util/net.js';
 import { systemRunner, HOTSPOT_ADDRESS } from './net/nmcli.js';
 import { fetchHealth } from './net/hotspot.js';
+import { runAutokaraokeSeparate } from './stems/separate.js';
+import { fakeStemRun } from './stems/fake.js';
 
 /** A port problem a free port can solve (as opposed to e.g. EADDRNOTAVAIL: a wrong --host). */
 const MOVABLE = new Set(['EADDRINUSE', 'EACCES']);
@@ -76,7 +78,8 @@ export async function startServer({ dataDir, args = {}, env = process.env, appOp
     }
     await settings.flush(); // createApp reads the settings again (with the port picked here)
 
-    const app = await createApp({ dataDir, args, ...appOptions, hotspot: { ...(await hotspotOptions(log)), ...appOptions.hotspot } });
+    const stemRun = appOptions.stemRun || (env.OPENKARAOKE_FAKE_STEMS === '1' ? fakeStemRun : runAutokaraokeSeparate);
+    const app = await createApp({ dataDir, args, ...appOptions, stemRun, hotspot: { ...(await hotspotOptions(log)), ...appOptions.hotspot } });
     for (let attempt = 1; ; attempt++) {
       try {
         await app.listen(port, host);

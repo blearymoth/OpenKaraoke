@@ -4,6 +4,7 @@
 // played or preloaded; the library is never decoded on purpose.
 import path from 'node:path';
 import { JsonDoc } from '../util/jsonfile.js';
+import { rekeyRecords } from '../library/ids.js';
 
 const MAX = 20_000;
 const LAYOUTS = new Set(['mono', 'stereo', 'mpx']);
@@ -60,6 +61,14 @@ export class VocalsStore {
     }
     this.doc.save();
     return changed;
+  }
+
+  /** The same file got a new id. The analysis moves with it; the old key goes. */
+  rekey(moves) {
+    const t = this.doc.data?.tracks;
+    const n = rekeyRecords(t, moves);
+    if (n) this.doc.save();
+    return n;
   }
 
   flush() {

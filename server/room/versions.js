@@ -7,6 +7,7 @@ import readline from 'node:readline';
 import { JsonDoc } from '../util/jsonfile.js';
 import { UserError } from '../util/errors.js';
 import { logger } from '../util/log.js';
+import { rekeyRecords } from '../library/ids.js';
 
 const log = logger('versions');
 
@@ -157,6 +158,16 @@ export class VersionStats {
       n++;
       if (r.p === 0 && !Object.keys(r.v).length) delete this.tracks[id];
     }
+    if (n) this.doc.save();
+    return n;
+  }
+
+  /**
+   * The same file got a new id (its folder became a root, or was folded back). Plays and votes
+   * move with it; the old key goes. A destination that already has a record of its own is left.
+   */
+  rekey(moves) {
+    const n = rekeyRecords(this.tracks, moves);
     if (n) this.doc.save();
     return n;
   }

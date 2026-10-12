@@ -147,6 +147,15 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   app.closers.push(() => clearInterval(lanTimer));
 
   library.on('changed', () => room.onLibraryChanged());
+  library.on('ids', (moves) => {
+    room.migrateTrackIds(moves);
+    library.ackIdMoves(moves);
+  });
+  const earlyMoves = library.takeIdMoves();
+  if (earlyMoves.length) {
+    room.migrateTrackIds(earlyMoves);
+    library.ackIdMoves(earlyMoves);
+  }
   library.on('status', () => room.markDirty());
   library.on('progress', (progress) => hub.broadcast({ t: 'lib', progress }, (c) => c.role === 'host'));
   artwork.on('art', (m) => {

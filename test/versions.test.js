@@ -70,6 +70,38 @@ test('versions: a cap on voters per version; the host always votes', async (t) =
   assert.deepEqual([i.up, i.down, i.host], [MAX_VOTERS - 1, 2, -1]);
 });
 
+test('versions: a new id takes the plays and votes; a taken id and a bystander stay', async (t) => {
+  const { s } = await store(t);
+  s.addPlay('oldid1');
+  s.addPlay('oldid1');
+  s.vote('oldid1', G1, 1);
+  s.vote('oldid1', HOST_VOTER, -1);
+  s.addPlay('stay01');
+  assert.equal(s.rekey([{ from: 'oldid1', to: 'newid1' }]), 1);
+  assert.equal(s.info('newid1').plays, 2);
+  assert.equal(s.info('newid1', G1).mine, 1);
+  assert.equal(s.info('newid1').host, -1);
+  assert.equal(s.info('oldid1').plays, 0);
+  assert.ok(!Object.hasOwn(s.tracks, 'oldid1'));
+  assert.equal(s.info('stay01').plays, 1);
+  s.addPlay('keepme');
+  s.vote('other1', G2, 1);
+  assert.equal(s.rekey([{ from: 'other1', to: 'keepme' }]), 0, 'does not overwrite a record that is staying');
+  assert.equal(s.info('other1', G2).mine, 1);
+  assert.equal(s.info('keepme').plays, 1);
+  assert.equal(s.mine(G1, 'stay01'), 0);
+  s.rekey([{ from: 'newid1', to: 'stay01' }, { from: 'stay01', to: 'newid1' }]);
+  assert.equal(s.info('stay01').plays, 2);
+  assert.equal(s.info('stay01', G1).mine, 1);
+  assert.equal(s.info('stay01').host, -1);
+  assert.equal(s.info('newid1').plays, 1);
+  assert.equal(s.info('newid1', G1).mine, 0);
+  await s.flush();
+  const { s: again } = await store(t, { file: s.doc.file, history: path.join(path.dirname(s.doc.file), 'history.jsonl') });
+  assert.equal(again.info('stay01', G1).mine, 1);
+  assert.equal(again.info('newid1').plays, 1);
+});
+
 test('versions: the file — saved, loaded, cleaned of anything hostile; discard leaves it', async (t) => {
   const { s, file, dir } = await store(t);
   s.vote('keep1', G1, 1);

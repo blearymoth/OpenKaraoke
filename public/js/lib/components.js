@@ -128,6 +128,7 @@ export function SongRow({ song, onOpen, children, highlight }) {
     <div class="song-text">
       <div class="song-title ellipsis">${song.title} <${SongBadges} song=${song} /></div>
       <div class="song-artist ellipsis">${song.artist}</div>
+      ${song.mpx ? html`<span class="chip static mpx-chip"><${Icon} name="volume" size=${14} /> Multiplex Available!</span>` : null}
     </div>
     ${song.v > 1 ? html`<span class="versions" title=${`${song.v} versions`}>${song.v}×</span>` : null}
     <span class="dur num">${song.dur ? formatTime(song.dur) : ''}</span>

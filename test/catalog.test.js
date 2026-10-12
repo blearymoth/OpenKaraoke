@@ -83,6 +83,30 @@ test('tags, filters, details and best version', () => {
   assert.equal(noLive.p.variant.length, 0);
 });
 
+test('a multiplex version is marked on the song row, and does not become the default', () => {
+  const cat = new Catalog().load(rawTracks([
+    'DJ Hush - Quiet Storm (Multiplex) [MX Karaoke]',
+    'DJ Hush - Quiet Storm [SF Karaoke]',
+    'Queen - Bohemian Rhapsody (MPX) [SC Karaoke]',
+    'Queen - Bohemian Rhapsody [SF Karaoke]',
+    'Adele - Hello [SF Karaoke]',
+  ]), ['/library']);
+  const storm = cat.search('quiet storm').items[0];
+  assert.equal(storm.flags.mpx, true);
+  assert.equal(cat.songSummary(storm).mpx, 1);
+  assert.equal(cat.bestTrack(storm, []).p.brand, 'SF', 'label score still prefers the plain version');
+  const queen = cat.search('bohemian').items[0];
+  assert.equal(cat.songSummary(queen).mpx, 1, 'one multiplex version is enough');
+  assert.equal(cat.bestTrack(queen, []).p.brand, 'SF', 'the plain version still scores higher');
+  assert.equal(cat.bestTrack(queen, ['SC']).p.brand, 'SC', 'a preferred label still wins');
+  const hello = cat.search('adele hello').items[0];
+  assert.equal(hello.flags.mpx, undefined);
+  assert.equal(cat.songSummary(hello).mpx, undefined);
+  // Search order stays the text score: a multiplex song is not pulled ahead of a closer title.
+  const found = cat.search('hello').items.map((s) => s.title);
+  assert.equal(found[0], 'Hello');
+});
+
 test('cache round trip keeps ids stable', () => {
   const cat = build();
   const cache = JSON.parse(JSON.stringify(cat.toCache()));

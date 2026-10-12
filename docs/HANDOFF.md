@@ -1,15 +1,18 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-12 (track ids follow a folder that becomes its own root; guest photos:
-Add a Photo opens the camera in the page)._
+_Last updated: 2026-10-12 (a multiplex track can grow a vocal stem for the headphone preview;
+the room and the TV still use the channel matrix. Track ids follow a folder that becomes its
+own root; guest photos: Add a Photo opens the camera in the page; lyric layouts and the
+installer are as below. Run in a cloud sandbox without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 505/505; `npm run e2e` → 17 Playwright scripts, all green (`themes.mjs` checks
-  the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `admin.mjs` and
+- `npm test` → 530/530; `npm run e2e` → 18 Playwright scripts, all green (`themes.mjs` checks
+  the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `vocal-stem.mjs`
+  the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the in-page camera); `npm --prefix desktop test` → 46/46 + 35/35 (the
   desktop app, also against the built installer, and the setup window; the release workflow also
@@ -136,7 +139,8 @@ Add a Photo opens the camera in the page)._
   same page shows which screen plays the sound and lets the host make another one the main
   display; queue boards and mirrors never take the sound by themselves.
 - **Live TV preview** (now in the admin panel's Playback tab, a muted light copy of the TV).
-- **Preview on headphones**: play a song on the host computer's second audio output.
+- **Preview on headphones**: play a song on the host computer's second audio output. On a
+  multiplex version the button says **Vocal** and plays a separated guide vocal there (not on the TV).
 - **Printable songbook** (Settings → Library: HTML to print to PDF, or CSV; letter/tag/genre/
   decade/popular filters) — `server/http/songbook.js`.
 - **systemd user service**: `bin/install-service.sh` (`--status`, `--uninstall`). `--library`
@@ -622,9 +626,17 @@ guests' song sheet offer those versions.
   "Quiet Storm (Multiplex)": found on the left, the four gains checked at off/quiet/full).
 
 **Decisions**
-1. **No source separation** (no AI vocal removal): it would need a model and native code or
-   seconds of GPU per song — against the zero-dependency rule — and the library already has what
-   karaoke needs: multiplex tracks for the lead, separate versions for backing vocals.
+1. **A vocal stem for multiplex tracks, for the headphone preview only.** The room and the TV
+   still use the channel matrix above (`mixMatrix` is unchanged; ordinary tracks are not
+   separated, and there is no backing stem or level slider). OpenKaraoke calls autokaraoke’s
+   separator — Demucs `htdemucs`, `autokaraoke.separate.separate`, the same order as
+   `autokaraoke make` (`models.configure`, then `separate()`, then one `audio.save_wav`) — and
+   caches `data/stems/<trackId>/vocal.wav`. Never on the music drive. In the song dialog a
+   multiplex version’s button says **Vocal** and plays that file on the same output as Preview
+   (`public/js/host/preview.js`, `vocal.prepare`). The stem starts at the beginning of the file:
+   it is not locked to the TV clock, the singer’s phone does not play it, and there is no live
+   mic monitor. With no separator configured (the tests) Vocal falls back to the whole file.
+   Code: `shared/stems.js`, `server/stems/`, `GET /media/:trackId/stem/vocal`.
 2. **Never a wrong guess on the lead**: a track named Multiplex whose side the analysis can't tell
    plays as before and the host is asked; a track the sound alone suggests is only offered (the
    review found a hard-panned guitar that rests between phrases looks exactly like a guide
@@ -945,7 +957,9 @@ the old id. `history.jsonl` is not rewritten. A renamed file still starts over.
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, optional
-  ffmpeg transcoding for AVI/WMV/MPG, mic monitoring with reverb on the PC.
+  ffmpeg transcoding for AVI/WMV/MPG, mic monitoring with reverb on the PC. The multiplex
+  vocal stem is only the song-dialog headphone preview (from the start of the file), not that
+  monitor and not synced to the TV.
 - README screenshots (the e2e scripts already save screenshots to `test-results/`).
 - Performance pass on the real library: catalog rebuild in a worker thread (below), memory
   during the first artwork crawl.
@@ -968,6 +982,8 @@ the old id. `history.jsonl` is not rewritten. A renamed file still starts over.
 - Phone vibration only works on Android; iPhones get the toast/card only.
 - "Preview on headphones" (Song details → Choose headphones…) needs the browser's
   permission once (Chrome: microphone, to name the outputs); check it on the party PC.
+  A multiplex **Vocal** preview needs autokaraoke’s separator on this computer (the first
+  time for a track can take a while); it is not in time with the TV.
 - `catalog.js` heap ~200–400 MB while building 90k tracks (unchanged).
 - Rotation edge case: after Stop re-queues a song of someone who already sang, a newcomer
   can be placed before an earlier newcomer (manual reordering fixes it).

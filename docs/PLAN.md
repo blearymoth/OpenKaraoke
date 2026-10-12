@@ -1182,7 +1182,9 @@ hotspot down again.
 
 ## 21. Lead and backing vocals
 
-What CD+G karaoke recordings really allow — no source separation, nothing invented:
+What CD+G karaoke recordings really allow for the room and the TV — the channel matrix below
+is unchanged. A multiplex track can also grow a vocal stem for the host's headphone preview
+(not mixed into the TV; see the end of this section):
 
 - **Lead vocal** (the original singer, a "guide"): on a **multiplex** (MPX) track one channel is
   the music alone and the other the music plus the singer. With the singer's channel X = a·M + V
@@ -1245,6 +1247,17 @@ version lists say what each version allows. Guest song sheet: a Guide singer swi
 on the phone) and Backing vocals As recorded / With / Without (when such versions exist); during
 their song a "Guide singer: on/off" button. TV intro: "Guide singer on/quiet" chip. Break music
 skips multiplex tracks.
+
+**Headphone vocal stem (multiplex only).** The song dialog’s Preview button says **Vocal** on a
+multiplex version and plays a separated guide vocal on the chosen headphone output
+(`public/js/host/preview.js`). The room and the TV keep playing the original file through
+`mixMatrix` — the stem never replaces that mix, and an ordinary track is not separated.
+Separation is autokaraoke’s Demucs model `htdemucs` (`autokaraoke.separate.separate`, after
+`models.configure`, then one vocal WAV). The file is `data/stems/<trackId>/vocal.wav` (the data
+folder, never the music drive). Host action `vocal.prepare {trackId}` starts it; guests cannot.
+`GET /media/:trackId/stem/vocal` serves a ready file for a multiplex track and 404s otherwise.
+The preview starts at the beginning of the stem. It is not locked to the TV clock, the singer’s
+phone does not play it, and there is no live microphone monitor.
 
 ## 22. Admin panel, devices, version play counts and votes
 

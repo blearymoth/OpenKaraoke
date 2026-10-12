@@ -6,11 +6,13 @@
 //   'changed'  { reason }            the catalog was (re)built
 //   'progress' { dirs, tracks, ... } scan progress (≈4/s while scanning)
 //   'status'   status()              roots went on/offline, a scan started/finished
+//   'ids'      [{ from, to }]        the same file's track id changed (a folder split or folded)
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { scanLibrary, previousKey, nestedRoots, inNestedRoot } from './scanner.js';
-import { Catalog, PARSER_VERSION } from './catalog.js';
+import { Catalog, PARSER_VERSION, assignTrackIds } from './catalog.js';
+import { trackPlace, trackReturns, idMoves } from './ids.js';
 import { readJson, writeJsonAtomic } from '../util/jsonfile.js';
 import { hash32 } from '../../shared/text.js';
 import { logger } from '../util/log.js';
@@ -44,6 +46,12 @@ export class LibraryService extends EventEmitter {
     this.abort = null;
     this.saving = Promise.resolve();
     this.hasCache = false;
+    // Files that left because a folder was split off or folded back, place → id, until they return.
+    this.departed = new Map();
+    // Id moves not yet applied by the party (a restart finishes them). `pendingMoves` is the
+    // part emitted before anyone was listening.
+    this.unacked = [];
+    this.pendingMoves = [];
   }
 
   /** Configured library folders (absolute paths). */
@@ -73,15 +81,25 @@ export class LibraryService extends EventEmitter {
     const cache = await readJson(this.cacheFile, null);
     const raw = cache ? Catalog.rawFromCache(cache) : null;
     const paths = this.paths;
+    this.departed = departedFromCache(cache);
+    this.unacked = [];
+    this.pendingMoves = [];
+    this.keepMoves(movesFromCache(cache));
     if (raw) {
-      const tracks = remapRoots(raw, cache.roots || [], paths);
+      // Ids are not in the cache. The same list, in this order, is how they were assigned
+      // last time — before a nested folder is dropped, so a split can still find the old id.
+      const oldRoots = Array.isArray(cache.roots) ? cache.roots : [];
+      assignTrackIds(raw);
+      const oldSnap = snapTracks(raw);
+      const tracks = remapRoots(raw, oldRoots, paths);
       this.catalog.load(tracks, paths);
       this.signature = trackSignature(tracks);
       this.lastScan = cache.lastScan || null;
       this.hasCache = true;
       log.info(`loaded ${tracks.length} tracks (${this.catalog.songs.size} songs) from cache in ${Date.now() - t0} ms`);
+      this.settleIds(oldRoots, oldSnap, paths);
       // Re-parsed names (new parser) or dropped folders: store the result so the next start is fast.
-      if (cache.parser !== PARSER_VERSION || tracks.length !== raw.length) this.saveCache();
+      if (cache.parser !== PARSER_VERSION || tracks.length !== raw.length || this.departed.size || this.unacked.length) this.saveCache();
     } else {
       this.catalog.load([], paths);
       this.signature = trackSignature([]);
@@ -94,6 +112,8 @@ export class LibraryService extends EventEmitter {
   saveCache() {
     const data = this.catalog.toCache();
     data.lastScan = this.lastScan;
+    if (this.departed.size) data.departed = Object.fromEntries(this.departed);
+    if (this.unacked.length) data.idMoves = this.unacked.map((m) => ({ from: m.from, to: m.to }));
     this.saving = this.saving
       .then(() => writeJsonAtomic(this.cacheFile, data))
       .then(() => { this.hasCache = true; })
@@ -150,6 +170,8 @@ export class LibraryService extends EventEmitter {
     if (!sameRoots(this.catalog.roots, paths)) this.remapCatalog(paths);
     if (only) only = only.filter((i) => i < paths.length);
 
+    const oldRoots = this.catalog.roots.slice();
+    const oldSnap = snapTracks(this.catalog.tracks.values());
     const previous = new Map();
     for (const t of this.catalog.tracks.values()) previous.set(previousKey(t), t);
     this.abort = new AbortController();
@@ -195,6 +217,7 @@ export class LibraryService extends EventEmitter {
       this.catalog.load(tracks, paths);
       this.signature = sig;
       this.countRoots();
+      this.settleIds(oldRoots, oldSnap, paths);
     }
     const asked = only || paths.map((p, i) => i);
     this.lastScan = {
@@ -234,10 +257,89 @@ export class LibraryService extends EventEmitter {
   }
 
   remapCatalog(newRoots) {
-    const tracks = remapRoots([...this.catalog.tracks.values()], this.catalog.roots, newRoots);
+    const oldRoots = this.catalog.roots.slice();
+    const oldSnap = snapTracks(this.catalog.tracks.values());
+    const tracks = remapRoots([...this.catalog.tracks.values()], oldRoots, newRoots);
     this.catalog.load(tracks, newRoots);
     this.signature = trackSignature(tracks);
     this.countRoots();
+    this.settleIds(oldRoots, oldSnap, newRoots);
+  }
+
+  /**
+   * After the catalog was rebuilt: the same file under a new root (a split, or a fold back
+   * into a parent) gets `{ from, to }` on the `ids` event. Files that will come back stay
+   * in `departed` until that scan. Anything else that disappeared keeps its old id.
+   */
+  settleIds(oldRoots, oldSnap, newRoots) {
+    const prior = [];
+    const seen = new Set();
+    // The catalog's own id wins when a place is also in `departed` (a stale note).
+    for (const t of oldSnap) {
+      const place = trackPlace(oldRoots, t);
+      if (!place || !t.id || seen.has(place)) continue;
+      seen.add(place);
+      prior.push({ id: t.id, place });
+    }
+    for (const [place, id] of this.departed) {
+      if (!place || !id || seen.has(place)) continue;
+      seen.add(place);
+      prior.push({ id, place });
+    }
+    const now = [];
+    const nowPlaces = new Set();
+    for (const t of this.catalog.tracks.values()) {
+      const place = trackPlace(newRoots, t);
+      if (!place || !t.id) continue;
+      now.push(t);
+      nowPlaces.add(place);
+    }
+    const moves = idMoves(null, prior, newRoots, now);
+    for (const t of oldSnap) {
+      const place = trackPlace(oldRoots, t);
+      if (!place || !t.id) continue;
+      if (nowPlaces.has(place)) this.departed.delete(place);
+      else if (trackReturns(oldRoots, t, newRoots)) this.departed.set(place, t.id);
+      else this.departed.delete(place);
+    }
+    for (const place of [...this.departed.keys()]) {
+      if (nowPlaces.has(place) || !placeHeld(place, newRoots)) this.departed.delete(place);
+    }
+    this.keepMoves(moves);
+  }
+
+  /** Queues id moves until the party applies them (`ackIdMoves`). Emits when someone is listening. */
+  keepMoves(moves) {
+    const fresh = [];
+    for (const m of moves || []) {
+      if (!m || typeof m.from !== 'string' || typeof m.to !== 'string' || m.from === m.to) continue;
+      if (!TRACK_ID_RE.test(m.from) || !TRACK_ID_RE.test(m.to)) continue;
+      if (this.unacked.some((x) => x.from === m.from && x.to === m.to)) continue;
+      const rec = { from: m.from, to: m.to };
+      this.unacked.push(rec);
+      fresh.push(rec);
+    }
+    if (!fresh.length) return;
+    log.info(`track ids follow their files: ${fresh.length}`);
+    if (this.listenerCount('ids')) this.emit('ids', fresh);
+    else this.pendingMoves.push(...fresh);
+  }
+
+  /** Moves emitted before a listener existed (startup, while the party is still loading). */
+  takeIdMoves() {
+    const m = this.pendingMoves;
+    this.pendingMoves = [];
+    return m;
+  }
+
+  /** The party has copied the records. Drops them so the next start does not apply them again. */
+  ackIdMoves(moves) {
+    const done = new Set((moves || []).map((m) => `${m.from}\0${m.to}`));
+    if (!done.size || !this.unacked.length) return;
+    const before = this.unacked.length;
+    this.unacked = this.unacked.filter((m) => !done.has(`${m.from}\0${m.to}`));
+    this.pendingMoves = this.pendingMoves.filter((m) => !done.has(`${m.from}\0${m.to}`));
+    if (this.unacked.length !== before && this.hasCache && !this.scanning) this.saveCache();
   }
 
   countRoots() {
@@ -329,6 +431,40 @@ export function trackSignature(tracks) {
     n++;
   }
   return `${n}:${sum.toString(36)}:${mix.toString(36)}`;
+}
+
+const TRACK_ID_RE = /^[0-9a-z]{1,16}$/;
+
+function snapTracks(tracks) {
+  const out = [];
+  for (const t of tracks) out.push({ id: t.id, root: t.root, dir: t.dir || '', name: t.name });
+  return out;
+}
+
+/** A missing file can still come back when one of the library folders holds its path. */
+function placeHeld(place, roots) {
+  for (const r of roots || []) {
+    if (typeof r !== 'string' || !r) continue;
+    const root = path.resolve(r);
+    if (place === root || place.startsWith(`${root}${path.sep}`)) return true;
+  }
+  return false;
+}
+
+function departedFromCache(cache) {
+  const out = new Map();
+  const src = cache?.departed;
+  if (!src || typeof src !== 'object') return out;
+  for (const [place, id] of Object.entries(src)) {
+    if (typeof place !== 'string' || !path.isAbsolute(place) || typeof id !== 'string' || !TRACK_ID_RE.test(id)) continue;
+    out.set(place, id);
+  }
+  return out;
+}
+
+function movesFromCache(cache) {
+  if (!Array.isArray(cache?.idMoves)) return [];
+  return cache.idMoves.filter((m) => m && typeof m.from === 'string' && typeof m.to === 'string');
 }
 
 function sameRoots(a, b) {

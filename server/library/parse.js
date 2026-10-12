@@ -10,6 +10,8 @@ export const AUDIO_EXTS = new Set(['mp3', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'w
 export const VIDEO_EXTS = new Set(['mp4', 'm4v', 'webm', 'mkv', 'mov', 'avi', 'mpg', 'mpeg', 'wmv', 'flv', 'vob']);
 // Formats Chromium-based browsers can normally play directly.
 export const BROWSER_VIDEO_EXTS = new Set(['mp4', 'm4v', 'webm', 'mov', 'mkv']);
+// ISO BMFF files whose length lives in an `mvhd` box (see server/library/mp4.js).
+export const MP4_DURATION_EXTS = new Set(['mp4', 'm4v', 'mov']);
 
 const LANG_WORDS = {
   spanish: 'Spanish', mexicana: 'Spanish', mexican: 'Spanish', espanol: 'Spanish', latino: 'Spanish',
@@ -176,6 +178,14 @@ export function parseName(baseName, dirName = '') {
   const o = { artist: '', title: '', brand: '', discId: '', variant: [], flags: {}, tags: new Set() };
   let s = normalizeSpaces(baseName);
 
+  // Numbered video dumps ("0028. Adele - Hello", "0008. 30.02 - Звёзды в лужах").
+  // The index is not part of the artist. "10cc - …" and a title of "1979" stay as they are.
+  const catalog = /^(\d{3,6})\.\s+/.exec(s);
+  if (catalog) {
+    o.discId = catalog[1];
+    s = s.slice(catalog[0].length);
+  }
+
   const b = extractBrand(s);
   if (b) { o.brand = b.brand; s = b.rest; }
 
@@ -254,6 +264,7 @@ export function parseName(baseName, dirName = '') {
   }
   if (o.flags.medley) o.tags.add('Medleys');
   if (o.flags.explicit) o.tags.add('Explicit');
+  if (o.flags.mpx) o.tags.add('Multiplex');
   for (const v of o.variant) {
     if (/\blive\b/i.test(v)) o.flags.live = true;
     if (/acoustic|unplugged|acoustative/i.test(v)) o.flags.acoustic = true;

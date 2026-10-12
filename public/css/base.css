@@ -521,6 +521,14 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
 }
 .chip:hover { color: var(--ink); border-color: var(--line-strong); }
 .chip.on { background: var(--neon-soft); color: var(--ink); border-color: color-mix(in srgb, var(--neon) 55%, transparent); }
+/* Song rows (host and guest): a multiplex version exists. Same tokens as a selected chip. */
+.song-row .mpx-chip {
+  margin-top: 4px; min-height: 24px; padding: 0 8px; gap: 4px; max-width: 100%;
+  font-size: 12px; cursor: default;
+  background: var(--neon-soft); color: var(--ink);
+  border-color: color-mix(in srgb, var(--neon) 55%, transparent);
+}
+.song-row .mpx-chip:hover { color: var(--ink); border-color: color-mix(in srgb, var(--neon) 55%, transparent); }
 
 .badge {
   display: inline-grid; place-items: center;

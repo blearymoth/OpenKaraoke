@@ -4,7 +4,7 @@ import { fold, compact, editDistance, shortId, splitCredits } from '../../shared
 import { parseName, titleKeyOf, BRAND_NAMES } from './parse.js';
 import { Lru } from '../util/lru.js';
 
-export const PARSER_VERSION = 4;
+export const PARSER_VERSION = 5;
 
 const segKey = (seg) => compact(String(seg).replace(/^the\s+/i, '').replace(/,\s*the$/i, '')) || compact(seg);
 
@@ -258,6 +258,8 @@ export class Catalog {
       flags.explicit = ts.every((t) => t.p.flags.explicit);
       if (!flags.explicit) delete flags.explicit;
       if (ts.every((t) => t.p.flags.duet)) flags.duet = true;
+      // Any multiplex version: the song rows show "Multiplex Available!". Not a ranking signal.
+      if (ts.some((t) => t.p.flags.mpx)) flags.mpx = true;
       s.tags = [...tags];
       s.flags = flags;
       const durs = ts.map((t) => t.duration).filter((d) => d > 0).sort((a, b) => a - b);
@@ -630,6 +632,7 @@ export class Catalog {
       id: s.id, artist: s.artist, title: s.title, dur: Math.round(s.duration), v: s.versions,
     };
     if (s.flags.duet || s.tags.includes('Duets')) out.duet = 1;
+    if (s.flags.mpx) out.mpx = 1; // the row chip; does not change which version plays
     if (this.isExplicit(s)) out.x = 1;
     if (m?.year) out.year = m.year;
     if (m?.cover) out.art = 1;

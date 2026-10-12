@@ -6,9 +6,10 @@ import { Battle } from './battle.js';
 import { Wheel } from './wheel.js';
 import { Relay } from './relay.js';
 import { Applause } from './applause.js';
+import { Pitch } from './pitch.js';
 import { Recap } from './recap.js';
 
-export const GAMES = { quiz: Quiz, battle: Battle, wheel: Wheel, poll: Poll, relay: Relay, applause: Applause, recap: Recap };
+export const GAMES = { quiz: Quiz, battle: Battle, wheel: Wheel, poll: Poll, relay: Relay, applause: Applause, pitch: Pitch, recap: Recap };
 
 export function createGame(type, room, config) {
   const G = typeof type === 'string' && Object.hasOwn(GAMES, type) ? GAMES[type] : null;

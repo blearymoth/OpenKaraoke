@@ -13,6 +13,11 @@ const cases = [
   ['Smashing Pumpkins - 1979 [Karaoke]', { title: '1979', brand: '' }],
   ['SC8123-05 - Adele - Hello', { artist: 'Adele', title: 'Hello', discId: 'SC8123-05' }],
   ['AX-28794 - A Sky Full Of Stars [Coldplay]', { artist: 'Coldplay', title: 'A Sky Full Of Stars', discId: 'AX-28794' }],
+  ['0028. Adele - Hello', { artist: 'Adele', title: 'Hello', discId: '0028' }],
+  ['0028. Adele - Hello [SF Karaoke]', { artist: 'Adele', title: 'Hello', brand: 'SF', discId: '0028' }],
+  ['0008. 30.02 - Звёзды в лужах', { artist: '30.02', title: 'Звёзды в лужах', discId: '0008' }],
+  ['0001. 104 & Truwer - Joe Pesci', { artist: '104 & Truwer', title: 'Joe Pesci', discId: '0001' }],
+  ['10cc - Dreadlock Holiday [SF Karaoke]', { artist: '10cc', title: 'Dreadlock Holiday', brand: 'SF', discId: '' }],
   ['Adele - Hello [Reggae Version] [DC Karaoke]', { title: 'Hello (Reggae Version)', brand: 'DC' }],
   ["Ariana Grande - Break Up With Your Girlfriend, I'm Bored [Explicit] (Zoom Karao", { brand: '#Z' }],
 ];
@@ -50,6 +55,17 @@ test('flags and tags from annotations', () => {
   const live = parseName('Adele - Someone Like You (Live) [EZ Karaoke]');
   assert.deepEqual(live.variant, ['Live']);
   assert.equal(live.flags.live, true);
+
+  const mpx = parseName('DJ Hush - Quiet Storm (Multiplex) [MX Karaoke]');
+  assert.equal(mpx.flags.mpx, true);
+  assert.equal(mpx.title, 'Quiet Storm');
+  assert.ok(mpx.tags.includes('Multiplex'));
+  const mpxShort = parseName('Queen - Bohemian Rhapsody (MPX) [SC Karaoke]');
+  assert.equal(mpxShort.flags.mpx, true);
+  assert.ok(mpxShort.tags.includes('Multiplex'));
+  const plain = parseName('DJ Hush - Quiet Storm [SF Karaoke]');
+  assert.equal(plain.flags.mpx, undefined);
+  assert.ok(!plain.tags.includes('Multiplex'));
 });
 
 test('grouping keys ignore credit order, "feat." spelling and sub-titles', () => {

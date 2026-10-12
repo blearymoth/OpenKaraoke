@@ -4,7 +4,7 @@ _Last updated: 2026-10-12 (guest photos: Add a Photo opens the camera in the pag
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
-  metadata (M5), seven party games plus performance ratings (M6) and the polish list (M7):
+  metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
 - `npm test` → 505/505; `npm run e2e` → 17 Playwright scripts, all green (`themes.mjs` checks
@@ -112,6 +112,8 @@ _Last updated: 2026-10-12 (guest photos: Add a Photo opens the camera in the pag
 - **Pass the mic** (during songs the TV flashes the next participant; their phone buzzes).
 - **Applause meter** (the TV page measures the PC microphone for 5 s → 0–100; kiosk TV started
   with `bin/open-tv.sh` gets the mic without a prompt).
+- **Pitch rings** (the singer's pitch moves a ball on the TV; rings scroll in — sing through the
+  hole; party-computer mic only; score = rings cleared; not pitch-graded karaoke).
 - **Party recap** (totals, top singers, best rated, most-sung artists, crowd favourite, game
   winners; auto-advancing slides).
 - **Performance ratings**: after each finished song phones can give 1–5 ★ for 40 s (not for
@@ -948,7 +950,7 @@ with `APPIMAGE_EXTRACT_AND_RUN=1 NO_CLEANUP=1`; also passed here with FUSE mount
   TV keeps playing; host/guest UIs pause). Could move to a worker thread.
 - Provider parsers are verified against documented shapes only — see checklist item 1.
 - Years come from Deezer album release dates (a compilation or remaster can show a later year).
-- Video karaoke (MP4/WEBM) is implemented through element mode but untested with real files.
+- Video karaoke (MP4/WEBM) plays in element mode, the same index / serve / TV path as other video. MP4, M4V and MOV length is read from the file's `mvhd` box while scanning. A leading catalog number (`0028. Artist - Title.mp4`) is kept as the disc id and left out of the artist name. AVI/WMV/MPG still need ffmpeg (not built).
 - Phone vibration only works on Android; iPhones get the toast/card only.
 - "Preview on headphones" (Song details → Choose headphones…) needs the browser's
   permission once (Chrome: microphone, to name the outputs); check it on the party PC.

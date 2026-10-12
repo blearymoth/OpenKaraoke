@@ -22,7 +22,7 @@ local library, running entirely on their **Linux PC** (no cloud):
    playlists, history, explicit filter, background music between singers, ticker, themes.
 
 Non-goals (for now): internet hosting, accounts, streaming catalogues, pitch-graded scoring
-(needs melody data that CDG files don't have — see §13.8), native mobile apps.
+(grading a song's melody from CDG — see §13.9; Pitch rings does not do that), native mobile apps.
 
 ## 2. Feature list
 
@@ -51,7 +51,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   song, the singer — §21.
 - ✅ P0 "Next singer" intro card with countdown, then auto-start (or start-paused mode).
 - ✅ P0 Preload next track during the intro; break music fades out when the next song starts.
-- 🟡 P0 Video karaoke (MP4/WEBM) with the same controls (tempo via playbackRate, key via stretch live input) — implemented, untested with real video files.
+- ✅ P0 Video karaoke (MP4/WEBM) with the same controls (tempo via playbackRate, key via stretch live input). MP4/M4V/MOV length is read while scanning; a leading catalog number (`0028. Artist - Title`) is not part of the artist.
 - ✅ P1 Background behind transparent CDG: blurred cover / artist fanart (Ken-Burns), idle cover mosaic, audio
   visualiser, guest photos, or plain colour. CDG smoothing (Scale2x) for crisp text on big TVs.
 - ✅ P1 Lyric sync offset setting (ms) and automatic output-latency compensation (getOutputTimestamp).
@@ -115,7 +115,8 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   lyrics peek, cover zoom, helium/slow-mo/reverse audio, year/decade, sing-along interlude).
 - ✅ P1 Battle (2–8 contestants, head-to-head or knockout, phone voting + optional applause meter + judges).
 - ✅ P1 Roulette wheel (songs / singers / dares / genres / duet roulette).
-- ✅ P1 Crowd poll "what's next?", Pass-the-mic relay, applause meter (TV microphone), party recap screen.
+- ✅ P1 Crowd poll "what's next?", Pass-the-mic relay, applause meter (TV microphone), Pitch rings
+  (TV microphone), party recap screen.
 
 ### Between songs
 - ✅ P1 Break music (random instrumentals from the library matching the next song's genre/decade,
@@ -184,7 +185,7 @@ server/
     placeholder.js      ✅ deterministic gradient SVG with initials
   games/
     base.js index.js    ✅ Game base class (phases, timers, per-role views) + registry
-    quiz.js battle.js wheel.js poll.js relay.js applause.js recap.js   ✅ (§13)
+    quiz.js battle.js wheel.js poll.js relay.js applause.js pitch.js recap.js   ✅ (§13)
   util/                 ✅ log, jsonfile, net (free ports), qr, datalock (one server per data folder)
   vendor/               ✅ ws.mjs, qrcode.mjs
 shared/
@@ -194,7 +195,7 @@ shared/
   graphics.js           ✅ which WebGL renderers draw in software (TV lighter effects, desktop Graphics)
   protocol.js           ✅ shared constants shared by server and clients
   themes.js             ✅ skins (Studio, Party): ids, names, appearance validation
-  quiz.js wheel.js applause.js   ✅ game rules shared by the server and the TV/phones
+  quiz.js wheel.js applause.js pitch.js   ✅ game rules shared by the server and the TV/phones
 public/
   index.html            ✅ landing: links to Host / TV / Join + QR
   host.html tv.html guest.html   ✅ app shells (import maps not needed; import /js/... directly)
@@ -784,10 +785,14 @@ Phones auto-join when they send an answer/vote; the host controls start/next/end
    intervals among participants; that phone vibrates.
 6. **Applause meter**: 5 s mic measurement on the PC (localhost is a secure context; phones on
    LAN http are not, so no phone mics) → 0–100 meter.
-7. **Ratings & recap**: optional 1–5 ★ after each song; "Party recap" screen (top singers,
+7. **Pitch rings**: the singer's pitch moves a ball on the TV; rings scroll in and they sing
+   through the hole (party-computer mic only, no reference tone). Score = rings cleared per run;
+   best count wins. This is not pitch-graded karaoke — CDG has no melody (see §13.9).
+8. **Ratings & recap**: optional 1–5 ★ after each song; "Party recap" screen (top singers,
    most-sung artists, crowd favourite, total songs/time).
-8. Not possible with CDG (no melody/lyric text): pitch-scored singing, "finish the lyric".
-   Could be added later for songs that come with melody data, if the owner adds any.
+9. Not possible with CDG (no melody/lyric text): pitch-scored *songs* (grading the melody of a
+   karaoke track), "finish the lyric". Could be added later for songs that come with melody data,
+   if the owner adds any.
 
 ## 14. Settings reference
 The single source of truth is `DEFAULT_SETTINGS` in `server/config.js`; `Settings.update()`

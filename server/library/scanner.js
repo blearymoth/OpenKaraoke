@@ -4,7 +4,8 @@
 //  - zipped MP3+G tracks
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { AUDIO_EXTS, VIDEO_EXTS } from './parse.js';
+import { AUDIO_EXTS, MP4_DURATION_EXTS, VIDEO_EXTS } from './parse.js';
+import { mp4DurationSeconds } from './mp4.js';
 import { listZip } from './zip.js';
 
 const SKIP_DIRS = new Set(['$recycle.bin', 'system volume information', '.trash', '.trashes', '.git', 'node_modules', '@eadir', '.thumbnails']);
@@ -124,16 +125,31 @@ export async function scanLibrary(roots, { previous = new Map(), onProgress, sig
           }, (e) => errors.push({ path: path.join(abs, g.cdg), error: e.message })));
         }
       } else if (g.video) {
+        const ext = g.video.slice(g.video.lastIndexOf('.') + 1).toLowerCase();
+        const timed = MP4_DURATION_EXTS.has(ext);
         const t = { root, dir: rel, name: g.base, kind: 'video', video: g.video, size: 0, duration: prev?.duration || 0 };
-        if (prev && prev.kind === 'video' && prev.video === g.video && prev.size) {
+        // A cached size is enough for webm/mkv/avi. MP4/M4V/MOV also need a duration,
+        // so a library indexed before durations were read is measured once.
+        const reusable = prev && prev.kind === 'video' && prev.video === g.video && prev.size && (!timed || prev.duration > 0);
+        if (reusable) {
           t.size = prev.size; t.mtime = prev.mtime;
           tracks.push(t);
         } else {
-          jobs.push(fs.stat(path.join(abs, g.video)).then((st) => {
-            t.size = st.size;
-            t.mtime = Math.round(st.mtimeMs);
-            tracks.push(t);
-          }, (e) => errors.push({ path: path.join(abs, g.video), error: e.message })));
+          const file = path.join(abs, g.video);
+          jobs.push((async () => {
+            try {
+              const st = await fs.stat(file);
+              t.size = st.size;
+              t.mtime = Math.round(st.mtimeMs);
+              if (timed) {
+                const d = await mp4DurationSeconds(file);
+                if (d > 0) t.duration = d;
+              }
+              tracks.push(t);
+            } catch (e) {
+              errors.push({ path: file, error: e.message });
+            }
+          })());
         }
       } else if (g.zip) {
         if (prev && prev.kind === 'zip' && prev.zip === g.zip && prev.entries) {

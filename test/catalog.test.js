@@ -83,6 +83,47 @@ test('tags, filters, details and best version', () => {
   assert.equal(noLive.p.variant.length, 0);
 });
 
+test('a multiplex version is marked on the song row, and does not become the default', () => {
+  const cat = new Catalog().load(rawTracks([
+    'DJ Hush - Quiet Storm (Multiplex) [MX Karaoke]',
+    'DJ Hush - Quiet Storm [SF Karaoke]',
+    'Queen - Bohemian Rhapsody (MPX) [SC Karaoke]',
+    'Queen - Bohemian Rhapsody [SF Karaoke]',
+    'Adele - Hello [SF Karaoke]',
+  ]), ['/library']);
+  const storm = cat.search('quiet storm').items[0];
+  assert.equal(storm.flags.mpx, true);
+  assert.equal(cat.songSummary(storm).mpx, 1);
+  assert.equal(cat.bestTrack(storm, []).p.brand, 'SF', 'label score still prefers the plain version');
+  const queen = cat.search('bohemian').items[0];
+  assert.equal(cat.songSummary(queen).mpx, 1, 'one multiplex version is enough');
+  assert.equal(cat.bestTrack(queen, []).p.brand, 'SF', 'the plain version still scores higher');
+  assert.equal(cat.bestTrack(queen, ['SC']).p.brand, 'SC', 'a preferred label still wins');
+  const hello = cat.search('adele hello').items[0];
+  assert.equal(hello.flags.mpx, undefined);
+  assert.equal(cat.songSummary(hello).mpx, undefined);
+  // Search order stays the text score: a multiplex song is not pulled ahead of a closer title.
+  const found = cat.search('hello').items.map((s) => s.title);
+  assert.equal(found[0], 'Hello');
+});
+
+test('Multiplex is its own collection, and only songs with a multiplex version', () => {
+  const cat = new Catalog().load(rawTracks([
+    'DJ Hush - Quiet Storm (Multiplex) [MX Karaoke]',
+    'DJ Hush - Quiet Storm [SF Karaoke]',
+    'Queen - Bohemian Rhapsody (MPX) [SC Karaoke]',
+    'Adele - Hello [SF Karaoke]',
+  ]), ['/library']);
+  const tag = cat.tagCounts.find((t) => t.tag === 'Multiplex');
+  assert.equal(tag.count, 2);
+  const titles = cat.byTag('Multiplex').items.map((s) => s.title).sort();
+  assert.deepEqual(titles, ['Bohemian Rhapsody', 'Quiet Storm']);
+  const storm = cat.byTag('Multiplex').items.find((s) => s.title === 'Quiet Storm');
+  assert.equal(storm.versions, 2, 'the song stays one song; the collection is not a second copy of the plain version');
+  assert.equal(cat.byTag('Multiplex', { sort: 'title' }).total, 2);
+  assert.equal(cat.facets().tags.find((t) => t.tag === 'Multiplex').count, 2);
+});
+
 test('cache round trip keeps ids stable', () => {
   const cat = build();
   const cache = JSON.parse(JSON.stringify(cat.toCache()));
@@ -154,6 +195,25 @@ test('filtered popular lists are cached for paging and rebuilt when the metadata
   exclude.clear();
   exclude.add(cat.popularList()[1].id);
   assert.ok(!cat.popular({ limit: 50, filter: { exclude } }).items.some((s) => exclude.has(s.id)));
+});
+
+test('a numbered MP4 groups with the same song as a CDG of that artist and title', () => {
+  const cat = new Catalog().load([
+    ...rawTracks(['Adele - Hello [SF Karaoke]']),
+    {
+      root: 0, dir: '', name: '0028. Adele - Hello', kind: 'video',
+      video: '0028. Adele - Hello.mp4', size: 10154505, duration: 294.6,
+    },
+  ], ['/library']);
+  const hit = cat.search('adele hello').items[0];
+  assert.equal(hit.artist, 'Adele');
+  assert.equal(hit.title, 'Hello');
+  assert.equal(hit.versions, 2);
+  assert.equal(hit.duration, 294.6);
+  const video = [...cat.tracks.values()].find((t) => t.kind === 'video');
+  assert.equal(video.p.discId, '0028');
+  assert.equal(video.p.artist, 'Adele');
+  assert.equal(cat.listArtists({ q: 'adele' }).items[0].name, 'Adele');
 });
 
 test('trackScore: the label score on its own — bestTrack is the version with the highest', () => {

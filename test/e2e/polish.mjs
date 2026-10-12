@@ -6,7 +6,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setLogLevel } from '../../server/util/log.js';
-import { loadPlaywright, startParty, check, results, sleep, WsClient } from './lib.mjs';
+import { loadPlaywright, startParty, check, results, sleep, WsClient, installFakeCamera } from './lib.mjs';
 import { pngImage } from '../fake-art.js';
 
 setLogLevel(process.env.LOG_LEVEL || 'warn');
@@ -257,7 +257,8 @@ try {
   const staleError = await host.$eval('.preview-output', (el) => el.querySelector('.warn-text')?.textContent || '');
   check(!staleError, `a preview stopped while loading shows no error afterwards${staleError ? ` (${staleError})` : ''}`);
   check(!(await host.$('.versions .btn:has-text("Stop")')), 'and it did not start playing after the dialog closed');
-  await host.keyboard.press('Escape');
+  // Focus is still on the song row behind the dialog, so a bare Escape never arrives.
+  await host.click('.dialog button[aria-label="Close"]');
   await host.waitForSelector('table.versions', { state: 'detached' });
 
   // Queue it: search shows "In queue"; after it is sung: "Sung tonight" + "Most sung here".
@@ -413,11 +414,18 @@ try {
   const overflow = await ann.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(overflow <= 0, 'phone fits without sideways scrolling');
 
-  // Guest photo: phone upload (resized in the browser) → host approves → TV shows it.
+  // Guest photo: the camera in the page takes a frame (resized in the browser) → host approves → TV shows it.
   await ann.click('.g-tabs button:has(span:text-is("Me"))');
-  await ann.waitForSelector('.photo-card input[type=file]', { state: 'attached' });
-  await ann.setInputFiles('.photo-card input[type=file]', { name: 'party.png', mimeType: 'image/png', buffer: pngImage('party-photo', 400) });
-  check(await ann.waitForSelector('.toast:has-text("host will put it on the TV")', { timeout: 8000 }).then(() => true, () => false), 'a guest sent a photo');
+  await ann.evaluate(installFakeCamera);
+  check((await ann.$$('input[type=file]')).length === 0, 'adding a photo does not offer a file chooser');
+  await ann.click('.photo-card button:has-text("Add a Photo")');
+  await ann.waitForSelector('.cam-capture');
+  await ann.waitForSelector('.cam-shutter:not([disabled])', { timeout: 8000 });
+  const asked = await ann.evaluate(() => window.__cam.calls.map((c) => c.video?.facingMode?.ideal || (c.video === true ? 'any' : '')));
+  check(asked[0] === 'environment' && !(await ann.$('input[type=file]')), `Add a Photo opens the rear camera (${asked.join(', ')})`);
+  await ann.click('.cam-shutter');
+  check(await ann.waitForSelector('.toast:has-text("host will put it on the TV")', { timeout: 8000 }).then(() => true, () => false), 'a guest sent the frame the camera took');
+  check(await ann.evaluate(() => window.__cam.tracks.length > 0 && window.__cam.tracks.every((t) => t.readyState === 'ended')), 'the camera stops once the picture is taken');
   const photoId = app.room.s.photos.at(-1)?.id;
   await host.goto(`${base}/host#/photos`);
   await host.waitForSelector('.photo-tile.pending img');

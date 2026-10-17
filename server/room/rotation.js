@@ -4,7 +4,8 @@
 // the same lead singer has (the singer on stage counts as one entry in round 0). A new entry
 // for a singer with k entries gets round k and goes after the last entry whose round ≤ k.
 // Newcomers first: a singer who hasn't sung tonight and has nothing queued goes before the
-// round-0 entries of people who already sang.
+// round-0 entries of people who already sang, but after every newcomer already waiting (Stop
+// puts a song of someone who sang back at the top, above newcomers who asked earlier).
 
 /** Lead singer key of an entry; entries without a singer rotate on their own. */
 export function leadOf(entry) {
@@ -40,9 +41,15 @@ export function insertIndex(queue, entry, { mode = 'rotation', newcomersFirst = 
   const r = rounds(queue, currentLead);
   const k = queue.reduce((n, e) => n + (leadOf(e) === lead ? 1 : 0), 0) + (lead === currentLead ? 1 : 0);
 
-  // Newcomer: goes right before the first round-0 entry of someone who already sang.
+  // Newcomer: goes right before the first round-0 entry of someone who already sang that
+  // comes after the newcomers already waiting.
   if (newcomersFirst && k === 0 && !isSingerless(lead) && !hasSung(lead)) {
+    let after = 0;
     for (let i = 0; i < queue.length; i++) {
+      const l = leadOf(queue[i]);
+      if (r[i] === 0 && !isSingerless(l) && !hasSung(l)) after = i + 1;
+    }
+    for (let i = after; i < queue.length; i++) {
       const l = leadOf(queue[i]);
       if (r[i] === 0 && !isSingerless(l) && hasSung(l)) return i;
     }

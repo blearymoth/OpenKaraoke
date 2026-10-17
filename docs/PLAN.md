@@ -306,8 +306,9 @@ mirrors (4 Hz) and guests (1 Hz).
   one entry in round 0. A new entry for singer S with *k* queued entries gets round *k*
   and is inserted **after the last entry whose round ≤ k**.
 - **Newcomers first** (setting): if S has not sung tonight and has no queued entries, insert
-  after the last round-0 entry whose singer also hasn't sung yet (i.e. before round-0 entries of
-  people who already sang).
+  after the last round-0 entry whose singer also hasn't sung yet, then before the next round-0
+  entry of someone who already sang. Newcomers keep the order they asked in, also when Stop has
+  put the song of someone who sang back at the top, above them.
 - Host overrides: "play next" (index 0), drag anywhere. Duets rotate by their lead singer.
 - ETA(i) = remaining(current) + Σ_{j<i} (duration_j / tempo_j + countdown + 5 s gap).
 

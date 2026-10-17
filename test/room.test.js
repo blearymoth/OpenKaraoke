@@ -155,6 +155,28 @@ test('TV loss pauses; a new TV takes over; stop returns the song to the queue', 
   assert.equal(s().player.state, 'idle');
 });
 
+test('after Stop re-queues the song of someone who sang, a newcomer waits behind an earlier one', async () => {
+  const { connect, req, song, s } = await setup();
+  const host = await connect('host');
+  const tv = await connect('tv');
+  const add = (title, singerName) => req(host, 'queue.add', { songId: song(title).id, singerName });
+  const names = () => s().queue.map((e) => s().singers.find((x) => x.id === e.singerIds[0]).name);
+  await add('hello', 'Ana');
+  await req(host, 'player.play');
+  await req(tv, 'tv.ready', { entryId: s().current.id, dur: 200 });
+  await req(tv, 'tv.ended', { entryId: s().current.id });
+  assert.equal(s().singers.find((x) => x.name === 'Ana').sung, 1);
+  await add('waterloo', 'Ana');
+  assert.equal(s().current.title, 'Waterloo', 'auto-start: Ana is on stage again');
+  await add('call me', 'Cat');
+  await add('hello', 'Ana');
+  assert.deepEqual(names(), ['Cat', 'Ana']);
+  await req(host, 'player.stop');
+  assert.deepEqual(names(), ['Ana', 'Cat', 'Ana'], 'Stop puts Ana’s song back at the top');
+  await add('waterloo', 'Dan');
+  assert.deepEqual(names(), ['Ana', 'Cat', 'Dan', 'Ana'], 'Dan, a newcomer after Cat, sings after Cat');
+});
+
 test('guests can remove only their own songs; host can move and edit', async () => {
   const { connect, req, song, guest, s } = await setup();
   const host = await connect('host');

@@ -59,6 +59,34 @@ test('newcomers go before round-0 entries of people who already sang', () => {
   assert.deepEqual(names(q), ['c', 'd', 'a', 'b', 'c'], 'second song is round 1');
 });
 
+test('after Stop re-queues a sung singer\'s song, newcomers keep their own order', () => {
+  // a and b already sang; c (a newcomer) waits before b. a is on stage when the host presses
+  // Stop: a's song goes back to the top of the queue (Room.stop), round 0 again.
+  const sung = new Set(['a', 'b']);
+  const opts = { hasSung: (s) => sung.has(s) };
+  const q = build(['b'], { ...opts, currentLead: 'a' });
+  const c = e('c');
+  q.splice(insertIndex(q, c, { ...opts, currentLead: 'a' }), 0, c);
+  assert.deepEqual(names(q), ['c', 'b']);
+  q.unshift(e('a'));
+  assert.deepEqual(names(q), ['a', 'c', 'b']);
+  const d = e('d');
+  q.splice(insertIndex(q, d, opts), 0, d);
+  assert.deepEqual(names(q), ['a', 'c', 'd', 'b'], 'd asked after c, so d sings after c');
+  const f = e('f');
+  q.splice(insertIndex(q, f, opts), 0, f);
+  assert.deepEqual(names(q), ['a', 'c', 'd', 'f', 'b']);
+});
+
+test('a newcomer goes after every newcomer already waiting, even one moved down the queue', () => {
+  const sung = new Set(['a', 'b']);
+  const opts = { hasSung: (s) => sung.has(s) };
+  const q = [e('a'), e('b'), e('c')]; // the host dragged newcomer c below a and b
+  const d = e('d');
+  q.splice(insertIndex(q, d, opts), 0, d);
+  assert.deepEqual(names(q), ['a', 'b', 'c', 'd']);
+});
+
 test('entries without a singer are appended to their round', () => {
   const q = build(['a', null, 'b']);
   assert.equal(leadOf(q[1]).startsWith('entry:'), true);

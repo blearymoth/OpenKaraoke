@@ -11,7 +11,7 @@ the installer are as below. Run in a cloud sandbox without the owner's PC or dri
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 544/544; `npm run e2e` → 19 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 546/546; `npm run e2e` → 19 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,

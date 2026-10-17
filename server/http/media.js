@@ -34,7 +34,23 @@ export function mediaUrls(track) {
   return { kind: 'cdg', audio: `/media/${track.id}/audio`, cdg: `/media/${track.id}/cdg` };
 }
 
-export function mediaRoutes(router, { library }) {
+export function mediaRoutes(router, app) {
+  const { library } = app;
+  // The vocal stem lives in the data folder (never the music drive). Ordinary tracks, and
+  // anything other than the vocal, 404. The room and the TV still play the original mix.
+  router.get('/media/:trackId/stem/vocal', async ({ req, res, params }) => {
+    if (!library.catalog.track(params.trackId)) throw new HttpError(404, 'Unknown track (the library may have been rescanned)');
+    if (!app.room?.stemOk(params.trackId)) throw new HttpError(404, 'This track has no separated vocal');
+    const file = app.room.stems.file(params.trackId);
+    if (!file) throw new HttpError(404, 'Not ready');
+    try {
+      await sendFile(req, res, file, { contentType: 'audio/wav', cacheControl: 'private, no-cache' });
+    } catch (e) {
+      if (e.code === 'ENOENT') throw new HttpError(404, 'Not ready');
+      throw e;
+    }
+  });
+
   // CDG files are tiny once gzipped (mostly zero bytes) and read in one go by the TV.
   const cdgCache = new Lru({ max: 12, maxBytes: 64 * 1024 * 1024, sizeOf: (e) => (e?.raw ? e.raw.length + e.gz.length : 0) });
   // Compressed zip entries have to be inflated to serve byte ranges.

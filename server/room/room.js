@@ -19,6 +19,9 @@ import { VocalsStore, cleanAnalysis } from './vocals.js';
 import { VersionStats, HOST_VOTER, bestVersion, defaultReason, statusName } from './versions.js';
 import { deviceLabel } from '../util/useragent.js';
 import { clampLead, resolveVocals, leadKind, LAYOUTS } from '../../shared/vocals.js';
+import { vocalStemAllowed } from '../../shared/stems.js';
+import { StemJobs } from '../stems/jobs.js';
+import { readZipEntry } from '../library/zip.js';
 import { fold } from '../../shared/text.js';
 import { logger } from '../util/log.js';
 import { rescanForPaths } from '../library/service.js';
@@ -29,7 +32,7 @@ const SESSION_IDLE_MS = 8 * 3600 * 1000;
 const MAX_HISTORY = 200; // tonight's history for the host's list (skipped songs too)
 const MAX_PERFS = 2000; // tonight's sung songs for the counts and the recap (a long night has a few hundred)
 // No party state change → no broadcast.
-const QUIET = new Set(['tv.status', 'tv.break', 'tv.analysis', 'version.vote', 'display.identify', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl']);
+const QUIET = new Set(['tv.status', 'tv.break', 'tv.analysis', 'version.vote', 'display.identify', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl', 'vocal.prepare']);
 const HOST = 'host';
 const TV = 'tv';
 const GUEST = 'guest';
@@ -93,6 +96,11 @@ const fail = (message, code) => {
 };
 /** A battle round: judged, so no guide singer and no other version. */
 const judged = (entry) => String(entry?.source || '').startsWith('game:battle');
+/** A zip entry's extension, used only as a suffix on a file we create in the data folder. */
+const sourceExt = (name) => {
+  const ext = path.extname(String(name || '')).toLowerCase();
+  return /^\.[a-z0-9]{1,5}$/.test(ext) ? ext : '.audio';
+};
 /** A singer name for matching: folded, or as typed when it has no letters or digits ("🦄🦄"). */
 const nameKey = (name) => fold(name) || String(name || '').trim().toLowerCase();
 const EVERYONE = 'everyone'; // the sing-along singer's name key
@@ -134,6 +142,15 @@ export class Room {
     };
     this.vocals = new VocalsStore(app.dataDir);
     this.versions = new VersionStats(path.join(app.dataDir, 'versions.json'));
+    // Vocal stem for multiplex tracks, in the data folder. `stemRun` is null in tests (nothing
+    // is spawned); server/start.js passes autokaraoke's separator. The TV mix is unchanged.
+    this.stems = new StemJobs({
+      dataDir: app.dataDir,
+      run: app.stemRun || null,
+      allowed: (id) => this.stemOk(id),
+      sourceOf: (id) => this.stemSource(id),
+      onChange: (id) => { if (this.s.current?.trackId === id) this.markDirty(); },
+    });
     this.declined = new Set(); // "inviter>invitee>song" duet invitations turned down this session
     this.handlers = this.buildHandlers();
     this.breakMusic = new BreakMusic(this);
@@ -182,6 +199,7 @@ export class Room {
     this.closeRating();
     this.breakMusic.close();
     this.photos.close();
+    this.stems.close();
     if (save) await Promise.all([this.doc.flush(), this.vocals.flush(), this.versions.flush()]);
     else {
       this.doc.discard();
@@ -235,6 +253,7 @@ export class Room {
     if (!list.length) return 0;
     const versions = this.versions.rekey(list);
     const vocals = this.vocals.rekey(list);
+    const stems = this.stems.rekey(list);
     const prefs = rekeyRecords(this.s.trackPrefs, list);
     const map = new Map(list.map((m) => [m.from, m.to]));
     let pointed = 0;
@@ -256,7 +275,7 @@ export class Room {
       this.doc.flush();
       this.markDirty();
     }
-    return versions + vocals + prefs + pointed;
+    return versions + vocals + stems + prefs + pointed;
   }
 
   // ---- connections ---------------------------------------------------------------------
@@ -451,6 +470,7 @@ export class Room {
       'player.channel': [PLAYER, (c, m) => this.setChannel(m)],
       'player.lead': [[HOST, 'tv-local', GUEST], (c, m) => this.setLead(c, m)],
       'player.layout': [H, (c, m) => this.setLayout(m)],
+      'vocal.prepare': [H, (c, m) => this.prepareVocal(m)],
       'player.version': [H, (c, m) => this.setVersion(m)],
       'player.volume': [PLAYER, (c, m) => this.setVolume(m)],
       'singer.add': [H, (c, m) => this.singerAdd(m)],
@@ -585,6 +605,7 @@ export class Room {
     const bgv = vocalChoice && (m.bgv === 'with' || m.bgv === 'without') ? m.bgv : null;
     track ||= this.pickTrack(song, { noExplicit, lead, bgv });
     if (!track) fail(noExplicit ? 'Explicit songs are turned off for this party.' : 'No playable version of that song was found.', 'not_found');
+    if (this.stemOk(track.id)) void this.stems.ensure(track.id); // multiplex vocal for headphones; ordinary tracks are left alone
     const maxDuration = this.settings.get('queue.maxDuration');
     if (isGuest && maxDuration > 0 && track.duration > maxDuration) fail('That song is longer than the host allows.', 'too_long');
 
@@ -1012,6 +1033,7 @@ export class Room {
     if (!CHANNEL_MODES.includes(p.channel)) p.channel = 'stereo';
     p.vocals = this.trackVocals(entry.trackId);
     p.lead = this.leadFor(entry);
+    if (this.stemOk(entry.trackId)) void this.stems.ensure(entry.trackId);
     if (entry.clipEnd > 0) p.dur = Math.min(p.dur || entry.clipEnd, entry.clipEnd);
     clearTimeout(this.introTimer);
     this.introTimer = setTimeout(() => this.maybeBegin(), countdown * 1000 + 20);
@@ -1171,6 +1193,61 @@ export class Room {
     return { lead };
   }
 
+  /** A multiplex track may have a vocal stem for headphones (shared/stems.js). Ordinary tracks do not. */
+  stemOk(trackId) {
+    const track = trackId && this.catalog.track(trackId);
+    if (!track) return false;
+    const override = Object.hasOwn(this.s.trackPrefs, trackId) ? this.s.trackPrefs[trackId].layout || 'auto' : 'auto';
+    return vocalStemAllowed({ flags: track.p?.flags || {}, override, vocals: this.trackVocals(trackId) });
+  }
+
+  /**
+   * Host: start (or report) the vocal stem for a multiplex track, so the headphone preview can
+   * play it. Guests cannot ask. An ordinary track is `skip`. With no separator configured, `off`.
+   * A failed attempt starts again the next time the host asks.
+   */
+  async prepareVocal(m) {
+    const trackId = str(m.trackId, 80);
+    if (!this.catalog.track(trackId)) fail('Unknown track', 'not_found');
+    if (!this.stemOk(trackId)) return { status: 'skip' };
+    if (!this.stems.enabled) return { status: 'off' };
+    if (this.stems.view(trackId).status === 'failed') {
+      await this.stems.retry(trackId);
+      return { status: this.stems.view(trackId).status, url: '' };
+    }
+    await this.stems.ensure(trackId);
+    const st = this.stems.view(trackId);
+    return { status: st.status, url: st.status === 'ready' ? `/media/${trackId}/stem/vocal` : '' };
+  }
+
+  /**
+   * The audio file the separator reads. A zip entry is copied into the data folder first
+   * (the music drive is never written). The copy's name is only a sanitized extension.
+   */
+  async stemSource(trackId) {
+    const track = this.catalog.track(trackId);
+    if (!track || !this.stemOk(trackId)) return null;
+    if (track.kind === 'cdg') return this.library.absPath(track, 'audio');
+    if (track.kind === 'video') return this.library.absPath(track, 'video');
+    if (track.kind !== 'zip') return null;
+    const entry = track.entries?.audio || track.entries?.video;
+    const zipPath = this.library.absPath(track, 'zip');
+    const vocal = this.stems.file(trackId);
+    if (!entry || !zipPath || !vocal) return null;
+    if (entry.usize > 80 * 1024 * 1024) return null;
+    const dest = path.join(path.dirname(vocal), `source${sourceExt(entry.name)}`);
+    try {
+      await fs.access(dest);
+      return dest;
+    } catch { /* copy it */ }
+    const buf = await readZipEntry(zipPath, entry);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    const tmp = `${dest}.part`;
+    await fs.writeFile(tmp, buf);
+    await fs.rename(tmp, dest);
+    return dest;
+  }
+
   /** The host's correction of a track's layout: 'auto', 'stereo', 'mpxL', 'mpxR'. */
   setLayout(m) {
     if (!LAYOUTS.includes(m.layout)) fail('Unknown layout', 'bad_request');
@@ -1182,6 +1259,7 @@ export class Room {
     this.s.trackPrefs[trackId] = prefs;
     const p = this.s.player;
     if (this.s.current?.trackId === trackId) p.vocals = this.trackVocals(trackId);
+    if (this.stemOk(trackId)) void this.stems.ensure(trackId);
     return { vocals: this.trackVocals(trackId) };
   }
 
@@ -1212,6 +1290,7 @@ export class Room {
       channel: this.s.trackPrefs[track.id]?.channel || this.settings.get('playback.defaultChannelMode') || 'stereo',
       vocals: this.trackVocals(track.id),
     });
+    if (this.stemOk(track.id)) void this.stems.ensure(track.id);
     if (!CHANNEL_MODES.includes(p.channel)) p.channel = 'stereo';
     clearTimeout(this.introTimer);
     this.introTimer = setTimeout(() => this.maybeBegin(), 20);

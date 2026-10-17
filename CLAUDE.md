@@ -60,8 +60,10 @@ Server (`server/`)
   args, `DEFAULT_PORT` (6527; a saved 8080 is migrated).
 - `library/` — `parse.js` (file names → artist/title/brand/flags/tags), `scanner.js` (CDG+audio
   pairs, video, zips; duration = CDG bytes / 7200), `zip.js`, `catalog.js` (grouping, typo
-  clustering, search, browse, cache), `service.js` (cache load/save, background rescans,
-  offline/online watcher, `absPath`).
+  clustering, search, browse, cache; `loadAsync` = the same build in `catalog-worker.js`, a
+  `node:worker_threads` worker), `service.js` (cache load/save, background rescans — a big one
+  rebuilds in the worker and loops over tracks in slices, `util/slice.js` — offline/online
+  watcher, `absPath`), `ids.js` (track ids that follow a folder split or fold).
 - `http/` — `router.js`, `static.js` (ETag, gzip, byte ranges, `safeJoin`), `media.js`
   (`/media/:trackId/audio|cdg|video`, zip entries), `api.js` (PLAN §8), `shell.js` (writes the
   current skin into every HTML page: `<html data-theme>`, theme-color; part of the ETag).

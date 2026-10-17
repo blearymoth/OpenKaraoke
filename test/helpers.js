@@ -113,3 +113,36 @@ export function rawTracks(names) {
     };
   });
 }
+
+/**
+ * `n` raw tracks named like a big karaoke library (Letter/Artist/Artist - Title [Brand Karaoke]):
+ * songs in several label versions, artist typos, duets, explicit and multiplex versions.
+ * Deterministic for a seed. For tests of the catalog at a size where speed matters.
+ */
+export function manyTracks(n, seed = 7) {
+  let x = seed;
+  const rnd = () => ((x = (x * 16807) % 2147483647) / 2147483647);
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const syl = ['ka', 'ro', 'li', 'na', 'mo', 'te', 'sa', 'vi', 'do', 'ra', 'ne', 'lu', 'pa', 'gi', 'be', 'to', 'ma', 'ri', 'so', 'fe', 'al', 'en', 'or', 'is'];
+  const word = () => {
+    let w = '';
+    for (let i = 2 + Math.floor(rnd() * 2); i > 0; i--) w += pick(syl);
+    return w[0].toUpperCase() + w.slice(1);
+  };
+  const brands = ['SF', 'SC', 'ZM', 'PH', 'CB', 'DK', 'MM', 'SB', 'KV', 'PI'];
+  const artists = Array.from({ length: Math.max(10, Math.round(n / 6)) }, () => (rnd() < 0.2 ? 'The ' : '') + word() + (rnd() < 0.6 ? ` ${word()}` : '') + (rnd() < 0.05 ? ` & ${word()}` : ''));
+  const songs = Array.from({ length: Math.round(n * 0.6) }, () => ({ a: pick(artists), t: Array.from({ length: 1 + Math.floor(rnd() * 3) }, word).join(' ') }));
+  const out = [];
+  const used = new Set();
+  for (let i = 0; i < n; i++) {
+    const s = songs[i < songs.length ? i : Math.floor(rnd() * songs.length)];
+    const a = rnd() < 0.01 ? s.a.slice(0, -1) : s.a; // a typo
+    const extra = rnd() < 0.05 ? ' (Duet)' : rnd() < 0.03 ? ' (Explicit)' : rnd() < 0.04 ? ' (Multiplex)' : '';
+    let name = `${a} - ${s.t}${extra} [${pick(brands)} Karaoke]`;
+    if (used.has(name)) name = `${a} - ${s.t}${extra} (Version ${i}) [${pick(brands)} Karaoke]`;
+    used.add(name);
+    const size = 7200 * (150 + Math.floor(rnd() * 150));
+    out.push({ root: 0, dir: `${a[0].toUpperCase()}/${a}`, name, kind: 'cdg', cdg: `${name}.cdg`, audio: `${name}.mp3`, size, duration: size / 7200, mtime: 1700000000000 + i });
+  }
+  return out;
+}

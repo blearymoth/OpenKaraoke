@@ -35,6 +35,10 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P0 Typo-tolerant instant search (<30 ms on 90k tracks); popular list; tags; random.
 - ✅ P0 Library service: on-disk cache (`data/library.json`), background rescan with progress,
   drive offline/online detection (poll every 20 s), rescan button, "library offline" banner.
+- ✅ P1 A rescan with changes doesn't stall the server: from 5,000 tracks the catalog is rebuilt in
+  a `node:worker_threads` worker (the same `Catalog` code), the result comes back as JSON text in
+  transferred buffers and is put together in slices of ≈8 ms; the catalog changes all at once.
+  The loops over every track around it (snapshot, signature, cache file) yield too.
 - ✅ P0 Folder picker in host settings (server lists directories; suggest mounted drives under
   `/run/media/$USER`, `/media/$USER`) + CLI `--library`.
 - ✅ P1 A library folder inside another is scanned as its own folder (once). When that split —
@@ -165,7 +169,8 @@ server/
     parse.js            ✅ file-name parser
     scanner.js          ✅ directory walk
     zip.js              ✅ zip reader
-    catalog.js          ✅ grouping, clustering, search, browse, cache
+    catalog.js          ✅ grouping, clustering, search, browse, cache; loadAsync (build in a worker)
+    catalog-worker.js   ✅ worker thread for loadAsync: builds, posts the result back as JSON bytes
     service.js          ✅ Library: cache load/save, rescan, progress events, online watcher, paths
   http/
     songbook.js         ✅ printable songbook (HTML) and CSV export

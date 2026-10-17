@@ -39,6 +39,11 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   a `node:worker_threads` worker (the same `Catalog` code), the result comes back as JSON text in
   transferred buffers and is put together in slices of ≈8 ms; the catalog changes all at once.
   The loops over every track around it (snapshot, signature, cache file) yield too.
+- ✅ P1 The server listens before a big library is loaded: a `library.json` from ≈5,000 tracks
+  (1.5 MB) is read and built in worker threads after the start (`LibraryService.loading`), so the
+  pages, the party's state and `/api/health` answer at once; `/api/*`, `/media/*` and WebSocket
+  requests wait for the catalog (`library.ready()`), the host's Home and the TV's lobby say
+  "Loading…". The longest stall at 90k is ≈40–60 ms instead of ≈3 s before listening.
 - ✅ P0 Folder picker in host settings (server lists directories; suggest mounted drives under
   `/run/media/$USER`, `/media/$USER`) + CLI `--library`.
 - ✅ P1 A library folder inside another is scanned as its own folder (once). When that split —
@@ -172,8 +177,8 @@ server/
     parse.js            ✅ file-name parser
     scanner.js          ✅ directory walk
     zip.js              ✅ zip reader
-    catalog.js          ✅ grouping, clustering, search, browse, cache; loadAsync (build in a worker)
-    catalog-worker.js   ✅ worker thread for loadAsync: builds, posts the result back as JSON bytes
+    catalog.js          ✅ grouping, clustering, search, browse, cache; loadAsync (build in a worker), readCache
+    catalog-worker.js   ✅ worker thread for loadAsync / readCache: builds or reads, posts JSON bytes back
     service.js          ✅ Library: cache load/save, rescan, progress events, online watcher, paths
   http/
     songbook.js         ✅ printable songbook (HTML) and CSV export
@@ -235,6 +240,7 @@ desktop/                ✅ the Linux desktop app (Electron + electron-builder, 
   updater.mjs update-logic.mjs   ✅ updates from GitHub releases (AppImage swap, pkexec dnf/apt-get)
   electron-builder.config.cjs    ✅ AppImage, .rpm, .deb → desktop/dist/
   test/app.mjs          ✅ end to end under Xvfb (npm --prefix desktop test)
+  test/big-library.mjs  ✅ a 20k-track library: cache load and rescan in worker threads inside Electron
 .github/workflows/desktop.yml    ✅ test, build and release the desktop app for every change on main
 ```
 

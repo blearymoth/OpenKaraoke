@@ -87,7 +87,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P0 QR join → name + emoji → search, browse (popular, artists A–Z, tags), song sheet with
   versions (labels), optional key, "Sing it" → confirmation with position & ETA.
 - ✅ P0 Queue view (own entries highlighted, remove own), now-playing, reactions (floating emojis on TV).
-- ✅ P1 Photo upload (in-page camera on the phone, client-side resize, host moderation) → TV photo flash / slideshow background. Add a Photo opens the rear camera when the phone has one; the shutter sends that frame. No gallery or file picker. A blocked or missing camera is said on the phone.
+- ✅ P1 Photo upload (in-page camera on the phone, client-side resize, host moderation) → TV photo flash / slideshow background. Add a Photo opens the rear camera in the page when the phone has one; the shutter sends that frame. A blocked or missing camera is said on the phone. The in-page camera needs https or localhost, so on plain http (guests on the party Wi-Fi) the button opens the phone's camera app instead (file input with `capture=environment`).
 - ✅ P1 Co-host promotion (host grants playback/queue controls to a guest).
 - ✅ P1 Rate the performance (1–5 ★) after each song → average in history and singer stars.
 - ✅ P1 Wi-Fi QR code on the TV lobby (SSID/password from settings).

@@ -336,7 +336,7 @@ function stopStream(stream) {
   stream?.getTracks().forEach((t) => t.stop());
 }
 
-/** What to tell a guest when the camera cannot be used. No gallery and no file picker. */
+/** What to tell a guest when the in-page camera cannot be used (secure pages only; see inPageCamera). */
 function cameraMessage(e) {
   switch (e?.name) {
     case 'NotAllowedError':
@@ -477,15 +477,30 @@ function CameraCapture({ stream, error: blocked, onClose, onShot }) {
   </div>`;
 }
 
+/**
+ * Phones only give a page the camera (getUserMedia) on https or localhost. A guest on the
+ * party Wi-Fi opens plain http, so there the phone's own camera app takes the picture
+ * instead: a file input with `capture` opens the camera, not the gallery, and works on http.
+ */
+function inPageCamera() {
+  return window.isSecureContext === true && !!navigator.mediaDevices?.getUserMedia;
+}
+
 /** "Send a photo to the TV": the camera takes one frame, it's resized and uploaded. */
 function PhotoCard({ state }) {
   const [busy, setBusy] = useState(false);
   const [session, setSession] = useState(null); // { opening } | { stream } | { error }
   const gen = useRef(0);
   const held = useRef(false);
-  // getUserMedia has to start in the tap, or the phone treats it as blocked.
+  const fileRef = useRef(null);
+  const inPage = inPageCamera();
+  // getUserMedia (or the file input's click) has to start in the tap, or the phone blocks it.
   const open = () => {
     if (busy || held.current) return;
+    if (!inPage) {
+      fileRef.current?.click();
+      return;
+    }
     held.current = true;
     const mine = ++gen.current;
     setSession({ opening: true });
@@ -528,6 +543,7 @@ function PhotoCard({ state }) {
     <button type="button" class="btn primary block" disabled=${busy || !!session} onClick=${open}>
       <${Icon} name="plus" size=${18} /> ${busy ? 'Sending…' : 'Add a Photo'}
     </button>
+    ${!inPage && html`<input ref=${fileRef} type="file" accept="image/*" capture="environment" hidden disabled=${busy} onChange=${(e) => { const f = e.currentTarget.files[0]; e.currentTarget.value = ''; send(f); }} />`}
     ${session && html`<${CameraCapture} stream=${session.stream} error=${session.error || ''} onClose=${close} onShot=${(blob) => { close(); send(blob); }} />`}
     ${state.rules.photoApproval && html`<p class="hint">The host checks photos before they appear.</p>`}
     ${mine.length > 0 && html`<ul class="my-photos">${mine.map((p) => html`<li key=${p.id}><span class=${`pill ${p.status === 'rejected' ? 'bad' : ''}`}>${label[p.status] || p.status}</span> <span class="faint">${new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></li>`)}</ul>`}

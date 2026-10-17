@@ -1,17 +1,18 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-12 (track ids follow a folder that becomes its own root; guest photos:
-Add a Photo opens the camera in the page)._
+_Last updated: 2026-10-17 (guest photos: on plain http, the party Wi-Fi, Add a Photo opens the
+phone's camera app instead of the in-page camera, which only works on https or localhost)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 505/505; `npm run e2e` → 17 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 525/525; `npm run e2e` → 18 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
-  `layouts.mjs` the lyric layouts, `photos.mjs` the in-page camera); `npm --prefix desktop test` → 46/46 + 35/35 (the
+  `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
+  plain http), `game-pitch.mjs` the pitch rings); `npm --prefix desktop test` → 46/46 + 35/35 (the
   desktop app, also against the built installer, and the setup window; the release workflow also
   runs the setup test against the real AppImage from `OpenKaraoke-Setup.zip`). Every milestone also went through an independent review
   whose confirmed findings were fixed and re-verified (table below).
@@ -128,8 +129,9 @@ Add a Photo opens the camera in the page)._
   "Everyone" is queued.
 - **Guest photos** (`server/room/photos.js`): on the Me tab, **Add a Photo** opens the phone’s
   camera in the page (the rear camera when there is one) and the shutter sends that frame,
-  resized. There is no gallery and no file picker; a blocked or missing camera is said on the
-  phone. The host approves it (Photos page; approval can be turned off), the TV flashes it and
+  resized; a blocked or missing camera is said on the phone. Phones only allow that on https or
+  localhost, so on plain http (a guest on the party Wi-Fi) the button opens the phone's camera
+  app instead (`<input type=file accept=image/* capture=environment>`) and that picture is sent. The host approves it (Photos page; approval can be turned off), the TV flashes it and
   can use the photos as its background slideshow.
 - **Remote display pairing**: a `/tv` on another machine shows a code; the host approves it
   (Settings → Displays lists them and can forget them all, which revokes their tokens). The
@@ -185,7 +187,7 @@ Add a Photo opens the camera in the page)._
    intro card with cover/logo. Studio is the default — if you prefer Party as the default for
    your parties, just pick it there (it is remembered).
 7. **Phones on the real Wi-Fi**: join, **Add a Photo** on an iPhone and an Android phone (the
-   camera in the page; plain http on the LAN cannot open it — it needs localhost or https),
+   on plain LAN http it opens the phone's camera app, not the in-page camera — check both phones),
    game answers (latency, early close), duet invitation, vibration (Android only — iPhones get
    the toast). Firewall on Fedora: `sudo firewall-cmd --add-port=6527/tcp` (+ `--permanent`;
    the port the host page shows if 6527 was busy).
@@ -299,10 +301,11 @@ Add a Photo opens the camera in the page)._
 8. **Photos need approval by default**: at most 5 waiting per phone, 10 per address, 50 in all
    (a phone with nothing waiting always gets a place); 300 approved/rejected are kept (4 MB each,
    JPEG/PNG/WebP checked by their bytes, uploads checked before their body is read); files live
-   in `data/photos/`. The phone takes the picture with its camera in the page (rear camera when
-   it has one). There is no gallery and no file picker. A blocked or missing camera is said on
-   the phone. Like the microphone, the camera needs a secure page, so a phone on plain LAN http
-   is told it can’t use the camera.
+   in `data/photos/`. On a secure page (https or localhost) the phone takes the picture with its
+   camera in the page (rear camera when it has one); a blocked or missing camera is said on the
+   phone. Like the microphone, that camera needs a secure page, so on plain LAN http — what
+   guests on the party Wi-Fi open — Add a Photo opens the phone's camera app through a file
+   input with `capture=environment` (`inPageCamera()` in `public/js/guest/main.js` decides).
 9. Tests create temp folders through `tmpDir()` (removed on exit) and sparse fake CDGs — the
    sandbox disk filled up with ≈30 GB of leftovers before this was fixed.
 10. **Skins**: Studio is the default (the owner asked for a more professional look); Party is

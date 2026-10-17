@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Guest photos: Add a Photo opens an in-page camera. The shutter's frame is what gets
-// uploaded. A blocked or missing camera is said on the phone. No file picker, no gallery.
+// Guest photos: on a secure page (https or localhost) Add a Photo opens an in-page camera; the
+// shutter's frame is what gets uploaded and a blocked or missing camera is said on the phone.
+// On plain http (a phone on the party Wi-Fi) the phone's camera app takes the picture instead.
 //
 //   node test/e2e/photos.mjs [outDir]
 import fs from 'node:fs/promises';
@@ -122,6 +123,47 @@ try {
   check(px.w === 640 && px.h === 480 && red && green, `the uploaded picture is the camera frame (${px.w}×${px.h}, centre ${px.center.slice(0, 3)}, corner ${px.corner.slice(0, 3)})`);
   check(!fileChooser && (await phone.$$('input[type=file]')).length === 0, 'a file chooser never opened');
   check(await phone.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 0, 'the Me tab still fits the phone');
+
+  // A guest on the party Wi-Fi opens plain http: no getUserMedia there. The phone's camera app
+  // takes the picture instead (file input with capture), and that picture is uploaded.
+  const lan = watch(await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }), 'lan phone');
+  await lan.addInitScript(() => {
+    Object.defineProperty(window, 'isSecureContext', { get: () => false });
+    Object.defineProperty(navigator, 'mediaDevices', { get: () => undefined });
+  });
+  await lan.goto(`${base}/j/${code}`);
+  await lan.waitForSelector('.profile-form');
+  await lan.fill('.profile-form input', 'Bob');
+  await lan.click('.profile-form .btn.primary');
+  await lan.waitForSelector('.g-tabs');
+  await lan.click('.g-tabs button:has(span:text-is("Me"))');
+  await lan.waitForSelector('.photo-card button:has-text("Add a Photo")');
+  const input = await lan.$('.photo-card input[type=file]');
+  const attrs = input ? await input.evaluate((el) => ({ accept: el.accept, capture: el.getAttribute('capture') })) : {};
+  check(attrs.accept === 'image/*' && attrs.capture === 'environment', `plain http: a camera input (accept ${attrs.accept}, capture ${attrs.capture})`);
+  const lanBefore = app.room.photos.list.length;
+  const [chooser] = await Promise.all([
+    lan.waitForEvent('filechooser', { timeout: 5000 }),
+    lan.click('.photo-card button:has-text("Add a Photo")'),
+  ]);
+  check(!(await lan.$('.cam-capture')), 'plain http: the in-page camera does not open');
+  const jpeg = await lan.evaluate(async () => {
+    const c = document.createElement('canvas');
+    c.width = 800;
+    c.height = 600;
+    const g = c.getContext('2d');
+    g.fillStyle = 'rgb(30, 60, 220)';
+    g.fillRect(0, 0, 800, 600);
+    const b = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+    return [...new Uint8Array(await b.arrayBuffer())];
+  });
+  await chooser.setFiles({ name: 'camera.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(jpeg) });
+  check(await lan.waitForSelector('.toast:has-text("host will put it on the TV")', { timeout: 8000 }).then(() => true, () => false), 'plain http: the camera app’s picture is sent');
+  const lanPhoto = app.room.photos.list.at(-1);
+  const lanBuf = lanPhoto && app.room.photos.list.length === lanBefore + 1 ? await fs.readFile(app.room.photos.file(lanPhoto)) : null;
+  const lanPx = lanBuf ? await jpegPixels(lan, lanBuf) : null;
+  check(!!lanPx && lanPx.center[2] > 180 && lanPx.center[0] < 80, `plain http: the upload is that picture (${lanPx?.w}×${lanPx?.h}, centre ${lanPx?.center.slice(0, 3)})`);
+  check(await lan.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 0, 'plain http: the Me tab fits the phone');
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);
 } finally {

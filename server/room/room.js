@@ -2522,7 +2522,7 @@ export class Room {
       queue: s.queue.slice(0, 10).map((e, i) => ({ ...this.entryView(e, { mask: true }), eta: eta[i] })),
       queueLength: s.queue.length,
       announcement: this.announcement,
-      library: { songs: this.catalog.songs.size, offline: this.library.status().offline },
+      library: { songs: this.catalog.songs.size, offline: this.library.status().offline, loading: !!this.library.loading },
       mosaic: this.s.current ? [] : this.mosaic(),
       breakMusic: this.breakMusic.view(),
       photos: { list: this.photos.approved(40), flash: this.photos.flash },

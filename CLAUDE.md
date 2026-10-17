@@ -44,7 +44,7 @@ bin/open-tv.sh                             # TV page in Chrome kiosk mode on the
 npm run vendor                             # rebuild vendored libs after `npm install`
 npm --prefix desktop install               # the desktop app's Electron + electron-builder (once)
 npm --prefix desktop start                 # run the desktop app from the source
-npm --prefix desktop test                  # desktop app + setup window end to end (Playwright + Xvfb); APP=<built exe> tests a build
+npm --prefix desktop test                  # desktop app + setup window + a 20k library end to end (Playwright + Xvfb); APP=<built exe> tests a build
 npm --prefix desktop run dist              # OpenKaraoke-Setup.zip (THE download), AppImage, .rpm, .deb in desktop/dist/ (OPENKARAOKE_VERSION=x.y.z)
 SETUP_APPIMAGE=<built AppImage> node desktop/test/setup.mjs   # the setup end to end against the real AppImage
 ```

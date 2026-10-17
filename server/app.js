@@ -121,7 +121,9 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
     if (res?.ok) res.welcome = { ...res.welcome, art: artFeed.replay(res.role, msg.artSeq) };
     return res;
   };
-  hub.onRequest = (client, msg) => room.request(client, msg);
+  // (While a big library loads in the background, after the server started listening: an
+  // action may need a song, so it waits for the catalog.)
+  hub.onRequest = (client, msg) => (library.loading ? library.ready().then(() => room.request(client, msg)) : room.request(client, msg));
   hub.on('join', (client) => room.onJoin(client));
   hub.on('leave', (client) => room.onLeave(client));
   app.closers.push((opts) => room.close(opts));
@@ -231,6 +233,9 @@ async function handleRequest(app, req, res) {
       throw new HttpError(405, 'Method not allowed');
     }
     ctx.params = m.params;
+    // The catalog is still loading (a big library, just after the start): the pages and
+    // /api/health answer at once, songs and media once it is in (≈3 s at 90k tracks).
+    if (app.library.loading && /^\/(?:api|media)\//.test(url.pathname) && url.pathname !== '/api/health') await app.library.ready();
     const out = await m.handler(ctx);
     if (out !== undefined && !res.headersSent) json(res, 200, out);
   } catch (e) {

@@ -56,6 +56,14 @@ function ScanCard({ lib, progress }) {
   </section>`;
 }
 
+/** A big library's catalog, read from the last scan just after the start (a few seconds). */
+function LoadCard() {
+  return html`<section class="hero-card slim">
+    <div class="spinner"></div>
+    <div><h3>Loading your library…</h3><p class="muted">Songs can be searched in a few seconds.</p></div>
+  </section>`;
+}
+
 function Stat({ value, label }) {
   return html`<div class="stat"><b class="num">${value}</b><span>${label}</span></div>`;
 }
@@ -90,7 +98,7 @@ export function Home() {
       <button class="btn" onClick=${openTvWindow}><${Icon} name="tv" size=${18} /> Open TV display</button>
     </${PageHead}>
     ${noFolder && html`<${Onboarding} />`}
-    ${library.scanning && html`<${ScanCard} lib=${library} progress=${lib} />`}
+    ${library.loading ? html`<${LoadCard} />` : library.scanning && html`<${ScanCard} lib=${library} progress=${lib} />`}
     ${library.offline && !noFolder && html`<section class="banner warn"><${Icon} name="alert" /> <div><b>The karaoke drive is not connected.</b> Plug it in — OpenKaraoke notices within 20 seconds. Songs from it can't play until then.</div></section>`}
     <div class="stats">
       <${Stat} value=${state.tonight.songs} label="songs sung tonight" />

@@ -11,7 +11,7 @@ the installer are as below. Run in a cloud sandbox without the owner's PC or dri
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 544/544; `npm run e2e` → 19 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 546/546; `npm run e2e` → 19 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
@@ -1033,6 +1033,29 @@ the desktop app's window, a TV reconnecting after a restart and `/api/health` al
   off by the proxy; the zip was fetched with curl, checked against SHASUMS256.txt and unpacked into
   `node_modules/electron/dist` as its installer does.)
 
+## Memory during the first artwork crawl (2026-10-17)
+Measured with the fake provider network (`test/fake-art.js`) on the synthetic 90k library (54,268
+songs, 10,886 artists): ≈30% of the artists unknown (misses, MusicBrainz asked too) and ≈20% of
+the images missing (404), the throttles opened up so the whole crawl runs in a minute (≈12
+songs/s at the real rates: hours). Both the artwork service alone and the whole server
+(`createApp`, the art feed, a host and a guest connected, the host polling the artwork status)
+were watched for 5 minutes. The heap is measured after a full GC.
+- Before: +71 MB after the crawl (flat afterwards), +115–118 MB at the peak (while `meta.json` is
+  written). Per structure: song entries **52 MB** (≈960 bytes each), image files 6.3, artists 4.1,
+  `badUrls` 1.7, albums 1.2, the crawl's rate list 0.6, its order 0.5.
+- Cause of most of it: `compactEntry` deleted the empty fields, and a V8 object with deleted
+  properties becomes a dictionary (≈1.3 KB instead of ≈0.6 KB for a song entry). After a restart
+  the same entries come from `meta.json` compact, so only the first crawl paid this. Fix: entries
+  are stored as new objects with only their fields.
+- Nothing grew without bound over the 5 minutes, but two lists had no limit over time: `badUrls`
+  (images that aren't there, ignored after a day but never removed — they would pile up over the
+  30-day retries and new passes) now drops its expired entries when it reaches 5,000 and then
+  twice its size; the crawl's rate list (`crawl.recent`) was only trimmed when someone asked for
+  the status, now also as it grows.
+- After: **+37 MB** after the crawl (song entries 19 MB, artists 2.9), **+94 MB** at the peak.
+  `test/artwork-queue.test.js` checks the entries and both limits. The art feed (20,000 ids), the
+  image cache index (bounded by `maxCacheMB`) and the WebSocket buffers were already bounded.
+
 ## README screenshots (2026-10-17)
 README → "Screenshots": the host (Studio playing, Party home), the TV (lobby in both skins, the
 gliding lyrics) and the guest's phone (a song's sheet in Studio, the home page in Party), in
@@ -1054,8 +1077,9 @@ used. To refresh after a UI change: run `npm run e2e` and convert the same files
   ffmpeg transcoding for AVI/WMV/MPG, mic monitoring with reverb on the PC. The multiplex
   vocal stem is only the song-dialog headphone preview (from the start of the file), not that
   monitor and not synced to the TV.
-- Performance pass on the real library: memory during the first artwork crawl (the catalog
-  rebuild is in a worker thread now, above).
+- Performance pass on the real library: the first artwork crawl's memory was measured with the
+  fake network (see "Memory during the first artwork crawl"); on the PC, watch the server's
+  memory once during the real crawl (it takes hours at the providers' rates).
 
 ## Known limitations / TODOs
 - Readable lyrics on a 4K screen at 100% scaling without a graphics card: ≈33 fps while the
@@ -1075,7 +1099,8 @@ used. To refresh after a UI change: run `npm run e2e` and convert the same files
   permission once (Chrome: microphone, to name the outputs); check it on the party PC.
   A multiplex **Vocal** preview needs autokaraoke’s separator on this computer (the first
   time for a track can take a while); it is not in time with the TV.
-- `catalog.js` heap ~200–400 MB while building 90k tracks (unchanged).
+- `catalog.js` heap ~200–400 MB while building 90k tracks (unchanged); the server's heap with
+  the 90k catalog is ≈245 MB, plus ≈37 MB once the artwork crawl is through (above).
 - `(VR)` annotation meaning still unknown — kept as a version label.
 
 ## Starter prompt for the next session

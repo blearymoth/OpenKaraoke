@@ -652,3 +652,39 @@ test('meta.json: written in slices (valid JSON, every entry); less often while t
   await art.close();
   assert.equal((await readJson(path.join(dataDir, 'meta.json'))).songs[song('Hello').key].manual, true, 'written on close');
 });
+
+// ---- memory during a long crawl ------------------------------------------------------------------
+
+test('memory: entries are stored without their empty fields, as new objects (no deleted properties)', async () => {
+  const { art, song } = await makeService();
+  const s = song('Hello');
+  const entry = { p: 'deezer', id: '1', cover: 'dz:https://e-cdns-images.dzcdn.net/images/cover/x/1000x1000.jpg', album: '', genre: null, year: 0, explicit: false, tried: [], at: 5, v: MATCH_VERSION };
+  art.setSong(s, entry);
+  const stored = art.songs.get(s.key);
+  assert.deepEqual(stored, { p: 'deezer', id: '1', cover: entry.cover, at: 5, v: MATCH_VERSION });
+  assert.notEqual(stored, entry, 'a new object, not the one with its fields deleted');
+  assert.equal(entry.album, '', 'the caller’s object is left as it was');
+  art.setArtist('adele', { picture: '', n: 'Adele', tried: ['deezer'], asked: [] });
+  assert.deepEqual(art.artists.get('adele'), { n: 'Adele', tried: ['deezer'] });
+  await art.close({ save: false });
+});
+
+test('memory: images that are not there are forgotten after a day; the crawl rate keeps 5 minutes', async () => {
+  let t = 1_000_000;
+  const { art } = await makeService({ now: () => t });
+  for (let i = 0; i < 4000; i++) art.markBad(`https://e-cdns-images.dzcdn.net/images/cover/old${i}.jpg`);
+  t += 86_400_000;
+  for (let i = 0; i < 1500; i++) art.markBad(`https://e-cdns-images.dzcdn.net/images/cover/new${i}.jpg`);
+  assert.equal(art.badUrls.size, 1500, 'the expired ones were dropped when the sweep came');
+  assert.ok(art.badUrls.has('https://e-cdns-images.dzcdn.net/images/cover/new0.jpg'));
+  t += 1000;
+  for (let i = 0; i < 2000; i++) art.markBad(`https://e-cdns-images.dzcdn.net/images/cover/more${i}.jpg`);
+  assert.equal(art.badUrls.size, 3500, 'nothing younger than a day is dropped');
+  assert.ok(art.badSweepAt >= 5000);
+
+  for (let i = 0; i < 1000; i++) art.noteCrawled();
+  t += 6 * 60_000 + 1;
+  art.noteCrawled();
+  assert.equal(art.crawl.recent.length, 1, 'the rate window is kept without anyone asking for the status');
+  await art.close({ save: false });
+});

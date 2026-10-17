@@ -8,10 +8,11 @@ phone's camera app instead of the in-page camera, which only works on https or l
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 505/505; `npm run e2e` → 17 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 525/525; `npm run e2e` → 18 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
-  `layouts.mjs` the lyric layouts, `photos.mjs` the in-page camera); `npm --prefix desktop test` → 46/46 + 35/35 (the
+  `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
+  plain http), `game-pitch.mjs` the pitch rings); `npm --prefix desktop test` → 46/46 + 35/35 (the
   desktop app, also against the built installer, and the setup window; the release workflow also
   runs the setup test against the real AppImage from `OpenKaraoke-Setup.zip`). Every milestone also went through an independent review
   whose confirmed findings were fixed and re-verified (table below).

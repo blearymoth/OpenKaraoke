@@ -162,6 +162,7 @@ test('the server answers requests while a rescan rebuilds a big catalog', async 
   try {
     await app.listen(0, '127.0.0.1');
     const base = `http://127.0.0.1:${app.port}`;
+    await app.library.ready(); // (a cache this big loads in the background)
     assert.equal(app.library.catalog.size, N);
     assert.ok(app.library.workerMinTracks <= N);
 
@@ -204,6 +205,128 @@ test('the server answers requests while a rescan rebuilds a big catalog', async 
     assert.equal(app.library.catalog.size, N + 1);
     const found = await (await fetch(`${base}/api/search?q=adele%20hello`)).json();
     assert.equal(found.items[0]?.title, 'Hello');
+  } finally {
+    await app.close();
+  }
+});
+
+/** A data folder whose library.json holds `tracks` under `cacheRoots`; the settings say `paths`. */
+async function cachedLibrary(tracks, cacheRoots, paths, extra = {}) {
+  const data = await tmpDir('ok-data-');
+  const cat = new Catalog().load(tracks, cacheRoots);
+  await fs.writeFile(path.join(data, 'library.json'), (await cat.toCacheText({ lastScan: { at: 5, tracks: tracks.length }, ...extra })).join(''));
+  const settings = new Settings(data);
+  await settings.load();
+  settings.update({ library: { paths, rescanOnStart: false } });
+  return { data, settings };
+}
+
+/** What a loaded LibraryService holds. */
+const loaded = (svc) => ({
+  ...built(svc.catalog),
+  signature: svc.signature,
+  departed: [...svc.departed],
+  moves: svc.takeIdMoves(),
+  lastScan: svc.lastScan,
+  rootCounts: svc.rootCounts,
+  hasCache: svc.hasCache,
+});
+
+test('Catalog.readCache reads in a worker thread what readJson and rawFromCache read', async () => {
+  const data = await tmpDir('ok-data-');
+  const file = path.join(data, 'library.json');
+  const tracks = manyTracks(2500);
+  tracks.push({ root: 0, dir: 'V', name: 'Toto - Africa', kind: 'video', video: 'Toto - Africa.mp4', size: 5, duration: 0, mtime: 1 });
+  tracks.push({ root: 0, dir: 'Z', name: 'Zipped', kind: 'zip', zip: 'Zipped.zip', entries: { cdg: 'a.cdg', audio: 'a.mp3' }, size: 5, duration: 9, mtime: 2 });
+  await fs.writeFile(file, (await new Catalog().load(tracks, ['/lib']).toCacheText({ lastScan: { at: 1 } })).join(''));
+  const plain = JSON.parse(await fs.readFile(file, 'utf8'));
+  const { cache, raw } = await Catalog.readCache(file);
+  assert.deepEqual(raw, Catalog.rawFromCache(plain));
+  assert.deepEqual({ ...cache, tracks: undefined }, { ...plain, tracks: undefined });
+
+  assert.deepEqual(await Catalog.readCache(path.join(data, 'missing.json')), { cache: null, raw: null });
+  await fs.writeFile(file, '{"version":3,"tracks":[');
+  assert.deepEqual(await Catalog.readCache(file), { cache: null, raw: null });
+  assert.ok((await fs.readdir(data)).some((f) => f.startsWith('library.json.corrupt-')), 'a corrupt cache is kept aside');
+  await fs.writeFile(file, JSON.stringify({ version: 2, tracks: [] }));
+  assert.equal((await Catalog.readCache(file)).raw, null, 'an old cache format is not read');
+});
+
+test('a big cache loads in the background exactly as it loads at once', async () => {
+  const roots = ['/media/u/Karaoke'];
+  const split = [...roots, '/media/u/Karaoke/A']; // a folder that became a library folder of its own
+  const tracks = manyTracks(3000);
+  const departed = { '/media/u/Karaoke/Gone/x - y': 'abc123' };
+  for (const [cacheRoots, paths, extra] of [[roots, roots, {}], [roots, split, { departed }]]) {
+    const one = await cachedLibrary(tracks.map((t) => ({ ...t })), cacheRoots, paths, extra);
+    const sync = new LibraryService({ dataDir: one.data, settings: one.settings, watchIntervalMs: 1e9 });
+    await sync.init({ scan: false });
+    assert.equal(sync.loading, null);
+    await sync.saving;
+
+    const two = await cachedLibrary(tracks.map((t) => ({ ...t })), cacheRoots, paths, extra);
+    const bg = new LibraryService({ dataDir: two.data, settings: two.settings, cacheWorkerMinBytes: 0, workerMinTracks: 0 });
+    const changed = [];
+    bg.on('changed', (e) => changed.push(e.reason));
+    await bg.init({ scan: false });
+    assert.ok(bg.loading, 'still loading when init() returns');
+    assert.equal(bg.status().loading, true);
+    assert.equal(bg.catalog.size, 0);
+    await bg.ready();
+    assert.equal(bg.loading, null);
+    assert.equal(bg.status().loading, false);
+    assert.deepEqual(changed, ['cache']);
+    const want = loaded(sync);
+    if (paths === split) assert.ok(want.departed.length > 1 && want.rootCounts[0] < tracks.length, 'the split case moves tracks out');
+    assert.deepEqual(loaded(bg), want);
+    await bg.saving;
+    const saved = async (dir) => { const c = JSON.parse(await fs.readFile(path.join(dir, 'library.json'), 'utf8')); delete c.savedAt; return c; };
+    assert.deepEqual(await saved(two.data), await saved(one.data), 'the same cache is written back (or not)');
+  }
+});
+
+test('a scan asked for while the cache loads waits for it; stop() ends both', async () => {
+  const lib = await tmpDir('ok-lib-');
+  await writeTree(lib, { 'A/Adele/Adele - Hello [SF Karaoke].cdg': 7200 * 100, 'A/Adele/Adele - Hello [SF Karaoke].mp3': 500 });
+  const { data, settings } = await cachedLibrary(manyTracks(2000).map((t) => ({ ...t, dir: `Z/${t.dir}` })), [lib], [lib]);
+
+  const svc = new LibraryService({ dataDir: data, settings, cacheWorkerMinBytes: 0 });
+  await svc.init({ scan: false });
+  assert.ok(svc.loading);
+  const res = await svc.scan();
+  // The scan compared the folder with the loaded cache: the cached tracks are gone, Adele is new.
+  assert.equal(res.changed, true);
+  assert.equal(res.delta, 1 - 2000);
+  assert.equal(svc.catalog.size, 1);
+  await svc.saving;
+
+  const again = new LibraryService({ dataDir: data, settings, cacheWorkerMinBytes: 0 });
+  await again.init({ scan: true });
+  again.stop();
+  await again.ready();
+  assert.equal(again.catalog.size, 0, 'stopped before the catalog was in');
+  assert.equal(again.scanning, null, 'no scan after a stop');
+});
+
+test('the server listens before a big cache is in; songs wait for it, health does not', async () => {
+  const lib = await tmpDir('ok-lib-');
+  await writeTree(lib, { 'readme.txt': 'x' });
+  const N = 8000;
+  const { data } = await cachedLibrary(manyTracks(N), [lib], [lib]);
+  assert.ok((await fs.stat(path.join(data, 'library.json'))).size >= 1_500_000, 'big enough to load in the background');
+  const app = await createApp({ dataDir: data, args: { library: [lib] }, scan: false, watch: false, fetch: offlineFetch, crawl: false });
+  try {
+    await app.listen(0, '127.0.0.1');
+    const base = `http://127.0.0.1:${app.port}`;
+    assert.ok(app.library.loading, 'createApp did not wait for the catalog');
+    assert.equal(app.room.tvView().library.loading, true);
+    const health = await fetch(`${base}/api/health`);
+    assert.equal(health.status, 200);
+    assert.ok(app.library.loading, 'health answered before the catalog was in');
+    const found = await (await fetch(`${base}/api/search?q=karo`)).json();
+    assert.ok(found.items.length, 'the search waited for the catalog');
+    assert.equal(app.library.loading, null);
+    assert.equal(app.library.catalog.size, N);
   } finally {
     await app.close();
   }

@@ -9,7 +9,7 @@ import { Lru } from '../util/lru.js';
 import { slicer, abortError } from '../util/slice.js';
 
 const WORKER_URL = new URL('./catalog-worker.js', import.meta.url);
-const CHUNK = 1000; // records per piece of JSON text going to or from the worker
+export const CHUNK = 1000; // records per piece of JSON text going to or from the worker
 
 export const PARSER_VERSION = 5;
 
@@ -844,23 +844,44 @@ export class Catalog {
     return [head.slice(0, -1), ',"tracks":[', parts.join(','), '],"dirs":', JSON.stringify(dirs.list), '}'];
   }
 
+  /**
+   * The cache file (library.json) as readJson() reads it (`cache`, without its track records) and
+   * rawFromCache() makes of it (`raw`): parsed in a worker thread and handed over a few ms at a
+   * time (≈0.4 s of JSON.parse at 90k tracks would stall the server). `signal` stops it.
+   */
+  static async readCache(file, { signal } = {}) {
+    const tick = slicer(signal);
+    const { head: cache, tracks } = await runWorker({ read: file }, [], signal);
+    if (!cache || cache.version !== 3) return { cache, raw: null };
+    const dec = new TextDecoder();
+    const raw = [];
+    for (const part of tracks) {
+      for (const r of JSON.parse(dec.decode(part))) raw.push(rawTrack(cache, r));
+      await tick();
+    }
+    return { cache, raw };
+  }
+
   static rawFromCache(cache) {
     if (!cache || cache.version !== 3) return null;
     const out = [];
-    for (const r of cache.tracks) {
-      const [root, dir] = cache.dirs[r.d];
-      const t = { root, dir, name: r.n, kind: r.k, size: r.s, duration: r.du, mtime: r.m };
-      if (r.k === 'cdg') {
-        t.cdg = r.c || `${r.n}.cdg`;
-        t.audio = r.a.includes('.') ? r.a : `${r.n}.${r.a}`;
-      }
-      if (r.k === 'video') t.video = r.v;
-      if (r.k === 'zip') { t.zip = r.z; t.entries = r.e; }
-      if (cache.parser === PARSER_VERSION && r.p) { t.p = r.p; t.pv = PARSER_VERSION; }
-      out.push(t);
-    }
+    for (const r of cache.tracks) out.push(rawTrack(cache, r));
     return out;
   }
+}
+
+/** A cache record as the scanner's track (rawFromCache). */
+function rawTrack(cache, r) {
+  const [root, dir] = cache.dirs[r.d];
+  const t = { root, dir, name: r.n, kind: r.k, size: r.s, duration: r.du, mtime: r.m };
+  if (r.k === 'cdg') {
+    t.cdg = r.c || `${r.n}.cdg`;
+    t.audio = r.a.includes('.') ? r.a : `${r.n}.${r.a}`;
+  }
+  if (r.k === 'video') t.video = r.v;
+  if (r.k === 'zip') { t.zip = r.z; t.entries = r.e; }
+  if (cache.parser === PARSER_VERSION && r.p) { t.p = r.p; t.pv = PARSER_VERSION; }
+  return t;
 }
 
 /** One track in the cache; `dirs` collects the [root, dir] pairs the records point to. */
@@ -908,14 +929,20 @@ function runWorker(job, transfer, signal) {
  * recomputing them here, on the same list, reproduces the ids plays and votes were saved under.
  */
 export function assignTrackIds(list) {
+  const assign = trackIdAssigner();
+  for (const t of list) assign(t);
+  return list;
+}
+
+/** assignTrackIds() one track at a time (in the same order). */
+export function trackIdAssigner() {
   const seen = new Set();
-  for (const t of list) {
+  return (t) => {
     let id = shortId(`${t.dir}/${t.name}`);
     if (seen.has(id)) id = shortId(`${t.root}:${t.dir}/${t.name}`);
     seen.add(id);
     t.id = id;
-  }
-  return list;
+  };
 }
 
 export function letterOf(name) {

@@ -11,12 +11,12 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { scanLibrary, previousKey, nestedRoots, inNestedRoot } from './scanner.js';
-import { Catalog, PARSER_VERSION, assignTrackIds } from './catalog.js';
+import { Catalog, PARSER_VERSION, trackIdAssigner } from './catalog.js';
 import { placer, trackReturns, idMoves } from './ids.js';
 import { readJson, writeTextAtomic } from '../util/jsonfile.js';
 import { hash32 } from '../../shared/text.js';
 import { logger } from '../util/log.js';
-import { slicer } from '../util/slice.js';
+import { slicer, abortError } from '../util/slice.js';
 
 const log = logger('library');
 
@@ -27,8 +27,10 @@ export class LibraryService extends EventEmitter {
    * @param {import('../config.js').Settings} opts.settings
    * @param {number} [opts.watchIntervalMs] how often to check that the library folders exist
    * @param {number} [opts.workerMinTracks] a rescan rebuilds a catalog this big in a worker thread
+   * @param {number} [opts.cacheWorkerMinBytes] a library.json this big (≈5,000 tracks) is loaded
+   *   after init() returns, through worker threads (`loading`)
    */
-  constructor({ dataDir, settings, watchIntervalMs = 20000, statTimeoutMs = 5000, workerMinTracks = 5000 }) {
+  constructor({ dataDir, settings, watchIntervalMs = 20000, statTimeoutMs = 5000, workerMinTracks = 5000, cacheWorkerMinBytes = 1_500_000 }) {
     super();
     this.settings = settings;
     this.cacheFile = path.join(dataDir, 'library.json');
@@ -36,6 +38,10 @@ export class LibraryService extends EventEmitter {
     this.watchIntervalMs = watchIntervalMs;
     this.statTimeoutMs = statTimeoutMs;
     this.workerMinTracks = workerMinTracks;
+    this.cacheWorkerMinBytes = cacheWorkerMinBytes;
+    this.loading = null; // promise while the cache loads in the background
+    this.loadAbort = null;
+    this.stopped = false;
     this.scanning = null; // promise while a scan runs
     this.scanOnly = null; // the folders (indexes) it scans, null = every folder
     this.next = null; // { reason, only } a scan asked for while another one ran (it follows)
@@ -70,19 +76,65 @@ export class LibraryService extends EventEmitter {
    *   (a library that has never been scanned is always scanned unless scan === false)
    */
   async init({ scan } = {}) {
-    await this.loadCache();
     await this.checkOnline({ emit: false });
+    if (await this.bigCache()) {
+      // Read and built in worker threads while the server already answers (≈3 s at 90k tracks
+      // otherwise before it listens): the party's state and the pages come at once, requests
+      // that need the catalog wait for it (app.js), and 'changed' says when it is in.
+      const abort = new AbortController();
+      this.loadAbort = abort;
+      this.loading = this.loadCache({ signal: abort.signal })
+        .catch((e) => {
+          if (e.name !== 'AbortError') log.error('could not load the library cache', e);
+        })
+        .then(() => {
+          this.loading = null;
+          this.loadAbort = null;
+          if (abort.signal.aborted) return; // (stopped)
+          this.emit('status', this.status());
+          this.startupScan(scan); // (an empty catalog — the cache couldn't be loaded — is scanned)
+        });
+      return this;
+    }
+    await this.loadCache();
+    this.startupScan(scan);
+    return this;
+  }
+
+  /** Resolves once the catalog cache is in (at once unless it loads in the background). */
+  ready() {
+    return this.loading || Promise.resolve();
+  }
+
+  startupScan(scan) {
     const want = scan === false ? false : scan === true || this.settings.get('library.rescanOnStart') || !this.catalog.size;
     if (want && this.paths.length && this.rootsOnline.some(Boolean)) {
       this.scan({ reason: 'startup' }).catch((e) => log.error('scan failed', e));
     }
-    return this;
   }
 
-  async loadCache() {
+  async bigCache() {
+    try {
+      return (await fs.stat(this.cacheFile)).size >= this.cacheWorkerMinBytes;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Loads library.json. With `signal` (a big cache, see init()) it is read and built in worker
+   * threads and the loops here run in slices; `signal` stops it (an AbortError).
+   */
+  async loadCache({ signal = null } = {}) {
     const t0 = Date.now();
-    const cache = await readJson(this.cacheFile, null);
-    const raw = cache ? Catalog.rawFromCache(cache) : null;
+    const background = !!signal;
+    const tick = background ? slicer(signal) : async () => {};
+    let cache, raw;
+    if (background) ({ cache, raw } = await readCacheAsync(this.cacheFile, signal));
+    else {
+      cache = await readJson(this.cacheFile, null);
+      raw = cache ? Catalog.rawFromCache(cache) : null;
+    }
     const paths = this.paths;
     this.departed = departedFromCache(cache);
     this.unacked = [];
@@ -92,15 +144,30 @@ export class LibraryService extends EventEmitter {
       // Ids are not in the cache. The same list, in this order, is how they were assigned
       // last time — before a nested folder is dropped, so a split can still find the old id.
       const oldRoots = Array.isArray(cache.roots) ? cache.roots : [];
-      assignTrackIds(raw);
-      const oldSnap = snapTracks(raw);
+      const assign = trackIdAssigner();
+      const oldSnap = [];
+      for (let i = 0; i < raw.length; i++) {
+        assign(raw[i]);
+        oldSnap.push(snapOf(raw[i]));
+        if (i % 1000 === 999) await tick();
+      }
       const tracks = remapRoots(raw, oldRoots, paths);
-      this.catalog.load(tracks, paths);
-      this.signature = trackSignature(tracks);
+      await tick();
+      if (background) {
+        if (await this.rebuild(tracks, paths, signal) === 'aborted') throw abortError('The library load was stopped');
+      } else this.catalog.load(tracks, paths);
+      const sign = signer();
+      for (let i = 0; i < tracks.length; i++) {
+        sign.add(tracks[i]);
+        if (i % 1000 === 999) await tick();
+      }
+      this.signature = sign.done();
       this.lastScan = cache.lastScan || null;
       this.hasCache = true;
-      log.info(`loaded ${tracks.length} tracks (${this.catalog.songs.size} songs) from cache in ${Date.now() - t0} ms`);
-      this.settleIds(oldRoots, oldSnap, paths);
+      log.info(`loaded ${tracks.length} tracks (${this.catalog.songs.size} songs) from cache in ${Date.now() - t0} ms${background ? ' (worker threads)' : ''}`);
+      // The same folders and every track kept: the same ids as last time, nothing moved
+      // (≈90 ms at 90k tracks saved).
+      if (this.departed.size || tracks.length !== raw.length || !sameRoots(oldRoots, paths)) this.settleIds(oldRoots, oldSnap, paths);
       // Re-parsed names (new parser) or dropped folders: store the result so the next start is fast.
       if (cache.parser !== PARSER_VERSION || tracks.length !== raw.length || this.departed.size || this.unacked.length) this.saveCache();
     } else {
@@ -162,7 +229,8 @@ export class LibraryService extends EventEmitter {
     }
     this.scanOnly = only;
     // (started a tick later, so the 'status' it sends already says what is being scanned)
-    this.scanning = Promise.resolve().then(() => this.runScan(reason, only)).finally(() => {
+    // (after the cache's background load: the scan compares with what it had)
+    this.scanning = Promise.resolve(this.loading).then(() => (this.stopped ? this.lastScan : this.runScan(reason, only))).finally(() => {
       this.scanning = null;
       this.scanOnly = null;
       this.progress = null;
@@ -260,14 +328,14 @@ export class LibraryService extends EventEmitter {
     return this.lastScan;
   }
 
-  /** catalog.load(), in a worker thread for a big library. 'aborted' when the scan was stopped meanwhile. */
-  async rebuild(tracks, paths) {
+  /** catalog.load(), in a worker thread for a big library. 'aborted' when the scan (or load) was stopped meanwhile. */
+  async rebuild(tracks, paths, signal = this.abort?.signal) {
     if (tracks.length < this.workerMinTracks) {
       this.catalog.load(tracks, paths);
       return 'done';
     }
     try {
-      await this.catalog.loadAsync(tracks, paths, { signal: this.abort?.signal });
+      await this.catalog.loadAsync(tracks, paths, { signal });
       log.info(`catalog rebuilt in a worker thread in ${this.catalog.buildMs} ms`);
     } catch (e) {
       if (e.name === 'AbortError') return 'aborted';
@@ -291,6 +359,7 @@ export class LibraryService extends EventEmitter {
     this.next = null; // (a scan waiting for the old folders' indexes)
     this.cancelScan();
     if (this.scanning) await this.scanning.catch(() => {});
+    await this.loading;
     this.settings.update({ library: { paths: clean } });
     this.remapCatalog(clean);
     await this.checkOnline({ emit: false });
@@ -461,11 +530,13 @@ export class LibraryService extends EventEmitter {
   stop() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    this.stopped = true;
+    this.loadAbort?.abort();
     this.cancelScan();
   }
 
   async tick() {
-    if (this.scanning) return;
+    if (this.scanning || this.loading) return;
     const before = this.rootsOnline.slice();
     const states = await this.checkOnline();
     // A folder that appeared and has never been indexed (e.g. the drive was plugged in
@@ -499,11 +570,24 @@ export class LibraryService extends EventEmitter {
         ...(this.next && (!this.next.only || this.next.only.includes(i)) ? { waiting: true } : {}),
       })),
       offline: paths.length > 0 && this.rootsOnline.some((s) => !s),
+      loading: !!this.loading,
       scanning: !!this.scanning,
       progress: this.progress,
       lastScan: this.lastScan,
       builtAt: this.catalog.builtAt,
     };
+  }
+}
+
+/** Catalog.readCache(), or readJson() when the worker thread can't (it falls back, like rebuild()). */
+async function readCacheAsync(file, signal) {
+  try {
+    return await Catalog.readCache(file, { signal });
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+    log.warn(`a worker thread could not read the library cache (${e.message}); reading it here`);
+    const cache = await readJson(file, null);
+    return { cache, raw: cache ? Catalog.rawFromCache(cache) : null };
   }
 }
 

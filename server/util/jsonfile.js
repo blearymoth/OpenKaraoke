@@ -21,6 +21,14 @@ export async function writeJsonAtomic(file, data, { pretty = false } = {}) {
   await fs.rename(tmp, file);
 }
 
+/** writeJsonAtomic() for JSON text made beforehand, in pieces written in a row. */
+export async function writeTextAtomic(file, parts) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, parts);
+  await fs.rename(tmp, file);
+}
+
 export function writeJsonAtomicSync(file, data, { pretty = false } = {}) {
   fsSync.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;

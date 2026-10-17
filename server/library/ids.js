@@ -14,6 +14,28 @@ export function trackPlace(roots, t) {
 }
 
 /**
+ * trackPlace() for many tracks: each folder is resolved once (≈13k folders for 90k tracks
+ * instead of 90k path.resolve calls, which made a rescan of a big library stall the server).
+ */
+export function placer(roots) {
+  const dirs = new Map();
+  return (t) => {
+    const root = roots?.[t?.root];
+    const name = t?.name;
+    if (typeof root !== 'string' || !root || typeof name !== 'string' || !name) return '';
+    if (name === '.' || name === '..' || name.includes('/') || name.includes(path.sep)) return trackPlace(roots, t);
+    const key = `${t.root}\u0000${t.dir || ''}`;
+    let dir = dirs.get(key);
+    if (dir === undefined) {
+      dir = path.resolve(root, t.dir ? String(t.dir).split('/').join(path.sep) : '');
+      if (!dir.endsWith(path.sep)) dir += path.sep;
+      dirs.set(key, dir);
+    }
+    return dir + name;
+  };
+}
+
+/**
  * True when `t` drops out of the catalog only because another library folder now owns that
  * file: its folder became a root of its own, or its root was folded back into a parent that
  * is still a library folder. A folder that was simply removed does not qualify.

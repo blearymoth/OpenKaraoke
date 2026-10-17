@@ -11,7 +11,7 @@ the installer are as below. Run in a cloud sandbox without the owner's PC or dri
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 530/530; `npm run e2e` → 19 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 537/537; `npm run e2e` → 19 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
@@ -958,6 +958,31 @@ folder that was simply removed, is not the same file and keeps its own records.
 A symbolic link whose target is a different path is still scanned once; those plays stay on
 the old id. `history.jsonl` is not rewritten. A renamed file still starts over.
 
+## Catalog rebuild in a worker thread (2026-10-17)
+A rescan with changes used to stop the server for the whole catalog build: measured on a
+synthetic 90k-track library on disk (`test/helpers.js` `manyTracks`, the owner's layout),
+3.2–5 s without an answer to any page. Now:
+- From 5,000 tracks (`LibraryService` `workerMinTracks`) the build runs in a `node:worker_threads`
+  worker (`server/library/catalog-worker.js`, built in, no dependency) with the same `Catalog`
+  code. Sending 150k objects back by structured clone would have cost the main thread as much as
+  the build (≈1.5 s to serialise, ≈2 s to read), so the worker sends JSON text as UTF-8 bytes in
+  transferred buffers, 1,000 records a piece, plus typed arrays; `Catalog.loadAsync` puts them
+  together ≈8 ms at a time and swaps the catalog in at once. Results are identical to `load()`
+  (tested). A worker that fails falls back to the old build; Stop/shutdown ends the worker.
+- The rest of a rescan also yielded the event loop only rarely: the track-id carryover
+  (`settleIds`, ≈1.5 s at 90k: a `path.resolve` per track, four times) now finds files by root,
+  folder and name when the folders are the same and nothing waits to come back (the usual
+  rescan), and resolves each folder once otherwise (`placer` in `ids.js`); the snapshot, the
+  signature and the cache file (`toCacheText`, written in pieces) are made in slices
+  (`server/util/slice.js`).
+- Result at 90k: the longest stall during a rescan with changes is ≈100 ms (the swap itself, the
+  id carryover and the per-folder counts, which must happen together). The build takes a little
+  longer in all (≈3.2 s instead of ≈2.2 s for a rebuild of parsed tracks) but in the background;
+  search stays ≈15 ms. `test/catalog-worker.test.js` checks that searches are answered during a
+  rebuild of 25k tracks (with the old build none were).
+- Not changed: the startup load from `library.json` still builds on the main thread (before the
+  server listens), and a library under 5,000 tracks builds as before (≈0.1 s).
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, optional
@@ -965,8 +990,8 @@ the old id. `history.jsonl` is not rewritten. A renamed file still starts over.
   vocal stem is only the song-dialog headphone preview (from the start of the file), not that
   monitor and not synced to the TV.
 - README screenshots (the e2e scripts already save screenshots to `test-results/`).
-- Performance pass on the real library: catalog rebuild in a worker thread (below), memory
-  during the first artwork crawl.
+- Performance pass on the real library: memory during the first artwork crawl (the catalog
+  rebuild is in a worker thread now, above).
 
 ## Known limitations / TODOs
 - Readable lyrics on a 4K screen at 100% scaling without a graphics card: ≈33 fps while the
@@ -978,8 +1003,6 @@ the old id. `history.jsonl` is not rewritten. A renamed file still starts over.
   the terminal); the .deb/.rpm work there. Where Ubuntu 24.04 restricts user namespaces the app
   runs without Chromium's sandbox (the AppImage's AppRun adds `--no-sandbox` by itself; the
   .deb keeps the sandbox through its AppArmor profile).
-- Catalog rebuild after a rescan with changes blocks the server ≈3–4 s at 90k tracks (the
-  TV keeps playing; host/guest UIs pause). Could move to a worker thread.
 - Provider parsers are verified against documented shapes only — see checklist item 1.
 - Years come from Deezer album release dates (a compilation or remaster can show a later year).
 - Video karaoke (MP4/WEBM) plays in element mode, the same index / serve / TV path as other video. MP4, M4V and MOV length is read from the file's `mvhd` box while scanning. A leading catalog number (`0028. Artist - Title.mp4`) is kept as the disc id and left out of the artist name. AVI/WMV/MPG still need ffmpeg (not built).

@@ -1,8 +1,15 @@
 // In-memory song catalogue: groups tracks (files) into songs, clusters artist
 // spelling variants, and provides fast search/browse over ~100k tracks.
+// A big rebuild runs in a worker thread (loadAsync, catalog-worker.js): the same _build(), whose
+// result comes back as JSON text in transferred buffers and is put together here in short slices.
+import { Worker } from 'node:worker_threads';
 import { fold, compact, editDistance, shortId, splitCredits } from '../../shared/text.js';
 import { parseName, titleKeyOf, BRAND_NAMES } from './parse.js';
 import { Lru } from '../util/lru.js';
+import { slicer, abortError } from '../util/slice.js';
+
+const WORKER_URL = new URL('./catalog-worker.js', import.meta.url);
+const CHUNK = 1000; // records per piece of JSON text going to or from the worker
 
 export const PARSER_VERSION = 5;
 
@@ -150,6 +157,140 @@ export class Catalog {
     this.builtAt = Date.now();
     this.buildMs = this.builtAt - t0;
     return this;
+  }
+
+  /**
+   * load(), with the build in a worker thread: the server keeps answering meanwhile. The catalog
+   * changes all at once at the end, and the tracks in `rawTracks` (some may belong to the current
+   * catalog) are only written to then. `signal` stops it (an AbortError; nothing changes).
+   */
+  async loadAsync(rawTracks, roots = this.roots, { signal } = {}) {
+    const t0 = Date.now();
+    const tick = slicer(signal);
+    const enc = new TextEncoder();
+    const fresh = [];
+    const chunks = [];
+    for (let i = 0; i < rawTracks.length; i += CHUNK) {
+      const rows = [];
+      for (let j = i; j < Math.min(i + CHUNK, rawTracks.length); j++) {
+        const t = rawTracks[j];
+        const parsed = t.p && t.pv === PARSER_VERSION;
+        if (!parsed) fresh.push(j);
+        rows.push([t.root, t.dir, t.name, t.duration, parsed ? t.p : 0]);
+      }
+      chunks.push(enc.encode(JSON.stringify(rows)));
+      await tick();
+    }
+    const b = await runWorker({ roots, chunks }, chunks.map((c) => c.buffer), signal);
+    await tick(true);
+    const dec = new TextDecoder();
+    const each = async function* (parts) {
+      for (const part of parts) {
+        yield JSON.parse(dec.decode(part));
+        await tick();
+      }
+    };
+
+    const songList = [];
+    const songs = new Map();
+    for await (const rows of each(b.songs)) {
+      for (const [id, key, credits, title, artist, letter, tags, flags, duration, versions, artistFold, titleFold, altFold] of rows) {
+        const s = {
+          id, key, credits, title, artist, artistKeys: credits, letter, trackIds: [], tags, flags, duration, versions,
+          artistFold, titleFold, altFold, hay: ` ${titleFold} ${artistFold} ${altFold} `,
+        };
+        songList.push(s);
+        songs.set(id, s);
+      }
+    }
+    const parsed = [];
+    for await (const rows of each(b.parsed)) for (const p of rows) parsed.push(p);
+    const ids = [];
+    for await (const rows of each(b.ids)) for (const id of rows) ids.push(id);
+    const tracks = new Map();
+    for (let i = 0; i < b.order.length; i++) {
+      const id = ids[b.order[i]];
+      tracks.set(id, rawTracks[b.order[i]]);
+      songList[b.songOf[i]].trackIds.push(id);
+      if (i % CHUNK === 0) await tick();
+    }
+    const artists = new Map();
+    const inMapOrder = [];
+    for await (const rows of each(b.artists)) {
+      for (const [key, name, letter, songIdx, count, solo, trackCount, artFold, sortKey] of rows) {
+        const a = { key, name, letter, songIds: songIdx.map((x) => songList[x].id), count, solo, trackCount, fold: artFold, sortKey };
+        artists.set(key, a);
+        inMapOrder.push(a);
+      }
+    }
+    const artistList = Array.from(b.artistOrder, (x) => inMapOrder[x]);
+    await tick();
+
+    // All at once: the tracks get their ids, songs and parse results, the catalog its new lists.
+    for (let i = 0; i < rawTracks.length; i++) rawTracks[i].id = ids[i];
+    for (let i = 0; i < fresh.length; i++) {
+      rawTracks[fresh[i]].p = parsed[i];
+      rawTracks[fresh[i]].pv = PARSER_VERSION;
+    }
+    for (let i = 0; i < b.order.length; i++) rawTracks[b.order[i]].songId = songList[b.songOf[i]].id;
+    this.roots = roots;
+    this.tracks = tracks;
+    this.songs = songs;
+    this.songList = songList;
+    this.artists = artists;
+    this.artistList = artistList;
+    this.brandRank = new Map(b.brandRank);
+    this.tagCounts = b.tagCounts;
+    this.brandCounts = b.brandCounts;
+    this.vocab = null;
+    this._popularCache = null;
+    this._filtered.clear();
+    this.version++;
+    this.builtAt = Date.now();
+    this.buildMs = this.builtAt - t0;
+    return this;
+  }
+
+  /**
+   * The built catalog as catalog-worker.js posts it: ids, parse results, songs and artists as
+   * pieces of JSON text (UTF-8 bytes, so the buffers can be transferred), the tracks as positions
+   * in `input` (the list given to load()). `fresh` = positions of the tracks that came without a
+   * parse result (theirs is sent back).
+   */
+  exportBuild(input, fresh) {
+    const at = new Map();
+    input.forEach((t, i) => at.set(t, i));
+    const songAt = new Map();
+    this.songList.forEach((s, i) => songAt.set(s.id, i));
+    const order = new Int32Array(this.tracks.size);
+    const songOf = new Int32Array(this.tracks.size);
+    let i = 0;
+    for (const t of this.tracks.values()) {
+      order[i] = at.get(t);
+      songOf[i] = songAt.get(t.songId);
+      i++;
+    }
+    const enc = new TextEncoder();
+    const rows = (list, row) => {
+      const out = [];
+      for (let j = 0; j < list.length; j += CHUNK) out.push(enc.encode(JSON.stringify(list.slice(j, j + CHUNK).map(row))));
+      return out;
+    };
+    const artists = [...this.artists.values()];
+    const artistAt = new Map();
+    artists.forEach((a, j) => artistAt.set(a, j));
+    return {
+      ids: rows(input, (t) => t.id),
+      order,
+      songOf,
+      parsed: rows(fresh, (j) => input[j].p),
+      songs: rows(this.songList, (s) => [s.id, s.key, s.credits, s.title, s.artist, s.letter, s.tags, s.flags, s.duration, s.versions, s.artistFold, s.titleFold, s.altFold]),
+      artists: rows(artists, (a) => [a.key, a.name, a.letter, a.songIds.map((id) => songAt.get(id)), a.count, a.solo, a.trackCount, a.fold, a.sortKey]),
+      artistOrder: Int32Array.from(this.artistList, (a) => artistAt.get(a)),
+      brandRank: [...this.brandRank],
+      tagCounts: this.tagCounts,
+      brandCounts: this.brandCounts,
+    };
   }
 
   _build() {
@@ -674,25 +815,33 @@ export class Catalog {
 
   /** Compact representation for the on-disk cache. */
   toCache() {
-    const dirs = [];
-    const dirIndex = new Map();
+    const dirs = { list: [], index: new Map() };
     const tracks = [];
+    for (const t of this.tracks.values()) tracks.push(cacheRecord(t, dirs));
+    return { version: 3, parser: PARSER_VERSION, roots: this.roots, savedAt: Date.now(), dirs: dirs.list, tracks };
+  }
+
+  /**
+   * toCache() with `extra` fields, as JSON text in pieces (to write in a row), made a few ms at a
+   * time so a big library doesn't stall the server. Null when the catalog changed meanwhile.
+   */
+  async toCacheText(extra = {}) {
+    const tick = slicer();
+    const { version, roots } = this;
+    const dirs = { list: [], index: new Map() };
+    const parts = [];
+    let rows = [];
     for (const t of this.tracks.values()) {
-      const dk = `${t.root}\u0000${t.dir}`;
-      let di = dirIndex.get(dk);
-      if (di === undefined) { di = dirs.length; dirIndex.set(dk, di); dirs.push([t.root, t.dir]); }
-      const rec = { d: di, n: t.name, k: t.kind, s: t.size, du: t.duration, m: t.mtime || 0 };
-      if (t.kind === 'cdg') {
-        if (t.cdg !== `${t.name}.cdg`) rec.c = t.cdg;
-        const ext = t.audio.slice(t.audio.lastIndexOf('.') + 1);
-        rec.a = t.audio === `${t.name}.${ext}` ? ext : t.audio;
-      }
-      if (t.kind === 'video') rec.v = t.video;
-      if (t.kind === 'zip') { rec.z = t.zip; rec.e = t.entries; }
-      rec.p = t.p;
-      tracks.push(rec);
+      rows.push(cacheRecord(t, dirs));
+      if (rows.length < CHUNK) continue;
+      parts.push(JSON.stringify(rows).slice(1, -1));
+      rows = [];
+      await tick();
+      if (this.version !== version) return null;
     }
-    return { version: 3, parser: PARSER_VERSION, roots: this.roots, savedAt: Date.now(), dirs, tracks };
+    if (rows.length) parts.push(JSON.stringify(rows).slice(1, -1));
+    const head = JSON.stringify({ version: 3, parser: PARSER_VERSION, roots, savedAt: Date.now(), ...extra });
+    return [head.slice(0, -1), ',"tracks":[', parts.join(','), '],"dirs":', JSON.stringify(dirs.list), '}'];
   }
 
   static rawFromCache(cache) {
@@ -712,6 +861,45 @@ export class Catalog {
     }
     return out;
   }
+}
+
+/** One track in the cache; `dirs` collects the [root, dir] pairs the records point to. */
+function cacheRecord(t, dirs) {
+  const dk = `${t.root}\u0000${t.dir}`;
+  let di = dirs.index.get(dk);
+  if (di === undefined) { di = dirs.list.length; dirs.index.set(dk, di); dirs.list.push([t.root, t.dir]); }
+  const rec = { d: di, n: t.name, k: t.kind, s: t.size, du: t.duration, m: t.mtime || 0 };
+  if (t.kind === 'cdg') {
+    if (t.cdg !== `${t.name}.cdg`) rec.c = t.cdg;
+    const ext = t.audio.slice(t.audio.lastIndexOf('.') + 1);
+    rec.a = t.audio === `${t.name}.${ext}` ? ext : t.audio;
+  }
+  if (t.kind === 'video') rec.v = t.video;
+  if (t.kind === 'zip') { rec.z = t.zip; rec.e = t.entries; }
+  rec.p = t.p;
+  return rec;
+}
+
+/** Runs catalog-worker.js once. Rejects with an AbortError when `signal` fires (the worker is stopped). */
+function runWorker(job, transfer, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(abortError('The catalog build was stopped'));
+    const worker = new Worker(WORKER_URL);
+    let done = false;
+    const finish = (fn, value) => {
+      if (done) return;
+      done = true;
+      signal?.removeEventListener('abort', onAbort);
+      worker.terminate().catch(() => {});
+      fn(value);
+    };
+    const onAbort = () => finish(reject, abortError('The catalog build was stopped'));
+    signal?.addEventListener('abort', onAbort, { once: true });
+    worker.once('message', (msg) => (msg.error ? finish(reject, new Error(msg.error)) : finish(resolve, msg)));
+    worker.once('error', (e) => finish(reject, e));
+    worker.once('exit', (code) => finish(reject, new Error(`catalog worker exited (${code})`)));
+    worker.postMessage(job, transfer);
+  });
 }
 
 /**

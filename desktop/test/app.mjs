@@ -12,7 +12,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { loadPlaywright, check, results, sleep, WsClient } from '../../test/e2e/lib.mjs';
+import { loadPlaywright, check, results, sleep, WsClient, hostWindow } from '../../test/e2e/lib.mjs';
 import { makeDemoLibrary } from '../../scripts/make-demo-library.js';
 import { fakeGitHub } from '../../test/fake-github.js';
 
@@ -116,8 +116,17 @@ let ws;
 let failed = false;
 try {
   app = await launch();
-  const host = await app.firstWindow();
+  // At once, a window that says OpenKaraoke is starting; it goes when the host window shows.
+  const first = await app.firstWindow();
+  await shot(first, 'starting').catch(() => {}); // (it may be gone already on a fast machine)
+  const startingUrl = first.url();
+  const startingText = await first.textContent('body').catch(() => '');
+  check(/^okapp:\/\/app\/starting\//.test(startingUrl) && /OpenKaraoke/.test(startingText), `a window says OpenKaraoke is starting (${startingUrl.replace(/\?.*/, '')}: "${startingText.replace(/\s+/g, ' ').trim()}")`);
+  const host = await hostWindow(app, 30_000);
   await host.waitForURL(/\/host/, { timeout: 30_000 });
+  const gone = await poll(async () => (app.windows().some((w) => /^okapp:/.test(w.url())) ? null : true), 10_000);
+  const startupLog = await fs.readFile(path.join(userData, 'logs', 'openkaraoke.log'), 'utf8').catch(() => '');
+  check(gone === true && /startup: the host window is shown/.test(startupLog), 'it closes when the host window shows (the startup times are in the log)');
   const port = Number(new URL(host.url()).port);
   check(port > 0 && port !== 6527, `with port 6527 taken by another program the app uses ${port}${squatting ? '' : ' (6527 was already busy)'}`);
   const lock = await readJson(path.join(userData, 'data', 'server.json'));
@@ -307,7 +316,7 @@ try {
   // Next start: the same port again, even with 6527 free now.
   if (squatting) await new Promise((r) => squatter.close(r));
   app = await launch();
-  const again = await app.firstWindow();
+  const again = await hostWindow(app, 30_000);
   await again.waitForURL(/\/host/, { timeout: 30_000 });
   check(Number(new URL(again.url()).port) === port, `the next start uses the same port again (${new URL(again.url()).port})`);
 
@@ -328,6 +337,20 @@ try {
   check(!(await again.content()).includes(TOKEN) && ((await fs.stat(config)).mode & 0o777) === 0o600,
     'the token is kept in updates.json for this user only, never shown in the page');
   await shot(again, 'host-update-available');
+  // Elsewhere in the app, a card in the corner says so (not on Settings › About, which has the buttons).
+  check(!(await again.$('.update-toast')), 'no update card on Settings › About');
+  await again.evaluate(() => { location.hash = '#/'; });
+  const card = await again.waitForSelector('.update-toast', { timeout: 10_000 }).then(() => again.textContent('.update-toast'), () => '');
+  check(/OpenKaraoke 9\.9\.9 is available/.test(card) && /Download and install/.test(card) && /Later/.test(card), `on the home page, a card: "${card.replace(/\s+/g, ' ').trim()}"`);
+  await sleep(400); // (its fade-in)
+  await shot(again, 'host-update-card');
+  await again.click('.update-toast button:has-text("Later")');
+  await again.reload();
+  await again.waitForSelector('.page.home', { timeout: 20_000 });
+  await sleep(500);
+  check(!(await again.$('.update-toast')), '“Later” hides it (also after the page reloads) until the next start');
+  await again.evaluate(() => { location.hash = '#/settings/about'; });
+  await again.waitForSelector('.updates :text("Version 9.9.9 is available")', { timeout: 20_000 });
   await again.click('button:has-text("Download and install")');
   const ready = await again.waitForSelector('button:has-text("Restart now")', { timeout: 30_000 }).then(() => true, () => false);
   const swapped = (await fs.readFile(appImage)).equals(NEW_APPIMAGE) && ((await fs.stat(appImage)).mode & 0o111) === 0o111;

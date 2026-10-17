@@ -229,6 +229,20 @@ function SkinCard({ id, on, accent }) {
 /** The last part of a folder path, for short messages. */
 const folderName = (p) => String(p).split(/[\\/]/).filter(Boolean).pop() || p;
 
+/** AVI, MPG, WMV… videos: converted with ffmpeg when they are queued, or what to install. */
+function VideoConversion({ video }) {
+  const n = video?.tracks || 0;
+  if (!video || video.ready === null || (!video.ready && !n)) return null;
+  const what = n ? `${plural(n, 'video')} in AVI, MPG or WMV` : 'Videos in AVI, MPG or WMV';
+  return html`<div class="setting column video-conversion">
+    <div class="setting-text"><b>Older video formats</b>
+      ${video.ready
+        ? html`<p class="hint">${what} ${n === 1 ? 'is' : 'are'} converted with ffmpeg ${video.version} when queued, a few seconds to a minute each, and kept in the data folder (up to 10 GB). The TV shows “Getting the video ready…” if one comes up sooner.</p>`
+        : html`<p class=${n ? 'warn-text' : 'hint'}>${what} can’t play without ffmpeg (${video.missing}). ${video.hint}</p>`}
+    </div>
+  </div>`;
+}
+
 function LibrarySection({ state, lib }) {
   const library = state.library;
   const paths = library.roots.map((r) => r.path);
@@ -256,6 +270,7 @@ function LibrarySection({ state, lib }) {
         ${paths.length > 1 && html`<p class="hint">A folder inside another library folder is counted once, as its own folder.</p>`}
       </div>
     </div>
+    <${VideoConversion} video=${state.video} />
     <div class="setting">
       <div class="setting-text"><b>Preferred karaoke labels</b><p class="hint">When a song has several versions, these labels are picked first. Use the codes from the file names, for example: SF, SC, ZM.</p></div>
       <div class="setting-control"><input class="input" value=${brands} placeholder="SF, SC" onInput=${(e) => setBrands(e.currentTarget.value)}

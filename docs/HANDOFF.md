@@ -11,12 +11,12 @@ the installer are as below. Run in a cloud sandbox without the owner's PC or dri
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 546/546; `npm run e2e` → 19 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 552/552; `npm run e2e` → 20 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
-  plain http), `game-pitch.mjs` the pitch rings); `npm --prefix desktop test` → 46/46 + 35/35 + 8/8 (the
+  plain http), `game-pitch.mjs` the pitch rings, `video-convert.mjs` an AVI through ffmpeg); `npm --prefix desktop test` → 51/51 + 35/35 + 8/8 (the
   desktop app, also against the built installer, the setup window, and a 20k-track library through
   the worker threads; the release workflow also
   runs the setup test against the real AppImage from `OpenKaraoke-Setup.zip`). Every milestone also went through an independent review
@@ -271,6 +271,18 @@ the installer are as below. Run in a cloud sandbox without the owner's PC or dri
     an archive manager opens instead of Files unpacking it, note it (README "If something doesn't
     work" says to use Extract). If double-clicking "Install OpenKaraoke" does nothing, run it in
     a terminal (`~/Downloads/"Install OpenKaraoke"`) and note what it prints (FUSE).
+19. **Starting the app, and updates** (see "Starting window and update card" below): open
+    OpenKaraoke from the menu — a small OpenKaraoke window should appear within a second or two
+    and go away when the host window opens. If the start still takes ≈10 s, open
+    `~/.config/OpenKaraoke/logs/openkaraoke.log` and paste the `startup:` lines and the `server on
+    port … s after the start` line for the next session (they show where the time goes). When a new
+    release is out, the host page shows a card in the top right corner: **Download and install**,
+    then **Restart now**.
+20. **AVI / MPG / WMV videos** (see "AVI, MPG and WMV videos with ffmpeg" below): `sudo dnf
+    install ffmpeg-free` (Fedora), restart OpenKaraoke, Settings → Library should say "converted
+    with ffmpeg …". Queue one such video and watch the TV: "Getting the video ready…" for a few
+    seconds, then it plays. Note how long a 4-minute video takes on the PC (the log says
+    `converted … in N s`).
 
 ## How it fits together (new in session 3)
 - `server/app.js` wires `ArtworkService` (`server/artwork/service.js`) next to the library;
@@ -1071,10 +1083,67 @@ show the demo songs and the test address 192.0.2.2:
 The themes script's `*-tv-singing.png` are taken mid page-change (half-drawn lyrics) and aren't
 used. To refresh after a UI change: run `npm run e2e` and convert the same files the same way.
 
+## Starting window and update card (2026-10-17)
+The owner: the desktop app doesn't seem to respond for ≈10 s after it is opened, and a new
+version should be announced inside the app.
+- **Starting window** (`desktop/starting.mjs`, page `desktop/starting/`): as soon as Electron is
+  ready, before the server starts, a small frameless window with the app's icon, "OpenKaraoke",
+  a spinner and what it is doing ("Starting…", then "Loading your song library…" while a big
+  library loads in the background, or "Opening…"). It uses the skin of the last party (read from
+  `data/settings.json` before the server starts) and closes when the host window shows. Its page
+  is served through `okapp://app` like the setup window's (`registerAppScheme`/`serveAppScheme` in
+  `desktop/setup.mjs`, `setupFile` now also maps `/starting/`). Starting the app again while it
+  starts brings this window forward. Nothing can show before Electron itself is up (the AppImage
+  mount and Electron's start, ≈1–2 s).
+- **Where the 10 s go**: not measurable here (a fast sandbox: the host window shows ≈1 s after
+  the start). The log now has `startup: the starting window is shown …`, `server on port … s after
+  the start` and `startup: the host window is shown …`, timed from the process start — owner
+  checklist item 19. The library cache no longer holds the server back (see "Startup load in
+  worker threads").
+- **Update card** (`public/js/host/updates.js` `UpdateToast`, desktop app only): when the updater
+  finds a new version, a card in the top right corner: "OpenKaraoke X is available — You have Y",
+  **Download and install** (a copy that can't update itself: **Details**), **What's new** and
+  **Later**; once installed, "OpenKaraoke X is installed" with **Restart now**. Not on Settings ›
+  About (the same buttons are there). **Later** hides it for that version and step until the next
+  start (sessionStorage: a reload of the host window keeps it hidden). The top-bar pill stays.
+- Tests: `desktop/test/app.mjs` checks the starting window (its page, that it goes when the host
+  window shows, the startup lines in the log) and the card (not on About, on Home, Later); the
+  desktop tests now find the host window with `hostWindow()` (`test/e2e/lib.mjs`) since the first
+  window is the starting one. `test/install.test.js` checks the `/starting/` files are served and
+  nothing outside them.
+
+## AVI, MPG and WMV videos with ffmpeg (2026-10-17)
+Browsers can't play AVI, MPG/MPEG, WMV, FLV or VOB. When `ffmpeg` is installed (Fedora:
+`sudo dnf install ffmpeg-free`, Ubuntu: `sudo apt install ffmpeg`; `OPENKARAOKE_FFMPEG` points
+to another one), such a video is converted once:
+- **What**: WebM, VP8 (else VP9) video and Opus (else Vorbis) sound at realtime speed settings —
+  every Chromium plays it, and Fedora's ffmpeg-free has those encoders (no H.264 there). ffmpeg
+  is looked for once in the background at start (`-version`, `-encoders`); it runs through
+  `spawn`, the file name its own argument, never a shell.
+- **When**: the song on stage first, then the next three in the queue (`Room.prepareVideos`, on
+  every broadcast), one conversion at a time (`server/video/jobs.js`). Into
+  `data/video/<trackId>-<size and date>.webm` (a changed file is converted again), never on the
+  drive; the folder is kept under 10 GB, the least recently played go first.
+- **On the TV**: until it is converted the TV gets no video URL, only `converting` (status,
+  progress): the intro says "Getting the video ready… 45%" and the song waits (no `tv.ready`);
+  when it is done the room bumps `player.reload` and the TV loads `/media/<id>/video`, which serves
+  the WebM (byte ranges, seeking). The original file is never served for these (409 while
+  converting). Without ffmpeg, or when the conversion fails, the TV says why and the host gets the
+  usual "Can't play" toast (with the install command).
+- **Settings → Library → Older video formats**: how many such videos there are and which ffmpeg
+  converts them, or what to install (only shown when there are some, or ffmpeg is there).
+- In the sandbox (ffmpeg 6.1, an 8 s 640×360 MPEG-4 AVI): converted in ≈1 s. On the PC a
+  4-minute video should take seconds to a minute (owner checklist item 20).
+- Not done: zipped AVI/MPG (unzip them), a track id that moves (split folder) converts again,
+  host-side progress in the queue (the TV and the log show it).
+- Tests: `test/video.test.js` (a stand-in ffmpeg: arguments, encoders, the queue order, the size
+  limit, the room and the TV's view, the media route; the real ffmpeg on a generated AVI when it
+  is installed), `test/e2e/video-convert.mjs` (the real ffmpeg on the TV, held while converting).
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
-- Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, optional
-  ffmpeg transcoding for AVI/WMV/MPG, mic monitoring with reverb on the PC. The multiplex
+- Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, mic monitoring
+  with reverb on the PC. The multiplex
   vocal stem is only the song-dialog headphone preview (from the start of the file), not that
   monitor and not synced to the TV.
 - Performance pass on the real library: the first artwork crawl's memory was measured with the
@@ -1093,7 +1162,7 @@ used. To refresh after a UI change: run `npm run e2e` and convert the same files
   .deb keeps the sandbox through its AppArmor profile).
 - Provider parsers are verified against documented shapes only — see checklist item 1.
 - Years come from Deezer album release dates (a compilation or remaster can show a later year).
-- Video karaoke (MP4/WEBM) plays in element mode, the same index / serve / TV path as other video. MP4, M4V and MOV length is read from the file's `mvhd` box while scanning. A leading catalog number (`0028. Artist - Title.mp4`) is kept as the disc id and left out of the artist name. AVI/WMV/MPG still need ffmpeg (not built).
+- Video karaoke (MP4/WEBM) plays in element mode, the same index / serve / TV path as other video. MP4, M4V and MOV length is read from the file's `mvhd` box while scanning. A leading catalog number (`0028. Artist - Title.mp4`) is kept as the disc id and left out of the artist name. AVI/MPG/WMV/FLV/VOB are converted with ffmpeg when it is installed (below); a zipped one is not (unzip it).
 - Phone vibration only works on Android; iPhones get the toast/card only.
 - "Preview on headphones" (Song details → Choose headphones…) needs the browser's
   permission once (Chrome: microphone, to name the outputs); check it on the party PC.

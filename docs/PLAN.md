@@ -51,7 +51,11 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   per-track prefs move with the file (§5.1, §22).
 - ✅ P1 Genre / decade browse (host Collections + genre/decade pages, guest chips; metadata from §12), "Most sung here", live "In queue" / "Sung tonight" marks.
 - ✅ P1 Printable songbook (HTML → print to PDF, or CSV) with filters (letter, tag, genre, decade, popular only) — Settings → Library.
-- ⬜ P2 Optional ffmpeg transcoding for AVI/WMV/MPG video when `ffmpeg` is installed.
+- ✅ P2 Optional ffmpeg conversion of AVI/MPG/MPEG/WMV/FLV/VOB video when `ffmpeg` is installed
+  (`server/video/`): converted once to WebM (VP8 or VP9 + Opus or Vorbis, what every Chromium
+  plays, also Fedora's ffmpeg-free) into `data/video/` (10 GB, least recently played go first),
+  when the song is on stage or among the next three; the TV says "Getting the video ready…" and
+  the song waits for it. Without ffmpeg the TV and Settings → Library say what to install.
 
 ### Playback (TV display)
 - ✅ P0 CDG renderer (canvas, all instructions, scroll, transparency) synced to audio (§9.2).
@@ -194,6 +198,9 @@ server/
     auth.js             ✅ host PIN, localhost trust, tokens (HMAC with data/secret), display pairing
     breakmusic.js       ✅ break music between songs (library or music folder) + autoplay sing-alongs
     photos.js           ✅ guest photo uploads, moderation, TV flash/slideshow
+  video/
+    ffmpeg.js           ✅ which files need converting, ffmpeg detection (encoders), arguments, the run (spawn, no shell)
+    jobs.js             ✅ data/video/ cache: one conversion at a time, the song on stage first, size limit
   artwork/
     service.js          ✅ per-provider priority queues, rate limiters/back-off, meta.json, image cache, crawler
     providers.js        ✅ deezer, musicbrainz+caa, theaudiodb, itunes, fanarttv (pure parsers, image refs, host allow-list)
@@ -235,6 +242,7 @@ test/                   ✅ node:test suites + e2e/ (Playwright scripts, `npm ru
 docs/                   ✅ PLAN (this), HANDOFF, RESEARCH, LIBRARY
 desktop/                ✅ the Linux desktop app (Electron + electron-builder, dev dependencies here only)
   main.mjs              ✅ server in-process, host window, TV window on the second screen, menu, permissions
+  starting.mjs starting/  ✅ the window shown at once while the app starts (okapp://app/starting/)
   displays.mjs          ✅ which screen the TV window goes to (pure)
   preload.cjs           ✅ window.okDesktop: openTv, pickFolder, updates
   updater.mjs update-logic.mjs   ✅ updates from GitHub releases (AppImage swap, pkexec dnf/apt-get)

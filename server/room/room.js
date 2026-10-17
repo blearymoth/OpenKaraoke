@@ -21,6 +21,8 @@ import { deviceLabel } from '../util/useragent.js';
 import { clampLead, resolveVocals, leadKind, LAYOUTS } from '../../shared/vocals.js';
 import { vocalStemAllowed } from '../../shared/stems.js';
 import { StemJobs } from '../stems/jobs.js';
+import { VideoJobs } from '../video/jobs.js';
+import { needsConversion } from '../video/ffmpeg.js';
 import { readZipEntry } from '../library/zip.js';
 import { fold } from '../../shared/text.js';
 import { logger } from '../util/log.js';
@@ -151,6 +153,14 @@ export class Room {
       sourceOf: (id) => this.stemSource(id),
       onChange: (id) => { if (this.s.current?.trackId === id) this.markDirty(); },
     });
+    // AVI/MPG/WMV… videos converted with ffmpeg (server/video/), in the data folder. `videoTool` is
+    // null in tests unless given (nothing is spawned); server/start.js passes the real ffmpeg.
+    this.videos = new VideoJobs({
+      dataDir: app.dataDir,
+      tool: app.videoTool || null,
+      sourceOf: (track) => this.library.absPath(track, 'video'),
+      onChange: (trackId, view) => this.onVideoChange(trackId, view),
+    });
     this.declined = new Set(); // "inviter>invitee>song" duet invitations turned down this session
     this.handlers = this.buildHandlers();
     this.breakMusic = new BreakMusic(this);
@@ -169,6 +179,8 @@ export class Room {
     await this.doc.load();
     await this.versions.load(this.historyFile);
     await this.vocals.load();
+    // Whether ffmpeg is there, for Settings → Library (in the background: a program is started).
+    this.videos.detect().then(() => { if (!this.videos.closed) this.markDirty(); }, () => {});
     const s = this.s;
     // After a restart nothing is playing: keep the current song paused where it was.
     const p = s.player;
@@ -200,6 +212,7 @@ export class Room {
     this.breakMusic.close();
     this.photos.close();
     this.stems.close();
+    this.videos.close();
     if (save) await Promise.all([this.doc.flush(), this.vocals.flush(), this.versions.flush()]);
     else {
       this.doc.discard();
@@ -2162,6 +2175,54 @@ export class Room {
     if ((cur && songs.includes(cur.id)) || (next && songs.includes(next)) || (cur && cur.artistKeys.some((k) => artists.includes(k)))) this.markDirty();
   }
 
+  /**
+   * The TV's media for a track. A video the browser can't play (AVI, MPG, WMV…) has its URL once
+   * ffmpeg has converted it; until then `converting` says how far it is (or why it can't be).
+   */
+  mediaFor(track) {
+    const media = mediaUrls(track);
+    if (media?.kind !== 'video' || track.kind !== 'video' || !needsConversion(track.video)) return media;
+    const v = this.videos.view(track);
+    if (v.status === 'ready') return media;
+    return { kind: 'video', video: null, converting: { status: v.status, progress: Math.round((v.progress || 0) * 100) / 100, error: v.error || '' } };
+  }
+
+  /** How many tracks are videos the browser can't play itself (counted once per catalog build). */
+  convertibleCount() {
+    const c = this.catalog;
+    if (this.convertible?.version !== c.version) {
+      let n = 0;
+      for (const t of c.tracks.values()) if (t.kind === 'video' && needsConversion(t.video)) n++;
+      this.convertible = { version: c.version, n };
+    }
+    return this.convertible.n;
+  }
+
+  /** The song on stage and the next three: their videos are converted ahead (the one on stage first). */
+  prepareVideos() {
+    const entries = [this.s.current, ...this.s.queue.slice(0, 3)].filter(Boolean);
+    entries.forEach((e, i) => {
+      const track = this.catalog.track(e.trackId);
+      if (track?.kind === 'video' && needsConversion(track.video)) void this.videos.ensure(track, { urgent: i === 0 && e === this.s.current });
+    });
+  }
+
+  onVideoChange(trackId, view) {
+    const cur = this.s.current;
+    if (cur?.trackId === trackId) {
+      const p = this.s.player;
+      // The TV waits without a file while it converts: it loads the converted one now, or says why
+      // there is none (its tv.error tells the host).
+      if (!p.tvReady && ['ready', 'failed', 'unavailable'].includes(view.status)) {
+        p.reload = (p.reload || 0) + 1;
+        if (view.status === 'ready') p.error = null;
+      }
+      this.markDirty();
+    } else if (this.s.queue.slice(0, 3).some((e) => e.trackId === trackId)) {
+      this.markDirty();
+    }
+  }
+
   /** Current and upcoming songs are looked up first (and their big images prefetched). */
   focusArtwork() {
     const ids = [this.s.current?.songId, ...this.s.queue.slice(0, 3).map((e) => e.songId)];
@@ -2424,7 +2485,7 @@ export class Room {
     if (meta?.year) out.year = meta.year;
     if (song) out.artistKeys = song.artistKeys;
     if (media) {
-      out.media = mediaUrls(track);
+      out.media = this.mediaFor(track);
       out.art = this.app.artwork?.artFor(song) || null;
     }
     return out;
@@ -2460,6 +2521,7 @@ export class Room {
       hotspot,
       hasPin,
       library: this.library.status(),
+      video: { ...this.videos.status(), tracks: this.convertibleCount() },
       current: this.currentView({ version: true, voter: HOST_VOTER }),
       player: this.playerView(),
       queue: s.queue.map((e, i) => ({ ...this.entryView(e), eta: eta[i], addedByName: byName(e) })),
@@ -2517,7 +2579,7 @@ export class Room {
       wifi: !this.app.hotspot?.active && party.wifi?.show && party.wifi.ssid ? { ssid: party.wifi.ssid, qr: wifiPayload(party.wifi) } : null,
       guestsEnabled: party.guestsEnabled,
       current: this.currentView({ media: true }),
-      next: s.queue[0] ? { entryId: s.queue[0].id, trackId: s.queue[0].trackId, media: mediaUrls(this.catalog.track(s.queue[0].trackId)) } : null,
+      next: s.queue[0] ? { entryId: s.queue[0].id, trackId: s.queue[0].trackId, media: this.mediaFor(this.catalog.track(s.queue[0].trackId)) } : null,
       player: this.playerView(),
       queue: s.queue.slice(0, 10).map((e, i) => ({ ...this.entryView(e, { mask: true }), eta: eta[i] })),
       queueLength: s.queue.length,
@@ -2629,6 +2691,7 @@ export class Room {
     }
     this.checkUpNext();
     this.focusArtwork();
+    this.prepareVideos();
     this.app.artFeed?.release(); // a mystery song started (or was unmasked): its art is no secret
     this.breakMusic.checkAutoplay();
     this.save();

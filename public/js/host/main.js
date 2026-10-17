@@ -16,7 +16,7 @@ import { Settings } from './settings.js';
 import { Games } from './games.js';
 import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
 import { followAppearance } from '../lib/theme.js';
-import { UpdatePill } from './updates.js';
+import { UpdatePill, UpdateToast } from './updates.js';
 import { HotspotBanner } from './hotspot.js';
 
 // The desktop app's own messages (e.g. how to move the TV window on Wayland).
@@ -218,6 +218,7 @@ function App() {
     ${!narrow && html`<${AdminPanel} />`}
     ${narrow ? !fullPlayer && html`<${MiniPlayer} />` : html`<${PlayerBar} />`}
     <${Dialogs} />
+    <${UpdateToast} route=${route} />
     <${Toasts} store=${toasts.store} />
   </div>`;
 }

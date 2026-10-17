@@ -15,7 +15,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { loadPlaywright, check, results, sleep } from '../../test/e2e/lib.mjs';
+import { loadPlaywright, check, results, sleep, hostWindow } from '../../test/e2e/lib.mjs';
 import { installPaths, menuEntry } from '../install.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -189,7 +189,7 @@ try {
   // ---- 4. The installed app: Settings → About → On this computer ------------------------------
   if (!REAL) {
     app = await launch(paths.appImage);
-    const host = await app.firstWindow();
+    const host = await hostWindow(app);
     await host.waitForURL(/\/host/, { timeout: 60_000 });
     await host.evaluate(() => { location.hash = '#/settings/about'; });
     await host.waitForSelector('.section-title:has-text("On this computer")', { timeout: 20_000 });
@@ -232,7 +232,7 @@ try {
     await back.click('button:has-text("Quit OpenKaraoke")');
     check(await ended && !exists(path.join(userData, 'data', 'server.json')), 'Settings → About → Quit OpenKaraoke saves the party and quits');
     app = await launch(paths.appImage);
-    const again = await app.firstWindow();
+    const again = await hostWindow(app);
     await again.waitForURL(/\/host/, { timeout: 60_000 });
     await again.evaluate(() => { location.hash = '#/settings/about'; });
     await again.waitForSelector('.section-title:has-text("On this computer")', { timeout: 20_000 });
@@ -267,7 +267,7 @@ try {
   }
   // OpenKaraoke open meanwhile: the setup quits it on request before uninstalling.
   let running = await launch(paths.appImage);
-  await (await running.firstWindow()).waitForURL(/\/host/, { timeout: 60_000 });
+  await (await hostWindow(running)).waitForURL(/\/host/, { timeout: 60_000 });
   await win.click('button:has-text("Uninstall OpenKaraoke…")');
   await win.waitForSelector('h1:has-text("Uninstall OpenKaraoke?")');
   await win.waitForSelector('button:has-text("Quit OpenKaraoke for me")', { timeout: 10_000 });
@@ -311,7 +311,7 @@ try {
   // ---- 7. A release's own AppImage (OpenKaraoke-<version>.AppImage) starts as the app --------
   const releaseFile = await download('OpenKaraoke-9.9.9.AppImage');
   app = await launch(releaseFile);
-  const direct = await app.firstWindow();
+  const direct = await hostWindow(app).catch(() => app.firstWindow());
   await direct.waitForURL(/\/host/, { timeout: 60_000 }).catch(() => {});
   check(/\/host/.test(direct.url()), `a release's own AppImage file starts as the app, no setup (${direct.url().replace(/^http:\/\/[^/]+/, '')})`);
   await app.close();

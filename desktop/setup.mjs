@@ -16,7 +16,7 @@ import { install, launchEnv, readInstall, rememberPortable, runningServer, setup
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCHEME = 'okapp';
-const ORIGIN = `${SCHEME}://app`;
+export const ORIGIN = `${SCHEME}://app`;
 /** Where the .deb and .rpm put the app (a copy installed for everyone). */
 export const SYSTEM_COPY = '/opt/OpenKaraoke/openkaraoke';
 const TYPES = {
@@ -30,9 +30,31 @@ const TYPES = {
   '.json': 'application/json',
 };
 
+/**
+ * okapp://app, the scheme of the setup page and of the window shown while the app starts
+ * (desktop/starting.mjs). Registered before the app is ready, served once it is.
+ */
+export function registerAppScheme() {
+  protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+}
+
+/** Serves okapp://app: only the files setupFile() allows. */
+export function serveAppScheme() {
+  protocol.handle(SCHEME, async (request) => {
+    const url = new URL(request.url);
+    const file = url.host === 'app' ? setupFile(url.pathname) : null;
+    if (!file) return new Response('Not found', { status: 404 });
+    try {
+      return new Response(await fsp.readFile(file), { headers: { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream' } });
+    } catch {
+      return new Response('Not found', { status: 404 });
+    }
+  });
+}
+
 /** Before the app is ready: the page's own scheme, and a throwaway profile. */
 export function prepareSetup() {
-  protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+  registerAppScheme();
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'openkaraoke-setup-'));
   app.setPath('userData', profile);
   app.on('will-quit', () => fs.rmSync(profile, { recursive: true, force: true }));
@@ -217,16 +239,7 @@ export function runSetup({ from, paths, userData, version, icon, log = console }
 
   app.on('window-all-closed', () => app.quit());
   app.whenReady().then(() => {
-    protocol.handle(SCHEME, async (request) => {
-      const url = new URL(request.url);
-      const file = url.host === 'app' ? setupFile(url.pathname) : null;
-      if (!file) return new Response('Not found', { status: 404 });
-      try {
-        return new Response(await fsp.readFile(file), { headers: { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream' } });
-      } catch {
-        return new Response('Not found', { status: 404 });
-      }
-    });
+    serveAppScheme();
     Menu.setApplicationMenu(null);
     listen();
     createWindow();

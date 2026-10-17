@@ -9,7 +9,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { loadPlaywright, check, results, sleep, WsClient } from '../../test/e2e/lib.mjs';
+import { loadPlaywright, check, results, sleep, WsClient, hostWindow } from '../../test/e2e/lib.mjs';
 import { makeDemoLibrary } from '../../scripts/make-demo-library.js';
 import { Catalog } from '../../server/library/catalog.js';
 import { manyTracks } from '../../test/helpers.js';
@@ -62,7 +62,7 @@ const get = async (base, url) => {
 try {
   const t0 = Date.now();
   app = await electron.launch({ executablePath: executable, args: ['--no-sandbox', '--no-setup', ...appArgs], env, timeout: 60_000 });
-  const host = await app.firstWindow();
+  const host = await hostWindow(app, 30_000);
   await host.waitForURL(/\/host/, { timeout: 30_000 });
   const base = new URL(host.url()).origin;
   const health = await get(base, '/api/health');

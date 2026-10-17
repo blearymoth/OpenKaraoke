@@ -283,15 +283,18 @@ test('install: whether OpenKaraoke runs on a data folder (its lock)', async () =
   assert.equal(runningServer(dir), null);
 });
 
-test('install: the setup page serves only its own files, the styles and the scripts', () => {
+test('install: the setup and starting pages serve only their own files, the styles and the scripts', () => {
   assert.equal(setupFile('/setup/index.html'), path.join(ROOT, 'desktop', 'setup', 'index.html'));
   assert.equal(setupFile('/setup/'), path.join(ROOT, 'desktop', 'setup', 'index.html'));
   assert.equal(setupFile('/css/base.css'), path.join(ROOT, 'public', 'css', 'base.css'));
   assert.equal(setupFile('/shared/themes.js'), path.join(ROOT, 'shared', 'themes.js'));
-  for (const bad of ['/setup/../main.mjs', '/setup/%2e%2e/main.mjs', '/../server/config.js', '/shared/../desktop/main.mjs', '/%E0%A4%A', '/']) {
+  assert.equal(setupFile('/starting/'), path.join(ROOT, 'desktop', 'starting', 'index.html'));
+  assert.equal(setupFile('/starting/starting.css'), path.join(ROOT, 'desktop', 'starting', 'starting.css'));
+  for (const bad of ['/setup/../main.mjs', '/setup/%2e%2e/main.mjs', '/starting/../main.mjs', '/starting/%2e%2e/setup.mjs', '/../server/config.js', '/shared/../desktop/main.mjs', '/%E0%A4%A', '/']) {
     assert.equal(setupFile(bad), null, bad);
   }
   for (const f of ['index.html', 'setup.js', 'setup.css', 'preload.cjs']) assert.ok(fsSync.existsSync(path.join(ROOT, 'desktop', 'setup', f)), f);
+  for (const f of ['index.html', 'starting.js', 'starting.css']) assert.ok(fsSync.existsSync(path.join(ROOT, 'desktop', 'starting', f)), f);
 });
 
 test('update logic: removing the .deb or .rpm with the password prompt', () => {

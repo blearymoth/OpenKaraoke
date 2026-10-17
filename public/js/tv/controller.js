@@ -167,6 +167,13 @@ export class TvController extends EventTarget {
     try {
       const media = cur.media;
       if (!media) throw new Error('This song is not in the library any more');
+      if (media.kind === 'video' && !media.video) {
+        // AVI, MPG, WMV…: ffmpeg converts it first (the server reloads this TV when it's done).
+        const c = media.converting || {};
+        if (c.status === 'failed' || c.status === 'unavailable') throw new Error(c.error || 'This video can’t be played');
+        this.changed();
+        return;
+      }
       if (media.kind === 'video' && this.display !== 'main' && this.noVideo) {
         // nothing to load: the page shows the song's cover
       } else if (media.kind === 'video') {

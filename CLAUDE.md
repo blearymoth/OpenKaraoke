@@ -77,6 +77,11 @@ Server (`server/`)
   `hotspot.js` (`Hotspot`: checks, start/stop, watcher, fallback). `createApp()` never calls
   nmcli unless given a runner; `start.js` passes the real one. Tests use
   `scripts/fake-nmcli.mjs` (`OPENKARAOKE_FAKE_NMCLI=<scenario>` to try the UI by hand).
+- `video/` — AVI/MPG/WMV… karaoke videos (PLAN §2): `ffmpeg.js` (which files need converting,
+  ffmpeg detection, arguments, the run: `spawn`, never a shell), `jobs.js` (`VideoJobs`: the
+  `data/video/` WebM cache, one at a time, the song on stage first). `createApp({ videoTool })`:
+  `start.js` passes the real ffmpeg, tests a stand-in (never the real one except
+  `test/video.test.js`'s last test and `test/e2e/video-convert.mjs`, when ffmpeg is installed).
 - `artwork/placeholder.js` — gradient + initials SVG (real artwork comes in M5).
 - `util/` — log (+ `setLogSink` for the desktop log file), useragent (device names for the host's
   Devices list), jsonfile (`JsonDoc`), net (LAN
@@ -124,6 +129,10 @@ Desktop app (`desktop/`, Electron; see docs/HANDOFF.md "Desktop app" and "One-do
   `setup.mjs` + `setup/` — the setup window (throwaway profile, no server, its page served through
   `okapp://app`). `pack-setup.cjs` — the zip (stored, Unix mode 0755), made by electron-builder's
   `afterAllArtifactBuild`.
+- `starting.mjs` + `starting/` — the window shown at once while the app starts (the skin of the
+  last party, what it is doing; it closes when the host window shows), served through
+  `okapp://app` like the setup page. The update card in the host page: `public/js/host/updates.js`
+  `UpdateToast`.
 - `main.mjs` — runs `startServer()` in-process, host window, TV window (full screen on another
   screen, autoplay + microphone allowed for our own pages only), menu, single instance, saving
   on quit, native Wayland (TV moved by the person, full screen on the move) or an XWayland

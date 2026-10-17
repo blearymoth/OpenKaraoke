@@ -11,7 +11,7 @@ the installer are as below. Run in a cloud sandbox without the owner's PC or dri
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 530/530; `npm run e2e` → 19 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 533/533; `npm run e2e` → 19 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
@@ -958,6 +958,13 @@ folder that was simply removed, is not the same file and keeps its own records.
 A symbolic link whose target is a different path is still scanned once; those plays stay on
 the old id. `history.jsonl` is not rewritten. A renamed file still starts over.
 
+## Rotation: newcomers after Stop (2026-10-17)
+Stop puts the song on stage back at the top of the queue. When its singer had already sung, a
+newcomer used to go before that song, so a second newcomer went before the first one. A newcomer
+now goes after every newcomer already waiting (PLAN §6.3), and only then before the round-0 songs
+of people who already sang. The same holds when the host drags a newcomer down the queue: a newer
+newcomer goes after them. `test/rotation.test.js` and `test/room.test.js` reproduce it.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, optional
@@ -989,8 +996,6 @@ the old id. `history.jsonl` is not rewritten. A renamed file still starts over.
   A multiplex **Vocal** preview needs autokaraoke’s separator on this computer (the first
   time for a track can take a while); it is not in time with the TV.
 - `catalog.js` heap ~200–400 MB while building 90k tracks (unchanged).
-- Rotation edge case: after Stop re-queues a song of someone who already sang, a newcomer
-  can be placed before an earlier newcomer (manual reordering fixes it).
 - `(VR)` annotation meaning still unknown — kept as a version label.
 
 ## Starter prompt for the next session

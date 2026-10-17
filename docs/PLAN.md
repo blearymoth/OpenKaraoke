@@ -237,6 +237,7 @@ desktop/                ✅ the Linux desktop app (Electron + electron-builder, 
   updater.mjs update-logic.mjs   ✅ updates from GitHub releases (AppImage swap, pkexec dnf/apt-get)
   electron-builder.config.cjs    ✅ AppImage, .rpm, .deb → desktop/dist/
   test/app.mjs          ✅ end to end under Xvfb (npm --prefix desktop test)
+  test/big-library.mjs  ✅ a 20k-track library: cache load and rescan in worker threads inside Electron
 .github/workflows/desktop.yml    ✅ test, build and release the desktop app for every change on main
 ```
 

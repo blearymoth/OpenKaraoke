@@ -11,13 +11,14 @@ the installer are as below. Run in a cloud sandbox without the owner's PC or dri
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 540/540; `npm run e2e` → 19 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 544/544; `npm run e2e` → 19 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
-  plain http), `game-pitch.mjs` the pitch rings); `npm --prefix desktop test` → 46/46 + 35/35 (the
-  desktop app, also against the built installer, and the setup window; the release workflow also
+  plain http), `game-pitch.mjs` the pitch rings); `npm --prefix desktop test` → 46/46 + 35/35 + 8/8 (the
+  desktop app, also against the built installer, the setup window, and a 20k-track library through
+  the worker threads; the release workflow also
   runs the setup test against the real AppImage from `OpenKaraoke-Setup.zip`). Every milestone also went through an independent review
   whose confirmed findings were fixed and re-verified (table below).
 - **Skins** (after session 3): Settings → Appearance switches every screen between **Studio**
@@ -489,6 +490,10 @@ dependencies and still runs with `node server/index.js`).
   (`OPENKARAOKE_FAKE_DISPLAYS`) and a stand-in GitHub (`OPENKARAOKE_UPDATE_API`): port
   fallback, TV window placement and sound, microphone, menu, second instance, quit/save, the
   update flow down to the restart. `APP=desktop/dist/linux-unpacked/openkaraoke` tests a build.
+  `test/big-library.mjs` (also in `npm --prefix desktop test`) starts the app on a 20,000-track
+  cache plus the demo folder: the cache loads and a rescan rebuilds the catalog in worker threads
+  inside Electron's main process (the log says so; no fallback to the server's thread), and
+  searches are answered meanwhile.
 - Not testable in the sandbox: a real GPU and two real monitors, pkexec, GNOME's dock grouping —
   checklist items 12–13. (Wayland placement was checked in a headless GNOME Shell, see above.)
 
@@ -1020,6 +1025,13 @@ the desktop app's window, a TV reconnecting after a restart and `/api/health` al
   at once gives (also with a folder split and `departed` records), that a scan waits for it, and
   that the server listens and answers health before the catalog is in.
 - A library under ≈5,000 tracks loads at once, as before (the tests' libraries).
+- Inside the desktop app too (`desktop/test/big-library.mjs`, Electron 44.5.1, 20,000 cached
+  tracks): from source, the cache is in ≈0.8 s after the start through the worker threads, a rescan
+  rebuilds in the worker in ≈0.5 s, and the slowest search during it took ≈20 ms. Against the
+  packaged `linux-unpacked` build: ≈1.0 s, ≈0.7 s, ≈45 ms. The app is not packed into an asar, so
+  `catalog-worker.js` is an ordinary file there. (In the sandbox, Electron's own downloader is cut
+  off by the proxy; the zip was fetched with curl, checked against SHASUMS256.txt and unpacked into
+  `node_modules/electron/dist` as its installer does.)
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

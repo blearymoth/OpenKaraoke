@@ -295,6 +295,9 @@ test('install: the setup and starting pages serve only their own files, the styl
   }
   for (const f of ['index.html', 'setup.js', 'setup.css', 'preload.cjs']) assert.ok(fsSync.existsSync(path.join(ROOT, 'desktop', 'setup', f)), f);
   for (const f of ['index.html', 'starting.js', 'starting.css']) assert.ok(fsSync.existsSync(path.join(ROOT, 'desktop', 'starting', f)), f);
+  const page = fsSync.readFileSync(path.join(ROOT, 'desktop', 'starting', 'index.html'), 'utf8');
+  assert.match(page, /<h1>OpenKaraoke<\/h1>/, 'the starting window says what is starting');
+  assert.match(page, /id="status"[^>]*>Starting…</, 'and that it is starting');
 });
 
 test('update logic: removing the .deb or .rpm with the password prompt', () => {

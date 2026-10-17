@@ -118,10 +118,14 @@ try {
   app = await launch();
   // At once, a window that says OpenKaraoke is starting; it goes when the host window shows.
   const first = await app.firstWindow();
-  await shot(first, 'starting').catch(() => {}); // (it may be gone already on a fast machine)
   const startingUrl = first.url();
-  const startingText = await first.textContent('body').catch(() => '');
-  check(/^okapp:\/\/app\/starting\//.test(startingUrl) && /OpenKaraoke/.test(startingText), `a window says OpenKaraoke is starting (${startingUrl.replace(/\?.*/, '')}: "${startingText.replace(/\s+/g, ' ').trim()}")`);
+  // (firstWindow() comes as soon as the window exists, before its page has loaded; on a fast
+  // start it may already be gone again — the host window was quicker.)
+  const startingText = await first.waitForSelector('h1', { timeout: 10_000 })
+    .then(() => first.textContent('body'), () => (first.isClosed() ? null : ''));
+  if (startingText) await shot(first, 'starting').catch(() => {});
+  check(/^okapp:\/\/app\/starting\//.test(startingUrl) && (startingText === null || /OpenKaraoke/.test(startingText)),
+    `a window says OpenKaraoke is starting (${startingUrl.replace(/\?.*/, '')}: ${startingText === null ? 'gone again before its page could be read' : `"${startingText.replace(/\s+/g, ' ').trim()}"`})`);
   const host = await hostWindow(app, 30_000);
   await host.waitForURL(/\/host/, { timeout: 30_000 });
   const gone = await poll(async () => (app.windows().some((w) => /^okapp:/.test(w.url())) ? null : true), 10_000);

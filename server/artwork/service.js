@@ -51,6 +51,8 @@ const HOST_BACKOFF_MS = [30_000, 10 * 60_000]; // an image host that failed: fir
 const BIG_FILE = 64 * 1024; // cached images above this size are evicted before list thumbnails…
 const RECENT_MS = 10 * 60_000; // …unless used this recently (just shown, prefetched for the TV): those go last
 const IN_USE_MS = 60_000; // images used this recently are being sent: never evicted
+const RATE_WINDOW_MS = 5 * 60_000; // the crawl rate shown to the host: lookups in this window
+const BAD_SWEEP = 5000; // badUrls entries before the first sweep of expired ones
 const SAVE_MS = 10_000; // meta.json is written this long after a change…
 const SAVE_CRAWL_MS = 120_000; // …or this long while the crawler is filling it
 const SAVE_SLICE = 2000; // entries serialised per slice (the event loop runs in between)
@@ -95,9 +97,18 @@ async function readLimited(res, limit) {
   return Buffer.concat(chunks);
 }
 
+/**
+ * The entry without its empty fields, as a new object: deleting properties would leave V8 objects
+ * in dictionary mode, ≈2× the memory (≈1.3 KB instead of ≈0.6 KB per song at 54k songs).
+ */
 const compactEntry = (e) => {
-  for (const k of Object.keys(e)) if (e[k] === '' || e[k] === null || e[k] === undefined || e[k] === 0 || e[k] === false || (Array.isArray(e[k]) && !e[k].length)) delete e[k];
-  return e;
+  const out = {};
+  for (const k of Object.keys(e)) {
+    const v = e[k];
+    if (v === '' || v === null || v === undefined || v === 0 || v === false || (Array.isArray(v) && !v.length)) continue;
+    out[k] = v;
+  }
+  return out;
 };
 
 /** "Couldn't ask right now" (offline, back-off, turned off): never recorded as "not found". */
@@ -154,6 +165,7 @@ export class ArtworkService extends EventEmitter {
     this.imageRunningCrawl = 0;
     this.imageHosts = new Map(); // image host → { fails, until } while it is failing
     this.badUrls = new Map(); // url → time of a 404 (not asked again for a day)
+    this.badSweepAt = BAD_SWEEP; // badUrls drops expired entries when it reaches this size
     // Guests (not the host) may start only so many lookups and downloads (per address).
     this.guestLimit = new RateLimiter({ capacity: 120, perMs: 60_000 });
     this.throttles = {};
@@ -397,6 +409,24 @@ export class ArtworkService extends EventEmitter {
     this.timers.status.unref?.();
   }
 
+  /** One more crawl lookup for the rate shown to the host (the last 5 minutes, also when no one asks). */
+  noteCrawled() {
+    const now = this.now();
+    const c = this.crawl;
+    c.recent.push(now);
+    if (now - c.recent[0] > RATE_WINDOW_MS + 60_000) c.recent = c.recent.filter((t) => now - t < RATE_WINDOW_MS);
+  }
+
+  /** `url` is no image (404, not allowed, too big): not asked again for a day. */
+  markBad(url) {
+    const now = this.now();
+    this.badUrls.set(url, now);
+    // Expired ones are dropped now and then (they only grew over the passes and the days).
+    if (this.badUrls.size < this.badSweepAt) return;
+    for (const [u, at] of this.badUrls) if (now - at >= DAY) this.badUrls.delete(u);
+    this.badSweepAt = Math.max(BAD_SWEEP, this.badUrls.size * 2);
+  }
+
   setSong(song, entry) {
     const prev = this.songs.get(song.key);
     this.songs.set(song.key, compactEntry(entry));
@@ -627,7 +657,7 @@ export class ArtworkService extends EventEmitter {
     let host = '';
     for (let hop = 0; hop < 4; hop++) {
       if (!allowedImageUrl(current)) {
-        this.badUrls.set(url, this.now());
+        this.markBad(url);
         return null;
       }
       host = hostOf(current);
@@ -649,14 +679,14 @@ export class ArtworkService extends EventEmitter {
     if (!res.ok) {
       res.body?.cancel?.().catch?.(() => {});
       if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
-        this.badUrls.set(url, this.now()); // there is no such image
+        this.markBad(url); // there is no such image
         return null;
       }
       throw this.hostFailed(host, `HTTP ${res.status}`);
     }
     if (Number(res.headers.get('content-length')) > MAX_IMAGE_BYTES) {
       res.body?.cancel?.().catch?.(() => {});
-      this.badUrls.set(url, this.now());
+      this.markBad(url);
       return null;
     }
     let buf;
@@ -667,7 +697,7 @@ export class ArtworkService extends EventEmitter {
     }
     const ext = buf && sniff(buf);
     if (!ext) {
-      this.badUrls.set(url, this.now());
+      this.markBad(url);
       return null;
     }
     this.imageHosts.delete(host);
@@ -900,7 +930,7 @@ export class ArtworkService extends EventEmitter {
     if (job.prio === PRIO.crawl) {
       this.crawl.inFlight--;
       // The rate shown to the host counts lookups that asked a provider, not skipped ones.
-      if (job.asked) this.crawl.recent.push(this.now());
+      if (job.asked) this.noteCrawled();
     }
     job.resolve(value);
     if (job.upgraded) {
@@ -1650,7 +1680,7 @@ export class ArtworkService extends EventEmitter {
     }
     let pictures = 0;
     for (const a of this.catalog.artistList) if (this.artists.get(a.key)?.picture) pictures++;
-    const recent = this.crawl.recent.filter((t) => now - t < 5 * 60_000);
+    const recent = this.crawl.recent.filter((t) => now - t < RATE_WINDOW_MS);
     this.crawl.recent = recent;
     const perMin = recent.length ? recent.length / Math.max(1, Math.min(5, (now - recent[0]) / 60_000)) : 0;
     const cfg = this.cfg();

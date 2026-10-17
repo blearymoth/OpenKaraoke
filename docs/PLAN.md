@@ -111,6 +111,9 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
   `data/art/`, placeholder SVG (gradient + initials) while missing; live refresh via `art` events.
 - ✅ P1 Background crawler for the whole library (popular first), resumable, rate-limited,
   progress + ETA in settings. Artist pictures, genre, year, explicit flag, popularity rank.
+  Its memory stays in proportion to the library: entries are stored as new objects without
+  their empty fields (not with fields deleted, which doubles a V8 object), images that aren't
+  there are forgotten after a day, the crawl rate keeps 5 minutes (≈+37 MB at 54k songs).
 - ✅ P1 TheAudioDB (key `123`) artist fanart/logo/cutout for TV backgrounds, intro card and artist pages.
 - ✅ P2 "Fix artwork" (choose among candidates, "no cover", look up again, upload your own picture),
   optional iTunes & Fanart.tv.

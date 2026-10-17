@@ -35,6 +35,20 @@ export const check = (ok, what) => {
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * The desktop app's host window (Playwright's Electron app). Its first window is the one it shows
+ * while it starts (desktop/starting.mjs), so firstWindow() isn't the host.
+ */
+export async function hostWindow(electronApp, timeout = 60_000) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    const w = electronApp.windows().find((x) => /^http:\/\/[^/]+\/host/.test(x.url()));
+    if (w) return w;
+    if (Date.now() > until) throw new Error('the host window did not open');
+    await sleep(100);
+  }
+}
+
+/**
  * A human double click: two clicks on the same spot, `gap` ms apart. (Playwright's dblclick()
  * sends both at once, before the page re-renders, so it never hits the button the first click
  * brings up in the same place.) Resolves to what the second click landed on, e.g.
@@ -127,12 +141,12 @@ export class WsClient {
  * internet). `hotspot` options go to the party hotspot (a fake NetworkManager: never the real one).
  * `addTracks(dir)`: writes more tracks into the library folder before it is scanned.
  */
-export async function startParty({ crawl = false, hotspot, addTracks, stemRun = null } = {}) {
+export async function startParty({ crawl = false, hotspot, addTracks, stemRun = null, videoTool = null } = {}) {
   const lib = await tmpDir('ok-e2e-lib-');
   await makeDemoLibrary(lib, { log: () => {} });
   if (addTracks) await addTracks(lib);
   const dataDir = await tmpDir('ok-e2e-data-');
-  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch: fakeArtFetch({ unknown: new Set(['dj hush']) }), crawl, hotspot, stemRun });
+  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch: fakeArtFetch({ unknown: new Set(['dj hush']) }), crawl, hotspot, stemRun, videoTool });
   await app.library.scan();
   app.settings.update({ playback: { countdown: 3 } });
   await app.listen(0, '127.0.0.1');

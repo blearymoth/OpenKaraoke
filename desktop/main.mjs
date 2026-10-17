@@ -21,11 +21,14 @@ import { THEMES, DEFAULT_THEME } from '../shared/themes.js';
 import { centredBounds, displayFor, nextDisplay, tvDisplay, visibleBounds } from './displays.mjs';
 import { chooseBackend, displaySettings, gpuInfoProblem, gpuVerdict, graphicsLine, useLighterEffects, BACKENDS, LIGHTER } from './graphics.mjs';
 import { install, installPaths, isInstalledCopy, ownAppImage, portableFiles, readInstall, refresh, removeLaterCommand, setAutostart, startMode, startsAtLogin, uninstall } from './install.mjs';
-import { prepareSetup, runSetup } from './setup.mjs';
+import { prepareSetup, registerAppScheme, runSetup } from './setup.mjs';
+import { openStarting } from './starting.mjs';
 import { installKind, removeCommand } from './update-logic.mjs';
 import { Updater } from './updater.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** For the startup lines in the log: how long since the process started (Electron's own start included). */
+const sinceStart = () => `${process.uptime().toFixed(1)} s after the start`;
 const ICON = path.join(HERE, 'build', 'icons', '512x512.png');
 const PRELOAD = path.join(HERE, 'preload.cjs');
 const REPO_NAME = 'blearymoth/OpenKaraoke';
@@ -50,7 +53,10 @@ const PATHS = installPaths({ desktopDir: app.getPath('desktop') });
 const APPIMAGE = ownAppImage({ env: process.env, execPath: process.execPath, packaged: app.isPackaged });
 const MODE = startMode({ argv: process.argv, appImage: APPIMAGE, paths: PATHS, portable: portableFiles(USER_DATA) });
 if (MODE === 'setup') prepareSetup(); // a profile of its own: the app may be open at the same time
-else app.setPath('userData', USER_DATA);
+else {
+  app.setPath('userData', USER_DATA);
+  registerAppScheme(); // the window shown while the app starts (desktop/starting.mjs)
+}
 
 /**
  * The display system (desktop/graphics.mjs): on a Wayland desktop (Ubuntu, Fedora/GNOME) the app
@@ -89,6 +95,7 @@ function run() {
   let tvBase = ''; // the TV's own origin (its own zoom level and storage): http://tv.localhost:<port>
   let hostWin = null;
   let tvWin = null;
+  let starting = null; // the window shown while the app starts (desktop/starting.mjs)
   let updater = null;
   let quitting = false;
   let saving = null; // the party being saved on the way out
@@ -391,7 +398,14 @@ function run() {
     });
     if (saved.maximized) hostWin.maximize();
     guard(hostWin.webContents);
-    whenReady(hostWin, () => hostWin.show());
+    whenReady(hostWin, () => {
+      hostWin.show();
+      if (starting) {
+        starting.close();
+        starting = null;
+        log.info(`startup: the host window is shown ${sinceStart()}`);
+      }
+    });
     hostWin.webContents.on('dom-ready', () => applyLighter(hostWin));
     // What draws the pages: the WebGL renderer's name tells a graphics card from software.
     hostWin.webContents.once('did-finish-load', () => {
@@ -434,7 +448,10 @@ function run() {
 
   /** The host window again (started again from the menu, the menu entry's Uninstall, server mode). */
   function showHost() {
-    if (!base) return;
+    if (!base) { // still starting: the window that says so comes forward
+      starting?.window?.focus();
+      return;
+    }
     if (!hostWin) {
       createHostWindow();
       return;
@@ -1018,10 +1035,18 @@ function run() {
     fs.mkdirSync(dataDir, { recursive: true });
     openLog();
     log.info(`OpenKaraoke ${VERSION} (desktop), data in ${dataDir}`);
+    // Something on screen at once: the server, a big library and the host page take seconds.
+    starting = await openStarting({ dataDir, icon: ICON }).catch((e) => {
+      log.warn('could not show the starting window', e.message || e);
+      return null;
+    });
+    log.info(`startup: the starting window is shown ${sinceStart()}`);
     try {
       // No --port here: the port in Settings (6527 at first), or the next free one.
       server = await startServer({ dataDir, args: {}, env: {}, log });
     } catch (e) {
+      starting?.close();
+      starting = null;
       log.error('could not start', e);
       dialog.showErrorBox('OpenKaraoke could not start', `${e.message}\n\nThe log file is ${logFile}.`);
       app.exit(1);
@@ -1029,7 +1054,8 @@ function run() {
     }
     base = `http://127.0.0.1:${server.port}`;
     tvBase = `http://tv.localhost:${server.port}`;
-    log.info(`server on port ${server.port}${server.moved ? ` (${server.wanted} is used by another program)` : ''}`);
+    log.info(`server on port ${server.port}${server.moved ? ` (${server.wanted} is used by another program)` : ''} ${sinceStart()}`);
+    starting?.status(server.app.library.loading ? 'Loading your song library…' : 'Opening…');
     allowPermissions();
     listen();
     buildMenu();

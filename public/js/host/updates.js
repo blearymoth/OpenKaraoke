@@ -73,6 +73,55 @@ export function UpdatePill() {
   </a>`;
 }
 
+// "Later" on the toast: not shown again for that version and step until the app starts again
+// (sessionStorage outlives a reload of the host window, not a restart).
+const LATER_KEY = 'ok.updateLater';
+const laterKey = (u) => `${u.status}:${u.latest?.version || ''}`;
+function readLater() {
+  try {
+    return sessionStorage.getItem(LATER_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * A card in the corner when a new version is found ("Download and install", or "Details" for a
+ * copy that can't update itself) and when it is ready ("Restart now"). Not on Settings › About,
+ * which shows the same buttons; "Later" hides it until the next start.
+ */
+export function UpdateToast({ route }) {
+  const u = useUpdates();
+  const [later, setLater] = useState(readLater);
+  if (!u || !u.latest?.version || !['available', 'ready'].includes(u.status)) return null;
+  if (later === laterKey(u) || route?.path === '/settings/about') return null;
+  const dismiss = () => {
+    const key = laterKey(u);
+    try {
+      sessionStorage.setItem(LATER_KEY, key);
+    } catch { /* private: hidden for this page only */ }
+    setLater(key);
+  };
+  const ready = u.status === 'ready';
+  const canInstall = SELF_UPDATING.includes(u.kind);
+  return html`<section class="update-toast" role="status" aria-label="Update">
+    <span class="update-toast-icon"><${Icon} name=${ready ? 'restart' : 'download'} size=${20} /></span>
+    <div class="update-toast-text">
+      <b>${ready ? `OpenKaraoke ${u.latest.version} is installed` : `OpenKaraoke ${u.latest.version} is available`}</b>
+      <span>${ready ? 'Restart to use it. The queue and the singers stay.' : `You have ${u.version}.${canInstall ? ' Nothing is installed until you say so.' : ''}`}</span>
+      <div class="btn-row">
+        ${ready
+          ? html`<button class="btn small primary" onClick=${() => call('restart')}>Restart now</button>`
+          : canInstall
+            ? html`<button class="btn small primary" onClick=${() => call('install')}>Download and install</button>`
+            : html`<a class="btn small primary" href="#/settings/about">Details</a>`}
+        ${!ready && canInstall && html`<a class="btn small ghost" href="#/settings/about">What’s new</a>`}
+        <button class="btn small ghost" onClick=${dismiss}>Later</button>
+      </div>
+    </div>
+  </section>`;
+}
+
 function ago(at) {
   if (!at) return '';
   const min = Math.round((Date.now() - at) / 60000);

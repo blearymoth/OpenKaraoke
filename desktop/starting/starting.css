@@ -1,0 +1,12 @@
+/* The window the app shows while it starts (desktop/starting.mjs): the skin's own tokens only. */
+
+html, body.starting { height: 100%; }
+body.starting {
+  margin: 0; overflow: hidden; user-select: none; cursor: default;
+  background: var(--night); color: var(--ink);
+  display: grid; place-items: center;
+}
+.starting main { display: grid; justify-items: center; gap: 10px; text-align: center; padding: 24px; }
+.starting-logo { width: 72px; height: 72px; background: var(--app-icon) center / contain no-repeat; margin-bottom: 6px; }
+.starting h1 { margin: 0; font-family: var(--font-display); font-size: 26px; line-height: 1.1; }
+.starting #status { margin: 0 0 8px; color: var(--ink-2); font-size: 15px; min-height: 1.4em; }

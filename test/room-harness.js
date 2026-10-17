@@ -54,12 +54,14 @@ function filesFor(names) {
  * @param {string[]} [opts.songs] file base names (default SONGS)
  * @param {typeof fetch} [opts.fetch] artwork network (default: offline)
  * @param {Function|null} [opts.stemRun] vocal separator (default: none, so tests never spawn Demucs)
+ * @param {object|null} [opts.videoTool] ffmpeg stand-in (default: none, so tests never spawn ffmpeg)
+ * @param {object} [opts.files] more files for the library folder (path → size or content)
  */
-export async function setupRoom(settings = {}, { songs = SONGS, fetch = offlineFetch, stemRun = null } = {}) {
+export async function setupRoom(settings = {}, { songs = SONGS, fetch = offlineFetch, stemRun = null, videoTool = null, files = {} } = {}) {
   const lib = await tmpDir('ok-lib-');
-  await writeTree(lib, filesFor(songs));
+  await writeTree(lib, { ...filesFor(songs), ...files });
   const dataDir = await tmpDir('ok-data-');
-  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch, crawl: false, stemRun });
+  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch, crawl: false, stemRun, videoTool });
   await app.library.scan();
   app.settings.update({ playback: { countdown: 0 }, ...settings });
   const room = app.room;

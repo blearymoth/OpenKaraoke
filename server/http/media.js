@@ -7,6 +7,7 @@ import { HttpError } from '../util/errors.js';
 import { Lru, memoPromise } from '../util/lru.js';
 import { sendFile, sendBuffer, mimeFor, acceptsGzip } from './static.js';
 import { readZipEntry, entryDataOffset } from '../library/zip.js';
+import { needsConversion } from '../video/ffmpeg.js';
 
 const gzip = promisify(zlib.gzip);
 const PARTS = new Set(['audio', 'cdg', 'video']);
@@ -93,6 +94,12 @@ export function mediaRoutes(router, app) {
         return sendBuffer(req, res, buf, { contentType: mimeFor(entry.name), cacheControl: CACHE, etag });
       }
 
+      if (part === 'video' && needsConversion(track.video)) {
+        // AVI, MPG, WMV…: the browser can't play the file itself, only ffmpeg's conversion of it.
+        const converted = await app.room?.videos.readyFile(track);
+        if (!converted) throw new HttpError(409, 'This video isn’t converted yet', { code: 'converting' });
+        return sendFile(req, res, converted, { contentType: 'video/webm', cacheControl: 'private, no-cache' });
+      }
       const abs = library.absPath(track, source.field);
       if (!abs) throw new HttpError(404, 'File not found');
       if (part === 'cdg') {

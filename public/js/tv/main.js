@@ -546,7 +546,11 @@ function Intro({ st }) {
   let warn = false;
   if (controller.error) { status = `Can't play this song: ${controller.error}`; warn = true; }
   else if (!p.hasDisplay && store.get().display !== 'main') status = 'Waiting for the main TV display';
-  else if (!controller.loaded) status = 'Loading the song…';
+  else if (cur.media?.converting && !cur.media.video) {
+    // An AVI, MPG or WMV video: ffmpeg converts it first (the song starts as soon as it's done).
+    const pct = Math.round((cur.media.converting.progress || 0) * 100);
+    status = `Getting the video ready…${cur.media.converting.status === 'converting' && pct > 0 ? ` ${pct}%` : ''}`;
+  } else if (!controller.loaded) status = 'Loading the song…';
   else if (!controller.unlocked) { status = 'Click the screen to allow sound'; warn = true; }
   else if (p.state === 'ready') status = 'Ready when you are — the host starts the song';
   else if (left === 0) status = 'Here we go!';

@@ -51,6 +51,8 @@ module.exports = {
     'desktop/preload.cjs',
     'desktop/setup.mjs',
     'desktop/setup/**/*',
+    'desktop/starting.mjs',
+    'desktop/starting/**/*',
     'desktop/update-logic.mjs',
     'desktop/updater.mjs',
     'desktop/build/icons/512x512.png',

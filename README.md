@@ -3,7 +3,8 @@
 > From my agentic manager: Hello all, I commissioned this app because I didnt like what was out there for Linux Karaoke support. Made for my Uncle Jim. Thanks
 
 Self-hosted karaoke party app for Linux. It plays your own CDG+MP3 / MP4 karaoke
-library (built for large collections — about 90,000 tracks on a USB drive) with:
+library (built for large collections — about 90,000 tracks on a USB drive; AVI, MPG and WMV videos
+too when ffmpeg is installed) with:
 
 - **Host app** in the browser: instant typo-tolerant search, artists A–Z, collections,
   queue with fair singer rotation, key change, tempo, favourites, playlists, history,

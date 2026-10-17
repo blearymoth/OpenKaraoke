@@ -417,9 +417,10 @@ export async function refresh({ paths, version, iconFrom, run = () => {} }) {
 }
 
 /**
- * The file behind a path of the setup page's okapp://app (desktop/setup.mjs): /setup/… from
- * desktop/setup/, /shared/… from shared/, the rest (styles, fonts, scripts, icons) from public/.
- * Null for anything outside those folders.
+ * The file behind a path of okapp://app, the page of the setup window (desktop/setup.mjs) or of the
+ * window shown while the app starts (desktop/starting.mjs): /setup/… from desktop/setup/,
+ * /starting/… from desktop/starting/, /shared/… from shared/, the rest (styles, fonts, scripts,
+ * icons) from public/. Null for anything outside those folders.
  */
 export function setupFile(urlPath) {
   let p;
@@ -428,8 +429,9 @@ export function setupFile(urlPath) {
   } catch {
     return null;
   }
-  const [root, rel] = p.startsWith('/setup/')
-    ? [path.join(HERE, 'setup'), p.slice('/setup/'.length) || 'index.html']
+  const page = ['setup', 'starting'].find((dir) => p.startsWith(`/${dir}/`));
+  const [root, rel] = page
+    ? [path.join(HERE, page), p.slice(page.length + 2) || 'index.html']
     : p.startsWith('/shared/')
       ? [path.join(ROOT, 'shared'), p.slice('/shared/'.length)]
       : [path.join(ROOT, 'public'), p.slice(1)];

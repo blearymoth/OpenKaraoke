@@ -559,3 +559,21 @@ body.host .toasts { bottom: 104px; }
 }
 /* Lighter effects (the desktop app sets .lite-fx on a PC that draws in software): no blur behind dialogs. */
 .lite-fx .scrim { backdrop-filter: none; background: rgba(var(--shade-rgb), 0.8); }
+
+/* ---- update toast (desktop app: a new version found, or ready after a restart) ------------- */
+
+.update-toast {
+  position: fixed; z-index: 900; top: 72px; right: 16px;
+  width: min(440px, calc(100vw - 32px));
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start;
+  padding: 14px 16px; border-radius: var(--r-lg);
+  background: var(--stage-3); color: var(--ink); border: 1px solid var(--line);
+  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.7);
+  animation: toast-in 0.25s var(--ease);
+}
+.update-toast-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--stage); color: var(--neon); }
+.update-toast-text { display: grid; gap: 4px; }
+.update-toast-text b { font-weight: 700; }
+.update-toast-text span { color: var(--ink-2); font-size: 14px; }
+.update-toast .btn-row { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+

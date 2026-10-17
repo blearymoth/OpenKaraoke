@@ -968,7 +968,7 @@ newcomer goes after them. `test/rotation.test.js` and `test/room.test.js` reprod
 ## Catalog rebuild in a worker thread (2026-10-17)
 A rescan with changes used to stop the server for the whole catalog build: measured on a
 synthetic 90k-track library on disk (`test/helpers.js` `manyTracks`, the owner's layout),
-3.2–5 s without an answer to any page. Now:
+3.0–3.4 s without an answer to any page (more on a busy PC). Now:
 - From 5,000 tracks (`LibraryService` `workerMinTracks`) the build runs in a `node:worker_threads`
   worker (`server/library/catalog-worker.js`, built in, no dependency) with the same `Catalog`
   code. Sending 150k objects back by structured clone would have cost the main thread as much as
@@ -982,10 +982,11 @@ synthetic 90k-track library on disk (`test/helpers.js` `manyTracks`, the owner's
   rescan), and resolves each folder once otherwise (`placer` in `ids.js`); the snapshot, the
   signature and the cache file (`toCacheText`, written in pieces) are made in slices
   (`server/util/slice.js`).
-- Result at 90k: the longest stall during a rescan with changes is ≈100 ms (the swap itself, the
-  id carryover and the per-folder counts, which must happen together). The build takes a little
-  longer in all (≈3.2 s instead of ≈2.2 s for a rebuild of parsed tracks) but in the background;
-  search stays ≈15 ms. `test/catalog-worker.test.js` checks that searches are answered during a
+- Result at 90k (cloud sandbox, quiet): the longest stall during a rescan with changes is
+  ≈100 ms (the swap itself, the id carryover and the per-folder counts, which must happen
+  together), instead of 3.0–3.4 s. The whole rescan takes ≈3.8 s instead of ≈4.2 s, the first
+  scan ≈6.3 s instead of ≈6.8 s; the build alone, in the worker, ≈2.9 s for parsed tracks; search
+  ≈11 ms. `test/catalog-worker.test.js` checks that searches are answered during a
   rebuild of 25k tracks (with the old build none were).
 - Not changed: the startup load from `library.json` still builds on the main thread (before the
   server listens), and a library under 5,000 tracks builds as before (≈0.1 s).

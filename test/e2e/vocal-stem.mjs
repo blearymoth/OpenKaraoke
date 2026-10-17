@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // The multiplex vocal stem on the headphone preview (not on the TV): Quiet Storm's button
 // says Vocal and plays the cached stem; an ordinary song still previews the whole file.
-// The separator here is the fake one — Demucs is not started.
+// The separator here is the fake one — Demucs is not started — held on a gate, so the page is
+// checked while the server is really still separating (the fake one alone takes ≈15 ms).
 //
 //   node test/e2e/vocal-stem.mjs [outDir]
 import fs from 'node:fs/promises';
@@ -15,7 +16,9 @@ const out = path.resolve(process.argv[2] || 'test-results/e2e-vocal-stem');
 await fs.mkdir(out, { recursive: true });
 
 const { chromium } = loadPlaywright();
-const { app, base } = await startParty({ stemRun: fakeStemRun });
+let release;
+const gate = new Promise((resolve) => { release = resolve; });
+const { app, base } = await startParty({ stemRun: async (job) => { await gate; return fakeStemRun(job); } });
 const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
 const errors = [];
 const watch = (page, name) => {
@@ -49,13 +52,14 @@ try {
   check(!(await host.$('.versions .btn:has-text("Preview")')), 'a multiplex version’s button is Vocal, not Preview');
   check(!(await host.$('input[aria-label="Backing"], .btn:has-text("Backing")')), 'no backing-level control');
   await host.click('.versions .btn:has-text("Vocal")');
-  const asked = await until(() => app.room.stems.view(mpx.id).status === 'separating' || app.room.stems.view(mpx.id).status === 'ready');
-  check(asked, 'Vocal asks the server to separate the guide vocal');
-  await until(() => app.room.stems.view(mpx.id).status === 'ready');
-  if (!(await host.$('.versions .btn:has-text("Stop")'))) {
-    check(!!(await host.$('.preview-output .warn-text')), 'while it separates, the preview says so and does not play the full mix');
-    await host.click('.versions .btn:has-text("Vocal")');
-  }
+  const stem = () => app.room.stems.view(mpx.id).status;
+  check(await until(() => stem() === 'separating'), 'Vocal asks the server to separate the guide vocal');
+  const warned = await host.waitForSelector('.preview-output .warn-text:has-text("Separating")', { timeout: 8000 }).then(() => true, () => false);
+  check(warned && stem() === 'separating' && !(await host.$('.versions .btn:has-text("Stop")')) && !media.some((p) => p.endsWith('/audio')),
+    'while it separates, the preview says so and does not play the full mix');
+  release();
+  check(await until(() => stem() === 'ready'), 'the separation finishes');
+  await host.click('.versions .btn:has-text("Vocal")');
   check(await until(() => media.some((p) => p.endsWith('/stem/vocal'))), `the headphone preview loads the vocal stem (${media.filter((p) => p.includes('/media/')).join(', ')})`);
   check(!media.some((p) => p.includes('/stem/backing') || p.includes('/stem/lead')), 'no backing stem is requested');
   await host.screenshot({ path: path.join(out, 'host-vocal.png') });

@@ -54,7 +54,9 @@ if (!lib.roots.length) {
   console.log('  or restart with  --library "/run/media/$USER/<drive>/<folder>"');
 } else {
   for (const r of lib.roots) console.log(`  Library              : ${r.path} ${r.online ? '' : '(offline — is the drive plugged in?)'}`);
-  console.log(`  Indexed              : ${lib.tracks} tracks, ${lib.songs} songs${lib.scanning ? ' (rescanning in the background…)' : ''}`);
+  console.log(lib.loading
+    ? '  Indexed              : loading the last scan in the background (a few seconds)…'
+    : `  Indexed              : ${lib.tracks} tracks, ${lib.songs} songs${lib.scanning ? ' (rescanning in the background…)' : ''}`);
 }
 console.log(`  Data folder          : ${dataDir}\n  ${line}\n`);
 

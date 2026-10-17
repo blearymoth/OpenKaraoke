@@ -992,8 +992,34 @@ synthetic 90k-track library on disk (`test/helpers.js` `manyTracks`, the owner's
   scan ≈6.3 s instead of ≈6.8 s; the build alone, in the worker, ≈2.9 s for parsed tracks; search
   ≈11 ms. `test/catalog-worker.test.js` checks that searches are answered during a
   rebuild of 25k tracks (with the old build none were).
-- Not changed: the startup load from `library.json` still builds on the main thread (before the
-  server listens), and a library under 5,000 tracks builds as before (≈0.1 s).
+- Not changed: a library under 5,000 tracks builds as before (≈0.1 s). The startup load: see
+  the next section.
+
+## Startup load in worker threads (2026-10-17)
+Measured on the same synthetic 90k library (`manyTracks`, a 29 MB `library.json`): loading the
+cache at start took 2.8–3.3 s on the server's thread before it listened (JSON.parse ≈0.4 s, track
+ids ≈0.15 s, the build ≈2.2 s, signature and id carryover ≈0.2 s). Nothing answered meanwhile —
+the desktop app's window, a TV reconnecting after a restart and `/api/health` all waited. Now:
+- A `library.json` of 1.5 MB or more (≈5,000 tracks, `LibraryService` `cacheWorkerMinBytes`) is
+  loaded after `init()` returns: a worker reads and parses the file and sends the track records
+  back as JSON bytes (`Catalog.readCache`), the ids, signature and snapshot are made in slices,
+  and the build goes through `Catalog.loadAsync` (the rescan's worker). The id carryover is
+  skipped when the folders are the same and every track was kept (nothing can have moved, ≈90 ms
+  saved). A worker that fails falls back to reading/building on the thread, as before.
+- While it loads (`library.loading`, `status().loading`): pages, the WebSocket hello (the party's
+  state: queue, now playing) and `/api/health` answer at once; other `/api/*`, `/media/*` and
+  WebSocket requests wait for the catalog (`library.ready()`), so a search or the TV's media never
+  sees an empty library. The host's Home shows "Loading your library…", the TV's lobby "Loading
+  the song library…", the terminal banner says so. A scan (startup, button, folder change) waits
+  for the load; Stop/shutdown ends it.
+- Result at 90k (cloud sandbox): the server listens ≈25 ms after `createApp` starts (was ≈3 s);
+  the catalog is in after ≈3.5–4 s (≈0.5 s later than before, the price of the hand-over); the
+  longest stall meanwhile is ≈40–60 ms (it includes the first search's vocabulary, ≈20 ms);
+  `/api/health` answers within ≈25–80 ms while 10,000 requests hammer it. Search afterwards
+  ≈13–20 ms. `test/catalog-worker.test.js` checks the background load gives exactly what the load
+  at once gives (also with a folder split and `departed` records), that a scan waits for it, and
+  that the server listens and answers health before the catalog is in.
+- A library under ≈5,000 tracks loads at once, as before (the tests' libraries).
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

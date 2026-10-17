@@ -529,7 +529,7 @@ function Lobby({ st }) {
             <span class="avatar" style=${{ '--avatar': singerColor(e.singers[0]?.color) }}>${e.singers[0]?.emoji || '🎤'}</span>
             <div class="ellipsis"><b class="ellipsis">${singersText(e.singers) || 'Anyone'}</b><span class="ellipsis">${e.title}</span></div>
           </div>`)}</div>`
-        : html`<div class="lobby-empty">${st.library.songs ? `${st.library.songs.toLocaleString()} songs ready to sing. The first song you pick starts the party.` : 'The song library is empty — add your karaoke folder in the host settings.'}</div>`}
+        : html`<div class="lobby-empty">${st.library.songs ? `${st.library.songs.toLocaleString()} songs ready to sing. The first song you pick starts the party.` : st.library.loading ? 'Loading the song library…' : 'The song library is empty — add your karaoke folder in the host settings.'}</div>`}
     </div>
   </div>`;
 }

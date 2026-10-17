@@ -22,6 +22,30 @@ library (built for large collections — about 90,000 tracks on a USB drive) wit
 
 Everything runs on your PC — no cloud, no accounts.
 
+## Screenshots
+
+The host app on the PC (left: Studio skin, a song playing; right: Party skin):
+
+<p>
+  <img src="docs/screenshots/host-studio.png" width="49%" alt="Host app in the Studio skin: home page with popular songs, the queue panel and the player bar">
+  <img src="docs/screenshots/host-party.png" width="49%" alt="Host app in the Party skin: home page with popular songs and one song in the queue">
+</p>
+
+The TV: the lobby guests scan to join (Studio, Party), and the lyrics while someone sings:
+
+<p>
+  <img src="docs/screenshots/tv-lobby-studio.jpg" width="32%" alt="TV lobby in the Studio skin: a QR code, the room code and who sings next">
+  <img src="docs/screenshots/tv-lobby-party.jpg" width="32%" alt="TV lobby in the Party skin: a QR code in a marquee frame, the room code and who sings next">
+  <img src="docs/screenshots/tv-lyrics-studio.jpg" width="32%" alt="TV during a song: smooth-scrolling lyrics, the corner QR code and the up-next ticker">
+</p>
+
+Guests' phones: choosing a key for a song (Studio), and the home page (Party):
+
+<p>
+  <img src="docs/screenshots/guest-song-studio.png" width="24%" alt="Guest phone in the Studio skin: a song's sheet with key, version and Sing it!">
+  <img src="docs/screenshots/guest-home-party.png" width="24%" alt="Guest phone in the Party skin: find a song, now playing and up next">
+</p>
+
 ## Install — one download, no terminal
 
 **[⬇ Download OpenKaraoke for Linux](https://github.com/blearymoth/OpenKaraoke/releases/latest/download/OpenKaraoke-Setup.zip)**

@@ -995,13 +995,27 @@ synthetic 90k-track library on disk (`test/helpers.js` `manyTracks`, the owner's
 - Not changed: the startup load from `library.json` still builds on the main thread (before the
   server listens), and a library under 5,000 tracks builds as before (≈0.1 s).
 
+## README screenshots (2026-10-17)
+README → "Screenshots": the host (Studio playing, Party home), the TV (lobby in both skins, the
+gliding lyrics) and the guest's phone (a song's sheet in Studio, the home page in Party), in
+`docs/screenshots/` (≈670 KB together). They come straight from an `npm run e2e` run, so they
+show the demo songs and the test address 192.0.2.2:
+- `host-studio.png` ← `test-results/e2e-themes/studio-host-playing.png`, `host-party.png` ←
+  `party-host-home.png` (256-colour PNG: flat UI, no visible change);
+- `tv-lobby-studio.jpg`, `tv-lobby-party.jpg` ← `e2e-themes/{studio,party}-tv-lobby.png`,
+  `tv-lyrics-studio.jpg` ← `e2e-lyrics/tv-glide-clear.png` (JPEG q90 without chroma subsampling:
+  a palette bands the dark mosaic);
+- `guest-song-studio.png`, `guest-home-party.png` ← `e2e-themes/studio-guest-song-sheet.png`,
+  `party-guest-home.png`, halved to 390 px wide (the phones are captured at 2×).
+The themes script's `*-tv-singing.png` are taken mid page-change (half-drawn lyrics) and aren't
+used. To refresh after a UI change: run `npm run e2e` and convert the same files the same way.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, optional
   ffmpeg transcoding for AVI/WMV/MPG, mic monitoring with reverb on the PC. The multiplex
   vocal stem is only the song-dialog headphone preview (from the start of the file), not that
   monitor and not synced to the TV.
-- README screenshots (the e2e scripts already save screenshots to `test-results/`).
 - Performance pass on the real library: memory during the first artwork crawl (the catalog
   rebuild is in a worker thread now, above).
 

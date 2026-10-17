@@ -882,8 +882,8 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
 - ✅ **M6 Games**: quiz, battle, wheel, poll, pass-the-mic, applause meter, ratings, recap
   (game framework in `server/games/`, UIs in `public/js/games/`; sound/mic/legibility to check on the PC).
 - ✅ **M7 Polish**: break music/autoplay, photos, mirrors & pairing, printable songbook/QR card,
-  systemd service, playlists, duet invitations, co-hosts, host preview. Still open: README
-  screenshots, a performance pass on the real library.
+  systemd service, playlists, duet invitations, co-hosts, host preview. README screenshots
+  (`docs/screenshots/`, from the e2e runs). Still open: a performance pass on the real library.
 - ✅ **Skins** (owner request): Studio (default, professional) and Party (the original look),
   Settings → Appearance (§14).
 - ✅ **Desktop app** (owner request): Linux AppImage/.rpm/.deb with the TV display as a window

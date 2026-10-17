@@ -641,6 +641,10 @@ guests' song sheet offer those versions.
    it is not locked to the TV clock, the singer’s phone does not play it, and there is no live
    mic monitor. With no separator configured (the tests) Vocal falls back to the whole file.
    Code: `shared/stems.js`, `server/stems/`, `GET /media/:trackId/stem/vocal`.
+   `test/e2e/vocal-stem.mjs` holds its fake separator on a gate and checks the "Separating…"
+   warning while the server is still separating (the fake one alone finishes in ≈15 ms, which
+   raced the page in a full `npm run e2e`: not a UI bug, the warning stays until Vocal is pressed
+   again).
 2. **Never a wrong guess on the lead**: a track named Multiplex whose side the analysis can't tell
    plays as before and the host is asked; a track the sound alone suggests is only offered (the
    review found a hard-panned guitar that rests between phrases looks exactly like a guide

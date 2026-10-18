@@ -131,7 +131,7 @@ export function apiRoutes(router, app) {
     };
     // Plays and votes per version. A valid guest token counts first: a guest page on this
     // computer (trusted as the host over HTTP) still gets the guest's view and its own vote.
-    const guestId = auth.verify(String(ctx.req.headers['x-guest-token'] || ''), 'guest')?.id || null;
+    const guestId = app.guestOf(String(ctx.req.headers['x-guest-token'] || ''));
     const guest = !!guestId || !ctx.isHost;
     const voter = guestId || (ctx.isHost ? HOST_VOTER : null);
     return app.room ? app.room.decorateVersions(detail, { voter, guest }) : detail;
@@ -384,7 +384,7 @@ export function apiRoutes(router, app) {
   // Guest photos: raw image body (resized on the phone), identified by the signed guest token.
   router.post('/api/photos', async (ctx) => {
     if (!/^image\/(?:jpeg|png|webp)$/i.test(ctx.req.headers['content-type'] || '')) throw new HttpError(415, 'Send a JPEG, PNG or WebP picture');
-    const deviceId = auth.verify(String(ctx.req.headers['x-guest-token'] || ''), 'guest')?.id;
+    const deviceId = app.guestOf(String(ctx.req.headers['x-guest-token'] || ''));
     if (!deviceId) throw new HttpError(401, 'Join the party first');
     if (Number(ctx.req.headers['content-length']) > MAX_PHOTO_BYTES) throw new HttpError(413, `That photo is too big (max ${MAX_PHOTO_BYTES >> 20} MB)`);
     // Everything that can refuse the photo (switched off, banned, rate limit, too many at once)

@@ -161,3 +161,21 @@ test('sign-in and sign-up are rate-limited; an account’s profile is never prun
   assert.ok(Object.keys(room.s.profiles).length < 1005);
   void app;
 });
+
+test('over HTTP a signed-in phone is its account’s guest (photos, song details); the old plain token is not', async () => {
+  const { app, guest, req } = await setupRoom();
+  await app.listen(0, '127.0.0.1');
+  try {
+    const ann = await guest('Ann');
+    const plain = ann.welcome.token;
+    const { token } = await req(ann, 'account.create', { username: 'annie', password: 'secret12' });
+    assert.equal(app.guestOf(token), ann.data.deviceId);
+    assert.equal(app.guestOf(plain), null);
+    assert.equal(app.guestOf('nonsense'), null);
+    const photo = (t) => fetch(`http://127.0.0.1:${app.port}/api/photos`, { method: 'POST', headers: { 'content-type': 'image/jpeg', 'x-guest-token': t }, body: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) });
+    assert.equal((await photo(plain)).status, 401, 'the old plain token: join first');
+    assert.notEqual((await photo(token)).status, 401, 'the account token is Ann');
+  } finally {
+    await app.close();
+  }
+});

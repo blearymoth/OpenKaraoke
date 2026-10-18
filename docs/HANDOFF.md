@@ -1,18 +1,18 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-18 (the host's Library table: Browse → Table, every song sortable by
-title, artist, label, year, genre, versions and plays, with the filters and a text box — see
-"Library table" below. Earlier the same day: browse filters, singer playback controls. Run in a
-cloud sandbox without the owner's PC or drive)._
+_Last updated: 2026-10-18 (the year & genre checker: Browse → Table → "Years and genres to check"
+lists songs with a missing or doubtful year or genre and lets the host fix them; the host's values
+win everywhere — see "Year & genre checker" below. Earlier the same day: the Library table, browse
+filters, singer playback controls. Run in a cloud sandbox without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 565/565; `npm run e2e` → 22 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 569/569; `npm run e2e` → 23 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
@@ -1207,13 +1207,32 @@ on the **Browse page as a List | Table switch**; with its own **text box** next 
 - Not done: a per-file view (the owner chose per song), Length and Added columns (not chosen),
   choosing or resizing columns, editing in the table (the year & genre checker is a separate item).
 
+## Year & genre checker (2026-10-18)
+The owner asked to "just start building it" (PLAN §27 has the details; the choices below were
+mine — change them freely):
+- **Where**: Browse → Table → **Show: Years and genres to check** (or only years / only genres),
+  with the filters, text box and sorting as usual; everything in the address.
+- **Flags**: no year, no genre, a compilation's or reissue's year (album title or Deezer's
+  `compile`), a year ≥ 15 years after the artist's usual one, an impossible year. Never a value
+  the host set.
+- **Fixing**: click a year or genre to type one; **Use …** a suggestion (a genre from the artist;
+  a year from **Find the first release**, which asks the providers — MusicBrainz's first release
+  date in practice); **Right** keeps what it shows; **Use all N suggestions** for the whole view;
+  ↺ goes back to the online value. The host's values are kept in `data/songmeta.json` by song
+  key and win everywhere: filters, table, facets, break music, games, songbook.
+- Speed: the checker ≈100 ms for 54k songs (synthetic), once per catalog/metadata version.
+- Not done: suggesting years without asking online (nothing local knows the original year);
+  the found first releases are forgotten on restart (accepted ones are kept); no bulk "Find the
+  first release" (each is up to four provider requests at their rate limits).
+- Owner checklist: once the artwork crawl has run, open the checker, try Find the first release
+  on a few "compilation" songs and check the years it finds against what you know.
+- Tests: `test/year-genre-check.test.js` (4), `test/e2e/year-genre.mjs` (29).
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
-  - ~~Browse/search filters~~ and ~~the host Library table~~ (done, above).
+  - ~~Browse/search filters~~, ~~the host Library table~~ and ~~the year & genre checker~~ (done, above).
   - **Accounts** (username + password).
-  - A **year & genre checker** (years and genres that are missing or look wrong, e.g. a
-    compilation's year — see "Known limitations").
   - A **live headphone monitor synced to the TV** (today the multiplex vocal stem is only the
     song dialog's preview, from the start of the file, not in time with the TV).
   - **Lead/backing stems for non-multiplex tracks** (today only multiplex tracks get a vocal
@@ -1243,7 +1262,8 @@ on the **Browse page as a List | Table switch**; with its own **text box** next 
   runs without Chromium's sandbox (the AppImage's AppRun adds `--no-sandbox` by itself; the
   .deb keeps the sandbox through its AppArmor profile).
 - Provider parsers are verified against documented shapes only — see checklist item 1.
-- Years come from Deezer album release dates (a compilation or remaster can show a later year).
+- Years come from Deezer album release dates (a compilation or remaster can show a later year):
+  the year & genre checker flags those and the host's own year wins (below).
 - Video karaoke (MP4/WEBM) plays in element mode, the same index / serve / TV path as other video. MP4, M4V and MOV length is read from the file's `mvhd` box while scanning. A leading catalog number (`0028. Artist - Title.mp4`) is kept as the disc id and left out of the artist name. AVI/MPG/WMV/FLV/VOB are converted with ffmpeg when it is installed (below); a zipped one is not (unzip it).
 - Phone vibration only works on Android; iPhones get the toast/card only.
 - "Preview on headphones" (Song details → Choose headphones…) needs the browser's

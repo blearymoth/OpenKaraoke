@@ -435,7 +435,10 @@ GET  /api/songs/:id            song detail (versions, meta, plays; per version p
 GET  /api/artists?letter&q&limit&offset&sort    GET /api/artists/:key  { artist, songs }
 GET  /api/browse/popular?limit&offset&tag*&genre*&decade*&version*   (* = repeat for several, §25)
 GET  /api/browse/facets        { genres, decades, tags, versions, letters, brands }
-GET  /api/library/songs?sort&dir&q&limit&offset&<filters>   (host only) the Library table, §26
+GET  /api/library/songs?sort&dir&q&limit&offset&<filters>&check   (host only) the Library table, §26;
+                               check=any|year|genre: the year & genre checker, §27
+POST /api/library/meta {songId, year?, genre?}   POST /api/library/meta/first-year {songId}
+POST /api/library/meta/accept {check, <filters>, q}   (host only, §27)
 GET  /api/browse/tag/:tag      GET /api/random?n&tag*&genre*&decade*&version*
 GET  /api/qr.svg?text=…        QR code (text ≤ 512 chars)
 GET  /api/art/song/:id?s=250|500|1000     image | placeholder SVG (never 404)
@@ -863,7 +866,8 @@ A value not on its list is ignored in an update and reset to the default in a sa
 ## 15. Persistence (`data/`, git-ignored)
 `settings.json`, `secret.json`, `library.json` (catalog cache), `state.json` (party state),
 `history.jsonl`, `meta.json` (artwork/metadata), `vocals.json` (what the TV found in each
-track's channels, §21), `versions.json` (plays and votes per version, never reset — §22), `art/` (images), `photos/` (guest uploads),
+track's channels, §21), `versions.json` (plays and votes per version, never reset — §22), `songmeta.json`
+(the host's own years and genres, by song key — §27), `art/` (images), `photos/` (guest uploads),
 `server.json` (while running: pid, port — one server per data folder). The desktop app's data
 folder is `~/.config/OpenKaraoke/data`.
 
@@ -926,9 +930,11 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
   version types on the phones' Songs tab and the host's Browse page (§25).
 - ✅ **Library table** (owner request, 2026-10-18): Browse → Table, every song sortable by
   column, with the filters and a text box (§26).
-- Open (owner's list, 2026-10-18; not started): accounts (username + password); a year and
-  genre checker; a live headphone monitor synced to the TV; lead/backing stems for non-multiplex
-  tracks; the Pitch rings game rebuilt in 3D.
+- ✅ **Year & genre checker** (owner request, 2026-10-18): the Library table shows the songs whose
+  year or genre is missing or looks wrong; the host's own values win everywhere (§27).
+- Open (owner's list, 2026-10-18; not started): accounts (username + password); a live headphone
+  monitor synced to the TV; lead/backing stems for non-multiplex tracks; the Pitch rings game
+  rebuilt in 3D.
 - Parked: the host seek bar after the TV window toggles, lyric layouts, the lyrics editor.
 
 ## 19. Open questions for the owner
@@ -1542,3 +1548,55 @@ text, filters, pages, metadata changes, the API and that it is host only), the t
 `test/e2e/filters.mjs` (the switch keeps the filters, columns, the Label column, Year both ways,
 Title, the text with a filter, the address and a reload, a row opens the song, back to List, a
 phone).
+
+## 27. The year & genre checker (host)
+
+Years and genres come from the online song information (§12): Deezer's album date is often a
+compilation's or a remaster's, many songs have none. The checker finds those and lets the host
+fix them; the host's values then win **everywhere** the song information is read.
+
+**The host's own values** (`server/library/songmeta.js`, `data/songmeta.json`
+`{ version, songs: { <song key>: { year?, genre?, at } } }`): by song key (artist + title), so a
+rescan, a re-lookup or a folder split keeps them. A year is a whole number from 1900 to next year;
+a genre ≤ 40 characters of letters, digits and `&'’/.,+-` (spaces folded). `null` takes one back
+(the online value shows again); a record with neither goes. The artwork service lays them over its
+entries in `catalog.metaFor` (`SongMeta.apply`: the merged entry, `host: { year?, genre? }`, the
+same object while nothing changed): the browse filters, the Library table (its sorts, `own` on
+rows), facets, break music, games and the songbook follow. Every change bumps the catalog's
+metadata version.
+
+**What is flagged** (`server/artwork/checker.js`, cached per catalog/metadata version; ≈100 ms for
+54k songs here), never a value the host set:
+- **No year**; **No genre**; **A year that can't be right** (before 1900, after next year).
+- **The year of a compilation or reissue**: the album's title says so (Greatest Hits, Best of,
+  Collection, Anthology, Essential(s), Anniversary, Remaster(ed), Deluxe, Expanded, Edition,
+  Ultimate, Definitive, Retrospective, The Singles, Gold Hits, Number Ones, Platinum…) or Deezer
+  calls the album a compilation (`record_type` `compile`).
+- **Much later than the artist's other songs**: ≥ 15 years after the median year of the artist's
+  dated songs (4 at least, the song's first artist).
+**Suggestions**: a missing genre → the artist's genre from the artwork lookup, else the genre two
+or more of their other songs share. A year → only from **Find the first release**
+(`firstYear()`): the providers are asked as for covers, and the earliest year among the confident
+matches (≥ 0.8) that aren't another version (live, remix…) is suggested — MusicBrainz's first
+release date in practice. Remembered until the server stops.
+
+**UI** (Browse → Table → **Show**: Every song / Years and genres to check / Years to check / Genres
+to check; `check=` in the address with the filters, text and sort — Title, Artist, Year, Genre
+sort here): each row has its year and genre (click to change: Enter or leaving saves, Escape
+doesn't, an impossible year is refused on the page and by the server), the host's own marked in
+the "people" colour with ↺ back to the online one, **Why**, the **Use …** suggestions, **Find the
+first release** for a year, and **Right** (the year and genre shown become the host's, so they
+aren't asked about again; only when nothing is missing). A fixed row stays, marked Done, until the
+list loads again. **Use all N suggestions** takes every suggestion in the current view (at most
+5000) — each can be undone in its row. The plain table marks the host's values with a dot.
+
+**Server** (host only, JSON bodies): `/api/library/songs?check=any|year|genre` (rows + `check:
+{ why, suggest }`, and `suggested`: how many in the view have one), `POST /api/library/meta
+{ songId, year?, genre? }` → `{ row, check }`, `POST /api/library/meta/first-year { songId }` →
+`{ found: { year, album, provider } | null, check }`, `POST /api/library/meta/accept { check,
+…filters, q }` → `{ changed }`.
+
+**Tests**: `test/year-genre-check.test.js` (the store and its file, the flags and suggestions, the
+first release, the API end to end with a MusicBrainz answer, a restart), `test/e2e/year-genre.mjs`
+(the flagged rows and why, Escape/Enter, an impossible year, undo, Use R&B, Find the first release
+→ Use 1984, Right, the decade filter follows, the kinds, Use all, the plain table's mark, a phone).

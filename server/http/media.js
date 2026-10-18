@@ -37,12 +37,13 @@ export function mediaUrls(track) {
 
 export function mediaRoutes(router, app) {
   const { library } = app;
-  // The vocal stem lives in the data folder (never the music drive). Ordinary tracks, and
-  // anything other than the vocal, 404. The room and the TV still play the original mix.
-  router.get('/media/:trackId/stem/vocal', async ({ req, res, params }) => {
+  // The stems live in the data folder (never the music drive): a multiplex track's vocal (the
+  // headphone preview), and the vocal and music of a track the host had separated (PLAN §30).
+  // Anything else 404s.
+  router.get('/media/:trackId/stem/:kind', async ({ req, res, params }) => {
     if (!library.catalog.track(params.trackId)) throw new HttpError(404, 'Unknown track (the library may have been rescanned)');
-    if (!app.room?.stemOk(params.trackId)) throw new HttpError(404, 'This track has no separated vocal');
-    const file = app.room.stems.file(params.trackId);
+    if (!['vocal', 'music'].includes(params.kind) || !app.room?.stemServed(params.trackId, params.kind)) throw new HttpError(404, 'This track has no separated vocal');
+    const file = app.room.stems.file(params.trackId, `${params.kind}.wav`);
     if (!file) throw new HttpError(404, 'Not ready');
     try {
       await sendFile(req, res, file, { contentType: 'audio/wav', cacheControl: 'private, no-cache' });

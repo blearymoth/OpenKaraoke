@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { mixMatrix } from '../shared/vocals.js';
 import { vocalStemAllowed, wantsVocalPreview, vocalPreviewTarget } from '../shared/stems.js';
-import { SEPARATE_PY, pythonFromLauncher, modelsDirFromLauncher, resolveAutokaraoke, separateArgs } from '../server/stems/separate.js';
+import { SEPARATE_PY, pythonFromLauncher, modelsDirFromLauncher, resolveAutokaraoke, separateArgs, stemModel } from '../server/stems/separate.js';
 import { StemJobs, stemTrackDir } from '../server/stems/jobs.js';
 import { writePcmWav } from '../server/stems/wav.js';
 import { fakeStemRun } from '../server/stems/fake.js';
@@ -59,7 +59,7 @@ test('only a multiplex track gets a vocal stem, and the room mix stays the chann
   assert.equal(vocalPreviewTarget(id, null).src, '');
 });
 
-test('the separator script is autokaraoke’s, vocal only, configure before separate', async () => {
+test('the separator script is autokaraoke’s: configure before separate, then the music and the vocal', async () => {
   const configure = SEPARATE_PY.indexOf('models.configure');
   const imported = SEPARATE_PY.indexOf('from autokaraoke.separate import separate');
   const called = SEPARATE_PY.indexOf('separate(');
@@ -68,9 +68,13 @@ test('the separator script is autokaraoke’s, vocal only, configure before sepa
   assert.equal(SEPARATE_PY.split('audio.save_wav').length - 1, 1);
   assert.equal(SEPARATE_PY.includes('backing'), false);
   assert.match(SEPARATE_PY, /STEMS_OK/);
-  const spec = separateArgs({ python: '/venv/bin/python', src: '/music/a.mp3', vocal: '/data/stems/abcd/vocal.wav' });
+  assert.ok(SEPARATE_PY.indexOf('(inst, music_path), (vocals, vocal_path)') > called, 'the vocal last: it marks the pair done');
+  const spec = separateArgs({ python: '/venv/bin/python', src: '/music/a.mp3', vocal: '/data/stems/abcd/vocal.wav', music: '/data/stems/abcd/music.wav' });
   assert.equal(spec.cmd, '/venv/bin/python');
-  assert.deepEqual(spec.args, ['-', '/music/a.mp3', '/data/stems/abcd/vocal.wav', 'htdemucs', 'auto', '1', '-']);
+  assert.deepEqual(spec.args, ['-', '/music/a.mp3', '/data/stems/abcd/vocal.wav', '/data/stems/abcd/music.wav', 'htdemucs', 'auto', '1', '-']);
+  assert.equal(stemModel({}), 'htdemucs');
+  assert.equal(stemModel({ OPENKARAOKE_STEM_MODEL: 'UVR_MDXNET_KARA' }), 'UVR_MDXNET_KARA');
+  assert.equal(stemModel({ OPENKARAOKE_STEM_MODEL: 'bad; rm -rf' }), 'htdemucs', 'only a plain name');
   assert.equal(pythonFromLauncher(LAUNCHER), '/home/ruutu/Projects/autokaraoke/.venv/bin/python');
   assert.equal(modelsDirFromLauncher(LAUNCHER), '/home/ruutu/Projects/autokaraoke/models');
   const fromEnv = await resolveAutokaraoke({
@@ -172,7 +176,7 @@ test('the host can prepare a multiplex vocal; guests cannot; the TV mix is not a
   const view = room.currentView({ media: true });
   assert.equal(view.media.stems, undefined);
   assert.ok(view.media.audio.endsWith('/audio'));
-  assert.equal(Object.hasOwn(room.playerView(), 'stems'), false);
+  assert.equal(room.playerView().stems, null, 'a multiplex track: no separated stems for the room');
   assert.equal(room.playerView().lead, 0, 'the guide level on the TV is unchanged');
 
   await req(host, 'player.layout', { layout: 'stereo', trackId: mpx.id });

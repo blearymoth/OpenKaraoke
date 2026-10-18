@@ -70,7 +70,7 @@ const perfRecord = (h) => {
 /** What a co-host's phone may do (never settings, bans, games or the library). */
 const COHOST_ACTIONS = new Set([
   'player.play', 'player.pause', 'player.resume', 'player.toggle', 'player.next', 'player.restart', 'player.seek',
-  'player.key', 'player.tempo', 'player.volume', 'player.lead', 'queue.move', 'queue.approve', 'queue.reject', 'announce',
+  'player.key', 'player.tempo', 'player.volume', 'player.lead', 'player.vox', 'queue.move', 'queue.approve', 'queue.reject', 'announce',
 ]);
 /**
  * What the singer's own phone may do while their song is the one on now (never next, stop, the
@@ -162,9 +162,15 @@ export class Room {
     this.stems = new StemJobs({
       dataDir: app.dataDir,
       run: app.stemRun || null,
-      allowed: (id) => this.stemOk(id),
+      allowed: (id) => this.stemOk(id) || this.stemAsked(id),
+      needsMusic: (id) => !this.stemOk(id),
       sourceOf: (id) => this.stemSource(id),
-      onChange: (id) => { if (this.s.current?.trackId === id) this.markDirty(); },
+      onChange: (id, st) => {
+        if (this.s.current?.trackId !== id) return;
+        // The song on now was separated: the TV loads the stems (where it is in the song).
+        if (st.status === 'ready' && !this.stemOk(id)) this.s.player.reload = (this.s.player.reload || 0) + 1;
+        this.markDirty();
+      },
     });
     // AVI/MPG/WMV… videos converted with ffmpeg (server/video/), in the data folder. `videoTool` is
     // null in tests unless given (nothing is spawned); server/start.js passes the real ffmpeg.
@@ -500,6 +506,8 @@ export class Room {
       'player.tempo': [PLAYER, (c, m) => this.setTempo(m)],
       'player.channel': [PLAYER, (c, m) => this.setChannel(m)],
       'player.lead': [[HOST, 'tv-local', GUEST], (c, m) => this.setLead(c, m)],
+      'player.vox': [PLAYER, (c, m) => this.setVox(m)],
+      'stems.separate': [H, (c, m) => this.separateStems(m)],
       'player.layout': [H, (c, m) => this.setLayout(m)],
       'vocal.prepare': [H, (c, m) => this.prepareVocal(m)],
       'player.version': [H, (c, m) => this.setVersion(m)],
@@ -1091,7 +1099,10 @@ export class Room {
     if (!CHANNEL_MODES.includes(p.channel)) p.channel = 'stereo';
     p.vocals = this.trackVocals(entry.trackId);
     p.lead = this.leadFor(entry);
-    if (this.stemOk(entry.trackId)) void this.stems.ensure(entry.trackId);
+    // Separated vocals (PLAN §30): the level this version had last (as recorded at first).
+    const prefs = Object.hasOwn(this.s.trackPrefs, entry.trackId) ? this.s.trackPrefs[entry.trackId] : null;
+    p.vox = Number.isFinite(prefs?.vox) ? prefs.vox : 100;
+    if (this.stemOk(entry.trackId) || this.stemAsked(entry.trackId)) void this.stems.ensure(entry.trackId);
     if (entry.clipEnd > 0) p.dur = Math.min(p.dur || entry.clipEnd, entry.clipEnd);
     clearTimeout(this.introTimer);
     this.introTimer = setTimeout(() => this.maybeBegin(), countdown * 1000 + 20);
@@ -1278,13 +1289,61 @@ export class Room {
     return { status: st.status, url: st.status === 'ready' ? `/media/${trackId}/stem/vocal` : '' };
   }
 
+  // ---- separated vocals on any track (PLAN §30) ---------------------------------------------------
+
+  /** The host asked for this (not multiplex) track to be separated (kept in trackPrefs). */
+  stemAsked(trackId) {
+    return !!(trackId && Object.hasOwn(this.s.trackPrefs, trackId) && this.s.trackPrefs[trackId].stems);
+  }
+
+  /** May this stem of a track be served? A multiplex track's vocal; a separated track's vocal and music. */
+  stemServed(trackId, kind) {
+    if (this.stemOk(trackId)) return kind === 'vocal';
+    return this.stemAsked(trackId);
+  }
+
+  /** The stems the TV (and the headphone monitor) play in place of the file, when ready, or null. */
+  stemsFor(trackId) {
+    if (!trackId || this.stemOk(trackId) || !this.stemAsked(trackId) || this.stems.view(trackId).status !== 'ready') return null;
+    return { music: `/media/${trackId}/stem/music`, vocal: `/media/${trackId}/stem/vocal` };
+  }
+
+  /**
+   * Host: separate a version's vocals (autokaraoke, one song at a time), so the room — and the
+   * headphones — can play it with the vocals at any level. A failed attempt runs again.
+   */
+  async separateStems(m) {
+    const trackId = str(m.trackId, 80);
+    if (!this.catalog.track(trackId)) fail('Unknown track', 'not_found');
+    if (this.stemOk(trackId)) fail('This version is multiplex: its guide singer has a level of its own already.', 'multiplex');
+    if (mediaUrls(this.catalog.track(trackId))?.kind !== 'cdg') fail('Only audio versions (with CDG lyrics) can be separated — a video plays its own sound.', 'video');
+    this.s.trackPrefs[trackId] = { ...(this.s.trackPrefs[trackId] || {}), stems: true };
+    if (this.stems.view(trackId).status === 'failed') await this.stems.retry(trackId);
+    else await this.stems.ensure(trackId);
+    const st = this.stems.view(trackId);
+    if (st.status !== 'ready' && !this.stems.enabled) fail('The vocal separator isn’t set up on this computer (autokaraoke).', 'off');
+    return { status: st.status };
+  }
+
+  /** The level of the separated vocals on the song on now (0 = off … 100 = as recorded). */
+  setVox(m) {
+    const cur = this.s.current;
+    if (!cur) fail('Nothing is playing.', 'idle');
+    if (!this.stemsFor(cur.trackId)) fail('Separate this version’s vocals first.', 'not_separated');
+    const level = Math.round(num(m.level, 0, 100, NaN));
+    if (!Number.isFinite(level)) fail('Unknown level', 'bad_request');
+    this.s.player.vox = level;
+    this.s.trackPrefs[cur.trackId] = { ...(this.s.trackPrefs[cur.trackId] || {}), vox: level };
+    return { vox: level };
+  }
+
   /**
    * The audio file the separator reads. A zip entry is copied into the data folder first
    * (the music drive is never written). The copy's name is only a sanitized extension.
    */
   async stemSource(trackId) {
     const track = this.catalog.track(trackId);
-    if (!track || !this.stemOk(trackId)) return null;
+    if (!track || !(this.stemOk(trackId) || this.stemAsked(trackId))) return null;
     if (track.kind === 'cdg') return this.library.absPath(track, 'audio');
     if (track.kind === 'video') return this.library.absPath(track, 'video');
     if (track.kind !== 'zip') return null;
@@ -2318,6 +2377,8 @@ export class Room {
    */
   mediaFor(track) {
     const media = mediaUrls(track);
+    const stems = track && this.stemsFor(track.id);
+    if (stems && media?.kind === 'cdg') return { ...media, stems }; // (PLAN §30)
     if (media?.kind !== 'video' || track.kind !== 'video' || !needsConversion(track.video)) return media;
     const v = this.videos.view(track);
     if (v.status === 'ready') return media;
@@ -2582,6 +2643,9 @@ export class Room {
       channel: p.channel,
       lead: p.lead ?? 0,
       vocals: p.vocals || null,
+      vox: p.vox ?? 100, // separated vocals' level (PLAN §30)
+      stems: this.s.current && !this.stemOk(this.s.current.trackId) ? this.stems.view(this.s.current.trackId).status : null,
+      stemsEnabled: this.stems.enabled,
       volume: p.volume,
       pos: p.pos || 0,
       dur: p.dur || 0,

@@ -1,6 +1,8 @@
 // Runs autokaraoke's vocal separator (Demucs htdemucs) the way `autokaraoke make` does:
-// models.configure() first, then autokaraoke.separate.separate(), then audio.save_wav()
-// for the vocal stem only. The instrumental Demucs also returns is not kept.
+// models.configure() first, then autokaraoke.separate.separate(), then audio.save_wav() for the
+// vocal and the rest ("music"). htdemucs can't tell the lead singer from backing singers: on a
+// karaoke track the vocal is its backing vocals, on a recording with the singer it is all of them.
+// The model is STEM_MODEL (OPENKARAOKE_STEM_MODEL may name another that autokaraoke knows).
 // OpenKaraoke does not import Demucs or PyTorch. The child is the autokaraoke virtualenv's
 // Python, found from the launcher ~/.local/bin/autokaraoke (or OPENKARAOKE_AUTOKARAOKE_PYTHON).
 // Node itself stays free of runtime npm dependencies.
@@ -15,7 +17,7 @@ import sys
 from pathlib import Path
 from autokaraoke import audio, models
 
-src, vocal_path, model, device, shifts, mdir = sys.argv[1:7]
+src, vocal_path, music_path, model, device, shifts, mdir = sys.argv[1:8]
 audio.require_ffmpeg()
 configured = models.configure(models.models_dir(None if mdir in ("", "-") else mdir), model)
 
@@ -24,11 +26,11 @@ def log(msg):
 
 from autokaraoke.separate import separate
 vocals, inst, sr = separate(src, model, device or "auto", int(shifts or "1"), log, mdir=configured)
-del inst
-Path(vocal_path).parent.mkdir(parents=True, exist_ok=True)
-tmp = Path(str(vocal_path) + ".part")
-audio.save_wav(tmp, vocals, sr)
-tmp.replace(vocal_path)
+for data, dest in ((inst, music_path), (vocals, vocal_path)):  # the vocal last: it marks the pair done
+    Path(dest).parent.mkdir(parents=True, exist_ok=True)
+    tmp = Path(str(dest) + ".part")
+    audio.save_wav(tmp, data, sr)
+    tmp.replace(dest)
 print("STEMS_OK", flush=True)
 `.trim();
 
@@ -66,11 +68,17 @@ export async function resolveAutokaraoke({ env = process.env, homedir = os.homed
   return { python, modelsDir };
 }
 
-/** argv for `python - <src> <vocal> <model> <device> <shifts> <models>`. The script is stdin. */
-export function separateArgs({ python, src, vocal, model = 'htdemucs', device = 'auto', shifts = 1, modelsDir = '' }) {
+/** The separation model: htdemucs, or OPENKARAOKE_STEM_MODEL (a name autokaraoke knows). */
+export function stemModel(env = process.env) {
+  const m = String(env.OPENKARAOKE_STEM_MODEL || '');
+  return /^[\w.-]{1,60}$/.test(m) ? m : 'htdemucs';
+}
+
+/** argv for `python - <src> <vocal> <music> <model> <device> <shifts> <models>`. The script is stdin. */
+export function separateArgs({ python, src, vocal, music, model = 'htdemucs', device = 'auto', shifts = 1, modelsDir = '' }) {
   return {
     cmd: python,
-    args: ['-', src, vocal, model, device, String(shifts), modelsDir || '-'],
+    args: ['-', src, vocal, music || `${vocal}.music.wav`, model, device, String(shifts), modelsDir || '-'],
   };
 }
 
@@ -78,9 +86,9 @@ export function separateArgs({ python, src, vocal, model = 'htdemucs', device = 
  * Separate `src` into a vocal WAV. `onChild` receives the process so a shutdown can stop it.
  * Resolves only when the script prints STEMS_OK and the vocal file was renamed into place.
  */
-export async function runAutokaraokeSeparate({ src, vocal, onChild, env = process.env, homedir = os.homedir() } = {}) {
+export async function runAutokaraokeSeparate({ src, vocal, music, onChild, env = process.env, homedir = os.homedir() } = {}) {
   const { python, modelsDir } = await resolveAutokaraoke({ env, homedir });
-  const spec = separateArgs({ python, src, vocal, modelsDir });
+  const spec = separateArgs({ python, src, vocal, music, modelsDir, model: stemModel(env) });
   const childEnv = { ...env, PYTHONUNBUFFERED: '1' };
   if (modelsDir) childEnv.AUTOKARAOKE_MODELS = modelsDir;
   await new Promise((resolve, reject) => {

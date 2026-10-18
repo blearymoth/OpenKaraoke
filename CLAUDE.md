@@ -71,6 +71,9 @@ Server (`server/`)
   (fair rotation + ETA, pure), `auth.js` (localhost trust, PIN → host token, device tokens,
   Host/Origin trust), `vocals.js` (`data/vocals.json`: what the TV found in each track's channels),
   `versions.js` (`data/versions.json`: plays and up/down votes per version, the default version).
+- `stems/` — autokaraoke's separator (`separate.js`: Demucs, the model name, music + vocal),
+  `jobs.js` (`data/stems/`, one at a time): a multiplex track's vocal for the preview, and any
+  audio version the host has separated, played by the room at a Vocals level (PLAN §30).
 - `room/accounts.js` (`data/accounts.json`: guests' usernames, scrypt hashes, token versions — an
   account is one guest identity; `app.guestOf(token)` for HTTP — PLAN §28).
 - `library/songmeta.js` (`data/songmeta.json`: the host's own years and genres, laid over the

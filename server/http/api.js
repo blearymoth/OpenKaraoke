@@ -11,6 +11,7 @@ import { placeholderSvg } from '../artwork/placeholder.js';
 import { hash32 } from '../../shared/text.js';
 import { MAX_LIST_SONGS } from '../../shared/protocol.js';
 import { leadKind } from '../../shared/vocals.js';
+import { readFilters } from '../../shared/filters.js';
 import { HOST_VOTER } from '../room/versions.js';
 import { songbookRoutes } from './songbook.js';
 import { RateLimiter } from '../util/ratelimit.js';
@@ -45,16 +46,13 @@ export function apiRoutes(router, app) {
     if (!ctx.isHost && settings.get('queue.explicitFilter')) f.noExplicit = true;
     return Object.keys(f).length ? f : null;
   };
+  // `letter`, plus the browse filters (shared/filters.js): several decades, genres, tags and
+  // version types, each its own parameter (?decade=1980&decade=1990).
   const queryFilter = (q) => {
     const f = {};
-    const tag = q.get('tag');
     const letter = q.get('letter');
-    const genre = q.get('genre');
-    const decade = Number(q.get('decade'));
-    if (tag) f.tag = tag.slice(0, 60);
     if (letter) f.letter = letter.slice(0, 1).toUpperCase();
-    if (genre) f.genre = genre.slice(0, 60);
-    if (decade) f.decade = decade;
+    for (const [key, values] of Object.entries(readFilters(q))) if (values.length) f[key] = values;
     return f;
   };
   const page = (q, def = 60) => ({ limit: intParam(q, 'limit', def, 1, 200), offset: intParam(q, 'offset', 0, 0, 1e6) });
@@ -157,7 +155,10 @@ export function apiRoutes(router, app) {
   });
 
   router.get('/api/browse/popular', (ctx) => {
-    const args = { ...page(ctx.query), filter: filterFor(ctx, queryFilter(ctx.query)) };
+    const own = queryFilter(ctx.query);
+    // Each new mix of filters walks the whole library once: guests share the search allowance.
+    if (!ctx.isHost && Object.keys(own).length && !searchLimit.take(String(ctx.ip))) throw new HttpError(429, 'Too many searches — wait a few seconds.');
+    const args = { ...page(ctx.query), filter: filterFor(ctx, own) };
     const r = ctx.query.get('sort') === 'plays' ? cat().mostSung(args) : cat().popular(args);
     return { total: r.total, items: summaries(r.items) };
   });

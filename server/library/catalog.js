@@ -7,8 +7,10 @@ import { fold, compact, editDistance, shortId, splitCredits } from '../../shared
 import { parseName, titleKeyOf, BRAND_NAMES } from './parse.js';
 import { Lru } from '../util/lru.js';
 import { slicer, abortError } from '../util/slice.js';
+import { VERSION_FILTERS } from '../../shared/filters.js';
 
 const WORKER_URL = new URL('./catalog-worker.js', import.meta.url);
+const VERSION_BITS = { mpx: 1, bgv: 2, nobgv: 4, video: 8 };
 export const CHUNK = 1000; // records per piece of JSON text going to or from the worker
 
 export const PARSER_VERSION = 5;
@@ -478,14 +480,42 @@ export class Catalog {
     if (f.artist && !s.artistKeys.includes(f.artist)) return false;
     if (f.maxDuration && s.duration > f.maxDuration) return false;
     if (f.minDuration && s.duration && s.duration < f.minDuration) return false;
-    if (f.genre || f.decade || f.hasArt) {
+    // Several values (shared/filters.js): one of them must match.
+    if (f.tags && !f.tags.some((t) => s.tags.includes(t))) return false;
+    if (f.versions && !f.versions.some((v) => this.songHasVersion(s, v))) return false;
+    if (f.genre || f.decade || f.hasArt || f.genres || f.decades) {
       const m = this.metaFor(s.key);
       if (f.genre && m?.genre !== f.genre) return false;
       if (f.decade && (!m?.year || Math.floor(m.year / 10) * 10 !== f.decade)) return false;
       if (f.hasArt && !m?.cover) return false;
+      if (f.genres && !f.genres.includes(m?.genre)) return false;
+      if (f.decades && !(m?.year && f.decades.includes(Math.floor(m.year / 10) * 10))) return false;
     }
     if (f.exclude && f.exclude.has(s.id)) return false;
     return true;
+  }
+
+  /** Has one of the song's versions this kind (VERSION_FILTERS: mpx, bgv, nobgv, video)? */
+  songHasVersion(s, kind) {
+    return (this._versionBits(s) & (VERSION_BITS[kind] || 0)) !== 0;
+  }
+
+  /** The version kinds a song has, as bits: worked out for every song once per catalog version. */
+  _versionBits(s) {
+    if (this._vbits?.v !== this.version) {
+      // One pass over the tracks (each knows its song), not a lookup per song's track id.
+      const map = new Map();
+      for (const t of this.tracks.values()) {
+        const fl = t.p.flags;
+        let bits = t.kind === 'video' ? VERSION_BITS.video : 0;
+        if (fl.mpx) bits |= VERSION_BITS.mpx;
+        if (fl.bgv) bits |= VERSION_BITS.bgv;
+        if (fl.nobgv) bits |= VERSION_BITS.nobgv;
+        if (bits) map.set(t.songId, (map.get(t.songId) || 0) | bits);
+      }
+      this._vbits = { v: this.version, map };
+    }
+    return this._vbits.map.get(s.id) || 0;
   }
 
   _buildVocab() {
@@ -721,7 +751,10 @@ export class Catalog {
   _facets() {
     const genres = new Map();
     const decades = new Map();
+    const versions = new Map(VERSION_FILTERS.map((v) => [v.id, 0]));
     for (const s of this.songList) {
+      const bits = this._versionBits(s);
+      if (bits) for (const [id, n] of versions) if (bits & VERSION_BITS[id]) versions.set(id, n + 1);
       const m = this.metaFor(s.key);
       if (!m) continue;
       if (m.genre) genres.set(m.genre, (genres.get(m.genre) || 0) + 1);
@@ -734,6 +767,7 @@ export class Catalog {
       genres: [...genres].map(([genre, count]) => ({ genre, count })).sort((a, b) => b.count - a.count),
       decades: [...decades].map(([decade, count]) => ({ decade, count })).sort((a, b) => a.decade - b.decade),
       tags: this.tagCounts,
+      versions: [...versions].filter(([, count]) => count).map(([id, count]) => ({ id, count })),
     };
   }
 

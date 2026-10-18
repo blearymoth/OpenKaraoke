@@ -13,7 +13,13 @@ export function sendGuestToken() {
 /** JSON fetch helper; adds the host token when there is one (and the guest's, see above). */
 export async function apiGet(path, params) {
   const url = new URL(path, location.origin);
-  if (params) for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+  // An array is one parameter per value (?decade=1980&decade=1990, the browse filters).
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (Array.isArray(v)) for (const x of v) url.searchParams.append(k, x);
+      else if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+    }
+  }
   const headers = {};
   const token = localStorage.getItem('ok.hostToken');
   if (token) headers.authorization = `Bearer ${token}`;

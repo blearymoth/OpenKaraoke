@@ -397,6 +397,17 @@ body.host .toasts { bottom: 104px; }
 
 /* ---- smaller screens ----------------------------------------------------------------------------- */
 
+/* Browse with filters: the filters beside the songs on a wide window, above them otherwise. */
+.browse-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-items: start; }
+.browse-filters { padding: 14px 16px; border-radius: var(--r-card); background: var(--stage); border: 1px solid var(--line); }
+.browse-filters summary { cursor: pointer; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+.browse-filters[open] summary { margin-bottom: 14px; }
+.browse-count { margin-bottom: 10px; }
+@media (min-width: 1280px) {
+  .browse-layout { grid-template-columns: 280px minmax(0, 1fr); }
+  .browse-filters { position: sticky; top: 0; max-height: calc(100vh - 220px); overflow-y: auto; }
+}
+
 @media (max-width: 1180px) {
   .app { grid-template-columns: 190px minmax(0, 1fr) 320px; }
   .player { grid-template-columns: minmax(180px, 1fr) minmax(260px, 1.2fr) auto; }

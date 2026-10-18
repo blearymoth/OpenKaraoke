@@ -521,6 +521,12 @@ textarea.input { padding: 10px 14px; min-height: 90px; resize: vertical; }
 }
 .chip:hover { color: var(--ink); border-color: var(--line-strong); }
 .chip.on { background: var(--neon-soft); color: var(--ink); border-color: color-mix(in srgb, var(--neon) 55%, transparent); }
+/* Browse filters (host Browse page, guest Filters sheet): groups of toggle chips. */
+.filter-panel { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.filter-group { min-width: 0; margin: 0; padding: 0; border: 0; }
+.filter-group legend { padding: 0; margin-bottom: 8px; font-size: 13px; font-weight: 800; color: var(--ink-2); }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.filter-chips .chip { min-height: 34px; max-width: 100%; overflow: hidden; }
 /* Song rows (host and guest): a multiplex version exists. Same tokens as a selected chip. */
 .song-row .mpx-chip {
   margin-top: 4px; min-height: 24px; padding: 0 8px; gap: 4px; max-width: 100%;

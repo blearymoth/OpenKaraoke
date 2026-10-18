@@ -7,6 +7,8 @@ import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetc
 import { VersionVote, versionName } from '../lib/versions.js';
 import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, GAME_LABELS, formatKey, singerColor } from '/shared/protocol.js';
 import { GAME_UI } from '../games/index.js';
+import { FilterPanel, FilterChip, filterChoices } from '../lib/filters.js';
+import { emptyFilters, filterCount, filterParams } from '/shared/filters.js';
 import { applyAppearance, followAppearance } from '../lib/theme.js';
 
 sendGuestToken(); // song details come with this guest's own votes (never the host's view)
@@ -24,6 +26,9 @@ const store = createStore({
   alert: null, // { kind: 'next' | 'now', title }
   rateHidden: null, // entry id of a rating prompt the guest put away
   time: null,
+  browse: emptyFilters(), // the Songs tab's filters (shared/filters.js), kept while switching tabs
+  browseArtists: false, // the Songs tab shows the artists A–Z
+  filtersOpen: false,
 });
 
 const conn = new Connection({
@@ -703,23 +708,33 @@ function LoadError({ error, onRetry, big = true }) {
   return html`<${Empty} icon=${busy ? '⏳' : '⚠️'} title=${busy ? 'One moment…' : 'That didn’t load'}><p>${error.message}</p>${retry}</${Empty}>`;
 }
 
+const QUICK_TAGS = 8; // collections in the chip row (all of them are in the Filters sheet)
+const QUICK_GENRES = 8;
+
+/**
+ * Songs: a typed search, or browsing — the most popular songs narrowed by the filters (several
+ * decades, genres, collections, version types; shared/filters.js), or the artists A–Z. The chip
+ * row toggles the common filters at once; "Filters" opens them all. Typing ignores the filters.
+ */
 function SearchTab({ state }) {
   const [q, setQ] = useState('');
-  const [mode, setMode] = useState({ kind: 'popular' });
+  const { browse: filters, browseArtists, filtersOpen } = useStore(store);
   const query = useDebounced(q, 150);
   const facets = useFetch('/api/browse/facets');
-  const tags = (facets.data?.tags || []).filter((t) => t.tag !== 'Explicit' || !state.rules.explicitFilter).slice(0, 14);
-  const genres = (facets.data?.genres || []).slice(0, 8);
-  const decades = facets.data?.decades || [];
-  let path = null;
-  let params = {};
-  if (query.trim()) { path = '/api/search'; params = { q: query }; }
-  else if (mode.kind === 'popular') path = '/api/browse/popular';
-  else if (mode.kind === 'tag') { path = `/api/browse/tag/${encodeURIComponent(mode.tag)}`; }
-  else if (mode.kind === 'genre') { path = '/api/browse/popular'; params = { genre: mode.genre }; }
-  else if (mode.kind === 'decade') { path = '/api/browse/popular'; params = { decade: mode.decade }; }
-  else if (mode.kind === 'artist') path = null;
-  const page = usePaged(path, params, 40);
+  const hideTags = state.rules.explicitFilter ? ['Explicit'] : [];
+  const choices = filterChoices(facets.data, filters, { hideTags });
+  const n = filterCount(filters);
+  const setFilters = (f) => store.update({ browse: f, browseArtists: false });
+  const typed = !!query.trim();
+  const path = typed ? '/api/search' : browseArtists ? null : '/api/browse/popular';
+  const page = usePaged(path, typed ? { q: query } : filterParams(filters), 40);
+  // The chip row: what is chosen first, then the common collections, the decades and genres.
+  const quick = [
+    ...['decades', 'genres', 'tags', 'versions'].flatMap((k) => choices[k].filter((x) => filters[k].includes(x.value)).map((item) => [k, item])),
+    ...choices.tags.filter((x) => !filters.tags.includes(x.value)).slice(0, QUICK_TAGS).map((item) => ['tags', item]),
+    ...choices.decades.filter((x) => !filters.decades.includes(x.value)).map((item) => ['decades', item]),
+    ...choices.genres.filter((x) => !filters.genres.includes(x.value)).slice(0, QUICK_GENRES).map((item) => ['genres', item]),
+  ];
   return html`<div class="g-page search">
     <div class="g-search">
       <${Icon} name="search" size=${20} />
@@ -727,33 +742,63 @@ function SearchTab({ state }) {
         onInput=${(e) => setQ(e.currentTarget.value)} />
       ${q && html`<button class="icon-btn small" aria-label="Clear" onClick=${() => setQ('')}><${Icon} name="x" size=${18} /></button>`}
     </div>
-    ${!query.trim() && html`<div class="g-chips">
-      <button class=${`chip ${mode.kind === 'popular' ? 'on' : ''}`} onClick=${() => setMode({ kind: 'popular' })}>Popular</button>
-      <button class=${`chip ${mode.kind === 'artist' ? 'on' : ''}`} onClick=${() => setMode({ kind: 'artist', letter: 'A' })}>Artists A–Z</button>
-      ${tags.map((t) => html`<button class=${`chip ${mode.kind === 'tag' && mode.tag === t.tag ? 'on' : ''}`} onClick=${() => setMode({ kind: 'tag', tag: t.tag })}>${t.tag}</button>`)}
-      ${decades.map((d) => html`<button class=${`chip ${mode.kind === 'decade' && mode.decade === d.decade ? 'on' : ''}`} onClick=${() => setMode({ kind: 'decade', decade: d.decade })}>${d.decade >= 2000 ? `${d.decade}s` : `’${String(d.decade).slice(2)}s`}</button>`)}
-      ${genres.map((g) => html`<button class=${`chip ${mode.kind === 'genre' && mode.genre === g.genre ? 'on' : ''}`} onClick=${() => setMode({ kind: 'genre', genre: g.genre })}>${g.genre}</button>`)}
+    ${!typed && html`<div class="g-chips" role="group" aria-label="Browse">
+      <button class=${`chip filters-btn ${n ? 'on' : ''}`} onClick=${() => store.update({ filtersOpen: true })}>
+        <${Icon} name="list" size=${16} /> Filters${n ? html` <span class="badge neon">${n}</span>` : ''}</button>
+      <button class=${`chip ${browseArtists ? 'on' : ''}`} aria-pressed=${!!browseArtists} onClick=${() => store.update({ browseArtists: !browseArtists })}>Artists A–Z</button>
+      ${quick.map(([k, item]) => html`<${FilterChip} key=${`${k}:${item.value}`} k=${k} item=${{ ...item, count: null }} value=${filters} onChange=${setFilters} />`)}
     </div>`}
-    ${!query.trim() && mode.kind === 'artist'
-      ? html`<${ArtistBrowser} mode=${mode} setMode=${setMode} letters=${facets.data?.letters || []} />`
+    ${!typed && browseArtists
+      ? html`<${ArtistBrowser} />`
       : html`
-        ${query.trim() && !page.loading && !page.error && html`<p class="hint">${plural(page.total, 'song')}${page.meta.fuzzy ? ' (close matches)' : ''}</p>`}
+        ${(typed || n > 0) && !page.loading && !page.error && html`<p class="hint g-results">${plural(page.total, 'song')}${page.meta.fuzzy ? ' (close matches)' : ''}
+          ${!typed && html` · <button class="link" onClick=${() => setFilters(emptyFilters())}>Clear filters</button>`}</p>`}
         <div class="g-songs">${page.items.map((s) => html`<${SongRow} key=${s.id} song=${s} onOpen=${() => openSong(s.id)}>
           <button class="icon-btn add" aria-label=${`Sing ${s.title}`} onClick=${() => openSong(s.id)}><${Icon} name="plus" size=${22} /></button>
         </${SongRow}>`)}</div>
         ${page.error && !page.loading && html`<${LoadError} error=${page.error} onRetry=${page.retry} big=${!page.items.length} />`}
-        ${!page.items.length && !page.loading && !page.error && query.trim() && html`<${Empty} icon="🤷" title="No songs found">Try fewer words, or just the artist.</${Empty}>`}
+        ${!page.items.length && !page.loading && !page.error && typed && html`<${Empty} icon="🤷" title="No songs found">Try fewer words, or just the artist.</${Empty}>`}
+        ${!page.items.length && !page.loading && !page.error && !typed && n > 0 && html`<${Empty} icon="🎚️" title="No songs match all of these">Take a filter or two away.</${Empty}>`}
         ${page.loading && !page.items.length && html`<${Spinner} />`}
         <${MoreSentinel} active=${page.hasMore && !page.error} onMore=${page.more} />`}
+    ${filtersOpen && html`<${FilterSheet} facets=${facets.data} initial=${filters} hideTags=${hideTags} />`}
   </div>`;
 }
 
-function ArtistBrowser({ mode, setMode, letters }) {
+/** Every filter, changed on a copy; "Show N songs" (counted as you go) applies it. */
+function FilterSheet({ facets, initial, hideTags }) {
+  const [draft, setDraft] = useState(initial);
+  const params = useDebounced(JSON.stringify(filterParams(draft)), 250); // a string: settles once
+  const count = useFetch(filterCount(draft) ? '/api/browse/popular' : null, { ...JSON.parse(params), limit: 1 });
+  const close = () => store.update({ filtersOpen: false });
+  const apply = () => store.update({ browse: draft, browseArtists: false, filtersOpen: false });
+  const n = filterCount(draft);
+  const total = n ? count.data?.total : null;
+  return html`<div class="sheet-scrim" onClick=${(e) => e.target === e.currentTarget && close()}>
+    <div class="sheet filter-sheet" role="dialog" aria-modal="true" aria-label="Filters">
+      <div class="sheet-grip"></div>
+      <button class="icon-btn sheet-close" aria-label="Close" onClick=${close}><${Icon} name="x" /></button>
+      <h2 class="g-h2">Filters</h2>
+      <p class="hint">Pick as many as you like: a song needs one of the ones you pick in each group.</p>
+      <${FilterPanel} facets=${facets} value=${draft} onChange=${setDraft} hideTags=${hideTags}
+        metaHint="Decades and genres show up once the host’s songs have been looked up online." />
+      <div class="sheet-actions filter-actions">
+        <button class="btn ghost" disabled=${!n} onClick=${() => setDraft(emptyFilters())}>Clear all</button>
+        <button class="btn primary" disabled=${n > 0 && total === 0} onClick=${apply}>
+          ${!n ? 'Show popular songs' : total == null ? 'Show songs' : `Show ${plural(total, 'song')}`}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function ArtistBrowser() {
+  const [mode, setMode] = useState({ letter: 'A' });
+  const letters = useFetch('/api/browse/facets').data?.letters || [];
   const list = usePaged(mode.artist ? null : '/api/artists', { letter: mode.letter }, 300);
   const artist = useFetch(mode.artist ? `/api/artists/${encodeURIComponent(mode.artist)}` : null);
   if (mode.artist) {
     return html`<div>
-      <button class="btn small ghost" onClick=${() => setMode({ kind: 'artist', letter: mode.letter })}><${Icon} name="chevronLeft" size=${16} /> All artists</button>
+      <button class="btn small ghost" onClick=${() => setMode({ letter: mode.letter })}><${Icon} name="chevronLeft" size=${16} /> All artists</button>
       ${artist.data ? html`<h2 class="g-h2">${artist.data.artist.name}</h2>
         <div class="g-songs">${artist.data.songs.map((s) => html`<${SongRow} key=${s.id} song=${s} onOpen=${() => openSong(s.id)}>
           <button class="icon-btn add" aria-label=${`Sing ${s.title}`} onClick=${() => openSong(s.id)}><${Icon} name="plus" size=${22} /></button>
@@ -761,8 +806,8 @@ function ArtistBrowser({ mode, setMode, letters }) {
     </div>`;
   }
   return html`<div>
-    <div class="g-letters">${letters.filter((l) => l.artists).map((l) => html`<button class=${l.letter === mode.letter ? 'on' : ''} onClick=${() => setMode({ kind: 'artist', letter: l.letter })}>${l.letter}</button>`)}</div>
-    <div class="g-artists">${list.items.map((a) => html`<button key=${a.key} onClick=${() => setMode({ kind: 'artist', letter: mode.letter, artist: a.key })}>
+    <div class="g-letters">${letters.filter((l) => l.artists).map((l) => html`<button class=${l.letter === mode.letter ? 'on' : ''} onClick=${() => setMode({ letter: l.letter })}>${l.letter}</button>`)}</div>
+    <div class="g-artists">${list.items.map((a) => html`<button key=${a.key} onClick=${() => setMode({ letter: mode.letter, artist: a.key })}>
       <span class="ellipsis">${a.name}</span><small class="faint">${a.count}</small>
     </button>`)}</div>
     ${list.error && !list.loading && html`<${LoadError} error=${list.error} onRetry=${list.retry} big=${!list.items.length} />`}

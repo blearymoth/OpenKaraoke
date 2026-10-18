@@ -9,7 +9,7 @@ import { store, conn, toasts, toast, act, loginWithPin, livePosition, PANEL_TABS
 import { PlayerBar, MiniPlayer, openInvite } from './player.js';
 import { AdminPanel } from './panel.js';
 import { Dialogs } from './dialogs.js';
-import { Home, Search, Artists, Artist, Collections, Tag, Browse, Favorites, Singers, History } from './views.js';
+import { Home, Search, Artists, Artist, Collections, Tag, Browse, BrowseFilters, Favorites, Singers, History } from './views.js';
 import { Playlists } from './playlists.js';
 import { Photos } from './photos.js';
 import { Settings } from './settings.js';
@@ -28,6 +28,7 @@ const NAV = [
   ['/', 'home', 'Home'],
   ['/search', 'search', 'Search'],
   ['/artists', 'mic', 'Artists'],
+  ['/browse', 'list', 'Browse', 'desktop-only'],
   ['/tags', 'tag', 'Collections', 'desktop-only'],
   ['/favorites', 'star', 'Favourites', 'desktop-only'],
   ['/playlists', 'music', 'Playlists', 'desktop-only'],
@@ -147,6 +148,7 @@ function Main({ route, narrow }) {
     case 'search': return html`<${Search} q=${q} />`;
     case 'artists': return html`<${Artists} letter=${b || 'A'} key=${b || 'A'} />`;
     case 'artist': return html`<${Artist} artistKey=${b} key=${b} />`;
+    case 'browse': return html`<${BrowseFilters} query=${route.query} narrow=${narrow} />`;
     case 'tags': return html`<${Collections} />`;
     case 'tag': return html`<${Tag} tag=${b} sort=${route.query.get('sort')} key=${`${b}:${route.query.get('sort')}`} />`;
     case 'genre': return html`<${Browse} genre=${b} key=${`g:${b}`} />`;

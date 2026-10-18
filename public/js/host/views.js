@@ -8,6 +8,8 @@ import { store, act, openDialog, toast, chooseFolder } from './state.js';
 import { openTvWindow, openInvite } from './player.js';
 import { GuestButtons } from './devices.js';
 import { AVATARS } from '/shared/protocol.js';
+import { readFilters, filterParams, filterCount, emptyFilters } from '/shared/filters.js';
+import { FilterPanel } from '../lib/filters.js';
 
 /** Queue + favourite buttons at the end of a song row. */
 function RowActions({ song }) {
@@ -212,7 +214,9 @@ export function Collections() {
   const { data } = useFetch('/api/browse/facets', null, { ttl: 3000 }); // genres fill in while the library is looked up
   if (!data) return html`<div class="page"><${Spinner} /></div>`;
   return html`<div class="page">
-    <${PageHead} title="Collections" sub="Groups found in your file names: duets, languages, holidays, musicals and more." />
+    <${PageHead} title="Collections" sub="Groups found in your file names: duets, languages, holidays, musicals and more.">
+      <a class="btn" href="#/browse"><${Icon} name="list" size=${16} /> Browse with filters</a>
+    </${PageHead}>
     <div class="tag-grid">${data.tags.map((t) => html`<a class="tag-tile" href=${`#/tag/${encodeURIComponent(t.tag)}`}><b>${t.tag}</b><span class="faint">${plural(t.count, 'song')}</span></a>`)}</div>
     ${!data.tags.length && html`<${Empty} icon="🏷️" title="No collections yet">Collections appear once the library is scanned.</${Empty}>`}
     <h2 class="section-title">Genres</h2>
@@ -235,6 +239,42 @@ export function Tag({ tag, sort }) {
       </div>
     </${PageHead}>
     <${PagedSongs} path=${`/api/browse/tag/${encodeURIComponent(tag)}`} params=${{ sort: sort || 'popular' }} />
+  </div>`;
+}
+
+/**
+ * Browse with filters: the most popular songs with one of the chosen decades, genres,
+ * collections and version types in each group (shared/filters.js). The filters live in the
+ * address (#/browse?decade=1980&decade=1990&tag=Duets), so Back and a bookmark keep them.
+ */
+export function BrowseFilters({ query, narrow }) {
+  const facets = useFetch('/api/browse/facets', null, { ttl: 3000 }); // genres fill in while the library is looked up
+  const filters = readFilters(query);
+  const n = filterCount(filters);
+  const params = filterParams(filters);
+  const setFilters = (f) => {
+    const qs = new URLSearchParams();
+    for (const [k, vs] of Object.entries(filterParams(f))) for (const v of vs) qs.append(k, v);
+    const s = qs.toString();
+    location.replace(`#/browse${s ? `?${s}` : ''}`);
+  };
+  const page = usePaged('/api/browse/popular', params);
+  return html`<div class="page">
+    <${PageHead} title="Browse" sub="The most popular songs that match. Pick as many as you like: a song needs one of them in each group." />
+    <div class="browse-layout">
+      <details class="browse-filters" open=${!narrow}>
+        <summary>Filters${n ? html` <span class="badge neon">${n}</span>` : ''}</summary>
+        <${FilterPanel} facets=${facets.data} value=${filters} onChange=${setFilters}
+          metaHint="Decades and genres come from the online song information — they fill in while OpenKaraoke looks up your library (Settings → Artwork)." />
+      </details>
+      <section class="browse-results" aria-label="Songs">
+        <p class="muted browse-count">${page.loading && !page.items.length ? 'Looking…' : n ? plural(page.total, 'song') : `All ${plural(page.total, 'song')}, most popular first`}
+          ${n > 0 && html` · <button class="link" onClick=${() => setFilters(emptyFilters())}>Clear filters</button>`}</p>
+        ${page.error && html`<p class="warn-text">${page.error.message}</p>`}
+        <${SongList} items=${page.items} empty=${!page.loading && !page.error && html`<${Empty} icon="🎚️" title="No songs match all of these">Take a filter or two away.</${Empty}>`} />
+        <${MoreSentinel} active=${page.hasMore && !page.error} onMore=${page.more} />
+      </section>
+    </div>
   </div>`;
 }
 

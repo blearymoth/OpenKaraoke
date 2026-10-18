@@ -1529,9 +1529,13 @@ sortable: **Title, Artist, Label, Year, Genre, Versions, Plays** (`TABLE_COLUMNS
 else artist), `dir` (`asc`|`desc`), `q` (≤ 100 characters, ≤ 8 words), the filters (§25), `limit`
 (≤ 200, default 100), `offset` → `{ total, items }`, each a song summary plus `labels`, `genre`,
 `plays` (and the tonight/queued marks). `catalog.table()`: the whole library sorted once per
-column, direction and catalog/metadata version (`_sortedBy`: ties by a cached A–Z position,
-labels by each song's first label), then the filter and text walk that list; both kinds of list are
-in a 24-entry LRU, so paging is a slice. Labels for a row are worked out when the row is sent.
+column and direction (`_sortedBy`) — per catalog version, and also per metadata version for
+year, genre and plays (they come from it; the artwork crawl and finished songs bump it); then the
+filter and text walk that list. Both kinds of list are in a 24-entry LRU, so paging is a slice.
+Sorting: the A–Z order (artist, title) once per catalog version gives each song a position;
+title compares strings, ties by position; the other columns pack (value, position) into one
+number for a native numeric sort (labels and genres by their place A–Z, each song's first label
+cached per catalog version). Labels for a row are worked out when the row is sent.
 
 **Tests**: `test/library-table.test.js` (every column both ways, ties, unknown last, labels,
 text, filters, pages, metadata changes, the API and that it is host only), the table part of

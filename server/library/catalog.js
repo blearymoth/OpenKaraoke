@@ -681,17 +681,22 @@ export class Catalog {
     return out.length > 1 ? out.sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : 1)) : out;
   }
 
-  /** Each song's first label (songLabels()[0]), for sorting: one pass over the tracks. */
+  /** Each song's first label (songLabels()[0]), for sorting: one pass over the tracks per catalog version. */
   _firstLabels() {
-    const map = new Map();
-    const rank = (b) => this.brandRank?.get(b) ?? 1e9;
+    if (this._first?.v === this.version) return this._first.map;
+    const byRank = [];
+    for (const [b, r] of this.brandRank || []) byRank[r] = b;
+    const best = new Map(); // songId → the lowest rank among its labels
     for (const t of this.tracks.values()) {
-      const b = t.p.brand;
-      if (!b) continue;
-      const had = map.get(t.songId);
-      if (had === undefined || rank(b) < rank(had) || (rank(b) === rank(had) && b < had)) map.set(t.songId, b);
+      const r = t.p.brand ? this.brandRank?.get(t.p.brand) : undefined;
+      if (r === undefined) continue;
+      const had = best.get(t.songId);
+      if (had === undefined || r < had) best.set(t.songId, r);
     }
-    return map;
+    const out = new Map();
+    for (const [id, r] of best) out.set(id, byRank[r]);
+    this._first = { v: this.version, map: out };
+    return out;
   }
 
   /**
@@ -717,37 +722,78 @@ export class Catalog {
     return { total: list.length, items: list.slice(offset, offset + limit) };
   }
 
-  /** Every song by one column, both ways (cached per catalog and metadata version). */
+  /**
+   * Every song by one column, both ways: cached per catalog version, and per metadata version for
+   * the columns that come from it (year, genre; plays bump it too) — the first artwork crawl
+   * changes it often, and it shouldn't sort the other columns again each time.
+   */
   _sortedBy(sort, desc) {
-    const key = `${this.version}:${this.metaVersion}|${sort}|${desc}|all`;
+    const meta = ['year', 'genre', 'plays'].includes(sort) ? this.metaVersion : '-';
+    const key = `${this.version}:${meta}|${sort}|${desc}|all`;
     let list = this._tables.get(key);
     if (list) return list;
     const az = this._azOrder(); // ties: A–Z by artist, then title, whichever way
     if (sort === 'artist') {
       list = desc ? this._reverseGroups(az.list, (s) => az.artist.get(s)) : az.list;
-    } else {
-      const labels = sort === 'label' ? this._labelOrder() : null;
-      const first = sort === 'label' ? this._firstLabels() : null;
-      const value = {
-        title: (s) => s.titleFold,
-        label: (s) => labels.get(first.get(s.id)) ?? null,
-        year: (s) => this.metaFor(s.key)?.year || null,
-        genre: (s) => this.metaFor(s.key)?.genre || null,
-        versions: (s) => s.versions,
-        plays: (s) => this.plays.get(s.id) || 0,
-      }[sort];
-      const rows = az.list.map((s, i) => [value(s), i, s]);
+    } else if (sort === 'title') {
+      const rows = az.list.map((s, i) => [s.titleFold, i, s]);
       const sign = desc ? -1 : 1;
-      rows.sort((x, y) => {
-        if (x[0] === y[0]) return x[1] - y[1];
-        if (x[0] === null) return 1; // nothing known: last, whichever way
-        if (y[0] === null) return -1;
-        return sign * (x[0] < y[0] ? -1 : 1);
-      });
+      rows.sort((x, y) => (x[0] === y[0] ? x[1] - y[1] : sign * (x[0] < y[0] ? -1 : 1)));
       list = rows.map((r) => r[2]);
+    } else {
+      list = this._sortByNumber(az.list, this._columnNumber(sort), desc);
     }
     this._tables.set(key, list);
     return list;
+  }
+
+  /** A column as a whole number per song (labels and genres by their place A–Z), or null. */
+  _columnNumber(sort) {
+    if (sort === 'label') {
+      const first = this._firstLabels();
+      const place = new Map([...(this.brandRank?.keys() || [])].sort().map((b, i) => [b, i]));
+      return (s) => place.get(first.get(s.id)) ?? null;
+    }
+    if (sort === 'genre') {
+      const all = new Set();
+      for (const s of this.songList) {
+        const g = this.metaFor(s.key)?.genre;
+        if (g) all.add(g);
+      }
+      const place = new Map([...all].sort().map((g, i) => [g, i]));
+      return (s) => place.get(this.metaFor(s.key)?.genre) ?? null;
+    }
+    if (sort === 'year') return (s) => this.metaFor(s.key)?.year || null;
+    if (sort === 'versions') return (s) => s.versions;
+    return (s) => this.plays.get(s.id) || 0;
+  }
+
+  /**
+   * `list` (A–Z) sorted by a whole number per song, ties kept in A–Z order, nulls last either way.
+   * Number and position are packed into one float, so a native numeric sort does the work.
+   */
+  _sortByNumber(list, value, desc) {
+    const n = list.length;
+    const vals = new Float64Array(n);
+    let max = 0;
+    for (let i = 0; i < n; i++) {
+      const v = value(list[i]);
+      const ok = Number.isInteger(v) && v >= 0;
+      vals[i] = ok ? v : -1;
+      if (ok && v > max) max = v;
+    }
+    const span = 2 ** Math.max(1, Math.ceil(Math.log2(n + 1)));
+    if (!Number.isSafeInteger((max + 2) * span)) throw new Error('column values too large to sort');
+    const keys = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const v = vals[i];
+      const rank = v < 0 ? max + 1 : desc ? max - v : v; // unknown: after everything
+      keys[i] = rank * span + i;
+    }
+    keys.sort();
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) out[i] = list[keys[i] % span];
+    return out;
   }
 
   /** Every song A–Z by artist ("The" left out), then title; and each song's artist key. */
@@ -762,13 +808,6 @@ export class Catalog {
     rows.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0));
     this._az = { v: this.version, list: rows.map((r) => r[2]), artist };
     return this._az;
-  }
-
-  /** Each label's place A–Z (so a sort compares numbers). */
-  _labelOrder() {
-    const all = new Set();
-    for (const t of this.tracks.values()) if (t.p.brand) all.add(t.p.brand);
-    return new Map([...all].sort().map((b, i) => [b, i]));
   }
 
   /** `list` with its runs of equal keys in the opposite order, each run kept as it is. */

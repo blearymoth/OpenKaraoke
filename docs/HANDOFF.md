@@ -1198,10 +1198,11 @@ on the **Browse page as a List | Table switch**; with its own **text box** next 
   is in the address, so Back and bookmarks work. A row opens the song; Queue and the star as usual.
 - **Server**: `GET /api/library/songs` (host only; `/api/library` is still the library status).
   The library is sorted once per column and catalog/metadata version, then filtered.
-- **Speed** on a synthetic 90k-track library (54k songs), measured while other tests were running
-  (so on the high side): a column's first sort ≈60–210 ms (Label the slowest), then a filter or
-  text on it ≈25–60 ms, a page from a cached list < 1 ms. The year and genre sorts are worked out
-  again after new song information arrives (during the first artwork crawl, each time).
+- **Speed** on a synthetic 90k-track library (54k songs), this sandbox: once per catalog version
+  the A–Z order ≈80 ms; each column's first sort ≈10–190 ms (Label the slowest: it finds every
+  song's first label); then a filter or text on a sorted column ≈40–60 ms (the same as the
+  browse list's filters here), a page < 1 ms. Year, genre and plays are sorted again after new song
+  information or a finished song (they depend on it); the other columns are not.
 - Tests: `test/library-table.test.js` (4), the table checks in `test/e2e/filters.mjs` (now 60).
 - Not done: a per-file view (the owner chose per song), Length and Added columns (not chosen),
   choosing or resizing columns, editing in the table (the year & genre checker is a separate item).

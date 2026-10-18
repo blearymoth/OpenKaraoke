@@ -71,6 +71,11 @@ Server (`server/`)
   (fair rotation + ETA, pure), `auth.js` (localhost trust, PIN → host token, device tokens,
   Host/Origin trust), `vocals.js` (`data/vocals.json`: what the TV found in each track's channels),
   `versions.js` (`data/versions.json`: plays and up/down votes per version, the default version).
+- `room/accounts.js` (`data/accounts.json`: guests' usernames, scrypt hashes, token versions — an
+  account is one guest identity; `app.guestOf(token)` for HTTP — PLAN §28).
+- `library/songmeta.js` (`data/songmeta.json`: the host's own years and genres, laid over the
+  online ones in `catalog.metaFor`), `artwork/checker.js` (the year & genre checker's flags and
+  suggestions — PLAN §27).
 - `ws/hub.js` — hello handshake, heartbeat, `rid` request/response, broadcasts.
 - `net/` — the party hotspot (PLAN §20): `nmcli.js` (the only place programs are started:
   `nmcli`/`firewall-cmd` through `execFile`, parsers, validation, `connection add` arguments),

@@ -29,6 +29,7 @@ import { sendFile } from '../http/static.js';
 import { logger } from '../util/log.js';
 import { PROVIDERS, SONG_CHAIN, ARTIST_CHAIN, USER_AGENT, imageUrls, allowedImageUrl, placeholderRef } from './providers.js';
 import { songQuery, pickBest, pickArtist, rankCandidates, artistNameScore, artistSearchName, sameSearchName, actsOf } from './match.js';
+import { checkSongs, firstYearOf } from './checker.js';
 import { compact } from '../../shared/text.js';
 
 const log = logger('artwork');
@@ -138,8 +139,9 @@ export class ArtworkService extends EventEmitter {
    * @param {string} [opts.version] app version for the User-Agent
    * @param {number} [opts.crawlDelayMs] wait after start before crawling
    */
-  constructor({ dataDir, settings, library, fetch = globalThis.fetch, version = '0', now = () => Date.now(), crawlDelayMs = 20_000 }) {
+  constructor({ dataDir, settings, library, fetch = globalThis.fetch, version = '0', now = () => Date.now(), crawlDelayMs = 20_000, overrides = null }) {
     super();
+    this.overrides = overrides; // the host's years and genres (library/songmeta.js), laid over ours
     this.metaFile = path.join(dataDir, 'meta.json');
     this.artDir = path.join(dataDir, 'art');
     this.settings = settings;
@@ -184,6 +186,8 @@ export class ArtworkService extends EventEmitter {
     this.jobs = new Map();
     this.pendingArt = { songs: new Set(), artists: new Set() };
     this.candidateCache = new Lru({ max: 40 });
+    this.firstYears = new Map(); // song key → { year, album, provider }: when it first came out (the checker)
+    this.checkCache = null;
     this.crawl = { timer: null, order: null, list: null, artistList: null, index: 0, artistIndex: 0, version: -1, requested: 0, heldUntil: 0, inFlight: 0, state: 'idle', recent: [], restartAt: 0 };
     this.timers = {};
     this.lastFocus = '';
@@ -241,7 +245,8 @@ export class ArtworkService extends EventEmitter {
   }
 
   installMeta() {
-    this.catalog.metaFor = (key) => this.songs.get(key) || null;
+    const over = this.overrides;
+    this.catalog.metaFor = over ? (key) => over.apply(key, this.songs.get(key) || null) : (key) => this.songs.get(key) || null;
     this.catalog.metaChanged();
     // Artists found under a name that no longer applies (see artistEntry) lose that art now.
     for (const key of [...this.artists.keys()]) {
@@ -1260,6 +1265,61 @@ export class ArtworkService extends EventEmitter {
       if (a?.logo && !out.logo) out.logo = key;
     }
     return out;
+  }
+
+  // ---- the year & genre checker (PLAN §27) -----------------------------------------------------
+
+  /**
+   * The songs whose year or genre needs a look, `Map(songId → { why, suggest })` (checker.js),
+   * with the original year found online for a song (firstYear) as a suggestion. Cached per
+   * catalog and metadata version (the host's corrections bump it).
+   */
+  checks() {
+    const cat = this.catalog;
+    const v = `${cat.version}:${cat.metaVersion}:${this.firstYears.size}`;
+    if (this.checkCache?.v === v) return this.checkCache.map;
+    const map = checkSongs({
+      songs: cat.songList,
+      online: (key) => this.songs.get(key) || null,
+      own: (key) => this.overrides?.get(key) || null,
+      albumType: (e) => (e?.p && e.albumId ? this.albums.get(`${e.p}:${e.albumId}`)?.type || '' : ''),
+      artistGenre: (key) => this.artists.get(key)?.genre || '',
+      now: this.now(),
+    });
+    if (this.firstYears.size) for (const [id, r] of map) {
+      const song = cat.song(id);
+      const first = song && this.firstYears.get(song.key);
+      const year = song && cat.metaFor(song.key)?.year;
+      if (first?.year && first.year !== year && r.why.some((w) => w !== 'no-genre')) r.suggest.year = first.year;
+    }
+    this.checkCache = { v, map };
+    return map;
+  }
+
+  /**
+   * Asks the providers when a song first came out (the earliest year among the confident matches
+   * that aren't another version), for the checker's suggestion. Remembered until the server stops.
+   */
+  async firstYear(song) {
+    if (!this.enabled()) throw new UserError('Online artwork is turned off in the settings.');
+    const q = songQuery(song);
+    const all = [];
+    const errors = [];
+    await Promise.all(SONG_CHAIN.filter((name) => this.providerOn(name)).map(async (name) => {
+      const prov = PROVIDERS[name];
+      try {
+        for (const url of prov.songUrls(q)) {
+          const json = await this.getJson(name, url, PRIO.now, { maxWaitMs: MAX_WAIT[PRIO.visible] });
+          for (const c of rankCandidates(json ? prov.parseSongs(json) : [], q)) all.push({ ...c, provider: prov.label });
+        }
+      } catch (e) {
+        errors.push(e.code === 'busy' ? `${prov.label} is busy — try again in a minute.` : e.message);
+      }
+    }));
+    const found = firstYearOf(all, { now: this.now() });
+    if (found) this.firstYears.set(song.key, found);
+    else if (errors.length) throw new UserError(errors[0]);
+    return found;
   }
 
   /** Song metadata as shown in the song details. */

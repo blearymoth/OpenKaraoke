@@ -34,7 +34,7 @@ const SESSION_IDLE_MS = 8 * 3600 * 1000;
 const MAX_HISTORY = 200; // tonight's history for the host's list (skipped songs too)
 const MAX_PERFS = 2000; // tonight's sung songs for the counts and the recap (a long night has a few hundred)
 // No party state change → no broadcast.
-const QUIET = new Set(['tv.status', 'tv.break', 'tv.analysis', 'version.vote', 'display.identify', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl', 'vocal.prepare']);
+const QUIET = new Set(['account.list', 'tv.status', 'tv.break', 'tv.analysis', 'version.vote', 'display.identify', 'reaction', 'history.list', 'artwork.status', 'artwork.candidates', 'artwork.choose', 'artwork.none', 'artwork.refresh', 'artwork.retry', 'artwork.crawl', 'vocal.prepare']);
 const HOST = 'host';
 const TV = 'tv';
 const GUEST = 'guest';
@@ -80,6 +80,7 @@ const COHOST_ACTIONS = new Set([
 const SINGER_ACTIONS = new Set(['player.pause', 'player.resume', 'player.seek', 'player.restart']);
 const SINGER_STATES = new Set(['intro', 'ready', 'playing', 'paused']);
 const MAX_PLAYLISTS = 100;
+const MAX_SINGER_SONGS = 100; // a singer's song history (Your songs)
 const MAX_PLAYLIST_SONGS = MAX_LIST_SONGS;
 const MASK = '••••••';
 const MAX_PROFILES = 1000;
@@ -148,10 +149,14 @@ export class Room {
       lead: new RateLimiter({ capacity: 6, perMs: 10_000 }), // a singer's guide-vocal switch
       singer: new RateLimiter({ capacity: 8, perMs: 10_000 }), // a singer's play/pause/seek/restart
       vote: new RateLimiter({ capacity: 20, perMs: 60_000 }), // version votes per guest
+      accountNew: new RateLimiter({ capacity: 5, perMs: 10 * 60_000 }), // accounts created per address
+      login: new RateLimiter({ capacity: 10, perMs: 5 * 60_000 }), // sign-in attempts per address
+      loginName: new RateLimiter({ capacity: 6, perMs: 5 * 60_000 }), // … and per username
       voteIp: new RateLimiter({ capacity: 120, perMs: 10 * 60_000 }), // … and per address
     };
     this.vocals = new VocalsStore(app.dataDir);
     this.versions = new VersionStats(path.join(app.dataDir, 'versions.json'));
+    this.accounts = app.accounts; // guests' accounts (accounts.js, PLAN §28)
     // Vocal stem for multiplex tracks, in the data folder. `stemRun` is null in tests (nothing
     // is spawned); server/start.js passes autokaraoke's separator. The TV mix is unchanged.
     this.stems = new StemJobs({
@@ -340,7 +345,12 @@ export class Room {
     }
     if (role === GUEST) {
       if (String(msg.room || '').toUpperCase() !== this.settings.get('party.roomCode')) return { ok: false, reason: 'bad_room' };
-      let deviceId = this.auth.verify(msg.token, 'guest')?.id;
+      // A phone's identity: its own (a plain guest token) or an account's (signed in). A token that
+      // no longer holds (the password changed, the account went) starts a new guest.
+      const guestId = this.auth.verify(msg.token, 'guest')?.id || null;
+      const accountId = guestId ? null : this.auth.verify(msg.token, 'account')?.id || null;
+      let deviceId = this.accounts.identity({ guest: guestId, account: accountId });
+      const signedOut = !deviceId && !!(guestId || accountId);
       let token;
       if (!deviceId) {
         // Each new identity costs a token so one device can't flood the party with fake guests.
@@ -352,7 +362,7 @@ export class Room {
       if (profile?.banned) return { ok: false, reason: 'banned' };
       if (profile) profile.lastSeen = Date.now();
       client.data.deviceId = deviceId;
-      return { ok: true, role, welcome: { deviceId, token, state: this.guestView(client) } };
+      return { ok: true, role, welcome: { deviceId, token, signedOut: signedOut || undefined, state: this.guestView(client) } };
     }
     return { ok: false, reason: 'bad_role' };
   }
@@ -498,6 +508,12 @@ export class Room {
       'singer.update': [H, (c, m) => this.singerUpdate(m)],
       'singer.remove': [H, (c, m) => this.singerRemove(m)],
       'guest.update': [[GUEST], (c, m) => this.guestUpdate(c, m)],
+      'account.create': [[GUEST], (c, m) => this.accountCreate(c, m)],
+      'account.login': [[GUEST], (c, m) => this.accountLogin(c, m)],
+      'account.password': [[GUEST], (c, m) => this.accountPassword(c, m)],
+      'account.reset': [H, (c, m) => this.accountReset(m)],
+      'account.delete': [H, (c, m) => this.accountDelete(m)],
+      'account.list': [H, () => this.accountList()],
       'guest.kick': [H, (c, m) => this.guestKick(m, false)],
       'guest.ban': [H, (c, m) => this.guestKick(m, true)],
       'guest.unban': [H, (c, m) => this.guestUnban(m)],
@@ -1398,6 +1414,9 @@ export class Room {
         singer.sung = (singer.sung || 0) + 1;
         singer.totalSung = (singer.totalSung || 0) + 1;
         singer.lastSangAt = Date.now();
+        // Their songs (most recent first): the guest's "Your songs", on any phone with an account.
+        const had = (singer.songs || []).find((x) => x.id === entry.songId);
+        singer.songs = [{ id: entry.songId, n: (had?.n || 0) + 1, at: Date.now() }, ...(singer.songs || []).filter((x) => x !== had)].slice(0, MAX_SINGER_SONGS);
       }
       if (!s.tonight.sung.includes(entry.songId)) s.tonight.sung.push(entry.songId);
       s.stats.plays[entry.songId] = (s.stats.plays[entry.songId] || 0) + 1;
@@ -1546,6 +1565,93 @@ export class Room {
     return singer;
   }
 
+  // ---- guest accounts (accounts.js, PLAN §28) ---------------------------------------------------
+
+  /** Makes this guest (their name, favourites, singer, songs, votes) an account. */
+  async accountCreate(client, m) {
+    const deviceId = client.data.deviceId;
+    if (this.settings.get('guests.accounts') === false) fail('The host has turned accounts off.', 'forbidden');
+    const profile = this.profileOf(deviceId);
+    if (!profile?.name) fail('Choose a name first.', 'no_profile');
+    if (profile.banned) fail('The host has removed you from this party.', 'banned');
+    if (this.accounts.ofId(deviceId)) fail('You already have an account.', 'exists');
+    if (!this.limits.accountNew.take(String(client.ip))) fail('Too many new accounts from here — try again later.', 'rate_limited');
+    const user = await this.accounts.create(m.username, m.password, deviceId);
+    log.info(`a guest made the account "${user.name}"`);
+    return { username: user.name, token: this.auth.sign('account', this.accounts.tokenId(user)) };
+  }
+
+  /**
+   * Signs a phone in: the token it gets stands for the account's guest identity (the phone
+   * connects again with it). Rate-limited by address and by username.
+   */
+  async accountLogin(client, m) {
+    if (!this.limits.login.take(String(client.ip))) fail('Too many tries — wait a few minutes.', 'rate_limited');
+    if (!this.limits.loginName.take(str(m.username, 40).toLowerCase() || '-')) fail('Too many tries — wait a few minutes.', 'rate_limited');
+    const user = await this.accounts.verify(m.username, m.password);
+    if (!user) fail('Wrong username or password.', 'bad_login');
+    if (this.profileOf(user.id)?.banned) fail('The host has removed you from this party.', 'banned');
+    return { username: user.name, token: this.auth.sign('account', this.accounts.tokenId(user)) };
+  }
+
+  /** A new password (the old one first): this phone stays signed in, every other one is signed out. */
+  async accountPassword(client, m) {
+    const user = this.accounts.ofId(client.data.deviceId);
+    if (!user) fail('You are not signed in.', 'not_signed_in');
+    if (!this.limits.login.take(String(client.ip))) fail('Too many tries — wait a few minutes.', 'rate_limited');
+    if (!(await this.accounts.verify(user.name, m.old))) fail('That isn’t your current password.', 'bad_login');
+    await this.accounts.setPassword(user.id, m.password);
+    this.signOutAccount(user.id, client);
+    return { token: this.auth.sign('account', this.accounts.tokenId(user)) };
+  }
+
+  /** Host: a new password for a guest who forgot theirs (their phones are signed out). */
+  async accountReset(m) {
+    const id = str(m.id, 64);
+    await this.accounts.setPassword(id, m.password);
+    this.signOutAccount(id);
+    return { ok: true };
+  }
+
+  /** Host: deletes an account; its phones are signed out (the guest's profile stays, without it). */
+  accountDelete(m) {
+    const id = str(m.id, 64);
+    this.accounts.remove(id);
+    this.signOutAccount(id);
+    return { ok: true };
+  }
+
+  /** Host: every account, with the guest's name and whether a phone of it is here. */
+  accountList() {
+    const online = new Set(this.hub.list((c) => c.role === GUEST).map((c) => c.data.deviceId));
+    return {
+      items: this.accounts.list().map((a) => {
+        const p = this.profileOf(a.id);
+        return { ...a, name: p?.name || '', emoji: p?.emoji || '', online: online.has(a.id), lastSeen: p?.lastSeen || 0, banned: !!p?.banned };
+      }),
+    };
+  }
+
+  /** The phones signed in to an account (but `except`) are told and disconnected: they come back as new guests. */
+  signOutAccount(id, except = null) {
+    for (const c of this.hub.list((x) => x.role === GUEST && x.data.deviceId === id && x !== except)) {
+      c.send({ t: 'signedOut' });
+      c.close?.(4004, 'signed out');
+    }
+  }
+
+  /** A singer's songs, most recent first, for their phone ("Your songs"). */
+  singerSongs(singerId) {
+    const singer = singerId && this.singer(singerId);
+    const out = [];
+    for (const x of singer?.songs || []) {
+      const song = this.catalog.song(x.id);
+      if (song) out.push({ songId: song.id, title: song.title, artist: song.artist, n: x.n, at: x.at });
+      if (out.length >= 50) break;
+    }
+    return out;
+  }
+
   singerAdd(m) {
     const name = str(m.name, 40);
     if (!name) fail('Give the singer a name.', 'bad_request');
@@ -1598,7 +1704,7 @@ export class Room {
 
   /** Keeps the guest list bounded: forgets the longest-unseen guests with nothing waiting. */
   pruneProfiles() {
-    const ids = Object.keys(this.s.profiles);
+    const ids = Object.keys(this.s.profiles).filter((id) => !this.accounts.ofId(id)); // an account's profile stays
     if (ids.length < MAX_PROFILES) return;
     const busy = new Set([...this.s.queue, ...this.s.pending, ...(this.s.current ? [this.s.current] : [])].map((e) => e.addedBy));
     const online = new Set(this.hub.list((c) => c.role === GUEST).map((c) => c.data.deviceId));
@@ -2643,6 +2749,7 @@ export class Room {
         guestKeyChange: q.guestKeyChange,
         guestVocals: q.guestVocals !== false,
         versionVotes: this.settings.get('guests.versionVotes') !== false,
+        accounts: this.settings.get('guests.accounts') !== false,
         reactions: this.settings.get('guests.reactions'),
         games: this.settings.get('guests.games'),
         photos: this.settings.get('guests.photos'),
@@ -2697,6 +2804,8 @@ export class Room {
         left: max > 0 ? Math.max(0, max - queued) : null,
         invites: this.invitesFor(profile?.singerId, base.queue.map((e) => e.eta)),
         controls: this.singerOnNow(deviceId), // their own song is on: play, pause, seek, restart
+        account: this.accounts.ofId(deviceId)?.name || null, // signed in as (accounts.js)
+        songs: this.singerSongs(profile?.singerId), // what they sang (Your songs)
         // Their vote on the version on now (null: no vote row — one version, votes off, hidden).
         versionVote: base.current?.version && base.rules.versionVotes && !(base.rules.explicitFilter && base.current.flags?.explicit)
           ? this.versions.mine(deviceId, this.s.current.trackId) : null,

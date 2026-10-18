@@ -434,6 +434,35 @@ body.host .toasts { bottom: 104px; }
 .lib-table .col-actions { width: 150px; }
 .lib-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
 
+/* The year & genre checker (Browse → Table → Show: … to check). */
+.lib-show { display: inline-flex; align-items: center; gap: 8px; }
+.lib-show .select { min-height: 36px; width: auto; padding: 0 10px; font-size: 14px; }
+.lib-check-hint { margin: 0 0 10px; max-width: 72ch; }
+.lib.checking .lib-table { min-width: 820px; }
+.lib.checking .col-title { width: 22%; }
+.lib.checking .col-artist { width: 17%; }
+.lib.checking .col-year { width: 96px; }
+.lib.checking .col-genre { width: 15%; }
+.lib.checking .col-why { width: auto; }
+.lib.checking .col-actions { width: 96px; }
+.lib-table th.col-why span { display: block; padding: 10px; color: var(--ink-2); font-weight: 700; }
+.meta-row { cursor: default; }
+.meta-row .lib-title .link { min-width: 0; text-align: left; font: inherit; font-weight: 650; color: var(--ink); }
+.meta-row.done td { opacity: 0.6; }
+.meta-row.done .col-why { opacity: 1; }
+.why { list-style: none; margin: 0; padding: 0; color: var(--ink-2); font-size: 13px; }
+.why-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.why-actions:empty { display: none; }
+.found { margin: 4px 0 0; font-size: 12px; }
+.ok-text { display: inline-flex; align-items: center; gap: 4px; color: var(--neon); font-weight: 700; }
+.edit-cell { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; }
+.edit-value { min-width: 2.5em; max-width: 100%; padding: 4px 6px; border: 1px dashed transparent; border-radius: 6px; background: none; color: var(--ink); font: inherit; text-align: inherit; cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edit-value:hover, .edit-value:focus-visible { border-color: var(--line-strong); outline: none; }
+.edit-cell.own .edit-value { color: var(--bulb); font-weight: 700; }
+.edit-cell .undo { width: 24px; height: 24px; }
+.edit-cell.editing .input { min-height: 32px; height: 32px; padding: 0 8px; font-size: 14px; width: 100%; }
+.own-mark { margin-left: 4px; color: var(--bulb); font-size: 9px; vertical-align: middle; }
+
 @media (min-width: 1280px) {
   .browse-layout:not(.table) { grid-template-columns: 280px minmax(0, 1fr); }
   .browse-layout:not(.table) .browse-filters { position: sticky; top: 0; max-height: calc(100vh - 220px); overflow-y: auto; }

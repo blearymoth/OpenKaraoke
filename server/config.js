@@ -115,6 +115,7 @@ export const DEFAULT_SETTINGS = {
     photoApproval: true,
     games: true,
     versionVotes: true, // thumbs up / down on the versions played tonight (they steer the default version)
+    accounts: true, // guests may create an account (username + password) to be the same singer on any phone
   },
 };
 

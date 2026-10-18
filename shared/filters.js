@@ -90,3 +90,13 @@ export const TABLE_COLUMNS = [
   { id: 'versions', label: 'Versions', first: 'desc', num: true },
   { id: 'plays', label: 'Plays', first: 'desc', num: true, hint: 'Times sung here' },
 ];
+
+/** The year & genre checker (PLAN §27): what it looks for, and why a song was flagged. */
+export const CHECK_KINDS = ['any', 'year', 'genre'];
+export const CHECK_REASONS = {
+  'no-year': 'No year',
+  'no-genre': 'No genre',
+  compilation: 'The year of a compilation or reissue',
+  late: 'Much later than the artist’s other songs',
+  range: 'A year that can’t be right',
+};

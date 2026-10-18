@@ -12,6 +12,9 @@ import { hash32 } from '../../shared/text.js';
 import { MAX_LIST_SONGS } from '../../shared/protocol.js';
 import { leadKind } from '../../shared/vocals.js';
 import { readFilters } from '../../shared/filters.js';
+import { CHECK_KINDS, checkMatches } from '../artwork/checker.js';
+
+const MAX_ACCEPT = 5000; // suggestions accepted at once (Accept all)
 import { HOST_VOTER } from '../room/versions.js';
 import { songbookRoutes } from './songbook.js';
 import { RateLimiter } from '../util/ratelimit.js';
@@ -128,7 +131,7 @@ export function apiRoutes(router, app) {
     };
     // Plays and votes per version. A valid guest token counts first: a guest page on this
     // computer (trusted as the host over HTTP) still gets the guest's view and its own vote.
-    const guestId = auth.verify(String(ctx.req.headers['x-guest-token'] || ''), 'guest')?.id || null;
+    const guestId = app.guestOf(String(ctx.req.headers['x-guest-token'] || ''));
     const guest = !!guestId || !ctx.isHost;
     const voter = guestId || (ctx.isHost ? HOST_VOTER : null);
     return app.room ? app.room.decorateVersions(detail, { voter, guest }) : detail;
@@ -188,16 +191,97 @@ export function apiRoutes(router, app) {
 
   // The host's Library table (PLAN §26): the songs passing the filters and containing every word
   // of `q`, sorted by a column (TABLE_SORTS), a page at a time.
+  // `check` (any | year | genre): only the songs the year & genre checker flags (PLAN §27), each
+  // row with why and what it suggests.
+  const tableArgs = (ctx, query = ctx.query) => {
+    const kind = CHECK_KINDS.includes(query.get('check')) ? query.get('check') : '';
+    const checks = kind ? app.artwork.checks() : null;
+    const args = {
+      filter: filterFor(ctx, queryFilter(query)),
+      q: (query.get('q') || '').slice(0, 100),
+      sort: query.get('sort') || 'artist',
+      dir: query.get('dir') === 'desc' ? 'desc' : 'asc',
+    };
+    if (kind) {
+      args.only = new Set([...checks].filter(([, r]) => checkMatches(r, kind)).map(([id]) => id));
+      args.onlyKey = `${kind}:${app.artwork.checkCache.v}`;
+    }
+    return { args, checks };
+  };
   router.get('/api/library/songs', (ctx) => {
     requireHost(ctx);
-    const r = cat().table({
-      ...page(ctx.query, 100),
-      filter: filterFor(ctx, queryFilter(ctx.query)),
-      q: (ctx.query.get('q') || '').slice(0, 100),
-      sort: ctx.query.get('sort') || 'artist',
-      dir: ctx.query.get('dir') === 'desc' ? 'desc' : 'asc',
-    });
-    return { total: r.total, items: summaries(r.items, (s) => cat().tableRow(s)) };
+    const { args, checks } = tableArgs(ctx);
+    const r = cat().table({ ...page(ctx.query, 100), ...args });
+    // How many of the checker's songs in this view have a suggestion (for "Accept all").
+    let suggested;
+    if (checks) {
+      suggested = 0;
+      for (const s of cat().table({ ...args, limit: MAX_ACCEPT }).items) {
+        const sug = checks.get(s.id)?.suggest;
+        if (sug?.year || sug?.genre) suggested++;
+      }
+    }
+    return {
+      total: r.total,
+      suggested,
+      items: summaries(r.items, (s) => {
+        const row = cat().tableRow(s);
+        if (checks?.has(s.id)) row.check = checks.get(s.id);
+        return row;
+      }),
+    };
+  });
+
+  // The host's own year and genre for a song: a value sets it, null gives the online one back.
+  const songOf = (body) => {
+    const song = typeof body.songId === 'string' ? cat().song(body.songId.slice(0, 40)) : null;
+    if (!song) throw new HttpError(404, 'That song is not in the library (any more).');
+    return song;
+  };
+  router.post('/api/library/meta', async (ctx) => {
+    requireHost(ctx);
+    const body = await readJsonBody(ctx.req, 2048);
+    const song = songOf(body);
+    const patch = {};
+    for (const k of ['year', 'genre']) if (Object.hasOwn(body, k)) patch[k] = body[k] === null || body[k] === '' ? null : body[k];
+    if (!Object.keys(patch).length) throw new HttpError(400, 'Send a year or a genre (null to take yours back).');
+    app.songMeta.set(song.key, patch);
+    cat().metaChanged();
+    return { row: cat().tableRow(song), check: app.artwork.checks().get(song.id) || null };
+  });
+
+  // When the song first came out, from the providers (the checker's year suggestion).
+  router.post('/api/library/meta/first-year', async (ctx) => {
+    requireHost(ctx);
+    const song = songOf(await readJsonBody(ctx.req, 1024));
+    const found = await app.artwork.firstYear(song);
+    return { found, check: app.artwork.checks().get(song.id) || null };
+  });
+
+  // Every suggestion in the checker's current view (its kind, filters and text) at once.
+  router.post('/api/library/meta/accept', async (ctx) => {
+    requireHost(ctx);
+    const body = await readJsonBody(ctx.req, 4096);
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(body || {})) {
+      if (Array.isArray(v)) for (const x of v.slice(0, 20)) qs.append(k, String(x));
+      else if (typeof v === 'string' || typeof v === 'number') qs.set(k, String(v));
+    }
+    if (!CHECK_KINDS.includes(qs.get('check'))) throw new HttpError(400, 'Which check? (any, year or genre)');
+    const { args, checks } = tableArgs(ctx, qs);
+    const songs = cat().table({ ...args, limit: MAX_ACCEPT, offset: 0 }).items;
+    let changed = 0;
+    for (const s of songs) {
+      const sug = checks.get(s.id)?.suggest;
+      const patch = {};
+      if (sug?.year) patch.year = sug.year;
+      if (sug?.genre) patch.genre = sug.genre;
+      if (!Object.keys(patch).length) continue;
+      app.songMeta.set(s.key, patch);
+      changed++;
+    }
+    if (changed) cat().metaChanged();
+    return { changed };
   });
 
   router.get('/api/qr.svg', (ctx) => {
@@ -300,7 +384,7 @@ export function apiRoutes(router, app) {
   // Guest photos: raw image body (resized on the phone), identified by the signed guest token.
   router.post('/api/photos', async (ctx) => {
     if (!/^image\/(?:jpeg|png|webp)$/i.test(ctx.req.headers['content-type'] || '')) throw new HttpError(415, 'Send a JPEG, PNG or WebP picture');
-    const deviceId = auth.verify(String(ctx.req.headers['x-guest-token'] || ''), 'guest')?.id;
+    const deviceId = app.guestOf(String(ctx.req.headers['x-guest-token'] || ''));
     if (!deviceId) throw new HttpError(401, 'Join the party first');
     if (Number(ctx.req.headers['content-length']) > MAX_PHOTO_BYTES) throw new HttpError(413, `That photo is too big (max ${MAX_PHOTO_BYTES >> 20} MB)`);
     // Everything that can refuse the photo (switched off, banned, rate limit, too many at once)

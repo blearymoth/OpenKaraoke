@@ -37,6 +37,7 @@ const conn = new Connection({
 conn.on('welcome', (m) => {
   noteArt(m.art);
   if (m.token) localStorage.setItem('ok.guestToken', m.token);
+  if (m.signedOut) toast('You were signed out of your account — sign in again on the Me tab.', 'info', 6000);
   localStorage.setItem('ok.lastRoom', store.get().code);
   applyAppearance(m.state.appearance);
   setMarks(m.state);
@@ -175,12 +176,158 @@ function ProfileForm({ initial, submitLabel, onDone }) {
 }
 
 function Join({ state }) {
+  const [signIn, setSignIn] = useState(false);
   return html`<div class="g-gate join"><div class="g-card wide">
     <p class="kicker">You're joining</p>
     <h1>${state.info.name}</h1>
-    <${ProfileForm} submitLabel="Let's sing" />
-    <p class="hint">No account needed. Your phone remembers you for the rest of the party.</p>
+    ${signIn
+      ? html`<${SignInForm} onCancel=${() => setSignIn(false)} />`
+      : html`<${ProfileForm} submitLabel="Let's sing" />
+        <p class="hint">No account needed. Your phone remembers you for the rest of the party.</p>
+        <button class="btn ghost block" onClick=${() => setSignIn(true)}><${Icon} name="user" size=${18} /> I have an account — sign in</button>`}
   </div></div>`;
+}
+
+// ---- accounts (PLAN §28) ------------------------------------------------------------------------
+
+/** Keeps the new token and connects with it (signed in: this phone becomes the account's guest). */
+function signInWith(token) {
+  try {
+    localStorage.setItem('ok.guestToken', token);
+  } catch { /* private window: signed in until the page closes */ }
+  conn.reconnect();
+}
+
+function PasswordInput({ value, onInput, label, autocomplete }) {
+  const [show, setShow] = useState(false);
+  return html`<label class="field"><span>${label}</span>
+    <span class="password-row">
+      <input class="input big" type=${show ? 'text' : 'password'} value=${value} autocomplete=${autocomplete} maxlength="128"
+        onInput=${(e) => onInput(e.currentTarget.value)} />
+      <button type="button" class="icon-btn" aria-label=${show ? 'Hide the password' : 'Show the password'} aria-pressed=${show} onClick=${() => setShow(!show)}><${Icon} name="eye" size=${18} /></button>
+    </span></label>`;
+}
+
+function SignInForm({ onCancel }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    const r = await ask('account.login', { username: username.trim(), password });
+    setBusy(false);
+    if (!r) return;
+    toast(`Signed in as ${r.username}`, 'ok');
+    store.update({ tab: 'home' });
+    signInWith(r.token);
+  };
+  return html`<form class="account-form" onSubmit=${submit}>
+    <h2 class="g-h2">Sign in</h2>
+    <label class="field"><span>Username</span>
+      <input class="input big" value=${username} autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="24" autofocus
+        onInput=${(e) => setUsername(e.currentTarget.value)} /></label>
+    <${PasswordInput} label="Password" value=${password} onInput=${setPassword} autocomplete="current-password" />
+    <button class="btn primary large block" disabled=${busy || !username.trim() || !password}>Sign in</button>
+    ${onCancel && html`<button type="button" class="btn ghost block" onClick=${onCancel}>Back</button>`}
+    <p class="hint">Forgot your password? The host can give you a new one.</p>
+  </form>`;
+}
+
+/** The Me tab's account card: make one, sign in or out, change the password. */
+function AccountCard({ state }) {
+  const [mode, setMode] = useState(''); // '' | 'create' | 'signin' | 'password'
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [old, setOld] = useState('');
+  const [busy, setBusy] = useState(false);
+  const account = state.me.account;
+  const run = async (e, fn) => {
+    e?.preventDefault();
+    setBusy(true);
+    try {
+      await fn();
+    } finally {
+      setBusy(false);
+    }
+  };
+  const create = (e) => run(e, async () => {
+    const r = await ask('account.create', { username: username.trim(), password });
+    if (!r) return;
+    try {
+      localStorage.setItem('ok.guestToken', r.token); // the same guest: no need to connect again
+    } catch { /* private window */ }
+    setMode('');
+    setPassword('');
+    toast(`Your account ${r.username} is made — sign in with it on any phone.`, 'ok', 5000);
+  });
+  const change = (e) => run(e, async () => {
+    const r = await ask('account.password', { old, password });
+    if (!r) return;
+    try {
+      localStorage.setItem('ok.guestToken', r.token);
+    } catch { /* private window */ }
+    setMode('');
+    setOld('');
+    setPassword('');
+    toast('Password changed — your other phones are signed out.', 'ok', 5000);
+  });
+  const signOut = () => {
+    try {
+      localStorage.removeItem('ok.guestToken');
+    } catch { /* private window */ }
+    store.update({ tab: 'home' });
+    conn.reconnect(); // a new guest on this phone; the account keeps everything
+  };
+  if (account) {
+    return html`<section class="g-card-inline account-card">
+      <p class="signed-in"><${Icon} name="user" size=${16} /> <span>Signed in as <b>${account}</b></span></p>
+      ${mode === 'password'
+        ? html`<form class="account-form" onSubmit=${change}>
+            <${PasswordInput} label="Current password" value=${old} onInput=${setOld} autocomplete="current-password" />
+            <${PasswordInput} label="New password (6 characters at least)" value=${password} onInput=${setPassword} autocomplete="new-password" />
+            <div class="btn-row"><button class="btn primary" disabled=${busy || !old || password.length < 6}>Change password</button>
+              <button type="button" class="btn ghost" onClick=${() => setMode('')}>Cancel</button></div>
+          </form>`
+        : html`<div class="btn-row">
+            <button class="btn small" onClick=${() => setMode('password')}>Change password</button>
+            <button class="btn small ghost" onClick=${signOut}><${Icon} name="logout" size=${16} /> Sign out</button>
+          </div>`}
+    </section>`;
+  }
+  if (mode === 'signin') {
+    return html`<section class="g-card-inline account-card"><${SignInForm} onCancel=${() => setMode('')} />
+      <p class="hint">Signing in makes this phone that account’s singer; ${state.me.profile.name} on this phone stays behind.</p></section>`;
+  }
+  return html`<section class="g-card-inline account-card">
+    ${mode === 'create'
+      ? html`<form class="account-form" onSubmit=${create}>
+          <h2 class="g-h2">Create an account</h2>
+          <label class="field"><span>Username (3–24 letters or digits)</span>
+            <input class="input big" value=${username} autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="24" autofocus
+              onInput=${(e) => setUsername(e.currentTarget.value)} /></label>
+          <${PasswordInput} label="Password (6 characters at least)" value=${password} onInput=${setPassword} autocomplete="new-password" />
+          <p class="hint">This party’s computer keeps it. Pick a password you don’t use anywhere else.</p>
+          <div class="btn-row"><button class="btn primary" disabled=${busy || username.trim().length < 3 || password.length < 6}>Create account</button>
+            <button type="button" class="btn ghost" onClick=${() => setMode('')}>Cancel</button></div>
+        </form>`
+      : html`<p><b>Keep ${state.me.profile.name} for next time</b><br /><span class="hint">An account keeps your name, favourites, songs and votes — on any phone.</span></p>
+        <div class="btn-row">
+          ${state.rules.accounts && html`<button class="btn small primary" onClick=${() => setMode('create')}>Create an account</button>`}
+          <button class="btn small ghost" onClick=${() => setMode('signin')}>Sign in</button>
+        </div>`}
+  </section>`;
+}
+
+/** What this guest sang (on every phone, with an account), most recent first. */
+function YourSongs({ songs }) {
+  if (!songs?.length) return null;
+  return html`<section>
+    <h2 class="g-h2">Your songs</h2>
+    <ul class="your-songs">${songs.slice(0, 20).map((x) => html`<li key=${x.songId}>
+      <button class="link-row" onClick=${() => openSong(x.songId)}><span class="ellipsis"><b>${x.title}</b> <span class="muted">${x.artist}</span></span>
+        <span class="faint">${x.n > 1 ? `${x.n}×` : ''}</span></button></li>`)}</ul>
+  </section>`;
 }
 
 // ---- pieces -----------------------------------------------------------------------------------
@@ -849,6 +996,7 @@ function MeTab({ state }) {
           <div class="grow"><h1 class="g-h1">${me.profile.name}</h1><p class="muted">${me.queued ? `${plural(me.queued, 'song')} waiting` : 'No songs waiting'}${me.left !== null ? ` · ${me.left} more allowed` : ''}</p></div>
           <button class="btn small" onClick=${() => setEditing(true)}><${Icon} name="edit" size=${16} /> Edit</button>
         </section>`}
+    <${AccountCard} state=${state} />
     ${state.rules.photos && html`<${PhotoCard} state=${state} />`}
     <label class="toggle-row"><span><b>Duet invitations</b><br /><span class="hint">Other guests can ask you to sing a song with them.</span></span>
       <span class="switch"><input type="checkbox" checked=${me.profile.duetInvites !== false} aria-label="Duet invitations" onChange=${setInvites} /><span></span></span>
@@ -860,6 +1008,7 @@ function MeTab({ state }) {
         <button class="icon-btn add" aria-label=${`Sing ${s.title}`} onClick=${() => openSong(s.id)}><${Icon} name="plus" size=${22} /></button>
       </${SongRow}>`)}</div>`}
     </section>
+    <${YourSongs} songs=${me.songs} />
     <p class="hint">Party: ${state.info.name} · code ${state.info.roomCode}</p>
   </div>`;
 }

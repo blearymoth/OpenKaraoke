@@ -46,6 +46,7 @@ const SECTIONS = [
       { path: 'queue.guestCanRemoveOwn', label: 'Guests can remove their own songs', type: 'bool' },
       { path: 'queue.guestsSeeQueue', label: 'Guests see the whole queue', type: 'bool', help: 'When off, guests only see their own songs.' },
       { path: 'queue.guestKeyChange', label: 'Guests can choose a key', type: 'bool' },
+      { path: 'guests.accounts', label: 'Guests can create accounts', type: 'bool', help: 'A username and password keep a guest’s name, favourites, songs and votes for the next party, on any phone. Accounts are optional; you can reset a password or delete an account on the Singers page.' },
       { path: 'guests.versionVotes', label: 'Guests can vote on song versions', type: 'bool', help: 'Thumbs up or down on versions played tonight. A version two votes ahead plays by default (even over your preferred labels); one two votes behind only when there is no other. Your own vote always settles it.' },
       { path: 'queue.guestVocals', label: 'Guests can ask for a guide singer', type: 'bool', help: 'On multiplex songs (the original singer on a channel of its own), and versions with or without backing vocals. Singers can switch the guide on or off during their own song.' },
       { path: 'queue.singerControls', label: 'Singers can pause and seek their own song', type: 'bool', help: 'From their phone, only while their song is on: play, pause, seek and restart. Never the next song, the volume or the queue.' },

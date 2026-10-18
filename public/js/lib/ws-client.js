@@ -154,6 +154,18 @@ export class Connection extends EventTarget {
     return () => this.removeEventListener(type, h);
   }
 
+  /** Connects again at once (e.g. signed in: the hello carries a new token). */
+  reconnect() {
+    const old = this.ws;
+    this.ws = null; // (its close is not a lost connection)
+    old?.close();
+    for (const [, p] of this.pending) p.reject(new Error('Connection lost'));
+    this.pending.clear();
+    this.attempt = 0;
+    this.stopped = false;
+    this.open();
+  }
+
   close() {
     this.stopped = true;
     clearInterval(this.pingTimer);

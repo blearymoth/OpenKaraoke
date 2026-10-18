@@ -212,8 +212,18 @@ export function apiRoutes(router, app) {
     requireHost(ctx);
     const { args, checks } = tableArgs(ctx);
     const r = cat().table({ ...page(ctx.query, 100), ...args });
+    // How many of the checker's songs in this view have a suggestion (for "Accept all").
+    let suggested;
+    if (checks) {
+      suggested = 0;
+      for (const s of cat().table({ ...args, limit: MAX_ACCEPT }).items) {
+        const sug = checks.get(s.id)?.suggest;
+        if (sug?.year || sug?.genre) suggested++;
+      }
+    }
     return {
       total: r.total,
+      suggested,
       items: summaries(r.items, (s) => {
         const row = cat().tableRow(s);
         if (checks?.has(s.id)) row.check = checks.get(s.id);

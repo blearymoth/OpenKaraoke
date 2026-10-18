@@ -248,7 +248,9 @@ export function usePaged(path, params, pageSize = 60) {
   const more = useCallback(() => { if (!loading && items.length < total) load(items.length); }, [loading, items.length, total, load]);
   /** Loads the page that failed again (the first one, or the next after what is shown). */
   const retry = useCallback(() => { if (!loading) load(items.length); }, [loading, items.length, load]);
-  return { items, total, loading, error, more, retry, meta, hasMore: items.length < total };
+  /** Changes one loaded item in place (e.g. after an edit), without loading again. */
+  const update = useCallback((id, fn) => setItems((prev) => prev.map((x) => (x.id === id ? fn(x) : x))), []);
+  return { items, total, loading, error, more, retry, update, meta, hasMore: items.length < total };
 }
 
 export function copyText(text) {

@@ -1,14 +1,14 @@
 // Host main views: home, search, artists, artist page, collections, tag, favourites,
 // singers & guests, history.
-import { html, useEffect, useMemo, useState } from '../vendor/preact.js';
+import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore, plural, singersText, useDebounced, artistArtUrl, artStore } from '../lib/store.js';
-import { SongRow, SongBadges, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, go, ArtistImage } from '../lib/components.js';
+import { SongRow, SongBadges, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, go, ArtistImage, apiPost } from '../lib/components.js';
 import { store, act, openDialog, toast, chooseFolder } from './state.js';
 import { openTvWindow, openInvite } from './player.js';
 import { GuestButtons } from './devices.js';
 import { AVATARS } from '/shared/protocol.js';
-import { readFilters, filterParams, filterCount, emptyFilters, TABLE_COLUMNS } from '/shared/filters.js';
+import { readFilters, filterParams, filterCount, emptyFilters, TABLE_COLUMNS, CHECK_KINDS, CHECK_REASONS } from '/shared/filters.js';
 import { FilterPanel } from '../lib/filters.js';
 
 /** Queue + favourite buttons at the end of a song row. */
@@ -257,15 +257,17 @@ export function BrowseFilters({ query, narrow }) {
   const sort = TABLE_COLUMNS.some((c) => c.id === query.get('sort')) ? query.get('sort') : 'artist';
   const dir = query.get('dir') === 'desc' ? 'desc' : 'asc';
   const q = (query.get('q') || '').slice(0, 100);
+  const check = CHECK_KINDS.includes(query.get('check')) ? query.get('check') : ''; // the year & genre checker
   // A new address from the current one with some parts changed (defaults left out).
   const go = (patch) => {
-    const next = { filters, table, sort, dir, q, ...patch };
+    const next = { filters, table, sort, dir, q, check, ...patch };
     const qs = new URLSearchParams();
     for (const [k, vs] of Object.entries(filterParams(next.filters))) for (const v of vs) qs.append(k, v);
     if (next.table) qs.set('view', 'table');
     if (next.table && next.sort !== 'artist') qs.set('sort', next.sort);
     if (next.table && next.dir === 'desc') qs.set('dir', 'desc');
     if (next.table && next.q.trim()) qs.set('q', next.q.trim());
+    if (next.table && next.check) qs.set('check', next.check);
     const str = qs.toString();
     location.replace(`#/browse${str ? `?${str}` : ''}`);
   };
@@ -286,7 +288,7 @@ export function BrowseFilters({ query, narrow }) {
           metaHint="Decades and genres come from the online song information — they fill in while OpenKaraoke looks up your library (Settings → Artwork)." />
       </details>
       ${table
-        ? html`<${LibraryTable} filters=${filters} n=${n} sort=${sort} dir=${dir} q=${q} go=${go} />`
+        ? html`<${LibraryTable} filters=${filters} n=${n} sort=${sort} dir=${dir} q=${q} check=${check} go=${go} genres=${facets.data?.genres || []} />`
         : html`<${BrowseList} filters=${filters} n=${n} setFilters=${setFilters} />`}
     </div>
   </div>`;
@@ -303,39 +305,66 @@ function BrowseList({ filters, n, setFilters }) {
   </section>`;
 }
 
+const CHECK_COLUMNS = ['title', 'artist', 'year', 'genre']; // the checker's sortable columns
+
 /**
  * The Library table: one row per song, every column sorts (a click on the sorted one turns it
  * around), 100 rows at a time as you scroll. The text box narrows it by words in the title or
- * artist and keeps the column order (the top search ranks by relevance instead).
+ * artist and keeps the column order (the top search ranks by relevance instead). "Show" switches
+ * to the year & genre checker (PLAN §27): only the songs that need a look, why, and how to fix it.
  */
-function LibraryTable({ filters, n, sort, dir, q, go }) {
+function LibraryTable({ filters, n, sort, dir, q, check, go, genres }) {
   const [text, setText] = useState(q);
   const typed = useDebounced(text, 250);
   useEffect(() => { if (typed.trim() !== q) go({ q: typed }); }, [typed]);
   useEffect(() => { if (q !== text.trim()) setText(q); }, [q]); // Back, or Clear
-  const page = usePaged('/api/library/songs', { ...filterParams(filters), sort, dir, q }, 100);
+  const params = { ...filterParams(filters), sort, dir, q, check: check || undefined };
+  const [round, setRound] = useState(0); // "Accept all" loads the list again
+  const page = usePaged('/api/library/songs', { ...params, round }, 100);
   const sortBy = (c) => go(c.id === sort ? { dir: dir === 'asc' ? 'desc' : 'asc' } : { sort: c.id, dir: c.first });
   const narrowed = n > 0 || !!q;
-  return html`<section class="browse-results lib" aria-label="Library">
+  const columns = check ? TABLE_COLUMNS.filter((c) => CHECK_COLUMNS.includes(c.id)) : TABLE_COLUMNS;
+  const acceptAll = async () => {
+    const res = await apiPost('/api/library/meta/accept', params).catch((e) => toast(e.message, 'error'));
+    if (!res) return;
+    toast(res.changed ? `${plural(res.changed, 'song')} changed — undo each one in its row.` : 'Nothing to change.', 'ok');
+    setRound((x) => x + 1);
+  };
+  const count = check ? (narrowed ? `${plural(page.total, 'song')} to check` : `${plural(page.total, 'song')} to check in the library`)
+    : narrowed ? plural(page.total, 'song') : `All ${plural(page.total, 'song')}`;
+  return html`<section class=${`browse-results lib ${check ? 'checking' : ''}`} aria-label="Library">
     <div class="lib-tools">
       <label class="lib-text"><${Icon} name="search" size=${16} />
         <input type="search" placeholder="Filter by artist or title" aria-label="Filter by artist or title" value=${text}
           onInput=${(e) => setText(e.currentTarget.value)} /></label>
-      <p class="muted browse-count">${page.loading && !page.items.length ? 'Looking…' : narrowed ? plural(page.total, 'song') : `All ${plural(page.total, 'song')}`}
+      <label class="lib-show"><span class="muted">Show</span>
+        <select class="select" aria-label="Show" value=${check} onChange=${(e) => go({ check: e.currentTarget.value, ...(e.currentTarget.value && !CHECK_COLUMNS.includes(sort) ? { sort: 'artist', dir: 'asc' } : {}) })}>
+          <option value="">Every song</option>
+          <option value="any">Years and genres to check</option>
+          <option value="year">Years to check</option>
+          <option value="genre">Genres to check</option>
+        </select></label>
+      <p class="muted browse-count">${page.loading && !page.items.length ? 'Looking…' : count}
         ${narrowed && html` · <button class="link" onClick=${() => { setText(''); go({ filters: emptyFilters(), q: '' }); }}>Clear</button>`}</p>
+      ${check && page.meta.suggested > 0 && html`<button class="btn small" onClick=${acceptAll}><${Icon} name="check" size=${15} /> Use all ${plural(page.meta.suggested, 'suggestion')}</button>`}
     </div>
+    ${check && html`<p class="hint lib-check-hint">Years and genres come from the online song information: a compilation or a remaster often shows a later year. Click a year or genre to change it, or press Right when it is right as it is. Yours are kept, and win over the online ones everywhere.</p>`}
     ${page.error && html`<p class="warn-text">${page.error.message}</p>`}
     <div class="lib-wrap">
       <table class="lib-table">
         <thead><tr>
-          ${TABLE_COLUMNS.map((c) => html`<th key=${c.id} class=${`col-${c.id} ${c.num ? 'num' : ''}`} aria-sort=${c.id === sort ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'} title=${c.hint || undefined}>
+          ${columns.map((c) => html`<th key=${c.id} class=${`col-${c.id} ${c.num ? 'num' : ''}`} aria-sort=${c.id === sort ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'} title=${c.hint || undefined}>
             <button onClick=${() => sortBy(c)}>${c.label}${c.id === sort ? html` <${Icon} name=${dir === 'asc' ? 'chevronUp' : 'chevronDown'} size=${14} />` : ''}</button></th>`)}
+          ${check && html`<th class="col-why"><span>Why</span></th>`}
           <th class="col-actions"><span class="sr-only">Actions</span></th>
         </tr></thead>
-        <tbody>${page.items.map((s) => html`<${LibraryRow} key=${s.id} song=${s} />`)}</tbody>
+        <tbody>${page.items.map((s) => (check
+          ? html`<${CheckRow} key=${s.id} song=${s} update=${page.update} genres=${genres} />`
+          : html`<${LibraryRow} key=${s.id} song=${s} />`))}</tbody>
       </table>
     </div>
-    ${!page.items.length && !page.loading && !page.error && html`<${Empty} icon="🎚️" title=${narrowed ? 'No songs match all of these' : 'No songs yet'}>${narrowed ? 'Take a filter or a word away.' : 'Songs appear once the library is scanned.'}</${Empty}>`}
+    ${!page.items.length && !page.loading && !page.error && html`<${Empty} icon=${check ? '✅' : '🎚️'} title=${check ? 'Nothing to check here' : narrowed ? 'No songs match all of these' : 'No songs yet'}>${check
+      ? 'Every year and genre in this view looks fine (or is yours).' : narrowed ? 'Take a filter or a word away.' : 'Songs appear once the library is scanned.'}</${Empty}>`}
     <${MoreSentinel} active=${page.hasMore && !page.error} onMore=${page.more} />
   </section>`;
 }
@@ -347,12 +376,120 @@ function LibraryRow({ song: s }) {
     <td class="col-title"><div class="lib-title"><span class="ellipsis">${s.title}</span><${SongBadges} song=${s} /></div></td>
     <td class="col-artist"><span class="ellipsis">${s.artist}</span></td>
     <td class="col-label" title=${labels.join(', ')}><span class="ellipsis">${labels.slice(0, 3).join(', ')}${labels.length > 3 ? ` +${labels.length - 3}` : ''}</span></td>
-    <td class="col-year num">${s.year || html`<span class="faint">—</span>`}</td>
-    <td class="col-genre"><span class="ellipsis">${s.genre || html`<span class="faint">—</span>`}</span></td>
+    <td class="col-year num">${s.year || html`<span class="faint">—</span>`}${s.own?.year ? html`<${OwnMark} />` : ''}</td>
+    <td class="col-genre"><span class="ellipsis">${s.genre || html`<span class="faint">—</span>`}${s.own?.genre ? html`<${OwnMark} />` : ''}</span></td>
     <td class="col-versions num">${s.v}</td>
     <td class="col-plays num">${s.plays || html`<span class="faint">0</span>`}</td>
     <td class="col-actions" onClick=${(e) => e.stopPropagation()}><div class="lib-actions"><${RowActions} song=${s} /></div></td>
   </tr>`;
+}
+
+const OwnMark = () => html`<span class="own-mark" title="Yours (set by you, kept over the online one)" aria-label="set by you">●</span>`;
+
+/**
+ * One song in the year & genre checker: its year and genre (click to change; yours are marked,
+ * with a way back to the online one), why it is here, the suggestions, "Find the first release"
+ * (asks the providers) and "Right as it is". A fixed row stays, ticked, until the list reloads.
+ */
+function CheckRow({ song: s, update, genres }) {
+  const [busy, setBusy] = useState('');
+  const save = async (patch, what) => {
+    setBusy(what);
+    try {
+      const res = await apiPost('/api/library/meta', { songId: s.id, ...patch });
+      // The row as the server has it now (an undone value loses its "yours" mark too).
+      update(s.id, (x) => ({ ...res.row, check: res.check || x.check, found: x.found, done: !res.check }));
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+  const findYear = async () => {
+    setBusy('find');
+    try {
+      const res = await apiPost('/api/library/meta/first-year', { songId: s.id });
+      if (res.found) update(s.id, (x) => ({ ...x, check: res.check || x.check, found: res.found }));
+      else toast(`No first release found for ${s.title}.`, 'info');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+  const why = s.check?.why || [];
+  const sug = s.check?.suggest || {};
+  const yearReason = why.some((w) => w !== 'no-genre');
+  // "Right as it is": the year and genre it has become yours (so it isn't asked about again) —
+  // only when nothing is missing (a missing year or genre can't be right).
+  const canConfirm = !why.includes('no-year') && !why.includes('no-genre');
+  const right = () => save({ ...(s.year ? { year: s.year } : {}), ...(s.genre ? { genre: s.genre } : {}) }, 'right');
+  return html`<tr class=${`lib-row meta-row ${s.done ? 'done' : ''}`}>
+    <td class="col-title"><div class="lib-title"><button class="link ellipsis" onClick=${() => openDialog({ type: 'song', songId: s.id })}>${s.title}</button></div></td>
+    <td class="col-artist"><span class="ellipsis">${s.artist}</span></td>
+    <td class="col-year num"><${EditCell} kind="year" song=${s} busy=${busy === 'year'} onSave=${(v) => save({ year: v }, 'year')} /></td>
+    <td class="col-genre"><${EditCell} kind="genre" song=${s} busy=${busy === 'genre'} genres=${genres} onSave=${(v) => save({ genre: v }, 'genre')} /></td>
+    <td class="col-why">${s.done
+      ? html`<span class="ok-text"><${Icon} name="check" size=${14} /> Done</span>`
+      : html`<ul class="why">${why.map((w) => html`<li key=${w}>${CHECK_REASONS[w] || w}</li>`)}</ul>
+        ${s.found && html`<p class="faint found">First out in ${s.found.year}${s.found.album ? ` (${s.found.album})` : ''} — ${s.found.provider}</p>`}
+        <div class="why-actions">
+          ${sug.year && html`<button class="btn small" disabled=${!!busy} onClick=${() => save({ year: sug.year }, 'year')}>Use ${sug.year}</button>`}
+          ${sug.genre && html`<button class="btn small" disabled=${!!busy} onClick=${() => save({ genre: sug.genre }, 'genre')}>Use ${sug.genre}</button>`}
+          ${yearReason && !s.found && html`<button class="btn small ghost" disabled=${!!busy} onClick=${findYear}>${busy === 'find' ? 'Looking…' : 'Find the first release'}</button>`}
+        </div>`}</td>
+    <td class="col-actions"><div class="lib-actions">
+      ${!s.done && canConfirm && html`<button class="btn small ghost" disabled=${!!busy} onClick=${right} title="The year and genre shown are right: keep them as yours">
+        <${Icon} name="check" size=${15} /> Right</button>`}
+    </div></td>
+  </tr>`;
+}
+
+/** A year or genre that changes when clicked: Enter or leaving saves, Escape doesn't; yours can go back to the online one. */
+function EditCell({ kind, song, busy, genres = [], onSave }) {
+  const [editing, setEditing] = useState(false);
+  const value = song[kind] || '';
+  const own = !!song.own?.[kind];
+  const label = kind === 'year' ? 'year' : 'genre';
+  if (editing) {
+    const close = (v) => {
+      setEditing(false);
+      if (v === null || String(v) === String(value)) return;
+      const max = new Date().getFullYear() + 1;
+      if (kind === 'year' && v && !(Number.isInteger(Number(v)) && v >= 1900 && v <= max)) {
+        toast(`A year from 1900 to ${max}, please.`, 'error'); // (the server says the same)
+        return;
+      }
+      onSave(v ? (kind === 'year' ? Number(v) : v) : null);
+    };
+    return html`<span class="edit-cell editing"><${EditInput} kind=${kind} value=${value} label=${`The ${label} of ${song.title}`} genres=${genres} onClose=${close} /></span>`;
+  }
+  return html`<span class=${`edit-cell ${own ? 'own' : ''}`}>
+    <button class="edit-value" disabled=${busy} onClick=${() => setEditing(true)} aria-label=${`Change the ${label} of ${song.title}${value ? ` (${value})` : ''}`}
+      title=${own ? 'Yours — click to change' : 'Click to change'}>${busy ? '…' : value || html`<span class="faint">—</span>`}</button>
+    ${own && html`<button class="icon-btn small undo" disabled=${busy} onClick=${() => onSave(null)} aria-label=${`Back to the online ${label}`} title=${`Back to the online ${label}`}><${Icon} name="restart" size=${13} /></button>`}
+  </span>`;
+}
+
+/** The input of an EditCell: focused at once; closes once (Enter or leaving: the text, Escape: null). */
+function EditInput({ kind, value, label, genres, onClose }) {
+  const ref = useRef(null);
+  const closed = useRef(false);
+  useEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+  const close = (v) => {
+    if (closed.current) return;
+    closed.current = true;
+    onClose(v);
+  };
+  return html`<input ref=${ref} class="input" type=${kind === 'year' ? 'number' : 'text'} min=${kind === 'year' ? 1900 : undefined}
+      max=${kind === 'year' ? new Date().getFullYear() + 1 : undefined} list=${kind === 'genre' ? 'ok-genres' : undefined}
+      maxlength=${kind === 'genre' ? 40 : undefined} value=${value} aria-label=${label}
+      onKeyDown=${(e) => { if (e.key === 'Enter') close(e.currentTarget.value.trim()); else if (e.key === 'Escape') close(null); }}
+      onBlur=${(e) => close(e.currentTarget.value.trim())} />
+    ${kind === 'genre' && html`<datalist id="ok-genres">${genres.map((g) => html`<option value=${g.genre} />`)}</datalist>`}`;
 }
 
 /** Songs of one genre or decade (from online metadata), most popular first. */

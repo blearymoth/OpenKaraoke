@@ -2,14 +2,7 @@
 // what to suggest, from what the library and the artwork lookup already know (no network). The
 // host's own year or genre (library/songmeta.js) is never flagged: they checked it.
 
-export const CHECK_REASONS = {
-  'no-year': 'No year',
-  'no-genre': 'No genre',
-  compilation: 'The year of a compilation or reissue',
-  late: 'Much later than the artist’s other songs',
-  range: 'A year that can’t be right',
-};
-export const CHECK_KINDS = ['any', 'year', 'genre'];
+export { CHECK_REASONS, CHECK_KINDS } from '../../shared/filters.js';
 const YEAR_REASONS = new Set(['no-year', 'compilation', 'late', 'range']);
 
 // Album titles of compilations, reissues and remasters: their date is rarely the song's.

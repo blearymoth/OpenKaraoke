@@ -576,7 +576,49 @@ export function Singers() {
           <td class="actions"><${GuestButtons} g=${g} /></td>
         </tr>`)}</tbody></table>`
       : html`<p class="muted">No guests have joined yet. <button class="link" onClick=${openInvite}>Show the invite code</button></p>`}
+    <${Accounts} />
   </div>`;
+}
+
+/**
+ * Guests' accounts (PLAN §28): who has one, a new password for one who forgot theirs (their
+ * phones are signed out), delete. Asked for when the page shows, not part of every broadcast.
+ */
+function Accounts() {
+  const [list, setList] = useState(null);
+  const [resetting, setResetting] = useState(null); // account id
+  const [password, setPassword] = useState('');
+  const load = async () => setList((await act('account.list', {}, { quiet: true }))?.items || []);
+  useEffect(() => { load(); }, []);
+  const reset = async (e, a) => {
+    e.preventDefault();
+    if (!(await act('account.reset', { id: a.id, password }))) return;
+    toast(`${a.username} has a new password — tell them, they sign in with it.`, 'ok', 6000);
+    setResetting(null);
+    setPassword('');
+  };
+  const remove = async (a) => {
+    if (!confirm(`Delete the account ${a.username}? ${a.name || 'The guest'} keeps their name on the phones signed in now, but can’t sign in with it any more.`)) return;
+    if (await act('account.delete', { id: a.id })) load();
+  };
+  if (!list) return null;
+  return html`<h2 class="section-title">Guests' accounts</h2>
+    ${list.length
+      ? html`<table class="table stack accounts"><thead><tr><th>Username</th><th>Guest</th><th>Last signed in</th><th></th></tr></thead><tbody>
+        ${list.map((a) => html`<tr key=${a.id}>
+          <td class="lead"><b>${a.username}</b></td>
+          <td data-label="Guest">${a.emoji} ${a.name || html`<span class="faint">—</span>`} ${a.online ? html`<span class="dot on" title="Connected"></span>` : ''}${a.banned ? html` <span class="pill bad">Removed</span>` : ''}</td>
+          <td data-label="Last signed in">${a.lastLogin ? new Date(a.lastLogin).toLocaleDateString() : '—'}</td>
+          <td class="actions">${resetting === a.id
+            ? html`<form class="inline-form" onSubmit=${(e) => reset(e, a)}>
+                <input class="input" type="text" placeholder="New password" value=${password} minlength="6" maxlength="128" autocomplete="off" aria-label=${`New password for ${a.username}`}
+                  onInput=${(e) => setPassword(e.currentTarget.value)} />
+                <button class="btn small primary" disabled=${password.length < 6}>Save</button>
+                <button type="button" class="btn small ghost" onClick=${() => { setResetting(null); setPassword(''); }}>Cancel</button></form>`
+            : html`<button class="btn small ghost" onClick=${() => { setResetting(a.id); setPassword(''); }}>New password</button>
+              <button class="btn small ghost danger" onClick=${() => remove(a)}>Delete</button>`}</td>
+        </tr>`)}</tbody></table>`
+      : html`<p class="muted">No guest has an account yet. Guests make one on their phone (Me → Create an account) to keep their name, favourites and songs for next time.</p>`}`;
 }
 
 // ---- history ---------------------------------------------------------------------------------------

@@ -129,6 +129,16 @@ body.guest {
 .g-profile { display: flex; align-items: center; gap: 16px; }
 .g-profile .avatar-preview { width: 72px; height: 72px; font-size: 38px; justify-self: auto; }
 .g-card-inline { padding: 18px; border-radius: var(--r-lg); background: var(--stage); }
+/* Accounts (Join: sign in; Me: create, sign in or out, change the password) and Your songs. */
+.account-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+.account-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.account-card > p { margin: 0; }
+.account-card .signed-in { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.account-card .btn-row, .account-form .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.password-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.password-row .input { flex: 1; min-width: 0; }
+.your-songs { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.link-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-width: 0; padding: 10px 4px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 
 /* ---- bottom tabs ------------------------------------------------------------------------------------ */
 

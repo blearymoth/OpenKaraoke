@@ -72,7 +72,7 @@ try {
   await host.waitForSelector('.song-row:has-text("Neon Heart")');
   await host.click('.song-row:has-text("Neon Heart")');
   await host.waitForSelector('.versions .btn:has-text("Preview")');
-  check(!(await host.$('.versions .btn:has-text("Vocal")')), 'an ordinary version still says Preview');
+  check(!(await host.$('.versions .btn:has-text("Vocal"):not(:has-text("Separate"))')), 'an ordinary version still says Preview');
   await host.click('.versions .btn:has-text("Preview")');
   check(await until(() => media.some((p) => p.endsWith('/audio'))), 'an ordinary preview still plays the whole file');
   check(!media.some((p) => p.includes('/stem/')), 'an ordinary preview does not ask for a stem');

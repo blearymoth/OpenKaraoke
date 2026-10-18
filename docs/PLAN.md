@@ -386,6 +386,7 @@ queue.approve {entryId}  queue.reject {entryId}  queue.clear  queue.shuffle
 player.play {entryId?}  player.pause  player.resume  player.next  player.restart  player.stop
 player.seek {pos}  player.key {semitones}  player.tempo {rate}  player.channel {mode}  player.volume {v}
 player.lead {level}  player.layout {layout}  player.version {trackId}   (vocals, §21)
+stems.separate {trackId}  player.vox {level}   (separated vocals on any audio version, §30)
 version.vote {trackId, vote: 1|-1|0}   display.identify {id}   (§22)
 singer.add/update/remove/merge     guest.update(me) guest.kick guest.ban guest.cohost
 favorite.toggle {songId}  playlist.save/delete/queue   settings.update {patch}   library.rescan
@@ -949,8 +950,9 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
   phone and at the next party (§28).
 - ✅ **Headphone monitor** (owner request, 2026-10-18): the song as the TV plays it, in time,
   on headphones on the PC, with its own guide level (§29).
-- Open (owner's list, 2026-10-18; not started): lead/backing stems for non-multiplex tracks;
-  the Pitch rings game rebuilt in 3D.
+- ✅ **Separated vocals** (owner request, 2026-10-18): any audio version, separated when the host
+  asks, plays in the room and the headphones with the vocals at a level (§30).
+- Open (owner's list, 2026-10-18; not started): the Pitch rings game rebuilt in 3D.
 - Parked: the host seek bar after the TV window toggles, lyric layouts, the lyrics editor.
 
 ## 19. Open questions for the owner
@@ -1320,7 +1322,9 @@ multiplex version and plays a separated guide vocal on the chosen headphone outp
 Separation is autokaraoke’s Demucs model `htdemucs` (`autokaraoke.separate.separate`, after
 `models.configure`, then one vocal WAV). The file is `data/stems/<trackId>/vocal.wav` (the data
 folder, never the music drive). Host action `vocal.prepare {trackId}` starts it; guests cannot.
-`GET /media/:trackId/stem/vocal` serves a ready file for a multiplex track and 404s otherwise.
+`GET /media/:trackId/stem/vocal` serves a ready file for a multiplex track and 404s otherwise
+(and `/stem/vocal|music` for a version the host had separated, §30). The separator now keeps the
+music too (`music.wav`); a multiplex track only needs its vocal.
 The preview starts at the beginning of the stem. It is not locked to the TV clock, the singer’s
 phone does not play it, and there is no live microphone monitor. In time with the TV: the
 headphone monitor (§29), which plays the channel matrix (not the stem) with its own guide level.
@@ -1718,3 +1722,52 @@ computer the two audio clocks rarely drift that far).
 delay, the mix, what it loads), `test/e2e/monitor.mjs` (real audio in two pages: refused on the
 TV's output, in time at the start, after a seek and pause/play, the TV's key, +200 ms delay, on
 another tab, a new multiplex song with the monitor's guide full while the room's is off, off).
+
+## 30. Separated vocals on any version
+
+The owner chose: **one Vocals level** for any separated version; heard in **the room and the
+headphones**; separated **only when the host asks**; built on **htdemucs**, with the model name in
+one place for a lead/backing model later.
+
+**What it is.** autokaraoke's Demucs (`htdemucs`, §21) splits a version into **all its vocals** and
+**the rest** ("music"). It can't tell the lead singer from backing singers, so the one level means:
+on a karaoke track (no lead) its **backing vocals**; on a "with vocals" mix or an original recording
+**the singer** (and any backing). Off / Quiet (50 = −12 dB) / Full (100, as recorded) and anything
+between. A multiplex version keeps its exact guide level (§21) and isn't separated this way; a video
+version plays its own sound and can't be.
+
+**Separation** (`server/stems/`): the same one-at-a-time job as the multiplex vocal, now writing
+`data/stems/<trackId>/music.wav` then `vocal.wav` (the vocal last: it marks the pair done). The model
+is `stemModel()`: `htdemucs`, or `OPENKARAOKE_STEM_MODEL` (a plain name autokaraoke knows) — one place
+to switch to a lead/backing model. A version is separated only after `stems.separate {trackId}`
+(host: Playback → Sound → "Separate the vocals" for the song on now, or the song dialog's "Separate
+vocals" on any audio version ahead of its song); the request is kept in `trackPrefs[trackId].stems`,
+so a pair on disk is found again after a restart (and stays usable with the separator gone). A
+failure says so; asking again runs it again. Nothing runs by itself. The files are not size-capped
+yet (two WAVs, ≈10 MB a minute).
+
+**The room.** When a version's pair is ready its media carry `stems: { music, vocal }`
+(`/media/<id>/stem/music|vocal`, served only for a version the host had separated); if that version
+is on now, `player.reload` is bumped and the TV loads the stems **where it is in the song**. The TV's
+`AudioEngine.loadStems()` decodes both into four channels of one length and plays them through a
+second, 4-channel Signalsmith stretcher → music L/R as they are, vocal L/R × (level/100)² → stereo →
+the same channel matrix, loudness, fades and master as always, so key and tempo work unchanged
+(the file again if the stems can't be loaded). `player.vox` (0–100, host and co-hosts) is the level;
+kept per version in `trackPrefs[trackId].vox`, 100 the first time. `playerView` carries `vox`,
+`stems` (the song on now's separation: idle, separating, ready, failed; null for multiplex or
+nothing on) and `stemsEnabled`.
+
+**The headphones.** The headphone monitor (§29) plays the same stems with **its own Vocals level**
+("As the room" until moved). The song dialog's Preview still plays the file.
+
+**Not done**: a lead/backing split (needs another model — `OPENKARAOKE_STEM_MODEL` is the place;
+the script also expects it to return two parts); separating ahead of time by itself (the owner
+chose on request); videos; the guest's guide switch for separated versions; a size cap on
+`data/stems`.
+
+**Tests**: `test/separated-vocals.test.js` (guests can't, multiplex and video refused, no
+separator, separating → failed → again → ready, the TV reloads into the stems, the files and
+routes, the level for host and co-hosts kept per version, another song), `test/stems.test.js`
+(the script keeps the music, the model name), `test/e2e/stems.mjs` (the TV switches to the stems
+mid-song where it was, Off/Quiet on the TV's gains, the monitor's own level, the song dialog's
+button, the next song plays its file).

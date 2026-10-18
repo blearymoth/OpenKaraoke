@@ -11,24 +11,24 @@ import { store, conn, toast } from './state.js';
 import { storedSink, LOOPBACK, PreviewOutput } from './preview.js';
 import { tvPosition, monitorStep, monitorMix, monitorSource, clampDelay, MAX_DELAY_MS } from '/shared/monitor.js';
 
-const PREFS_KEY = 'ok.monitor'; // { lead, volume, delays: { <output id>: ms } }
+const PREFS_KEY = 'ok.monitor'; // { lead, vox, volume, delays: { <output id>: ms } }
 const TICK_MS = 200;
 
 const readPrefs = () => {
   try {
     const p = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
-    return { lead: Number.isFinite(p.lead) ? p.lead : null, volume: Number.isFinite(p.volume) ? p.volume : 0.8, delays: p.delays && typeof p.delays === 'object' ? p.delays : {} };
+    return { lead: Number.isFinite(p.lead) ? p.lead : null, vox: Number.isFinite(p.vox) ? p.vox : null, volume: Number.isFinite(p.volume) ? p.volume : 0.8, delays: p.delays && typeof p.delays === 'object' ? p.delays : {} };
   } catch {
-    return { lead: null, volume: 0.8, delays: {} };
+    return { lead: null, vox: null, volume: 0.8, delays: {} };
   }
 };
 
 export const monitorStore = createStore({ on: false, status: 'off', note: '', err: null, ...readPrefs() });
 
 const savePrefs = () => {
-  const { lead, volume, delays } = monitorStore.get();
+  const { lead, vox, volume, delays } = monitorStore.get();
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify({ lead, volume, delays }));
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ lead, vox, volume, delays }));
   } catch { /* private window: for this visit only */ }
 };
 
@@ -110,7 +110,9 @@ class Monitor {
     const e = this.engine;
     try {
       if (!src) throw new Error('waiting');
-      if (src.mode === 'buffer') {
+      if (src.mode === 'stems') {
+        await e.loadStems(cur.trackId, src.url, src.vocal);
+      } else if (src.mode === 'buffer') {
         await e.load(cur.trackId, src.url);
       } else {
         this.element ||= new Audio();
@@ -148,6 +150,7 @@ class Monitor {
     e.setKey(p.key);
     e.setTempo(p.tempo);
     e.setMix(monitorMix(p, prefs.lead));
+    e.setVox(prefs.vox ?? p.vox ?? 100); // separated vocals (PLAN §30): its own level, or the room's
     e.setVolume(prefs.volume);
     const report = time && time.entryId === cur.id ? time : null;
     const tvPlaying = p.state === 'playing' && !!report?.playing;
@@ -161,7 +164,7 @@ class Monitor {
       lastSeekAt: this.lastSeekAt,
     });
     // A jump lands where the TV will be once the engine's own start-up and output delay have passed.
-    const lead = () => (e.track.mode === 'buffer' ? (e.ctx.currentTime + 0.05 - e.heardTime()) * (p.tempo || 1) : 0);
+    const lead = () => (e.track.mode !== 'element' ? (e.ctx.currentTime + 0.05 - e.heardTime()) * (p.tempo || 1) : 0);
     if (step.action === 'play') {
       e.play(step.to + lead());
       this.lastSeekAt = performance.now();
@@ -187,6 +190,8 @@ export function MonitorCard({ state }) {
   }, []);
   const adjustable = !!state.player?.vocals?.adjustable && !!state.current;
   const lead = m.lead ?? state.player?.lead ?? 0;
+  const separated = state.player?.stems === 'ready' && !!state.current;
+  const vox = m.vox ?? state.player?.vox ?? 100;
   const delay = delayFor(sink);
   const setPref = (patch) => {
     monitorStore.update(patch);
@@ -221,6 +226,13 @@ export function MonitorCard({ state }) {
     ${adjustable && html`<p class="hint monitor-sub">${m.lead === null
       ? 'As the room — move it for a guide in the headphones only.'
       : html`The room: ${state.player.lead}. <button class="link" onClick=${() => setPref({ lead: null })}>As the room</button>`}</p>`}
+    ${separated && html`<label class="monitor-row"><span>Vocals</span>
+      <input type="range" min="0" max="100" step="5" value=${vox} aria-label="Vocals in the headphones"
+        style=${{ '--p': `${vox}%` }} onInput=${(e) => setPref({ vox: Number(e.currentTarget.value) })} />
+      <b class="num">${vox}</b></label>`}
+    ${separated && html`<p class="hint monitor-sub">${m.vox === null
+      ? 'As the room (separated vocals).'
+      : html`The room: ${state.player.vox}. <button class="link" onClick=${() => setPref({ vox: null })}>As the room</button>`}</p>`}
     <label class="monitor-row"><span>Volume</span>
       <input type="range" min="0" max="1" step="0.05" value=${m.volume} aria-label="Monitor volume"
         style=${{ '--p': `${m.volume * 100}%` }} onInput=${(e) => setPref({ volume: Number(e.currentTarget.value) })} /></label>

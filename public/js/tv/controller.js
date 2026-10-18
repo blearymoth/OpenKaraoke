@@ -117,8 +117,9 @@ export class TvController extends EventTarget {
       this.engine.setKey(fx.key);
       this.engine.setTempo(fx.tempo);
       this.engine.setMix(this.mixFor(fx, cur));
+      this.engine.setVox(p.vox ?? 100);
     } else {
-      Object.assign(this.engine, { volume: p.volume, key: p.key, rate: p.tempo, mix: this.mixFor(fx, cur) });
+      Object.assign(this.engine, { volume: p.volume, key: p.key, rate: p.tempo, mix: this.mixFor(fx, cur), vox: p.vox ?? 100 });
     }
     const id = cur?.id || null;
     const reload = cur && this.reloadSeen !== null && p.reload !== this.reloadSeen;
@@ -182,12 +183,21 @@ export class TvController extends EventTarget {
         if (this.display === 'main') await this.engine.loadElement(cur.trackId, this.video, media.video);
         else this.video.src = media.video;
       } else if (this.display === 'main') {
+        // Separated (PLAN §30): the music and the vocal at a level, in place of the file — the file
+        // again if the stems can't be loaded.
+        const loadFile = () => this.engine.load(cur.trackId, media.audio).catch((e) => {
+          if (e.superseded || e.status || this.entryId !== entryId) throw e;
+          // The browser couldn't decode the file in one go: stream it through <audio> instead.
+          return this.engine.loadElement(cur.trackId, this.audio, media.audio);
+        });
         const [, bytes] = await Promise.all([
-          this.engine.load(cur.trackId, media.audio).catch((e) => {
-            if (e.superseded || e.status || this.entryId !== entryId) throw e;
-            // The browser couldn't decode the file in one go: stream it through <audio> instead.
-            return this.engine.loadElement(cur.trackId, this.audio, media.audio);
-          }),
+          media.stems
+            ? this.engine.loadStems(cur.trackId, media.stems.music, media.stems.vocal).catch((e) => {
+              if (e.superseded || this.entryId !== entryId) throw e;
+              console.warn('the separated stems could not be loaded:', e.message); // eslint-disable-line no-console
+              return loadFile();
+            })
+            : loadFile(),
           this.fetchCdg(media.cdg),
         ]);
         if (this.entryId !== entryId) return;

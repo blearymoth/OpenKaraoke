@@ -1,5 +1,7 @@
-// Vocal-stem cache and one-at-a-time separation jobs. The file lives under the data folder
-// (data/stems/<trackId>/vocal.wav), never on the music drive. Only multiplex tracks are separated.
+// Stem cache and one-at-a-time separation jobs, under the data folder (never the music drive):
+// data/stems/<trackId>/vocal.wav and music.wav (the rest). A multiplex track's vocal is for the
+// headphone preview (its music isn't needed); any other track is separated only when the host
+// asks, and needs both files (the room then plays music + vocal at a level — PLAN §30).
 import fs from 'node:fs/promises';
 import { renameSync } from 'node:fs';
 import path from 'node:path';
@@ -21,15 +23,17 @@ export class StemJobs {
   /**
    * @param {object} opts
    * @param {string} opts.dataDir
-   * @param {Function|null} opts.run  async ({ src, vocal, trackId, onChild }) — null disables jobs
-   * @param {(trackId: string) => boolean} opts.allowed  only multiplex tracks
+   * @param {Function|null} opts.run  async ({ src, vocal, music, trackId, onChild }) — null disables jobs
+   * @param {(trackId: string) => boolean} opts.allowed  multiplex tracks, and those the host asked for
+   * @param {(trackId: string) => boolean} [opts.needsMusic]  music.wav must be there too (not multiplex)
    * @param {(trackId: string) => Promise<string|null>} opts.sourceOf  absolute audio path in the library, or a copy under the data folder
    * @param {(trackId: string, state: object) => void} [opts.onChange]
    */
-  constructor({ dataDir, run, allowed, sourceOf, onChange }) {
+  constructor({ dataDir, run, allowed, sourceOf, onChange, needsMusic = () => false }) {
     this.dataDir = dataDir;
     this.run = typeof run === 'function' ? run : null;
     this.allowed = allowed;
+    this.needsMusic = needsMusic;
     this.sourceOf = sourceOf;
     this.onChange = onChange || (() => {});
     this.memory = new Map();
@@ -49,11 +53,11 @@ export class StemJobs {
     return this.memory.get(trackId) || { status: 'idle', gen: 0, error: '' };
   }
 
-  /** vocal.wav inside the cache, or null. Does not check that the file exists. */
-  file(trackId) {
+  /** vocal.wav (or `name`: music.wav) inside the cache, or null. Does not check that the file exists. */
+  file(trackId, name = 'vocal.wav') {
     const dir = stemTrackDir(this.dataDir, trackId);
     if (!dir) return null;
-    return path.join(dir, 'vocal.wav');
+    return path.join(dir, name);
   }
 
   publish(trackId, patch) {
@@ -66,27 +70,31 @@ export class StemJobs {
     if (!same) this.onChange(trackId, next);
   }
 
+  /** The stems a track needs are on disk: the vocal, and the music unless it is multiplex. */
   async filesReady(trackId) {
-    const file = this.file(trackId);
-    if (!file) return false;
-    try {
-      const st = await fs.stat(file);
-      return st.isFile() && st.size >= 45;
-    } catch {
-      return false;
-    }
+    const ok = async (name) => {
+      const file = this.file(trackId, name);
+      if (!file) return false;
+      try {
+        const st = await fs.stat(file);
+        return st.isFile() && st.size >= 45;
+      } catch {
+        return false;
+      }
+    };
+    return (await ok('vocal.wav')) && (!this.needsMusic(trackId) || (await ok('music.wav')));
   }
 
   /** Start separation unless this track is not multiplex, already cached, or already queued. */
   async ensure(trackId) {
-    if (!this.run || this.closed) return;
-    if (!stemTrackDir(this.dataDir, trackId)) return;
-    if (!this.allowed(trackId)) {
-      this.publish(trackId, { status: 'skipped' });
+    if (!stemTrackDir(this.dataDir, trackId) || this.closed) return;
+    if (await this.filesReady(trackId)) { // (separated before: usable even with the separator gone)
+      this.publish(trackId, { status: 'ready' });
       return;
     }
-    if (await this.filesReady(trackId)) {
-      this.publish(trackId, { status: 'ready' });
+    if (!this.run) return;
+    if (!this.allowed(trackId)) {
+      this.publish(trackId, { status: 'skipped' });
       return;
     }
     const cur = this.memory.get(trackId);
@@ -104,7 +112,7 @@ export class StemJobs {
     this.memory.delete(trackId);
     const dir = stemTrackDir(this.dataDir, trackId);
     if (dir) {
-      await Promise.all(['vocal.wav', 'vocal.wav.part'].map((name) => fs.rm(path.join(dir, name), { force: true })));
+      await Promise.all(['vocal.wav', 'vocal.wav.part', 'music.wav', 'music.wav.part'].map((name) => fs.rm(path.join(dir, name), { force: true })));
     }
     await this.ensure(trackId);
   }
@@ -130,17 +138,18 @@ export class StemJobs {
           const dir = stemTrackDir(this.dataDir, trackId);
           await fs.mkdir(dir, { recursive: true });
           const vocal = path.join(dir, 'vocal.wav');
+          const music = path.join(dir, 'music.wav');
           await this.run({
-            src, vocal, trackId, onChild: (child) => { this.child = child; },
+            src, vocal, music, trackId, onChild: (child) => { this.child = child; },
           });
           if (this.closed) return;
-          if (!(await this.filesReady(trackId))) throw new Error('Separator finished without a vocal file');
+          if (!(await this.filesReady(trackId))) throw new Error('Separator finished without the stems');
           await this.removeSource(dir);
           this.publish(trackId, { status: 'ready' });
         } catch (e) {
           if (!this.closed) {
             log.info(`could not separate ${trackId}: ${e.message}`);
-            this.publish(trackId, { status: 'failed', error: 'Could not separate the guide vocal.' });
+            this.publish(trackId, { status: 'failed', error: 'Could not separate the vocals.' });
           }
         } finally {
           this.child = null;

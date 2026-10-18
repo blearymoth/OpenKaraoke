@@ -1,18 +1,19 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-18 (the headphone monitor: the song as the TV plays it, in time, on
-headphones on the party PC, with its own guide-singer level — see "Headphone monitor" below.
-Earlier the same day: guest accounts, the year & genre checker, the Library table, browse
-filters, singer playback controls. Run in a cloud sandbox without the owner's PC or drive)._
+_Last updated: 2026-10-18 (separated vocals on any version: the host has a version separated
+and the room plays it with the vocals off, quiet or full — see "Separated vocals on any version"
+below. Earlier the same day: the headphone monitor, guest accounts, the year & genre checker, the
+Library table, browse filters, singer playback controls. Run in a cloud sandbox without the
+owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 576/576; `npm run e2e` → 25 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 578/578; `npm run e2e` → 26 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
@@ -1270,13 +1271,30 @@ automatic delay plus a slider.
   drift correction (it jumps).
 - Tests: `test/monitor.test.js` (3), `test/e2e/monitor.mjs` (23).
 
+## Separated vocals on any version (2026-10-18)
+PLAN §30. The owner chose: one Vocals level, in the room and the headphones, separated only when
+the host asks, on htdemucs (the model name in one place).
+- **Using it**: Playback → Sound → **Separate the vocals** (the song on now), or the song dialog's
+  **Separate vocals** on a version ahead of its song. A minute or two later the TV switches to the
+  separated music + vocals where it is in the song; then **Vocals** Off / Quiet / Full (a slider
+  too), kept for that version. The headphone monitor has its own Vocals level.
+- **What "vocals" is**: htdemucs can't tell lead from backing singers: on a karaoke track it is the
+  backing vocals, on a "with vocals" mix or an original recording the singer too. A lead/backing
+  model can be named in `OPENKARAOKE_STEM_MODEL` (if autokaraoke knows it and it returns two parts).
+- **How**: the separator now keeps the music (`data/stems/<id>/music.wav` beside `vocal.wav`); the
+  TV's engine plays both through a 4-channel Signalsmith stretcher, so key and tempo still work.
+- Not done: separating by itself ahead of time, videos, a size cap on `data/stems` (≈20 MB a
+  minute of song for the pair), the guests' guide switch for these.
+- Tests: `test/separated-vocals.test.js` (2), `test/e2e/stems.mjs` (21). Owner checklist:
+  separate a karaoke track with backing vocals and a "with vocals" version on the PC (real
+  autokaraoke); check the time it takes, that the TV switches over without a jump, and how
+  Off sounds.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
   - ~~Browse/search filters~~, ~~the host Library table~~, ~~the year & genre checker~~,
-    ~~guest accounts~~ and ~~the headphone monitor~~ (done, above).
-  - **Lead/backing stems for non-multiplex tracks** (today only multiplex tracks get a vocal
-    stem).
+    ~~guest accounts~~, ~~the headphone monitor~~ and ~~separated vocals~~ (done, above).
   - **Pitch rings rebuilt in 3D** (the pitch game, `test/e2e/game-pitch.mjs`).
 - **Parked** (not without the owner):
   - The host **seek bar** after the TV window is toggled (`SeekBar` in

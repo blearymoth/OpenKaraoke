@@ -8,7 +8,7 @@ import { Cover, Stepper, Switch, useMedia } from '../lib/components.js';
 import { VersionVote } from '../lib/versions.js';
 import { act, openDialog, openPanel, toast, previewPref, setPreviewPref, saveSetting } from './state.js';
 import { IntroStatus, TransportButtons, SeekBar, VolumeControl, canOpenTv, openTvWindow } from './player.js';
-import { VocalsControl } from './vocals.js';
+import { VocalsControl, SeparatedVocals } from './vocals.js';
 import { LOOPBACK } from './preview.js';
 import { MonitorCard } from './monitor.js';
 import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
@@ -110,6 +110,7 @@ function SoundSection({ state }) {
         <p class="hint">${p.vocals?.adjustable && !idle
           ? 'The original singer on this version: off, quiet or full — the music stays as it is. ⋯ for which side and other versions.'
           : 'Which channels play. For a multiplex track not recognised as one, pick the side without the guide singer — or ⋯ to tell which side the singer is on.'}</p>
+        <${SeparatedVocals} p=${p} cur=${state.current} />
       </div>
     </div>
     <${MonitorCard} state=${state} />

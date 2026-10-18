@@ -76,3 +76,17 @@ export function toggleFilter(f, key, value) {
 
 export const decadeLabel = (d) => (d >= 2000 ? `${d}s` : `’${String(d).slice(2)}s`);
 export const versionLabel = (id) => VERSION_FILTERS.find((v) => v.id === id)?.label || id;
+
+/**
+ * The host's Library table: its columns, which all sort (PLAN §26). `first`: the direction a
+ * click on a new column starts with (numbers: the most first).
+ */
+export const TABLE_COLUMNS = [
+  { id: 'title', label: 'Title', first: 'asc' },
+  { id: 'artist', label: 'Artist', first: 'asc' },
+  { id: 'label', label: 'Label', first: 'asc' },
+  { id: 'year', label: 'Year', first: 'desc', num: true },
+  { id: 'genre', label: 'Genre', first: 'asc' },
+  { id: 'versions', label: 'Versions', first: 'desc', num: true },
+  { id: 'plays', label: 'Plays', first: 'desc', num: true, hint: 'Times sung here' },
+];

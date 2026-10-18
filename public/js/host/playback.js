@@ -10,6 +10,7 @@ import { act, openDialog, openPanel, toast, previewPref, setPreviewPref, saveSet
 import { IntroStatus, TransportButtons, SeekBar, VolumeControl, canOpenTv, openTvWindow } from './player.js';
 import { VocalsControl } from './vocals.js';
 import { LOOPBACK } from './preview.js';
+import { MonitorCard } from './monitor.js';
 import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 import { normalizeLyricsLook, normalizeLyricsLayout } from '/shared/lyrics.js';
 
@@ -111,6 +112,7 @@ function SoundSection({ state }) {
           : 'Which channels play. For a multiplex track not recognised as one, pick the side without the guide singer — or ⋯ to tell which side the singer is on.'}</p>
       </div>
     </div>
+    <${MonitorCard} state=${state} />
   </section>`;
 }
 

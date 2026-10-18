@@ -19,7 +19,7 @@ if (audio) {
   audio.addEventListener('error', () => previewStore.update({ playing: false, error: 'This file can’t be previewed here.' }));
 }
 
-const storedSink = () => {
+export const storedSink = () => {
   try {
     return localStorage.getItem(SINK_KEY) || '';
   } catch {
@@ -113,7 +113,7 @@ export function PreviewButton({ trackId, vocal = false }) {
  * The TV page never chooses an output: on this computer it plays on the system's default one,
  * so the advice here never says to change that (it would move the party's sound too).
  */
-export function PreviewOutput({ displays = [] }) {
+export function PreviewOutput({ displays = [], what = 'Previews', label = 'Preview plays on' }) {
   const canChoose = !!(audio?.setSinkId && window.isSecureContext && navigator.mediaDevices?.enumerateDevices);
   const [devices, setDevices] = useState([]);
   const [sink, setSink] = useState(storedSink);
@@ -197,17 +197,17 @@ export function PreviewOutput({ displays = [] }) {
   return html`<div class="preview-output">
     ${st.error && html`<p class="warn-text">${st.error}</p>`}
     ${canChoose && (named || inUse)
-      ? html`<label class="field"><span>Preview plays on</span>
+      ? html`<label class="field"><span>${label}</span>
           <select class="select" value=${sink} onChange=${(e) => choose(e.currentTarget.value)}>
             <option value="">${tvHere ? 'This computer’s default output (the TV’s)' : 'This computer’s default output'}</option>
             ${devices.map((d) => html`<option value=${d.id}>${d.label}</option>`)}
             ${sink && !chosen && html`<option value=${sink}>${inUse === sink ? 'The headphones chosen before' : 'Your headphones (not connected)'}</option>`}
           </select></label>
-        ${sink && inUse !== sink && html`<p class="hint">Previews play on the default output for now: ${chosen ? `“${chosen.label}”` : 'the headphones chosen before'} can’t be used right now (unplugged, or the browser wants your OK again).</p>`}
+        ${sink && inUse !== sink && html`<p class="hint">${what} play on the default output for now: ${chosen ? `“${chosen.label}”` : 'the headphones chosen before'} can’t be used right now (unplugged, or the browser wants your OK again).</p>`}
         <p class="hint"><button class="link" disabled=${asking} onClick=${ask}>${picker ? 'Choose another output…' : 'Look for outputs again'}</button></p>`
       : html`<p class="hint">${tvHere
-          ? 'Previews play on this computer’s default sound output, like the TV, so the party hears them.'
-          : 'Previews play on this computer’s default sound output — use headphones if that is also the party speaker.'}
+          ? `${what} play on this computer’s default sound output, like the TV, so the party hears them.`
+          : `${what} play on this computer’s default sound output — use headphones if that is also the party speaker.`}
           ${canChoose && html` <button class="link" disabled=${asking} onClick=${ask}>Choose headphones…</button>`}</p>`}
     ${note && html`<p class="hint">${note}</p>`}
   </div>`;

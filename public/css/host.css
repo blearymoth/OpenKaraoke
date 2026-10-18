@@ -434,6 +434,20 @@ body.host .toasts { bottom: 104px; }
 .lib-table .col-actions { width: 150px; }
 .lib-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
 
+/* The headphone monitor (Playback → Sound). */
+.monitor-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 14px; padding: 12px 14px; border-radius: var(--r-card); background: var(--stage-2); border: 1px solid var(--line); }
+.monitor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.monitor-head b { display: inline-flex; align-items: center; gap: 6px; }
+.monitor-head .hint { margin: 4px 0 0; }
+.monitor-status { margin: 0; font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.monitor-status.in-time { color: var(--neon); }
+.monitor-status.error { color: var(--bad); }
+.monitor-row { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; color: var(--ink-2); }
+.monitor-row > span { width: 86px; flex: none; }
+.monitor-row input[type='range'] { flex: 1; min-width: 0; }
+.monitor-row b { min-width: 58px; text-align: right; color: var(--ink); }
+.monitor-sub { margin: -6px 0 0 96px; }
+
 /* The year & genre checker (Browse → Table → Show: … to check). */
 .lib-show { display: inline-flex; align-items: center; gap: 8px; }
 .lib-show .select { min-height: 36px; width: auto; padding: 0 10px; font-size: 14px; }

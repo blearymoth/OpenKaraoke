@@ -2659,7 +2659,7 @@ export class Room {
       hasPin,
       library: this.library.status(),
       video: { ...this.videos.status(), tracks: this.convertibleCount() },
-      current: this.currentView({ version: true, voter: HOST_VOTER }),
+      current: this.currentView({ media: true, version: true, voter: HOST_VOTER }), // (media: the headphone monitor)
       player: this.playerView(),
       queue: s.queue.map((e, i) => ({ ...this.entryView(e), eta: eta[i], addedByName: byName(e) })),
       pending: s.pending.map((e) => ({ ...this.entryView(e), addedByName: byName(e) })),

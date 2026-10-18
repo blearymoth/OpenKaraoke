@@ -947,8 +947,10 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
   year or genre is missing or looks wrong; the host's own values win everywhere (§27).
 - ✅ **Guest accounts** (owner request, 2026-10-18): username + password, the same singer on any
   phone and at the next party (§28).
-- Open (owner's list, 2026-10-18; not started): a live headphone monitor synced to the TV;
-  lead/backing stems for non-multiplex tracks; the Pitch rings game rebuilt in 3D.
+- ✅ **Headphone monitor** (owner request, 2026-10-18): the song as the TV plays it, in time,
+  on headphones on the PC, with its own guide level (§29).
+- Open (owner's list, 2026-10-18; not started): lead/backing stems for non-multiplex tracks;
+  the Pitch rings game rebuilt in 3D.
 - Parked: the host seek bar after the TV window toggles, lyric layouts, the lyrics editor.
 
 ## 19. Open questions for the owner
@@ -1320,7 +1322,8 @@ Separation is autokaraoke’s Demucs model `htdemucs` (`autokaraoke.separate.sep
 folder, never the music drive). Host action `vocal.prepare {trackId}` starts it; guests cannot.
 `GET /media/:trackId/stem/vocal` serves a ready file for a multiplex track and 404s otherwise.
 The preview starts at the beginning of the stem. It is not locked to the TV clock, the singer’s
-phone does not play it, and there is no live microphone monitor.
+phone does not play it, and there is no live microphone monitor. In time with the TV: the
+headphone monitor (§29), which plays the channel matrix (not the stem) with its own guide level.
 
 ## 22. Admin panel, devices, version play counts and votes
 
@@ -1677,3 +1680,41 @@ out, the host's list/reset/delete, a ban, the setting, the rate limits, pruning,
 `test/e2e/accounts.mjs` (two phones with their own storage: Your songs, create, wrong password,
 sign in → same name/favourites/songs, change password → the other phone signed out, the host's
 new password, sign out, phones fit, no console errors).
+
+## 29. The headphone monitor (host)
+
+The owner chose: the **host, on the party PC**; the **room's sound plus its own guide level**;
+**automatic delay plus a slider**. Admin panel → Playback → Sound → **Headphone monitor**.
+
+**What it plays**: the song on the TV, as the TV plays it — the same file, key, tempo, channel
+mode and loudness normalisation — with, on a multiplex track (guide adjustable, §21), **its own
+guide level** (0–100; "As the room" until moved): the singer can hear the original singer in the
+headphones while the room doesn't, or the other way round. Its own volume.
+
+**How** (`public/js/host/monitor.js`): the TV's `AudioEngine` (decoded audio through Signalsmith
+for CDG tracks; a media element for videos) in the host page, with its own `AudioContext` sent to
+the output chosen for previews (`AudioContext.setSinkId`, Chrome/Edge and the desktop app; the
+same "Headphones" picker as the song dialog's preview). Every 200 ms it compares its heard
+position with the TV's (`shared/monitor.js`): the TV's last report (`time`, 4 per second, with the
+server's clock) moved on by the server clock now × tempo; play or pause with the TV; more than
+60 ms off → it jumps there (landing after its own start-up and output delay), at most every 1.5 s;
+a new song, or the TV reloading one, is loaded. Both engines report the **heard** position (the
+output's delay taken off where the browser reports it).
+- **Delay**: ±500 ms in 10 ms steps, kept per output (`localStorage ok.monitor`): positive = the
+  headphones are late (Bluetooth), so the monitor plays that much ahead.
+- **Safety**: it won't start on the default output while the TV plays on this computer (the room
+  would hear it twice) — choose headphones first; a browser that can't choose an output for audio
+  is told to use Chrome, Edge or the app; unplugged headphones: it says so and stays off.
+- It keeps going while the card is out of sight (another tab or page) and stops when switched
+  off; nothing is sent to the server (the host's view of the current song now carries its media
+  URLs).
+
+**Not done**: the singer's phone as a monitor (the owner chose the PC first); the vocal stem in
+the monitor (the matrix's guide is exact for multiplex tracks, the stem is for others: open item);
+a live microphone in the headphones (PLAN §2, P2); smooth drift correction (it jumps; on one
+computer the two audio clocks rarely drift that far).
+
+**Tests**: `test/monitor.test.js` (the TV's position, play/pause/jump and their spacing, the
+delay, the mix, what it loads), `test/e2e/monitor.mjs` (real audio in two pages: refused on the
+TV's output, in time at the start, after a seek and pause/play, the TV's key, +200 ms delay, on
+another tab, a new multiplex song with the monitor's guide full while the room's is off, off).

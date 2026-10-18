@@ -1,19 +1,18 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-18 (guest accounts: a username and password keep a guest's name,
-favourites, songs and votes on any phone and at the next party; the host resets passwords on the
-Singers page — see "Guest accounts" below. Earlier the same day: the year & genre checker, the
-Library table, browse filters, singer playback controls. Run in a cloud sandbox without the
-owner's PC or drive)._
+_Last updated: 2026-10-18 (the headphone monitor: the song as the TV plays it, in time, on
+headphones on the party PC, with its own guide-singer level — see "Headphone monitor" below.
+Earlier the same day: guest accounts, the year & genre checker, the Library table, browse
+filters, singer playback controls. Run in a cloud sandbox without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 573/573; `npm run e2e` → 24 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 576/576; `npm run e2e` → 25 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
@@ -1252,13 +1251,30 @@ one, optional, keeping name/avatar/colour, favourites, song history and version 
 - Owner checklist: make an account on one phone, sign in on another (a different browser), check
   the name, favourites and Your songs follow; restart the server and sign in again.
 
+## Headphone monitor (2026-10-18)
+PLAN §29. The owner chose: the host on the party PC, the room's sound plus its own guide level,
+automatic delay plus a slider.
+- **Using it**: Playback → Sound → **Headphone monitor**: choose the headphones (the same picker
+  as the song preview), switch it on. It plays the song as the TV does — key, tempo, channels — in
+  time, with **its own guide singer level** on multiplex tracks (the singer can hear the original
+  singer while the room doesn't). Volume, and **Delay** (±500 ms, kept per output) for Bluetooth
+  headphones that lag: move it right until they line up.
+- **How**: the TV's audio engine runs in the host page on the chosen output and follows the TV's
+  reported position on the server clock; more than 60 ms off → it jumps back in line (at most
+  every 1.5 s). It won't play on the default output while the TV is on this computer.
+- Measured here (headless Chromium, two pages on one machine): 0–50 ms from the TV after starts,
+  seeks, pause/play and a new song. Real headphones add their own delay: that is what the slider
+  is for — owner checklist: try wired and Bluetooth headphones with the TV on the same PC.
+- Needs Chrome, Edge or the desktop app (choosing an output for Web Audio); Firefox is told so.
+- Not done: the singer's phone as a monitor, the vocal stem in it, a live microphone, smooth
+  drift correction (it jumps).
+- Tests: `test/monitor.test.js` (3), `test/e2e/monitor.mjs` (23).
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
-  - ~~Browse/search filters~~, ~~the host Library table~~, ~~the year & genre checker~~ and
-    ~~guest accounts~~ (done, above).
-  - A **live headphone monitor synced to the TV** (today the multiplex vocal stem is only the
-    song dialog's preview, from the start of the file, not in time with the TV).
+  - ~~Browse/search filters~~, ~~the host Library table~~, ~~the year & genre checker~~,
+    ~~guest accounts~~ and ~~the headphone monitor~~ (done, above).
   - **Lead/backing stems for non-multiplex tracks** (today only multiplex tracks get a vocal
     stem).
   - **Pitch rings rebuilt in 3D** (the pitch game, `test/e2e/game-pitch.mjs`).
@@ -1268,9 +1284,8 @@ one, optional, keeping name/avatar/colour, favourites, song history and version 
   - **Lyric layouts** — no further work for now.
   - The **lyrics editor**.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, mic monitoring
-  with reverb on the PC. The multiplex
-  vocal stem is only the song-dialog headphone preview (from the start of the file), not that
-  monitor and not synced to the TV.
+  with reverb on the PC. The multiplex vocal stem is still only the song-dialog preview; the
+  headphone monitor (in time with the TV) plays the channel matrix instead.
 - Performance pass on the real library: the first artwork crawl's memory was measured with the
   fake network (see "Memory during the first artwork crawl"); on the PC, watch the server's
   memory once during the real crawl (it takes hours at the providers' rates).

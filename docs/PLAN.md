@@ -433,9 +433,9 @@ GET  /api/search?q&limit&offset&tag&letter      { total, fuzzy, items: SongSumma
 GET  /api/songs/:id            song detail (versions, meta, plays; per version plays, up, down, mine,
                                heard tonight, status; default first + defaultTrackId, defaultWhy — §22)
 GET  /api/artists?letter&q&limit&offset&sort    GET /api/artists/:key  { artist, songs }
-GET  /api/browse/popular?limit&offset&tag&genre&decade
-GET  /api/browse/facets        { genres, decades, tags }
-GET  /api/browse/tag/:tag      GET /api/random?n&tag&genre&decade
+GET  /api/browse/popular?limit&offset&tag*&genre*&decade*&version*   (* = repeat for several, §25)
+GET  /api/browse/facets        { genres, decades, tags, versions, letters, brands }
+GET  /api/browse/tag/:tag      GET /api/random?n&tag*&genre*&decade*&version*
 GET  /api/qr.svg?text=…        QR code (text ≤ 512 chars)
 GET  /api/art/song/:id?s=250|500|1000     image | placeholder SVG (never 404)
 GET  /api/art/artist/:key?type=picture|fanart|logo|cutout
@@ -735,14 +735,15 @@ left nav, main view, right **admin panel** (tabs Queue / Playback / Devices — 
 bar (what's on, transport, seek, volume, TV chip). Phones (≤ 900 px): the panel is the "Control"
 page (`#/panel/queue|playback|devices`) and a mini player (play/pause, next; tap → Playback).
 Views: Home (now playing, quick actions, popular carousel, tags), Search, Artists A–Z → Artist
-page (header with fanart/logo), Collections (tags), Genres/Decades (when metadata exists),
+page (header with fanart/logo), Browse (filters, §25), Collections (tags), Genres/Decades (when metadata exists),
 Favourites, Playlists, History, Singers, Games, Photos (moderation), Settings (Library,
 Display, Playback, Queue & guests, Artwork, Security, About). Song details modal: cover, meta,
 versions table (label, variant, duration, file) with "Queue this version" and "Preview".
 
 ## 11. Guest app (`/j/:code`)
 Join (name, emoji, colour) → bottom tabs: **Home** (now singing, my next turn + ETA, reactions),
-**Search** (instant search, chips: Popular, Artists, Duets, Christmas, languages…),
+**Search** (instant search; browsing: Filters — decades, genres, collections, version types, §25 —
+with the common ones as chips, and Artists A–Z),
 **Queue** (upcoming, mine highlighted, remove mine), **Me** (my requests, favourites, history,
 edit profile). Song sheet: cover, versions (a Version picker with thumbs, §22), key −3…+3, guide
 singer, backing vocals, duet partner, mystery toggle → "Sing it!". Home: the version on now with
@@ -920,9 +921,11 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
 
 - ✅ **Singer playback controls** (owner request, 2026-10-18): the singer's phone runs their own
   song while it is on (§24).
-- Open (owner's list, 2026-10-18; not started): browse/search filters and a host Library table;
-  accounts (username + password); a year and genre checker; a live headphone monitor synced to
-  the TV; lead/backing stems for non-multiplex tracks; the Pitch rings game rebuilt in 3D.
+- ✅ **Browse filters** (owner request, 2026-10-18): several decades, genres, collections and
+  version types on the phones' Songs tab and the host's Browse page (§25).
+- Open (owner's list, 2026-10-18; not started): the host Library table; accounts (username +
+  password); a year and genre checker; a live headphone monitor synced to the TV; lead/backing
+  stems for non-multiplex tracks; the Pitch rings game rebuilt in 3D.
 - Parked: the host seek bar after the TV window toggles, lyric layouts, the lyrics editor.
 
 ## 19. Open questions for the owner
@@ -1446,3 +1449,50 @@ answered, co-host, the song changed mid-request, skipped/ended/stopped, the rate
 setting, a ban, a battle round, the time updates), `test/e2e/singer-controls.mjs` (phones:
 controls only on the singer's, pause/play, a real drag, restart, a cancelled and a lost pointer,
 the controls move to the next singer, no sideways scrolling, no console errors).
+
+## 25. Browse filters
+
+Browsing (not a typed search: the owner's choice) can be narrowed by four filters, each with
+**several values**: a song passes when it matches **one value of every filter that has some**
+(OR within a filter, AND across filters) — e.g. ’70s or ’80s, and Pop, and a Guide singer version.
+- **Decade** and **Genre**: from the online song information (§12; a song without it never
+  passes them). Until the library has been looked up there are none to offer, and the panel says so.
+- **Collections**: the tags from the file names (Duets, Christmas, languages, Explicit…; not
+  Multiplex, which the version type says). Guests under the explicit filter don't see Explicit.
+- **Versions** (`VERSION_FILTERS`): **Guide singer** (a multiplex version, `mpx`), **With
+  backing vocals** (`bgv`), **No backing vocals** (`nobgv`), **Music video** (`video`) — the song
+  passes when one of its versions has it. File names only (not the TV's analysis, §21).
+
+**Shared** (`shared/filters.js`): `readFilters(URLSearchParams)` → `{ decades, genres, tags,
+versions }`, each value its own parameter (`?decade=1980&decade=1990&tag=Duets&version=mpx`);
+cleaned (decades 1900–2090 in tens, names ≤ 60 characters, known version types), unique, sorted
+(so equal choices share a cache entry) and at most 12 values each. `filterParams`,
+`toggleFilter`, `filterCount`, labels.
+
+**Server**: `/api/browse/popular` and `/api/random` take them (`/api/search` too, but no screen
+sends them there); one value is the same as before (`?genre=Rock`). `catalog._passes` checks
+`decades`, `genres`, `tags`, `versions`; the version kinds are a bitmask per song, built in one
+pass over the tracks once per catalog version (90k tracks: ≈35 ms, then a filtered list ≈20–30 ms,
+cached in the filtered-list LRU). `/api/browse/facets` adds `versions: [{ id, count }]` (only kinds
+the library has). A guest's filtered browse takes from the same allowance as searching (40 per
+10 s per address): each new mix walks the library once.
+
+**Phones** (Songs tab, `SearchTab` in `public/js/guest/main.js`): the chip row is **Filters**
+(with how many are on), **Artists A–Z**, then the chosen values and the common ones (8
+collections, the decades, 8 genres) as toggles. **Filters** opens a sheet with every group
+(`FilterPanel`, `public/js/lib/filters.js`) on a copy: "Show N songs" (counted as you pick, a
+`limit=1` request) applies it, "Clear all" empties it; nothing matching → the button is off. The
+results say how many songs and offer **Clear filters**. Typing a search hides the chips and
+ignores the filters; clearing the search brings the filtered list back. The filters stay while
+the guest switches tabs (not across a reload).
+
+**Host** (`#/browse`, `BrowseFilters` in `public/js/host/views.js`; Nav → Browse, Collections →
+Browse with filters): the same panel beside the songs on a wide window (above, folded, on a
+phone), the filters in the address so Back, a reload and a bookmark keep them; odd values in the
+address are dropped. The Library table (sortable columns) is the next step.
+
+**Tests**: `test/filters.test.js` (reading and cleaning, the catalog's OR/AND, facets, the API),
+`test/e2e/filters.mjs` (phone: chips, two decades and a genre, typing ignores them, kept between
+tabs, the sheet's groups and live count, applying, Clear, the explicit filter's collection; host:
+the panel, the address, reload, Clear, odd values, Collections' link, a phone; no sideways
+scrolling; no console errors).

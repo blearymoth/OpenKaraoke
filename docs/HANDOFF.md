@@ -1,18 +1,18 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-18 (singer playback controls: while a guest's song is on, their phone —
-and their duet partner's — has play/pause, restart and a seek bar; see "Singer playback controls"
-below. "Next steps" now lists the owner's remaining feature work and what is parked. Run in a
-cloud sandbox without the owner's PC or drive)._
+_Last updated: 2026-10-18 (browse filters: the phones' Songs tab and the host's new Browse page
+narrow the popular songs by several decades, genres, collections and version types — see "Browse
+filters" below. Before that the same day: singer playback controls. Run in a cloud sandbox
+without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 557/557; `npm run e2e` → 21 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 561/561; `npm run e2e` → 22 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
@@ -1162,10 +1162,38 @@ phone, without being a co-host. PLAN §24 has the rules; in short:
   `npm run e2e`). Owner checklist: on a real phone (Android Chrome and an iPhone), drag the seek
   bar during your own song, and start a drag then scroll the page away — the bar should come back.
 
+## Browse filters (2026-10-18)
+The first half of the owner's "browse/search filters + host Library table". PLAN §25 has the
+details. The owner chose: decades, genres, collections (tags) and version types; **browse only**
+(a typed search ignores them); **several values per filter** (OR within a filter, AND across);
+phones and host in one go.
+- **Phones** (Songs tab): **Filters** opens a sheet with every group and a live "Show N songs";
+  the chip row toggles the common values (as the old one-choice chips did, now several at once);
+  **Artists A–Z** as before. Kept while switching tabs.
+- **Host**: a new **Browse** page (Nav; Collections → "Browse with filters") with the same panel,
+  the filters in the address (`#/browse?decade=1980&genre=Rock&version=mpx`).
+- **Version types**: Guide singer (multiplex), With / No backing vocals, Music video — from the
+  file names (a song passes when one of its versions has it). The Multiplex collection is left out
+  of the panel (same thing).
+- **Decades and genres** need the online song information; on a library that hasn't been looked up
+  yet those groups are missing and the panel says why.
+- **API**: repeated parameters (`?decade=1980&decade=1990`) on `/api/browse/popular` and
+  `/api/random`; facets gain `versions`. Guests' filtered browsing shares the search rate limit.
+- Speed on a synthetic 90k-track library: the version bitmask ≈35 ms once per catalog version,
+  a new filter mix ≈20–35 ms (then cached), facets ≈20 ms after a metadata change (15 before).
+- Tests: `test/filters.test.js` (4), `test/e2e/filters.mjs` (40 checks, in `npm run e2e`).
+- Found, not changed (older than this work): a guest page on the host's own computer is trusted as
+  the host over HTTP, so search and browse there don't take out explicit songs under the explicit
+  filter (`/api/songs/:id` already goes by the guest token; `filterFor` in `server/http/api.js`
+  doesn't). Phones on the Wi-Fi are not affected.
+- Owner checklist: once the artwork lookup has filled in years and genres, try two decades and a
+  genre on a phone, and Guide singer on the host's Browse page.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
-- **Open feature work** (the owner's list, 2026-10-18 — none started):
-  - Browse/search filters on the phones and the host, plus a **Library table** on the host.
+- **Open feature work** (the owner's list, 2026-10-18):
+  - ~~Browse/search filters~~ (done, above). Next: the host **Library table** (sortable columns:
+    artist, title, label, year, genre, versions, plays; the Browse page's filters on top).
   - **Accounts** (username + password).
   - A **year & genre checker** (years and genres that are missing or look wrong, e.g. a
     compilation's year — see "Known limitations").

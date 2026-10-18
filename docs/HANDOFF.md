@@ -1,10 +1,9 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-17 (guest photos: on plain http, the party Wi-Fi, Add a Photo opens the
-phone's camera app instead of the in-page camera, which only works on https or localhost; a
-multiplex track can grow a vocal stem for the headphone preview, while the room and the TV still
-use the channel matrix. Track ids follow a folder that becomes its own root; lyric layouts and
-the installer are as below. Run in a cloud sandbox without the owner's PC or drive)._
+_Last updated: 2026-10-18 (singer playback controls: while a guest's song is on, their phone —
+and their duet partner's — has play/pause, restart and a seek bar; see "Singer playback controls"
+below. "Next steps" now lists the owner's remaining feature work and what is parked. Run in a
+cloud sandbox without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
@@ -1140,8 +1139,45 @@ to another one), such a video is converted once:
   limit, the room and the TV's view, the media route; the real ffmpeg on a generated AVI when it
   is installed), `test/e2e/video-convert.mjs` (the real ffmpeg on the TV, held while converting).
 
+## Singer playback controls (2026-10-18)
+The owner: the person singing should be able to pause, seek and restart their own song from their
+phone, without being a co-host. PLAN §24 has the rules; in short:
+- **Phone**: the "It's your turn!" card gets **Pause/Play** ("Start now" during the countdown),
+  **Restart** and a **seek bar** while the guest's song is the one on now — the lead singer and a
+  duet partner who said yes. Not next, stop, the party volume, key/tempo or the queue. Co-hosts'
+  `CoHostCard` is unchanged; the guide singer switch is as before (§21).
+- **Server** (`Room.singerOnNow`, `SINGER_ACTIONS`): `player.pause/resume/seek/restart` from that
+  singer's phone only (the profile of the signed `client.data.deviceId`), each naming the song
+  (`entryId`): refused as soon as the song ended, was skipped or stopped or another started (also
+  the same singer's next song), in a battle round, for a banned guest, or with the setting off.
+  8 per 10 s per phone. Everyone else still needs co-host or the host. Guests' views have
+  `me.controls`; the singers' phones get the TV's time updates at ≈4 Hz for the bar.
+- **Setting**: Settings → Queue & guests → "Singers can pause and seek their own song"
+  (`queue.singerControls`, on by default).
+- **The phone's seek** is sent once on release (`pointerup`/`change`); a cancelled or lost pointer,
+  or 6 s without a pointer event, drops the drag and the bar follows the song again — so it never
+  sticks. The host's `SeekBar` (clears only on `change`) was left alone: that bug is parked.
+- Tests: `test/singer-controls.test.js` (5 tests), `test/e2e/singer-controls.mjs` (28 checks, in
+  `npm run e2e`). Owner checklist: on a real phone (Android Chrome and an iPhone), drag the seek
+  bar during your own song, and start a drag then scroll the page away — the bar should come back.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
+- **Open feature work** (the owner's list, 2026-10-18 — none started):
+  - Browse/search filters on the phones and the host, plus a **Library table** on the host.
+  - **Accounts** (username + password).
+  - A **year & genre checker** (years and genres that are missing or look wrong, e.g. a
+    compilation's year — see "Known limitations").
+  - A **live headphone monitor synced to the TV** (today the multiplex vocal stem is only the
+    song dialog's preview, from the start of the file, not in time with the TV).
+  - **Lead/backing stems for non-multiplex tracks** (today only multiplex tracks get a vocal
+    stem).
+  - **Pitch rings rebuilt in 3D** (the pitch game, `test/e2e/game-pitch.mjs`).
+- **Parked** (not without the owner):
+  - The host **seek bar** after the TV window is toggled (`SeekBar` in
+    `public/js/host/player.js` clears its drag only on `change`) — not reproduced.
+  - **Lyric layouts** — no further work for now.
+  - The **lyrics editor**.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, mic monitoring
   with reverb on the PC. The multiplex
   vocal stem is only the song-dialog headphone preview (from the start of the file), not that

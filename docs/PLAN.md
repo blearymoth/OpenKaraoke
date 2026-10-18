@@ -369,6 +369,9 @@ Auth rules:
   the same page (its `resume` key matches the main display's connection) or the same paired
   screen (same TV token), asking for the same kind of display.
 - **guest**: `room` must match `party.roomCode`; `deviceId` (random, stored in localStorage) must not be banned.
+- **the singer on now** (a guest): `player.pause/resume/seek/restart {entryId}` from the phone of
+  a singer of the song on now (lead or duet partner), §24. Everything else in the player needs
+  co-host or the host.
 - Tokens = HMAC-SHA256(secret, role + ':' + pinVersion + ':' + id), secret in `data/secret.json`.
 
 Client → server (all may carry `rid`):
@@ -400,7 +403,8 @@ Server → client: `welcome`, `state`, `time`, `tv`, `res`, `toast`, `notify` (t
 queued mystery songs or their artists until the song is out in the open: it starts, or is queued
 without the mystery; one removed unplayed stays withheld), `pong {c, s}`.
 
-Rate limits: reactions 2/s per device, queue.add 10/min per device, photos 5/10 min. Photo
+Rate limits: reactions 2/s per device, queue.add 10/min per device, the singer's own controls 8/10 s
+per device, photos 5/10 min. Photo
 uploads are checked (photos on, named, not banned, rate limit) before their body is read; one
 upload at a time per phone, 2 per address, 8 in all. An upload is cut off after 5 s without
 data or 20 s in all, and when all 8 slots are taken a newcomer replaces the slowest upload that
@@ -742,7 +746,7 @@ Join (name, emoji, colour) → bottom tabs: **Home** (now singing, my next turn 
 **Queue** (upcoming, mine highlighted, remove mine), **Me** (my requests, favourites, history,
 edit profile). Song sheet: cover, versions (a Version picker with thumbs, §22), key −3…+3, guide
 singer, backing vocals, duet partner, mystery toggle → "Sing it!". Home: the version on now with
-thumbs up / down.
+thumbs up / down; during the guest's own song, play/pause, restart and a seek bar (§24).
 Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safari 16+ / Android Chrome.
 
 ## 12. Artwork & metadata
@@ -845,6 +849,9 @@ JS that needs a colour (QR codes) reads the token. The app icon follows the skin
 original), and the favicon links and `/favicon.ico` point at the skin's icon. Settings saved before skins existed: a custom
 `display.accent` became `appearance.accent`, the old default pink was dropped.
 
+**Singers' controls** — `queue.singerControls` (default on): the singer's phone plays, pauses,
+seeks and restarts their own song while it is on (§24). Off: only co-hosts and the host.
+
 **Lyrics on the TV** — `display.lyricsLayout` (`page` | `lines` | `scroll`, §9.6),
 `display.lyricsLook` (`panel` | `clear` | `disc`), `display.lyricsMotion`
 (`smooth` | `disc`), `display.cdgSmoothing`, `display.lighterEffects` (`auto` | `on` | `off`), §9.5.
@@ -910,6 +917,13 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
   two QR codes (join the Wi-Fi, then open the party); checks and an automatic fallback to the
   home Wi-Fi (§20). Built and tested against a fake NetworkManager; the owner checklist
   (§20.11) needs the PC.
+
+- ✅ **Singer playback controls** (owner request, 2026-10-18): the singer's phone runs their own
+  song while it is on (§24).
+- Open (owner's list, 2026-10-18; not started): browse/search filters and a host Library table;
+  accounts (username + password); a year and genre checker; a live headphone monitor synced to
+  the TV; lead/backing stems for non-multiplex tracks; the Pitch rings game rebuilt in 3D.
+- Parked: the host seek bar after the TV window toggles, lyric layouts, the lyrics editor.
 
 ## 19. Open questions for the owner
 - Host PIN default: none (localhost-only host) — OK?
@@ -1395,3 +1409,40 @@ server/index.js`, `bin/install-service.sh`) is unchanged.
 `SETUP_APPIMAGE` against the real AppImage — the release workflow does, unzipped from the zip).
 
 **Not covered**: Windows, macOS and arm64 Linux; a system without any FUSE (use the .deb/.rpm).
+
+## 24. The singer's controls on their phone
+
+While a guest's song is **the one on now**, their phone's turn card ("It's your turn!") has
+**Play/Pause** ("Start now" during the countdown), **Restart** and a **seek bar**. The duet
+partner gets the same once they said yes (they are among the entry's `singerIds`). Not next,
+stop, the party volume, key/tempo or the queue: those stay with co-hosts (`CoHostCard`, unchanged)
+and the host. The guide singer switch stays as in §21.
+
+**Server** (`Room.singerOnNow(deviceId)`, `SINGER_ACTIONS` in `server/room/room.js`):
+`player.pause`, `player.resume`, `player.seek`, `player.restart` from a guest are allowed when
+- `queue.singerControls` is on (Settings → Queue & guests),
+- the guest's profile — looked up by `client.data.deviceId` from the signed token, never an id
+  the phone sends — has a singer that is in the current entry's `singerIds`, and isn't banned,
+- the player is `intro`, `ready`, `playing` or `paused` (not idle, not after the song ended, was
+  skipped or stopped) and the entry isn't a judged battle round,
+- the request's `entryId` is the song on now — a tap sent just before the song changed (even to
+  the same singer's next song) is refused with `song_changed`,
+- the singer's limit allows it: 8 per 10 s per device (`limits.singer`), plus every guest's 40
+  per 20 s.
+A co-host goes through the co-host rule first (the party's controls, no `entryId` needed).
+Guests' views carry `me.controls` (true while the above holds for that phone); the phone shows the
+controls only then, so they go with the next broadcast after the song changes. The singers' phones
+get the TV's `time` updates at the TV's rate (≈4 Hz, for the seek bar), other guests once a second.
+
+**Seek on the phone** (`SingerControls` in `public/js/guest/main.js`): dragging moves the bar
+only; the seek is sent once on release (`pointerup` or `change`, whichever comes first). A
+`pointercancel` or `lostpointercapture` before the release (the browser took the gesture, a
+notification…) drops the drag without seeking, and a drag that hears nothing for 6 s is dropped
+too — the bar then follows the song again. After a seek the bar shows the new place for 1.2 s
+while the TV catches up. (The host's `SeekBar` still clears its drag only on `change`; parked.)
+
+**Tests**: `test/singer-controls.test.js` (singer, duet partner, other guest, invited but not
+answered, co-host, the song changed mid-request, skipped/ended/stopped, the rate limit, the
+setting, a ban, a battle round, the time updates), `test/e2e/singer-controls.mjs` (phones:
+controls only on the singer's, pause/play, a real drag, restart, a cancelled and a lost pointer,
+the controls move to the next singer, no sideways scrolling, no console errors).

@@ -115,7 +115,8 @@ Browser (`public/`, plain ES modules, Preact + htm)
   `views.js`, `dialogs.js`, `settings.js`, `hotspot.js` (party hotspot block + banner),
   `vocals.js` (Lead control + Vocals dialog), `graphics.js` (Settings → About → Graphics, desktop app),
   `system.js` (Settings → About → On this computer, desktop app).
-- `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts.
+- `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts, the
+  singer's own controls during their song (PLAN §24).
 - `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`, `versions.js`
   (version names/labels, thumbs up/down),
   `components.js`, `icons.js`, `theme.js` (follows the skin live, `token()` for code that needs

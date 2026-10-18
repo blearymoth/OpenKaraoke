@@ -10,8 +10,9 @@ cloud sandbox without the owner's PC or drive)._
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 552/552; `npm run e2e` → 20 Playwright scripts, all green (`themes.mjs` checks
-  the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `vocal-stem.mjs`
+- `npm test` → 557/557; `npm run e2e` → 21 Playwright scripts, all green (`themes.mjs` checks
+  the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
+  the singer's own play/pause/seek on their phone, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on

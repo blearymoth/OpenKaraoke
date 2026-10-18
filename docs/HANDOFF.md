@@ -1303,8 +1303,9 @@ the host asks, on htdemucs (the model name in one place).
   - The host **seek bar** after the TV window is toggled (`SeekBar` in
     `public/js/host/player.js` clears its drag only on `change`) — not reproduced.
   - **Lyric layouts** — no further work for now.
-  - The **lyrics editor**: paused by the owner (2026-10-18). Its shape is in PLAN §31.4 (edit an
-    autokaraoke `.timing.json`, redraw the CDG with the render-only install).
+  - The **lyrics editor**: paused by the owner (2026-10-18). It works with autokaraoke, PLAN §31.5: edit
+    its `.timing.json`, keep the times when the words change, re-time a stretch with Whisper,
+    redraw the CDG with the render-only install.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, mic monitoring
   with reverb on the PC. The multiplex vocal stem is still only the song-dialog preview; the
   headphone monitor (in time with the TV) plays the channel matrix instead.

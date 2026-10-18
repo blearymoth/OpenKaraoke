@@ -956,7 +956,7 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
 - Planned (owner request, 2026-10-18; not started): making karaoke in the app with the owner's
   SongGetter/autokaraoke (§31): size, hardware tiers, party rules, milestones, open questions.
 - Parked: the host seek bar after the TV window toggles, lyric layouts, the lyrics editor (paused
-  by the owner, 2026-10-18; it belongs to §31, milestone 5).
+  by the owner, 2026-10-18; it belongs to §31.5, milestone 5).
 
 ## 19. Open questions for the owner
 - Host PIN default: none (localhost-only host) — OK?
@@ -1858,7 +1858,7 @@ browser's audio and drawing (crackles, slow lyrics). The rules:
   launcher, `~/Projects/autokaraoke/.venv`). A **Karaoke maker** card in Settings → About shows:
   found or not, the version, the models present (`autokaraoke setup --check`), the device, the
   measured speed and the space used.
-- **Installing:** the owner chooses (§31.7).
+- **Installing:** the owner chooses (§31.8).
   - **(a) Kept separate:** the card links to SongGetter's `install_gui.py`, and the app finds the
     install afterwards.
   - **(b) Installed by OpenKaraoke:** the package ships with OpenKaraoke or comes from a
@@ -1887,14 +1887,43 @@ browser's audio and drawing (crackles, slow lyrics). The rules:
   make it (title + artist only, rate-limited, no URLs from guests). The host finds a source,
   pastes the lyrics and starts it. When it is ready, the guest is told and can queue it. Guests
   never start a download or a job.
-- **The lyrics editor** (paused by the owner, 2026-10-18) belongs here. Tracks with an
-  autokaraoke `.timing.json` beside them get "Edit the timing": each word's text and start/end
-  against the song, tap-along, nudge. Then the render-only install redraws the CDG in about a
-  second. Where the edited files go (next to the pair, as autokaraoke itself does, or an
-  overlay in `data/`) is to decide when it is unpaused. The TV could also draw a
-  `timing.json`'s real text in the lyric layouts (§9.6) instead of reading the CDG's pixels.
+- **The lyrics editor** (paused by the owner, 2026-10-18) works with autokaraoke: §31.5.
 
-### 31.5 Legal and safety
+### 31.5 The lyrics editor, with autokaraoke
+
+The editor is for the songs autokaraoke makes, which are the ones that need it. Whisper's
+timing drifts on fast rap, long melismas, or lyrics that don't match what is sung, and a
+transcribed song (no lyrics pasted) mishears words. Autokaraoke helps at each step:
+
+- **The words and times come from its `.timing.json`**, beside the pair. The editor shows each
+  word's text and start/end against the song, with tap-along (Space marks the next word),
+  nudges, and shifting a line or the rest of the song.
+- **Changing the words keeps the times.** Autokaraoke's `align.transfer_timing` moves times from
+  old words to new text character by character (difflib, no ML), and interpolates the words it
+  can't match. The host pastes the real lyrics over a transcription, or fixes a misheard word,
+  and the timing follows. This is pure Python and runs with the render-only install; a small
+  port to `shared/` would also let the browser preview it at once.
+- **Re-timing a stretch with Whisper.** If a verse is off, the host selects it and autokaraoke
+  aligns only that stretch of the vocal, and the times go back into the song. This needs:
+  - the vocal: autokaraoke's `NAME.work/vocals.wav` if it was kept (`--keep-stems`), else a
+    separation of the original (§30's job and files);
+  - a small new function in SongGetter: align a slice of `vocals16k` and add its offset (today's
+    `align()` takes the whole song);
+  - the full ML install (§31.1).
+- **Redrawing the CDG**: `autokaraoke render` with the render-only install, in about a second.
+  The TV then reloads it (a version in the CDG's URL, so no cached copy is shown).
+  `timing.json` doesn't record the render options the song was made with (theme, lines, font,
+  lead, page gap). SongGetter would keep them in a new `render` field, and older files get the
+  defaults.
+- **Where the edits go** (to decide when unpaused): next to the pair, as autokaraoke itself does
+  (the original kept once as `.orig`), or an overlay in `data/` served instead of the disc's CDG
+  (the library untouched, e.g. a read-only drive).
+- **Beyond the editor:** with a `timing.json` the TV knows the real text, so the lyric layouts
+  (§9.6) could draw it as text instead of reading the CDG's pixels. For a disc that has a vocal
+  (multiplex §21, or a version with the singer separated by §30), autokaraoke could also make a
+  `timing.json` from pasted lyrics without touching the disc's CDG.
+
+### 31.6 Legal and safety
 
 - YouTube's terms restrict downloading. The Make page carries SongGetter's README note; URLs
   come only from the host; there is no bulk playlist download from the party pages.
@@ -1902,19 +1931,22 @@ browser's audio and drawing (crackles, slow lyrics). The rules:
   server writes; names are made safe (autokaraoke's `_safe`); output goes only to the chosen
   folder, and an existing pair is never overwritten.
 
-### 31.6 Milestones
+### 31.7 Milestones
 
 1. The Karaoke maker card: detection, status, benchmark (no installing).
 2. Make from a file with pasted lyrics; the output folder as a library root; the one ML lane
    and the party rules (§31.3).
 3. YouTube URLs; guests' wishes.
 4. Install and uninstall from the app, once the owner has chosen the code's source.
-5. The lyrics editor (render-only), and text lyrics on the TV from `timing.json`.
+5. The lyrics editor (§31.5): editing and redrawing (render-only), text changes that keep the
+   times, then re-timing a stretch with Whisper; text lyrics on the TV from `timing.json`.
 
-### 31.7 Open questions for the owner
+### 31.8 Open questions for the owner
 
 - Install from the app (b), or keep it separate (a)? With (b), where does the code come from:
   this repository, or a public SongGetter release?
 - The output folder: on the USB drive with the library, or the PC's own disk?
 - On a CPU-only PC: may jobs run while someone sings?
 - Guests' wishes: wanted?
+- The lyrics editor, when it is unpaused: save the edits next to the pair, or in an overlay in `data/`?
+  And may SongGetter get the two small changes in §31.5 (aligning a stretch, the `render` field)?

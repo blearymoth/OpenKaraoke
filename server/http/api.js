@@ -27,12 +27,12 @@ export function apiRoutes(router, app) {
   const { library, settings, auth } = app;
   const cat = () => library.catalog;
   /** Song summaries marked with the party state: sung tonight (tn), waiting in the queue (qd). */
-  const summaries = (list) => {
+  const summaries = (list, row = (s) => cat().songSummary(s)) => {
     const room = app.room?.s;
     const sung = new Set(room?.tonight.sung || []);
     const queued = new Set(room ? [...room.queue, ...(room.current ? [room.current] : [])].filter((e) => !e.mystery).map((e) => e.songId) : []);
     return list.map((s) => {
-      const out = cat().songSummary(s);
+      const out = row(s);
       if (sung.has(s.id)) out.tn = 1;
       if (queued.has(s.id)) out.qd = 1;
       return out;
@@ -184,6 +184,20 @@ export function apiRoutes(router, app) {
   router.get('/api/random', (ctx) => {
     const n = intParam(ctx.query, 'n', 10, 1, 50);
     return { items: summaries(cat().random(n, filterFor(ctx, queryFilter(ctx.query)))) };
+  });
+
+  // The host's Library table (PLAN §26): the songs passing the filters and containing every word
+  // of `q`, sorted by a column (TABLE_SORTS), a page at a time.
+  router.get('/api/library/songs', (ctx) => {
+    requireHost(ctx);
+    const r = cat().table({
+      ...page(ctx.query, 100),
+      filter: filterFor(ctx, queryFilter(ctx.query)),
+      q: (ctx.query.get('q') || '').slice(0, 100),
+      sort: ctx.query.get('sort') || 'artist',
+      dir: ctx.query.get('dir') === 'desc' ? 'desc' : 'asc',
+    });
+    return { total: r.total, items: summaries(r.items, (s) => cat().tableRow(s)) };
   });
 
   router.get('/api/qr.svg', (ctx) => {

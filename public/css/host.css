@@ -403,9 +403,40 @@ body.host .toasts { bottom: 104px; }
 .browse-filters summary { cursor: pointer; font-weight: 800; display: flex; align-items: center; gap: 8px; }
 .browse-filters[open] summary { margin-bottom: 14px; }
 .browse-count { margin-bottom: 10px; }
+/* The Library table (Browse → Table): one row per song, sticky sortable headings. The table
+   scrolls sideways inside its box on a narrow window, never the page. */
+.page-head .segmented button { display: inline-flex; align-items: center; gap: 6px; }
+.lib-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 10px; }
+.lib-tools .browse-count { margin: 0; }
+.lib-text { display: flex; align-items: center; gap: 8px; flex: 0 1 320px; min-width: 0; height: 38px; padding: 0 12px; border-radius: var(--r-pill); background: var(--stage-2); border: 1px solid var(--line); color: var(--ink-3); }
+.lib-text:focus-within { border-color: var(--neon); }
+.lib-text input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: var(--ink); font-size: 14px; }
+.lib-wrap { overflow-x: auto; border-radius: var(--r-card); border: 1px solid var(--line); }
+.lib-table { width: 100%; min-width: 760px; border-collapse: collapse; table-layout: fixed; font-size: 14px; }
+.lib-table th { position: sticky; top: 0; z-index: 1; background: var(--stage-2); text-align: left; padding: 0; border-bottom: 1px solid var(--line-strong); }
+.lib-table th button { display: inline-flex; align-items: center; gap: 4px; width: 100%; padding: 10px 10px; border: 0; background: none; color: var(--ink-2); font: inherit; font-weight: 700; cursor: pointer; text-align: inherit; }
+.lib-table th[aria-sort="ascending"] button, .lib-table th[aria-sort="descending"] button { color: var(--ink); }
+.lib-table th.num button { justify-content: flex-end; }
+.lib-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; overflow: hidden; }
+.lib-table td .ellipsis { display: block; }
+.lib-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.lib-title .ellipsis { min-width: 0; font-weight: 650; }
+.lib-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.lib-row { cursor: pointer; }
+.lib-row:hover, .lib-row:focus-visible { background: var(--stage); outline: none; }
+.lib-table .col-title { width: 26%; }
+.lib-table .col-artist { width: 19%; }
+.lib-table .col-label { width: 11%; }
+.lib-table .col-year { width: 68px; }
+.lib-table .col-genre { width: 12%; }
+.lib-table .col-versions { width: 88px; }
+.lib-table .col-plays { width: 64px; }
+.lib-table .col-actions { width: 150px; }
+.lib-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+
 @media (min-width: 1280px) {
-  .browse-layout { grid-template-columns: 280px minmax(0, 1fr); }
-  .browse-filters { position: sticky; top: 0; max-height: calc(100vh - 220px); overflow-y: auto; }
+  .browse-layout:not(.table) { grid-template-columns: 280px minmax(0, 1fr); }
+  .browse-layout:not(.table) .browse-filters { position: sticky; top: 0; max-height: calc(100vh - 220px); overflow-y: auto; }
 }
 
 @media (max-width: 1180px) {

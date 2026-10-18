@@ -7,10 +7,12 @@ import { fold, compact, editDistance, shortId, splitCredits } from '../../shared
 import { parseName, titleKeyOf, BRAND_NAMES } from './parse.js';
 import { Lru } from '../util/lru.js';
 import { slicer, abortError } from '../util/slice.js';
-import { VERSION_FILTERS } from '../../shared/filters.js';
+import { VERSION_FILTERS, TABLE_COLUMNS } from '../../shared/filters.js';
 
 const WORKER_URL = new URL('./catalog-worker.js', import.meta.url);
 const VERSION_BITS = { mpx: 1, bgv: 2, nobgv: 4, video: 8 };
+/** The host's Library table: the columns it sorts by (A–Z by artist first). */
+export const TABLE_SORTS = ['artist', ...TABLE_COLUMNS.map((c) => c.id).filter((id) => id !== 'artist')];
 export const CHUNK = 1000; // records per piece of JSON text going to or from the worker
 
 export const PARSER_VERSION = 5;
@@ -135,6 +137,7 @@ export class Catalog {
     this.builtAt = 0;
     this._popularCache = null; // { v, list }: every song, most popular first
     this._filtered = new Lru({ max: 32, maxBytes: 400_000 }); // filtered popular lists (size = songs)
+    this._tables = new Lru({ max: 24 }); // the Library table's sorted lists (whole and filtered), for paging
   }
 
   get size() { return this.tracks.size; }
@@ -247,6 +250,7 @@ export class Catalog {
     this.vocab = null;
     this._popularCache = null;
     this._filtered.clear();
+    this._tables.clear();
     this.version++;
     this.builtAt = Date.now();
     this.buildMs = this.builtAt - t0;
@@ -453,6 +457,7 @@ export class Catalog {
     this.vocab = null;
     this._popularCache = null;
     this._filtered.clear();
+    this._tables.clear();
   }
 
   track(id) { return this.tracks.get(id); }
@@ -662,6 +667,171 @@ export class Catalog {
     keys.sort();
     const out = new Array(n);
     for (let i = 0; i < n; i++) out[i] = list[span - 1 - (keys[n - 1 - i] % span)];
+    return out;
+  }
+
+  /** A song's karaoke labels, the library's most common first. */
+  songLabels(s) {
+    const out = [];
+    for (const id of s.trackIds) {
+      const b = this.tracks.get(id)?.p.brand;
+      if (b && !out.includes(b)) out.push(b);
+    }
+    const rank = (b) => this.brandRank?.get(b) ?? 1e9;
+    return out.length > 1 ? out.sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : 1)) : out;
+  }
+
+  /** Each song's first label (songLabels()[0]), for sorting: one pass over the tracks per catalog version. */
+  _firstLabels() {
+    if (this._first?.v === this.version) return this._first.map;
+    const byRank = [];
+    for (const [b, r] of this.brandRank || []) byRank[r] = b;
+    const best = new Map(); // songId → the lowest rank among its labels
+    for (const t of this.tracks.values()) {
+      const r = t.p.brand ? this.brandRank?.get(t.p.brand) : undefined;
+      if (r === undefined) continue;
+      const had = best.get(t.songId);
+      if (had === undefined || r < had) best.set(t.songId, r);
+    }
+    const out = new Map();
+    for (const [id, r] of best) out.set(id, byRank[r]);
+    this._first = { v: this.version, map: out };
+    return out;
+  }
+
+  /**
+   * The host's Library table: songs passing `filter` whose title or artist (or another spelling
+   * of them) contains every word of `q`, sorted by a column (TABLE_SORTS) — ties by artist, then
+   * title; songs without a year or genre last either way. Sorted lists are cached for paging.
+   */
+  table({ filter = null, q = '', sort = 'artist', dir = 'asc', limit = 100, offset = 0 } = {}) {
+    if (!TABLE_SORTS.includes(sort)) sort = 'artist';
+    const desc = dir === 'desc';
+    const words = fold(q).split(' ').filter(Boolean).slice(0, 8);
+    const key = `${this.version}:${this.metaVersion}|${sort}|${desc}|${words.join(' ')}|${JSON.stringify(filter)}`;
+    let list = this._tables.get(key);
+    if (!list) {
+      // The whole library sorted once per column; a filter or text then only walks it.
+      list = [];
+      for (const s of this._sortedBy(sort, desc)) {
+        if (words.length && !words.every((w) => s.hay.includes(w))) continue;
+        if (this._passes(s, filter)) list.push(s);
+      }
+      this._tables.set(key, list);
+    }
+    return { total: list.length, items: list.slice(offset, offset + limit) };
+  }
+
+  /**
+   * Every song by one column, both ways: cached per catalog version, and per metadata version for
+   * the columns that come from it (year, genre; plays bump it too) — the first artwork crawl
+   * changes it often, and it shouldn't sort the other columns again each time.
+   */
+  _sortedBy(sort, desc) {
+    const meta = ['year', 'genre', 'plays'].includes(sort) ? this.metaVersion : '-';
+    const key = `${this.version}:${meta}|${sort}|${desc}|all`;
+    let list = this._tables.get(key);
+    if (list) return list;
+    const az = this._azOrder(); // ties: A–Z by artist, then title, whichever way
+    if (sort === 'artist') {
+      list = desc ? this._reverseGroups(az.list, (s) => az.artist.get(s)) : az.list;
+    } else if (sort === 'title') {
+      const rows = az.list.map((s, i) => [s.titleFold, i, s]);
+      const sign = desc ? -1 : 1;
+      rows.sort((x, y) => (x[0] === y[0] ? x[1] - y[1] : sign * (x[0] < y[0] ? -1 : 1)));
+      list = rows.map((r) => r[2]);
+    } else {
+      list = this._sortByNumber(az.list, this._columnNumber(sort), desc);
+    }
+    this._tables.set(key, list);
+    return list;
+  }
+
+  /** A column as a whole number per song (labels and genres by their place A–Z), or null. */
+  _columnNumber(sort) {
+    if (sort === 'label') {
+      const first = this._firstLabels();
+      const place = new Map([...(this.brandRank?.keys() || [])].sort().map((b, i) => [b, i]));
+      return (s) => place.get(first.get(s.id)) ?? null;
+    }
+    if (sort === 'genre') {
+      const all = new Set();
+      for (const s of this.songList) {
+        const g = this.metaFor(s.key)?.genre;
+        if (g) all.add(g);
+      }
+      const place = new Map([...all].sort().map((g, i) => [g, i]));
+      return (s) => place.get(this.metaFor(s.key)?.genre) ?? null;
+    }
+    if (sort === 'year') return (s) => this.metaFor(s.key)?.year || null;
+    if (sort === 'versions') return (s) => s.versions;
+    return (s) => this.plays.get(s.id) || 0;
+  }
+
+  /**
+   * `list` (A–Z) sorted by a whole number per song, ties kept in A–Z order, nulls last either way.
+   * Number and position are packed into one float, so a native numeric sort does the work.
+   */
+  _sortByNumber(list, value, desc) {
+    const n = list.length;
+    const vals = new Float64Array(n);
+    let max = 0;
+    for (let i = 0; i < n; i++) {
+      const v = value(list[i]);
+      const ok = Number.isInteger(v) && v >= 0;
+      vals[i] = ok ? v : -1;
+      if (ok && v > max) max = v;
+    }
+    const span = 2 ** Math.max(1, Math.ceil(Math.log2(n + 1)));
+    if (!Number.isSafeInteger((max + 2) * span)) throw new Error('column values too large to sort');
+    const keys = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const v = vals[i];
+      const rank = v < 0 ? max + 1 : desc ? max - v : v; // unknown: after everything
+      keys[i] = rank * span + i;
+    }
+    keys.sort();
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) out[i] = list[keys[i] % span];
+    return out;
+  }
+
+  /** Every song A–Z by artist ("The" left out), then title; and each song's artist key. */
+  _azOrder() {
+    if (this._az?.v === this.version) return this._az;
+    const artist = new Map();
+    const rows = this.songList.map((s) => {
+      const a = s.artistFold.startsWith('the ') ? s.artistFold.slice(4) : s.artistFold;
+      artist.set(s, a);
+      return [a, s.titleFold, s];
+    });
+    rows.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0));
+    this._az = { v: this.version, list: rows.map((r) => r[2]), artist };
+    return this._az;
+  }
+
+  /** `list` with its runs of equal keys in the opposite order, each run kept as it is. */
+  _reverseGroups(list, keyOf) {
+    const out = [];
+    let end = list.length;
+    while (end > 0) {
+      let start = end - 1;
+      const k = keyOf(list[start]);
+      while (start > 0 && keyOf(list[start - 1]) === k) start--;
+      for (let i = start; i < end; i++) out.push(list[i]);
+      end = start;
+    }
+    return out;
+  }
+
+  /** One row of the Library table: the song summary, its labels, genre and plays here. */
+  tableRow(s) {
+    const out = this.songSummary(s);
+    const labels = this.songLabels(s);
+    if (labels.length) out.labels = labels.slice(0, 12);
+    const genre = this.metaFor(s.key)?.genre;
+    if (genre) out.genre = genre;
+    out.plays = this.plays.get(s.id) || 0;
     return out;
   }
 

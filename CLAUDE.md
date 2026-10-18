@@ -97,7 +97,8 @@ colour roles, the readable palette, the scroll timeline — PLAN §9.5), `lyric-
 sung lines, found in one pass: each pixel's unsung/sung colour and moment — PLAN §9.6),
 `lyric-layout.js` (when and where lines show: two lines, the scrolling list; pure functions of the
 time), `graphics.js` (which WebGL renderers draw in software), `filters.js` (browse filters: several
-decades, genres, tags and version types, read from repeated URL parameters — PLAN §25).
+decades, genres, tags and version types, read from repeated URL parameters — PLAN §25; the Library
+table's columns — §26).
 
 Browser (`public/`, plain ES modules, Preact + htm)
 - `tv.html` + `js/tv/` — `controller.js` (follows server state, owns the media clock, reports

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // End-to-end checks of the browse filters (several decades, genres, collections and version
 // types): the guest's Songs tab (chip row, Filters sheet, typing ignores them, kept between tabs,
-// the explicit filter) and the host's Browse page (filters in the address, Clear, phone layout).
+// the explicit filter) and the host's Browse page (filters in the address, Clear, phone layout),
+// with its Library table (sorting by each column, the text box, the address, a phone).
 //
 //   node test/e2e/filters.mjs [outDir]
 import fs from 'node:fs/promises';
@@ -199,6 +200,55 @@ try {
   await h.goto(`${base}/host#/tags`);
   check(!!(await h.waitForSelector('.page-head a[href="#/browse"]', { timeout: 5000 }).catch(() => null)), 'Collections links to Browse with filters');
 
+  // ---- host: the Library table (Browse → Table) ------------------------------------------------
+  const rowTitles = (page) => page.$$eval('.lib-table .lib-row .lib-title .ellipsis', (l) => l.map((x) => x.textContent.trim()));
+  const tableShows = async (page, args, what) => {
+    const want = cat.table({ limit: 500, ...args }).items.map((s) => s.title);
+    const ok = await until(async () => JSON.stringify(await rowTitles(page)) === JSON.stringify(want));
+    check(ok, `${what} (${(await rowTitles(page)).join(', ')})`);
+  };
+  await h.goto(`${base}/host#/browse?tag=Duets`);
+  await h.waitForSelector('.page-head .segmented button:has-text("Table")');
+  await h.click('.page-head .segmented button:has-text("Table")');
+  await h.waitForSelector('.lib-table .lib-row');
+  check(await h.evaluate(() => location.hash) === '#/browse?tag=Duets&view=table', 'Table keeps the filters in the address');
+  await tableShows(h, { filter: { tags: ['Duets'] } }, 'the table: the filtered songs');
+  check(!(await h.$eval('.browse-filters', (d) => d.open)), 'in the table the filters start folded (more room)');
+  await h.click('.browse-count .link:has-text("Clear")');
+  await tableShows(h, { sort: 'artist' }, 'Clear: every song, A–Z by artist (“The Midnight Mics” under M)');
+  const heads = await h.$$eval('.lib-table th button', (l) => l.map((b) => b.textContent.trim()));
+  check(same(heads, ['Title', 'Artist', 'Label', 'Year', 'Genre', 'Versions', 'Plays']) && heads[0] === 'Title', `columns (${heads})`);
+  const neon = await h.$eval('.lib-row:has-text("Neon Heart") .col-label', (td) => td.textContent.trim());
+  check(neon === 'OK, ZZ' || neon === 'ZZ, OK', `the Label column lists the song's labels (${neon})`);
+  // Sorting: a new column starts the way it says (numbers: the most first), a second click turns it.
+  await h.click('.lib-table th.col-year button');
+  await tableShows(h, { sort: 'year', dir: 'desc' }, 'Year: newest first');
+  check(await h.$eval('.lib-table th.col-year', (th) => th.getAttribute('aria-sort')) === 'descending', 'the Year heading says descending');
+  await h.click('.lib-table th.col-year button');
+  await tableShows(h, { sort: 'year', dir: 'asc' }, 'Year again: oldest first');
+  await h.click('.lib-table th.col-title button');
+  await tableShows(h, { sort: 'title' }, 'Title: A–Z');
+  // The text box narrows it, the column order stays; the filters add up with it.
+  await h.fill('.lib-text input', 'ro');
+  await tableShows(h, { sort: 'title', q: 'ro' }, 'text “ro”: the songs with “ro” in the title or artist, still by title');
+  check(cat.table({ q: 'ro' }).total < cat.songList.length, '(not every song has it)');
+  await h.click('.browse-filters summary');
+  await h.click(chip('.browse-filters', 'genre', 'Rock'));
+  await tableShows(h, { sort: 'title', q: 'ro', filter: { genres: ['Rock'] } }, 'and Rock');
+  const want = '#/browse?genre=Rock&view=table&sort=title&q=ro';
+  check(await until(async () => (await h.evaluate(() => location.hash)) === want), `all of it in the address (${await h.evaluate(() => location.hash)})`);
+  await h.reload();
+  await tableShows(h, { sort: 'title', q: 'ro', filter: { genres: ['Rock'] } }, 'a reload keeps the table, its sort, text and filters');
+  check(await h.inputValue('.lib-text input') === 'ro', 'the text box too');
+  // A row opens the song; Queue opens the add dialog.
+  await h.click('.lib-row .lib-title');
+  check(!!(await h.waitForSelector('.dialog', { timeout: 5000 }).catch(() => null)), 'a row opens the song’s details');
+  await h.keyboard.press('Escape');
+  await h.waitForSelector('.dialog', { state: 'detached' });
+  await shot(h, 'host-table');
+  await h.click('.page-head .segmented button:has-text("List")');
+  check(await h.evaluate(() => location.hash) === '#/browse?genre=Rock', 'List: back to the list with the same filters');
+
   // The host on a phone: the panel folds away, nothing sideways.
   const hp = watch(await browser.newPage({ ...phone, viewport: { width: 390, height: 844 } }), 'host-phone');
   await hp.goto(`${base}/host#/browse?decade=1980`);
@@ -211,6 +261,11 @@ try {
   check(same(await listed(hp, '.browse-results', eightiesNineties), eightiesNineties), '’80s or ’90s on the phone');
   check(await noSideways(hp), 'host Browse fits the phone (no sideways scrolling)');
   await shot(hp, 'host-browse-phone');
+  await hp.goto(`${base}/host#/browse?view=table&sort=plays&dir=desc`);
+  await hp.waitForSelector('.lib-table .lib-row');
+  check(await noSideways(hp), 'the table on a phone scrolls inside its box, not the page');
+  check(await hp.$eval('.lib-wrap', (w) => w.scrollWidth > w.clientWidth), 'its box scrolls sideways');
+  await shot(hp, 'host-table-phone');
 } catch (e) {
   check(false, `unexpected error: ${e.stack || e.message}`);
 } finally {

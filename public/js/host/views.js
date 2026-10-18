@@ -3,12 +3,12 @@
 import { html, useEffect, useMemo, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore, plural, singersText, useDebounced, artistArtUrl, artStore } from '../lib/store.js';
-import { SongRow, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, go, ArtistImage } from '../lib/components.js';
+import { SongRow, SongBadges, Cover, Avatar, Empty, Spinner, MoreSentinel, usePaged, useFetch, go, ArtistImage } from '../lib/components.js';
 import { store, act, openDialog, toast, chooseFolder } from './state.js';
 import { openTvWindow, openInvite } from './player.js';
 import { GuestButtons } from './devices.js';
 import { AVATARS } from '/shared/protocol.js';
-import { readFilters, filterParams, filterCount, emptyFilters } from '/shared/filters.js';
+import { readFilters, filterParams, filterCount, emptyFilters, TABLE_COLUMNS } from '/shared/filters.js';
 import { FilterPanel } from '../lib/filters.js';
 
 /** Queue + favourite buttons at the end of a song row. */
@@ -243,39 +243,116 @@ export function Tag({ tag, sort }) {
 }
 
 /**
- * Browse with filters: the most popular songs with one of the chosen decades, genres,
- * collections and version types in each group (shared/filters.js). The filters live in the
- * address (#/browse?decade=1980&decade=1990&tag=Duets), so Back and a bookmark keep them.
+ * Browse with filters: the songs with one of the chosen decades, genres, collections and version
+ * types in each group (shared/filters.js), as a list (most popular first) or as the Library
+ * table (PLAN §26: every song, sorted by a column, narrowed by a text too). Everything is in the
+ * address (#/browse?decade=1980&tag=Duets&view=table&sort=year&dir=desc&q=love), so Back, a
+ * reload and a bookmark keep it.
  */
 export function BrowseFilters({ query, narrow }) {
   const facets = useFetch('/api/browse/facets', null, { ttl: 3000 }); // genres fill in while the library is looked up
   const filters = readFilters(query);
   const n = filterCount(filters);
-  const params = filterParams(filters);
-  const setFilters = (f) => {
+  const table = query.get('view') === 'table';
+  const sort = TABLE_COLUMNS.some((c) => c.id === query.get('sort')) ? query.get('sort') : 'artist';
+  const dir = query.get('dir') === 'desc' ? 'desc' : 'asc';
+  const q = (query.get('q') || '').slice(0, 100);
+  // A new address from the current one with some parts changed (defaults left out).
+  const go = (patch) => {
+    const next = { filters, table, sort, dir, q, ...patch };
     const qs = new URLSearchParams();
-    for (const [k, vs] of Object.entries(filterParams(f))) for (const v of vs) qs.append(k, v);
-    const s = qs.toString();
-    location.replace(`#/browse${s ? `?${s}` : ''}`);
+    for (const [k, vs] of Object.entries(filterParams(next.filters))) for (const v of vs) qs.append(k, v);
+    if (next.table) qs.set('view', 'table');
+    if (next.table && next.sort !== 'artist') qs.set('sort', next.sort);
+    if (next.table && next.dir === 'desc') qs.set('dir', 'desc');
+    if (next.table && next.q.trim()) qs.set('q', next.q.trim());
+    const str = qs.toString();
+    location.replace(`#/browse${str ? `?${str}` : ''}`);
   };
-  const page = usePaged('/api/browse/popular', params);
+  const setFilters = (f) => go({ filters: f });
   return html`<div class="page">
-    <${PageHead} title="Browse" sub="The most popular songs that match. Pick as many as you like: a song needs one of them in each group." />
-    <div class="browse-layout">
-      <details class="browse-filters" open=${!narrow}>
+    <${PageHead} title="Browse" sub=${table
+      ? 'Every song in the library: sort by any column, narrow it with the filters or a few words.'
+      : 'The most popular songs that match. Pick as many as you like: a song needs one of them in each group.'}>
+      <div class="segmented" role="group" aria-label="Show as">
+        <button class=${table ? '' : 'on'} aria-pressed=${!table} onClick=${() => go({ table: false })}><${Icon} name="list" size=${15} /> List</button>
+        <button class=${table ? 'on' : ''} aria-pressed=${table} onClick=${() => go({ table: true })}><${Icon} name="table" size=${15} /> Table</button>
+      </div>
+    </${PageHead}>
+    <div class=${`browse-layout ${table ? 'table' : ''}`}>
+      <details class="browse-filters" open=${!narrow && !table} key=${table ? 't' : 'l'}>
         <summary>Filters${n ? html` <span class="badge neon">${n}</span>` : ''}</summary>
         <${FilterPanel} facets=${facets.data} value=${filters} onChange=${setFilters}
           metaHint="Decades and genres come from the online song information — they fill in while OpenKaraoke looks up your library (Settings → Artwork)." />
       </details>
-      <section class="browse-results" aria-label="Songs">
-        <p class="muted browse-count">${page.loading && !page.items.length ? 'Looking…' : n ? plural(page.total, 'song') : `All ${plural(page.total, 'song')}, most popular first`}
-          ${n > 0 && html` · <button class="link" onClick=${() => setFilters(emptyFilters())}>Clear filters</button>`}</p>
-        ${page.error && html`<p class="warn-text">${page.error.message}</p>`}
-        <${SongList} items=${page.items} empty=${!page.loading && !page.error && html`<${Empty} icon="🎚️" title="No songs match all of these">Take a filter or two away.</${Empty}>`} />
-        <${MoreSentinel} active=${page.hasMore && !page.error} onMore=${page.more} />
-      </section>
+      ${table
+        ? html`<${LibraryTable} filters=${filters} n=${n} sort=${sort} dir=${dir} q=${q} go=${go} />`
+        : html`<${BrowseList} filters=${filters} n=${n} setFilters=${setFilters} />`}
     </div>
   </div>`;
+}
+
+function BrowseList({ filters, n, setFilters }) {
+  const page = usePaged('/api/browse/popular', filterParams(filters));
+  return html`<section class="browse-results" aria-label="Songs">
+    <p class="muted browse-count">${page.loading && !page.items.length ? 'Looking…' : n ? plural(page.total, 'song') : `All ${plural(page.total, 'song')}, most popular first`}
+      ${n > 0 && html` · <button class="link" onClick=${() => setFilters(emptyFilters())}>Clear filters</button>`}</p>
+    ${page.error && html`<p class="warn-text">${page.error.message}</p>`}
+    <${SongList} items=${page.items} empty=${!page.loading && !page.error && html`<${Empty} icon="🎚️" title="No songs match all of these">Take a filter or two away.</${Empty}>`} />
+    <${MoreSentinel} active=${page.hasMore && !page.error} onMore=${page.more} />
+  </section>`;
+}
+
+/**
+ * The Library table: one row per song, every column sorts (a click on the sorted one turns it
+ * around), 100 rows at a time as you scroll. The text box narrows it by words in the title or
+ * artist and keeps the column order (the top search ranks by relevance instead).
+ */
+function LibraryTable({ filters, n, sort, dir, q, go }) {
+  const [text, setText] = useState(q);
+  const typed = useDebounced(text, 250);
+  useEffect(() => { if (typed.trim() !== q) go({ q: typed }); }, [typed]);
+  useEffect(() => { if (q !== text.trim()) setText(q); }, [q]); // Back, or Clear
+  const page = usePaged('/api/library/songs', { ...filterParams(filters), sort, dir, q }, 100);
+  const sortBy = (c) => go(c.id === sort ? { dir: dir === 'asc' ? 'desc' : 'asc' } : { sort: c.id, dir: c.first });
+  const narrowed = n > 0 || !!q;
+  return html`<section class="browse-results lib" aria-label="Library">
+    <div class="lib-tools">
+      <label class="lib-text"><${Icon} name="search" size=${16} />
+        <input type="search" placeholder="Filter by artist or title" aria-label="Filter by artist or title" value=${text}
+          onInput=${(e) => setText(e.currentTarget.value)} /></label>
+      <p class="muted browse-count">${page.loading && !page.items.length ? 'Looking…' : narrowed ? plural(page.total, 'song') : `All ${plural(page.total, 'song')}`}
+        ${narrowed && html` · <button class="link" onClick=${() => { setText(''); go({ filters: emptyFilters(), q: '' }); }}>Clear</button>`}</p>
+    </div>
+    ${page.error && html`<p class="warn-text">${page.error.message}</p>`}
+    <div class="lib-wrap">
+      <table class="lib-table">
+        <thead><tr>
+          ${TABLE_COLUMNS.map((c) => html`<th key=${c.id} class=${`col-${c.id} ${c.num ? 'num' : ''}`} aria-sort=${c.id === sort ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'} title=${c.hint || undefined}>
+            <button onClick=${() => sortBy(c)}>${c.label}${c.id === sort ? html` <${Icon} name=${dir === 'asc' ? 'chevronUp' : 'chevronDown'} size=${14} />` : ''}</button></th>`)}
+          <th class="col-actions"><span class="sr-only">Actions</span></th>
+        </tr></thead>
+        <tbody>${page.items.map((s) => html`<${LibraryRow} key=${s.id} song=${s} />`)}</tbody>
+      </table>
+    </div>
+    ${!page.items.length && !page.loading && !page.error && html`<${Empty} icon="🎚️" title=${narrowed ? 'No songs match all of these' : 'No songs yet'}>${narrowed ? 'Take a filter or a word away.' : 'Songs appear once the library is scanned.'}</${Empty}>`}
+    <${MoreSentinel} active=${page.hasMore && !page.error} onMore=${page.more} />
+  </section>`;
+}
+
+function LibraryRow({ song: s }) {
+  const open = () => openDialog({ type: 'song', songId: s.id });
+  const labels = s.labels || [];
+  return html`<tr class="lib-row" tabindex="0" onClick=${open} onKeyDown=${(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) open(); }}>
+    <td class="col-title"><div class="lib-title"><span class="ellipsis">${s.title}</span><${SongBadges} song=${s} /></div></td>
+    <td class="col-artist"><span class="ellipsis">${s.artist}</span></td>
+    <td class="col-label" title=${labels.join(', ')}><span class="ellipsis">${labels.slice(0, 3).join(', ')}${labels.length > 3 ? ` +${labels.length - 3}` : ''}</span></td>
+    <td class="col-year num">${s.year || html`<span class="faint">—</span>`}</td>
+    <td class="col-genre"><span class="ellipsis">${s.genre || html`<span class="faint">—</span>`}</span></td>
+    <td class="col-versions num">${s.v}</td>
+    <td class="col-plays num">${s.plays || html`<span class="faint">0</span>`}</td>
+    <td class="col-actions" onClick=${(e) => e.stopPropagation()}><div class="lib-actions"><${RowActions} song=${s} /></div></td>
+  </tr>`;
 }
 
 /** Songs of one genre or decade (from online metadata), most popular first. */

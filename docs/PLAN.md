@@ -369,6 +369,10 @@ Auth rules:
   the same page (its `resume` key matches the main display's connection) or the same paired
   screen (same TV token), asking for the same kind of display.
 - **guest**: `room` must match `party.roomCode`; `deviceId` (random, stored in localStorage) must not be banned.
+  A signed-in phone (§28) holds an `account` token instead (`account.v<version>_<identity>`): it is
+  that account's guest identity while the account's token version holds; a plain guest token of
+  an identity that has become an account no longer counts (the phone starts as a new guest, the
+  welcome says `signedOut`).
 - **the singer on now** (a guest): `player.pause/resume/seek/restart {entryId}` from the phone of
   a singer of the song on now (lead or duet partner), §24. Everything else in the player needs
   co-host or the host.
@@ -387,6 +391,8 @@ singer.add/update/remove/merge     guest.update(me) guest.kick guest.ban guest.c
 favorite.toggle {songId}  playlist.save/delete/queue   settings.update {patch}   library.rescan
 announce {text, seconds}  reaction {emoji}  rate {entryId, stars}  photo.approve/reject/rejectWaiting
 duet.answer {entryId, accept}  duet.invites {allow}   (guest: answer / turn off duet invitations)
+account.create {username, password}  account.login {username, password}  account.password {old, password}
+account.list  account.reset {id, password}  account.delete {id}   (guest accounts, §28; the last three host only)
 game.start {type, config}  game.action {...}  game.answer {...}  game.vote {...}  game.end
 display.approve {code}  display.deny {id|code|all}  display.main {id}  display.forget
 tv.status / tv.ended / tv.error / tv.ready / tv.analysis   ping {c}
@@ -748,8 +754,8 @@ versions table (label, variant, duration, file) with "Queue this version" and "P
 Join (name, emoji, colour) → bottom tabs: **Home** (now singing, my next turn + ETA, reactions),
 **Search** (instant search; browsing: Filters — decades, genres, collections, version types, §25 —
 with the common ones as chips, and Artists A–Z),
-**Queue** (upcoming, mine highlighted, remove mine), **Me** (my requests, favourites, history,
-edit profile). Song sheet: cover, versions (a Version picker with thumbs, §22), key −3…+3, guide
+**Queue** (upcoming, mine highlighted, remove mine), **Me** (my requests, favourites, Your songs,
+edit profile, the account: create, sign in or out, change the password — §28). Song sheet: cover, versions (a Version picker with thumbs, §22), key −3…+3, guide
 singer, backing vocals, duet partner, mystery toggle → "Sing it!". Home: the version on now with
 thumbs up / down; during the guest's own song, play/pause, restart and a seek bar (§24).
 Game tab appears when a game is active (answer/vote UIs). Must work on iOS Safari 16+ / Android Chrome.
@@ -854,6 +860,9 @@ JS that needs a colour (QR codes) reads the token. The app icon follows the skin
 original), and the favicon links and `/favicon.ico` point at the skin's icon. Settings saved before skins existed: a custom
 `display.accent` became `appearance.accent`, the old default pink was dropped.
 
+**Guest accounts** — `guests.accounts` (default on): guests may create an account (§28); off,
+nobody new can, existing ones still sign in.
+
 **Singers' controls** — `queue.singerControls` (default on): the singer's phone plays, pauses,
 seeks and restarts their own song while it is on (§24). Off: only co-hosts and the host.
 
@@ -867,7 +876,8 @@ A value not on its list is ignored in an update and reset to the default in a sa
 `settings.json`, `secret.json`, `library.json` (catalog cache), `state.json` (party state),
 `history.jsonl`, `meta.json` (artwork/metadata), `vocals.json` (what the TV found in each
 track's channels, §21), `versions.json` (plays and votes per version, never reset — §22), `songmeta.json`
-(the host's own years and genres, by song key — §27), `art/` (images), `photos/` (guest uploads),
+(the host's own years and genres, by song key — §27), `accounts.json` (guests' usernames, scrypt
+password hashes and token versions — §28), `art/` (images), `photos/` (guest uploads),
 `server.json` (while running: pid, port — one server per data folder). The desktop app's data
 folder is `~/.config/OpenKaraoke/data`.
 
@@ -876,6 +886,9 @@ LAN only by default (binds 0.0.0.0 so phones can connect). Host actions need loc
 token; displays need localhost or pairing; guests limited by role checks and rate limits;
 uploads size-limited and re-encoded client-side; directory listing only for host and only
 folders; media endpoints only serve files that are indexed tracks (never arbitrary paths).
+Guest accounts (§28): passwords only as salted scrypt hashes; sign-in and sign-up rate-limited;
+they travel over the party's plain-HTTP WebSocket like everything else, so a guest should pick
+a password used nowhere else (the form says so).
 No telemetry. Outbound traffic only to the artwork providers (can be disabled) and, in the
 desktop app, GitHub's API for updates (can be switched off in Settings → About; a token for a
 private repository is kept in `updates.json`, mode 0600, and only sent to GitHub's API).
@@ -932,9 +945,10 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
   column, with the filters and a text box (§26).
 - ✅ **Year & genre checker** (owner request, 2026-10-18): the Library table shows the songs whose
   year or genre is missing or looks wrong; the host's own values win everywhere (§27).
-- Open (owner's list, 2026-10-18; not started): accounts (username + password); a live headphone
-  monitor synced to the TV; lead/backing stems for non-multiplex tracks; the Pitch rings game
-  rebuilt in 3D.
+- ✅ **Guest accounts** (owner request, 2026-10-18): username + password, the same singer on any
+  phone and at the next party (§28).
+- Open (owner's list, 2026-10-18; not started): a live headphone monitor synced to the TV;
+  lead/backing stems for non-multiplex tracks; the Pitch rings game rebuilt in 3D.
 - Parked: the host seek bar after the TV window toggles, lyric layouts, the lyrics editor.
 
 ## 19. Open questions for the owner
@@ -1600,3 +1614,66 @@ list loads again. **Use all N suggestions** takes every suggestion in the curren
 first release, the API end to end with a MusicBrainz answer, a restart), `test/e2e/year-genre.mjs`
 (the flagged rows and why, Escape/Enter, an impossible year, undo, Use R&B, Find the first release
 → Use 1984, Right, the decade filter follows, the kinds, Use all, the plain table's mark, a phone).
+
+## 28. Guest accounts
+
+The owner chose: accounts for **guests** (the host keeps the PIN); **anyone at the party** can
+make one; **optional** (typing a name works as before); an account keeps the **name, avatar and
+colour, favourites, song history and version votes**.
+
+**One identity.** A guest's things are kept under their identity (the id in their token, the
+`deviceId` of §7): the profile (name, avatar, colour, favourites, `singerId`), their singer (and
+with it `songPrefs.bySinger`: key and guide level per song, and the new song history), their
+version votes, photos. An account **is** one identity: making one turns the guest's current
+identity into the account, so nothing moves; signing in on another phone gives that phone the
+same identity. The account's profile is never pruned.
+
+**Store** (`server/room/accounts.js`, `data/accounts.json` `{ version, users: { <username lower
+case>: { name, id, salt, hash, tv, createdAt, lastLogin } } }`): a username of 3–24 letters,
+digits and `. _ -` inside (case-insensitive, `constructor`/`prototype` refused), a password of
+6–128 characters (NFKC), scrypt (N 16384, r 8, p 1, 32 bytes) with its own 16-byte salt, compared
+in constant time; an unknown username costs a hash too. At most 2000 accounts. `tv` is the token
+version: a new password bumps it, which signs every phone out.
+
+**Tokens.** A signed-in phone holds `account.v<tv>_<identity>.<hmac>` (`Auth.sign('account', …)`)
+in place of its guest token; `Accounts.identity()` (in the hello and `app.guestOf()` for HTTP:
+photos, the song details' own votes) accepts it while `tv` holds, and refuses a plain guest token
+whose identity is an account (else whoever had that phone's old token would be signed in).
+
+**Requests** (WebSocket, §7):
+- `account.create {username, password}` — a guest with a name, not banned, setting
+  `guests.accounts` on, not an account yet; 5 per address per 10 min. → `{ username, token }`:
+  the phone keeps the token (same identity, no reconnect).
+- `account.login {username, password}` — 10 tries per address and 6 per username per 5 min;
+  "Wrong username or password." either way; a banned guest can't. → `{ username, token }`: the
+  phone keeps it and reconnects (`Connection.reconnect()`), now as the account's guest.
+- `account.password {old, password}` — signed in; the old password first. Every other phone of
+  the account gets `{ t: 'signedOut' }` and is disconnected (close 4004); it comes back as a new
+  guest and says so. → `{ token }` for this phone.
+- Host: `account.list` (username, the guest's name/avatar, online, last sign-in, removed — asked
+  for by the Singers page, not in every broadcast), `account.reset {id, password}` (a new password
+  the host tells the guest; their phones are signed out), `account.delete {id}` (the guest's
+  profile stays, without an account; its phones are signed out).
+
+**Song history.** A finished song (the same rule as the song count) goes to the front of each of
+its singers' `songs` (`{ id, n, at }`, 100 at most); guests see theirs as `me.songs` (50) — the
+Me tab's **Your songs**, tap to open the song.
+
+**UI.** Join: "I have an account — sign in" (username, password with show/hide, "Forgot your
+password? The host can give you a new one."). Me: the account card — not signed in: "Keep <name>
+for next time" with **Create an account** (when the host allows) and **Sign in** (the phone becomes
+that account's singer; the current guest stays behind); signed in: "Signed in as <username>",
+**Change password**, **Sign out** (a new guest on this phone; the account keeps everything).
+Host: Singers → **Guests' accounts** (New password, Delete), Settings → Queue & guests → "Guests
+can create accounts".
+
+**Not done**: e-mail or any reset without the host; merging two guests' histories (signing in
+leaves the phone's anonymous guest behind); accounts for the host; HTTPS (passwords cross the
+party's network like everything else — the form asks for a password not used elsewhere).
+
+**Tests**: `test/accounts.test.js` (the store and its file, a guest becoming an account, another
+phone signing in as the same singer, the old token refused, a new password signing the others
+out, the host's list/reset/delete, a ban, the setting, the rate limits, pruning, HTTP),
+`test/e2e/accounts.mjs` (two phones with their own storage: Your songs, create, wrong password,
+sign in → same name/favourites/songs, change password → the other phone signed out, the host's
+new password, sign out, phones fit, no console errors).

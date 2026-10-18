@@ -1,18 +1,19 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-18 (the year & genre checker: Browse → Table → "Years and genres to check"
-lists songs with a missing or doubtful year or genre and lets the host fix them; the host's values
-win everywhere — see "Year & genre checker" below. Earlier the same day: the Library table, browse
-filters, singer playback controls. Run in a cloud sandbox without the owner's PC or drive)._
+_Last updated: 2026-10-18 (guest accounts: a username and password keep a guest's name,
+favourites, songs and votes on any phone and at the next party; the host resets passwords on the
+Singers page — see "Guest accounts" below. Earlier the same day: the year & genre checker, the
+Library table, browse filters, singer playback controls. Run in a cloud sandbox without the
+owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 569/569; `npm run e2e` → 23 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 573/573; `npm run e2e` → 24 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
@@ -1228,11 +1229,34 @@ mine — change them freely):
   on a few "compilation" songs and check the years it finds against what you know.
 - Tests: `test/year-genre-check.test.js` (4), `test/e2e/year-genre.mjs` (29).
 
+## Guest accounts (2026-10-18)
+PLAN §28. The owner chose: guests only (the host keeps the PIN), anyone at the party can make
+one, optional, keeping name/avatar/colour, favourites, song history and version votes.
+- **How**: an account is one guest identity (the id everything is already kept under), so making
+  one keeps the guest exactly as they are, and signing in on another phone makes that phone the
+  same singer. Me → **Create an account** / **Sign in**; Join → "I have an account — sign in".
+  Signed in: **Change password** (signs the other phones out), **Sign out**.
+- **Host**: Singers → **Guests' accounts**: New password (for a guest who forgot; their phones are
+  signed out), Delete. Settings → Queue & guests → "Guests can create accounts".
+- **Stored**: `data/accounts.json`, scrypt hashes with their own salts, never a password; the
+  token version signs phones out. Rate limits on sign-in (per address and username) and sign-up.
+- **New**: **Your songs** on the Me tab (each singer's last 100 finished songs, kept on the
+  singer, so an account brings them to any phone).
+- **Touched outside accounts**: the photo upload and song-details endpoints now read the guest
+  token through `app.guestOf()` (so a signed-in phone can still send photos and see its own
+  vote); the camera code itself is unchanged.
+- **Not done**: password reset without the host (no e-mail), merging two guests, host accounts,
+  HTTPS — passwords cross the party network in the clear like everything else, so the form asks
+  for one not used elsewhere.
+- Tests: `test/accounts.test.js` (4), `test/e2e/accounts.mjs` (26).
+- Owner checklist: make an account on one phone, sign in on another (a different browser), check
+  the name, favourites and Your songs follow; restart the server and sign in again.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
-  - ~~Browse/search filters~~, ~~the host Library table~~ and ~~the year & genre checker~~ (done, above).
-  - **Accounts** (username + password).
+  - ~~Browse/search filters~~, ~~the host Library table~~, ~~the year & genre checker~~ and
+    ~~guest accounts~~ (done, above).
   - A **live headphone monitor synced to the TV** (today the multiplex vocal stem is only the
     song dialog's preview, from the start of the file, not in time with the TV).
   - **Lead/backing stems for non-multiplex tracks** (today only multiplex tracks get a vocal

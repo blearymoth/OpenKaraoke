@@ -72,6 +72,13 @@ const COHOST_ACTIONS = new Set([
   'player.play', 'player.pause', 'player.resume', 'player.toggle', 'player.next', 'player.restart', 'player.seek',
   'player.key', 'player.tempo', 'player.volume', 'player.lead', 'queue.move', 'queue.approve', 'queue.reject', 'announce',
 ]);
+/**
+ * What the singer's own phone may do while their song is the one on now (never next, stop, the
+ * volume or the queue). Each request names the song (`entryId`), so a tap that arrives after the
+ * song changed is refused.
+ */
+const SINGER_ACTIONS = new Set(['player.pause', 'player.resume', 'player.seek', 'player.restart']);
+const SINGER_STATES = new Set(['intro', 'ready', 'playing', 'paused']);
 const MAX_PLAYLISTS = 100;
 const MAX_PLAYLIST_SONGS = MAX_LIST_SONGS;
 const MASK = '••••••';
@@ -139,6 +146,7 @@ export class Room {
       invite: new RateLimiter({ capacity: 3, perMs: 10 * 60_000 }), // duet invitations per inviter → invitee
       invited: new RateLimiter({ capacity: 6, perMs: 10 * 60_000 }), // duet invitations one guest receives
       lead: new RateLimiter({ capacity: 6, perMs: 10_000 }), // a singer's guide-vocal switch
+      singer: new RateLimiter({ capacity: 8, perMs: 10_000 }), // a singer's play/pause/seek/restart
       vote: new RateLimiter({ capacity: 20, perMs: 60_000 }), // version votes per guest
       voteIp: new RateLimiter({ capacity: 120, perMs: 10 * 60_000 }), // … and per address
     };
@@ -559,6 +567,14 @@ export class Room {
       allowed = true;
       actor = { ...client, role: HOST, send: client.send?.bind(client), data: client.data, coHost: true };
     }
+    // The singer on now may play, pause, seek and restart their own song from their phone.
+    if (!allowed && client.role === GUEST && SINGER_ACTIONS.has(msg.t)) {
+      const deviceId = client.data.deviceId;
+      if (!this.singerOnNow(deviceId)) fail('Only the singer can do that, during their own song.', 'forbidden');
+      if (msg.entryId !== this.s.current.id) fail('That song is over — the next one is on.', 'song_changed');
+      if (!this.limits.singer.take(deviceId)) fail('Slow down a little.', 'rate_limited');
+      allowed = true;
+    }
     if (!allowed) fail('You are not allowed to do that', 'forbidden');
     if (client.role === GUEST && !this.limits.guest.take(client.data.deviceId)) fail('Slow down a little — too many taps.', 'rate_limited');
     if (!msg.t.startsWith('tv.')) {
@@ -577,6 +593,19 @@ export class Room {
   /** A guest profile by device id (never an inherited object property). */
   profileOf(deviceId) {
     return validId(deviceId) && Object.hasOwn(this.s.profiles, deviceId) ? this.s.profiles[deviceId] : null;
+  }
+
+  /**
+   * Is this guest's phone (its signed device id) one of the singers of the song on now, so it may
+   * run it (SINGER_ACTIONS)? Not when the host turned it off, a banned guest, a judged battle
+   * round, or once the song has ended, been skipped or stopped.
+   */
+  singerOnNow(deviceId) {
+    const cur = this.s.current;
+    if (!cur || !SINGER_STATES.has(this.s.player.state) || judged(cur)) return false;
+    if (this.settings.get('queue.singerControls') === false) return false;
+    const profile = this.profileOf(deviceId);
+    return !!(profile?.singerId && !profile.banned && cur.singerIds.includes(profile.singerId));
   }
 
   // ---- queue -----------------------------------------------------------------------------
@@ -1426,10 +1455,12 @@ export class Room {
     }
     const now = Date.now();
     const time = { t: 'time', entryId: m.entryId, pos: p.pos, dur: p.dur, playing: !!m.playing, at: now };
-    this.hub.broadcast(time, (c) => c.role === HOST || (c.role === TV && c.data.display === 'mirror'));
+    // The singers' phones follow at the TV's rate too (their seek bar), other guests once a second.
+    const singer = (c) => c.role === GUEST && this.singerOnNow(c.data.deviceId);
+    this.hub.broadcast(time, (c) => c.role === HOST || (c.role === TV && c.data.display === 'mirror') || singer(c));
     if (now - this.lastGuestTime >= 1000) {
       this.lastGuestTime = now;
-      this.hub.broadcast(time, (c) => c.role === GUEST);
+      this.hub.broadcast(time, (c) => c.role === GUEST && !singer(c));
     }
   }
 
@@ -2665,6 +2696,7 @@ export class Room {
         queued,
         left: max > 0 ? Math.max(0, max - queued) : null,
         invites: this.invitesFor(profile?.singerId, base.queue.map((e) => e.eta)),
+        controls: this.singerOnNow(deviceId), // their own song is on: play, pause, seek, restart
         // Their vote on the version on now (null: no vote row — one version, votes off, hidden).
         versionVote: base.current?.version && base.rules.versionVotes && !(base.rules.explicitFilter && base.current.flags?.explicit)
           ? this.versions.mine(deviceId, this.s.current.trackId) : null,

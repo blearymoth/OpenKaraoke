@@ -23,6 +23,8 @@ export class AudioEngine extends EventTarget {
     super();
     this.ctx = null;
     this.stretch = null;
+    this.stretch4 = null; // separated stems (music L/R, vocal L/R), made when first needed
+    this.vox = 100; // the separated vocals' level (PLAN §30)
     this.ready = null;
     this.cache = new Map(); // track id → Promise<prepared>
     this.track = null; // { id, duration, gainDb, mode }
@@ -135,7 +137,7 @@ export class AudioEngine extends EventTarget {
     this.stopNow();
     this.detachElement();
     this.track = null;
-    await this.stretch.dropBuffers();
+    await this.dropBuffers();
     superseded(); // a newer load started while the old buffers were being dropped
     // Hand the sample arrays to the worklet without copying them.
     await this.stretch.addBuffers(prepared.channels, prepared.channels.map((c) => c.buffer));
@@ -159,7 +161,7 @@ export class AudioEngine extends EventTarget {
     this.stopNow();
     this.detachElement();
     this.track = null;
-    await this.stretch.dropBuffers();
+    await this.dropBuffers();
     if (seq !== this.loadSeq) throw Object.assign(new Error('superseded'), { superseded: true });
     await this.stretch.addBuffers(channels, channels.map((c) => c.buffer));
     if (seq !== this.loadSeq) throw Object.assign(new Error('superseded'), { superseded: true });
@@ -181,7 +183,7 @@ export class AudioEngine extends EventTarget {
     this.stopNow();
     this.detachElement();
     this.track = null;
-    await this.stretch.dropBuffers();
+    await this.dropBuffers();
     superseded();
     element.preservesPitch = true;
     element.crossOrigin = 'anonymous';
@@ -244,13 +246,105 @@ export class AudioEngine extends EventTarget {
     this.stretch?.schedule({ active: false, output: this.ctx.currentTime });
   }
 
+  /** The stretcher the current track plays through: the stems' (4 channels) or the stereo one. */
+  get sx() {
+    return this.track?.mode === 'stems' ? this.stretch4 : this.stretch;
+  }
+
+  async dropBuffers() {
+    await Promise.all([this.stretch?.dropBuffers(), this.stretch4?.dropBuffers()]);
+  }
+
+  /**
+   * The stems' path (PLAN §30): a 4-channel stretcher → music L/R as they are, vocal L/R at the
+   * vocals' level → stereo, into the same channel matrix as everything else.
+   */
+  async initStems() {
+    await this.init();
+    if (this.stretch4) return;
+    const ctx = this.ctx;
+    const node = await SignalsmithStretch(ctx, { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [4] });
+    const split = ctx.createChannelSplitter(4);
+    const merge = ctx.createChannelMerger(2);
+    this.voxGains = [ctx.createGain(), ctx.createGain()];
+    node.connect(split);
+    split.connect(merge, 0, 0); // music L
+    split.connect(merge, 1, 1); // music R
+    split.connect(this.voxGains[0], 2).connect(merge, 0, 0); // vocal L
+    split.connect(this.voxGains[1], 3).connect(merge, 0, 1); // vocal R
+    merge.connect(this.input);
+    this.stretch4 = node;
+    this.setVox(this.vox);
+  }
+
+  /** Fetches and decodes a track's two stems (music, vocal) into four channels of the same length. */
+  async prepareStems(id, musicUrl, vocalUrl) {
+    await this.initStems();
+    const decode = async (url) => {
+      const res = await fetch(url);
+      if (!res.ok) throw Object.assign(new Error(`Could not load the stems (HTTP ${res.status})`), { status: res.status });
+      const buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+      const ch = (c) => {
+        const data = new Float32Array(buf.length);
+        buf.copyFromChannel(data, Math.min(c, buf.numberOfChannels - 1)); // mono: the same on both sides
+        return data;
+      };
+      return [ch(0), ch(1)];
+    };
+    const [music, vocal] = await Promise.all([decode(musicUrl), decode(vocalUrl)]);
+    const n = Math.max(music[0].length, vocal[0].length);
+    const fit = (a) => {
+      if (a.length === n) return a;
+      const b = new Float32Array(n);
+      b.set(a);
+      return b;
+    };
+    const channels = [...music, ...vocal].map(fit);
+    const sum = [0, 1].map((c) => {
+      const out = new Float32Array(n);
+      for (let i = 0; i < n; i += 1) out[i] = channels[c][i] + channels[c + 2][i];
+      return out;
+    });
+    return { id, duration: n / this.ctx.sampleRate, channels, gainDb: loudnessGainDb(sum) };
+  }
+
+  /** Loads a track as its separated stems (the vocals at `vox`), in place of its file. */
+  async loadStems(id, musicUrl, vocalUrl) {
+    const seq = ++this.loadSeq;
+    const superseded = () => {
+      if (seq !== this.loadSeq) throw Object.assign(new Error('superseded'), { superseded: true });
+    };
+    const prepared = await this.prepareStems(id, musicUrl, vocalUrl);
+    superseded();
+    this.stopNow();
+    this.detachElement();
+    this.track = null;
+    await this.dropBuffers();
+    superseded();
+    await this.stretch4.addBuffers(prepared.channels, prepared.channels.map((c) => c.buffer));
+    superseded();
+    this.track = { id, duration: prepared.duration, gainDb: prepared.gainDb, mode: 'stems' };
+    this.map = { active: false, input: 0, output: 0, rate: this.rate };
+    this.ended = false;
+    this.applyTrackGain();
+    return this.track;
+  }
+
+  /** The separated vocals' level, 0 (off) … 100 (as recorded); quiet (50) is −12 dB. */
+  setVox(level) {
+    this.vox = clamp(Number(level) || 0, 0, 100);
+    if (!this.voxGains) return;
+    const g = (this.vox / 100) ** 2;
+    for (const gain of this.voxGains) gain.gain.setTargetAtTime(g, this.ctx.currentTime, 0.02);
+  }
+
   /** Stops and forgets the current track; any load still in flight is abandoned. */
   unload() {
     this.loadSeq++;
     this.stopNow();
     this.detachElement();
     this.track = null;
-    this.stretch?.dropBuffers();
+    void this.dropBuffers();
   }
 
   // ---- transport --------------------------------------------------------------------------
@@ -302,7 +396,7 @@ export class AudioEngine extends EventTarget {
     }
     const start = clamp(from ?? this.map.input, 0, this.track.duration);
     const t = this.ctx.currentTime + 0.05;
-    this.stretch.schedule({ active: true, input: start, output: t, rate: this.rate, semitones: this.key });
+    this.sx.schedule({ active: true, input: start, output: t, rate: this.rate, semitones: this.key });
     this.map = { active: true, input: start, output: t, rate: this.rate };
     this.rampFade(1, 0.03, t);
   }
@@ -317,13 +411,13 @@ export class AudioEngine extends EventTarget {
     const t = this.ctx.currentTime + 0.06;
     const pos = this.inputAt(t);
     this.rampFade(0, 0.05);
-    this.stretch.schedule({ active: false, output: t });
+    this.sx.schedule({ active: false, output: t });
     this.map = { active: false, input: pos, output: 0, rate: this.rate };
   }
 
   stopNow() {
     if (this.track?.mode === 'element') this.element?.pause();
-    else if (this.map.active) this.stretch?.schedule({ active: false, output: this.ctx.currentTime });
+    else if (this.map.active) this.sx?.schedule({ active: false, output: this.ctx.currentTime });
     this.map = { active: false, input: 0, output: 0, rate: this.rate };
   }
 
@@ -342,7 +436,7 @@ export class AudioEngine extends EventTarget {
     const now = this.ctx.currentTime;
     const t = now + 0.05;
     this.rampFade(0, 0.03);
-    this.stretch.schedule({ active: true, input: to, output: t, rate: this.rate, semitones: this.key });
+    this.sx.schedule({ active: true, input: to, output: t, rate: this.rate, semitones: this.key });
     this.map = { active: true, input: to, output: t, rate: this.rate };
     this.rampFade(1, 0.03, t);
   }
@@ -361,7 +455,7 @@ export class AudioEngine extends EventTarget {
     }
     const t = this.ctx.currentTime + 0.03;
     const input = this.inputAt(t);
-    this.stretch.schedule({ active: true, input, output: t, rate: this.rate, semitones: this.key });
+    this.sx.schedule({ active: true, input, output: t, rate: this.rate, semitones: this.key });
     this.map = { active: true, input, output: t, rate: this.rate };
   }
 
@@ -436,7 +530,7 @@ export class AudioEngine extends EventTarget {
     if (this.ended || !this.track) return;
     this.ended = true;
     if (this.track.mode !== 'element' && this.map.active) {
-      this.stretch.schedule({ active: false, output: this.ctx.currentTime });
+      this.sx.schedule({ active: false, output: this.ctx.currentTime });
       this.map = { active: false, input: this.track.duration, output: 0, rate: this.rate };
     }
     this.emit('ended', { id: this.track.id });

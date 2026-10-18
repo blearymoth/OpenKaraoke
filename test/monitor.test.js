@@ -37,6 +37,7 @@ test('the mix: the room’s channels, its own guide level on a multiplex track; 
   assert.deepEqual(monitorMix({ channel: 'left', vocals: { adjustable: false }, lead: 0 }, 100), { channel: 'left', vocals: null, lead: 0 }, 'not multiplex: the room’s channels');
   assert.deepEqual(monitorMix(null), { channel: 'stereo', vocals: null, lead: 0 });
   assert.deepEqual(monitorSource({ kind: 'cdg', audio: '/media/a/audio', cdg: '/media/a/cdg' }), { mode: 'buffer', url: '/media/a/audio' });
+  assert.deepEqual(monitorSource({ kind: 'cdg', audio: '/media/a/audio', stems: { music: '/m', vocal: '/v' } }), { mode: 'stems', url: '/m', vocal: '/v' }, 'separated: the stems');
   assert.deepEqual(monitorSource({ kind: 'video', video: '/media/v/video' }), { mode: 'element', url: '/media/v/video' });
   assert.equal(monitorSource({ kind: 'video', video: null, converting: {} }), null);
 });

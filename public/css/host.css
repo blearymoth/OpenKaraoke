@@ -434,6 +434,12 @@ body.host .toasts { bottom: 104px; }
 .lib-table .col-actions { width: 150px; }
 .lib-actions { display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
 
+/* Separated vocals on an ordinary version (Playback → Sound). */
+.separated { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; margin-top: 10px; }
+.separated .vocals-level span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.separated .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.separated .hint { margin: 0; }
+
 /* The headphone monitor (Playback → Sound). */
 .monitor-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin-top: 14px; padding: 12px 14px; border-radius: var(--r-card); background: var(--stage-2); border: 1px solid var(--line); }
 .monitor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }

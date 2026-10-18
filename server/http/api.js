@@ -11,6 +11,7 @@ import { placeholderSvg } from '../artwork/placeholder.js';
 import { hash32 } from '../../shared/text.js';
 import { MAX_LIST_SONGS } from '../../shared/protocol.js';
 import { leadKind } from '../../shared/vocals.js';
+import { mediaUrls } from './media.js';
 import { readFilters } from '../../shared/filters.js';
 import { CHECK_KINDS, checkMatches } from '../artwork/checker.js';
 
@@ -133,6 +134,15 @@ export function apiRoutes(router, app) {
     // computer (trusted as the host over HTTP) still gets the guest's view and its own vote.
     const guestId = app.guestOf(String(ctx.req.headers['x-guest-token'] || ''));
     const guest = !!guestId || !ctx.isHost;
+    // The host: which versions' vocals are separated (PLAN §30) — an audio version, not multiplex.
+    if (!guest && app.room) {
+      for (const v of detail.versions) {
+        if (v.kind === 'video' || app.room.stemOk(v.id) || mediaUrls(cat().track(v.id))?.kind !== 'cdg') continue;
+        const asked = app.room.stemAsked(v.id);
+        if (asked) void app.room.stems.ensure(v.id); // (separated before a restart: found on disk)
+        v.stems = asked ? app.room.stems.view(v.id).status : 'idle';
+      }
+    }
     const voter = guestId || (ctx.isHost ? HOST_VOTER : null);
     return app.room ? app.room.decorateVersions(detail, { voter, guest }) : detail;
   });

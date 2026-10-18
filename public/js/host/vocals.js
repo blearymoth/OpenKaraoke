@@ -106,3 +106,36 @@ export function VocalsDialog() {
     ${others.length > 0 && !withoutBgv.length && !withBgv.length && v.bgv !== 'without' && html`<p class="hint">No version of this song is marked “without backing vocals”.</p>`}
   </${Modal}>`;
 }
+
+/**
+ * Separated vocals on an ordinary version (PLAN §30), in Playback → Sound: "Separate the vocals"
+ * (autokaraoke, a minute or two), then the vocals' level — on a karaoke track its backing
+ * vocals, on a recording with the singer the singer (and backing). The room hears it; the
+ * headphone monitor has its own level.
+ */
+export function SeparatedVocals({ p, cur }) {
+  if (!cur || p.stems === null || p.stems === undefined) return null;
+  const separate = async () => {
+    const r = await act('stems.separate', { trackId: cur.trackId });
+    if (r?.status === 'separating') toast('Separating the vocals — it takes a minute or two; the TV switches over by itself.', 'info', 6000);
+  };
+  if (p.stems !== 'ready') {
+    return html`<div class="separated" id="pb-stems">
+      ${p.stems === 'separating'
+        ? html`<p class="hint">Separating the vocals… the TV switches over when they are ready.</p>`
+        : html`<button class="btn small" disabled=${!p.stemsEnabled} onClick=${separate}><${Icon} name="sparkles" size=${15} /> ${p.stems === 'failed' ? 'Try separating again' : 'Separate the vocals'}</button>
+          <p class="hint">${p.stems === 'failed' ? 'The vocals could not be separated.'
+            : p.stemsEnabled ? 'Then turn the vocals down or off: backing vocals on a karaoke track, the singer on a recording.'
+            : 'Needs autokaraoke’s separator on this computer.'}</p>`}
+    </div>`;
+  }
+  const set = (level) => act('player.vox', { level });
+  return html`<div class="separated" id="pb-stems">
+    <div class="vocals-level"><span><${Icon} name="mic" size=${16} /> Vocals</span>
+      <input type="range" min="0" max="100" step="5" value=${p.vox} aria-label="Vocals (separated)" style=${{ '--p': `${p.vox}%` }}
+        onChange=${(e) => set(Number(e.currentTarget.value))} />
+      <b class="num">${p.vox <= 0 ? 'Off' : `${p.vox}`}</b></div>
+    <div class="btn-row">${PRESETS.map(([x, label]) => html`<button class=${`btn small ${p.vox === x ? 'on' : 'ghost'}`} onClick=${() => set(x)}>${label}</button>`)}</div>
+    <p class="hint">Separated from this version’s sound: on a karaoke track its backing vocals, on a recording the singer too.</p>
+  </div>`;
+}

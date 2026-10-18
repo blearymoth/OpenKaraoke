@@ -53,8 +53,12 @@ export function monitorMix(player, lead = null) {
   return { channel: player?.channel || 'stereo', vocals: null, lead: 0 };
 }
 
-/** The media the monitor loads for a song: decoded audio (CDG tracks) or the video's sound, else null. */
+/**
+ * The media the monitor loads for a song: the separated stems (PLAN §30), decoded audio (CDG
+ * tracks) or the video's sound, else null.
+ */
 export function monitorSource(media) {
+  if (media?.kind === 'cdg' && media.stems?.music && media.stems.vocal) return { mode: 'stems', url: media.stems.music, vocal: media.stems.vocal };
   if (media?.kind === 'cdg' && media.audio) return { mode: 'buffer', url: media.audio };
   if (media?.kind === 'video' && media.video) return { mode: 'element', url: media.video };
   return null; // (a video still being converted)

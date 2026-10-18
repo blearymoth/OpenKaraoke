@@ -159,7 +159,7 @@ function VersionsTable({ song, songId }) {
           ${many && html`<td class="num" data-label="Sung">${v.plays ? `${v.plays}×` : html`<span class="faint">—</span>`}</td>
             <td><${VersionVote} v=${v} label=${`Votes for ${versionName(v)}`} onVote=${(x) => vote(v, x)} /></td>`}
           <td class="file ellipsis" title=${v.file}>${v.file}</td>
-          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} vocal=${wantsVocalPreview(v)} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
+          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} vocal=${wantsVocalPreview(v)} />`}${v.stems !== undefined && html`<${SeparateButton} v=${v} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
         </tr>`;
       })}</tbody>
     </table>
@@ -483,3 +483,11 @@ export function Dialogs() {
   }
 }
 
+/** A version's "Separate vocals" (PLAN §30): ahead of its song, for the room to play its vocals at a level. */
+function SeparateButton({ v }) {
+  const [status, setStatus] = useState(v.stems);
+  if (status === 'ready') return html`<span class="pill" title="The room can play this version’s vocals at any level">Vocals separated</span>`;
+  if (status === 'separating') return html`<span class="pill">Separating…</span>`;
+  return html`<button class="btn small ghost" title="Separate the vocals (a minute or two), to play them at any level in the room"
+    onClick=${async () => { const r = await act('stems.separate', { trackId: v.id }); if (r) setStatus(r.status); }}>${status === 'failed' ? 'Separate again' : 'Separate vocals'}</button>`;
+}

@@ -56,6 +56,7 @@ export const DEFAULT_SETTINGS = {
     guestsSeeQueue: true,
     guestKeyChange: true,
     guestVocals: true, // guests choose a guide vocal / backing vocals when queueing, and switch the guide on their own song
+    singerControls: true, // the singer's phone plays, pauses, seeks and restarts their own song while it is on
   },
   playback: {
     countdown: 10,

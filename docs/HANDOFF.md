@@ -1296,11 +1296,15 @@ the host asks, on htdemucs (the model name in one place).
   - ~~Browse/search filters~~, ~~the host Library table~~, ~~the year & genre checker~~,
     ~~guest accounts~~, ~~the headphone monitor~~ and ~~separated vocals~~ (done, above).
   - **Pitch rings rebuilt in 3D** (the pitch game, `test/e2e/game-pitch.mjs`).
+  - **Making karaoke in the app** with the owner's SongGetter/autokaraoke: planned in PLAN §31
+    (size: ≈4 GB CPU-only, ≈7.5 GB with an NVIDIA GPU, never bundled; hardware tiers; one ML
+    job at a time at low priority during a party; milestones; open questions). Not started.
 - **Parked** (not without the owner):
   - The host **seek bar** after the TV window is toggled (`SeekBar` in
     `public/js/host/player.js` clears its drag only on `change`) — not reproduced.
   - **Lyric layouts** — no further work for now.
-  - The **lyrics editor**.
+  - The **lyrics editor**: paused by the owner (2026-10-18). Its shape is in PLAN §31.4 (edit an
+    autokaraoke `.timing.json`, redraw the CDG with the render-only install).
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, mic monitoring
   with reverb on the PC. The multiplex vocal stem is still only the song-dialog preview; the
   headphone monitor (in time with the TV) plays the channel matrix instead.

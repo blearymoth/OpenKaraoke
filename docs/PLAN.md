@@ -435,6 +435,7 @@ GET  /api/songs/:id            song detail (versions, meta, plays; per version p
 GET  /api/artists?letter&q&limit&offset&sort    GET /api/artists/:key  { artist, songs }
 GET  /api/browse/popular?limit&offset&tag*&genre*&decade*&version*   (* = repeat for several, §25)
 GET  /api/browse/facets        { genres, decades, tags, versions, letters, brands }
+GET  /api/library/songs?sort&dir&q&limit&offset&<filters>   (host only) the Library table, §26
 GET  /api/browse/tag/:tag      GET /api/random?n&tag*&genre*&decade*&version*
 GET  /api/qr.svg?text=…        QR code (text ≤ 512 chars)
 GET  /api/art/song/:id?s=250|500|1000     image | placeholder SVG (never 404)
@@ -735,7 +736,7 @@ left nav, main view, right **admin panel** (tabs Queue / Playback / Devices — 
 bar (what's on, transport, seek, volume, TV chip). Phones (≤ 900 px): the panel is the "Control"
 page (`#/panel/queue|playback|devices`) and a mini player (play/pause, next; tap → Playback).
 Views: Home (now playing, quick actions, popular carousel, tags), Search, Artists A–Z → Artist
-page (header with fanart/logo), Browse (filters, §25), Collections (tags), Genres/Decades (when metadata exists),
+page (header with fanart/logo), Browse (filters, §25; List or the Library table, §26), Collections (tags), Genres/Decades (when metadata exists),
 Favourites, Playlists, History, Singers, Games, Photos (moderation), Settings (Library,
 Display, Playback, Queue & guests, Artwork, Security, About). Song details modal: cover, meta,
 versions table (label, variant, duration, file) with "Queue this version" and "Preview".
@@ -923,9 +924,11 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
   song while it is on (§24).
 - ✅ **Browse filters** (owner request, 2026-10-18): several decades, genres, collections and
   version types on the phones' Songs tab and the host's Browse page (§25).
-- Open (owner's list, 2026-10-18; not started): the host Library table; accounts (username +
-  password); a year and genre checker; a live headphone monitor synced to the TV; lead/backing
-  stems for non-multiplex tracks; the Pitch rings game rebuilt in 3D.
+- ✅ **Library table** (owner request, 2026-10-18): Browse → Table, every song sortable by
+  column, with the filters and a text box (§26).
+- Open (owner's list, 2026-10-18; not started): accounts (username + password); a year and
+  genre checker; a live headphone monitor synced to the TV; lead/backing stems for non-multiplex
+  tracks; the Pitch rings game rebuilt in 3D.
 - Parked: the host seek bar after the TV window toggles, lyric layouts, the lyrics editor.
 
 ## 19. Open questions for the owner
@@ -1489,10 +1492,49 @@ the guest switches tabs (not across a reload).
 **Host** (`#/browse`, `BrowseFilters` in `public/js/host/views.js`; Nav → Browse, Collections →
 Browse with filters): the same panel beside the songs on a wide window (above, folded, on a
 phone), the filters in the address so Back, a reload and a bookmark keep them; odd values in the
-address are dropped. The Library table (sortable columns) is the next step.
+address are dropped. **Table** shows the same songs as the Library table (§26).
 
 **Tests**: `test/filters.test.js` (reading and cleaning, the catalog's OR/AND, facets, the API),
 `test/e2e/filters.mjs` (phone: chips, two decades and a genre, typing ignores them, kept between
 tabs, the sheet's groups and live count, applying, Clear, the explicit filter's collection; host:
 the panel, the address, reload, Clear, odd values, Collections' link, a phone; no sideways
 scrolling; no console errors).
+
+## 26. The Library table (host)
+
+The host's Browse page (§25) has a **List | Table** switch. The table is the whole library, one
+row per **song** (its versions grouped, as everywhere else), with the owner's columns, all
+sortable: **Title, Artist, Label, Year, Genre, Versions, Plays** (`TABLE_COLUMNS`,
+`shared/filters.js`).
+- **Label**: the karaoke labels of the song's versions, the library's most common label first
+  (up to 3 shown, "+N", all of them on hover); it sorts by the first. **Year** and **Genre**: the
+  online song information, "—" until looked up. **Plays**: times sung here (all time, the
+  catalog's play counts). **Versions**: how many files.
+- **Sorting**: a click on a heading sorts by it — text columns A–Z first, numbers (year,
+  versions, plays) the most first; a second click turns it around (`aria-sort` on the heading).
+  Ties: A–Z by artist ("The" left out), then title — whichever way the column goes. Songs without
+  a year or genre are last either way.
+- **Narrowing**: the browse filters (folded above the table, with how many are on) and a text box,
+  "Filter by artist or title": every word must be in the title or the artist (or another spelling
+  of them), part of a word counts; the column order stays (the top search ranks by relevance
+  instead). "Clear" empties both.
+- **The address** holds all of it: `#/browse?genre=Rock&view=table&sort=year&dir=desc&q=love`
+  (defaults left out), so Back, a reload and a bookmark bring it back. The text is written to it
+  250 ms after typing stops.
+- Rows: a click (or Enter) opens the song's details; the star and **Queue** as in the lists.
+  100 rows at a time as the page scrolls. On a narrow window the table keeps its width
+  (760 px at least) and scrolls sideways inside its box, never the page.
+
+**Server** (`GET /api/library/songs`, host only — `requireHost`): `sort` (a `TABLE_COLUMNS` id,
+else artist), `dir` (`asc`|`desc`), `q` (≤ 100 characters, ≤ 8 words), the filters (§25), `limit`
+(≤ 200, default 100), `offset` → `{ total, items }`, each a song summary plus `labels`, `genre`,
+`plays` (and the tonight/queued marks). `catalog.table()`: the whole library sorted once per
+column, direction and catalog/metadata version (`_sortedBy`: ties by a cached A–Z position,
+labels by each song's first label), then the filter and text walk that list; both kinds of list are
+in a 24-entry LRU, so paging is a slice. Labels for a row are worked out when the row is sent.
+
+**Tests**: `test/library-table.test.js` (every column both ways, ties, unknown last, labels,
+text, filters, pages, metadata changes, the API and that it is host only), the table part of
+`test/e2e/filters.mjs` (the switch keeps the filters, columns, the Label column, Year both ways,
+Title, the text with a filter, the address and a reload, a row opens the song, back to List, a
+phone).

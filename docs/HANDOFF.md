@@ -1,18 +1,18 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-18 (browse filters: the phones' Songs tab and the host's new Browse page
-narrow the popular songs by several decades, genres, collections and version types — see "Browse
-filters" below. Before that the same day: singer playback controls. Run in a cloud sandbox
-without the owner's PC or drive)._
+_Last updated: 2026-10-18 (the host's Library table: Browse → Table, every song sortable by
+title, artist, label, year, genre, versions and plays, with the filters and a text box — see
+"Library table" below. Earlier the same day: browse filters, singer playback controls. Run in a
+cloud sandbox without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 561/561; `npm run e2e` → 22 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 565/565; `npm run e2e` → 22 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
@@ -1189,11 +1189,27 @@ phones and host in one go.
 - Owner checklist: once the artwork lookup has filled in years and genres, try two decades and a
   genre on a phone, and Guide singer on the host's Browse page.
 
+## Library table (2026-10-18)
+The second half of "browse/search filters + host Library table" (PLAN §26). The owner chose:
+one row per **song**; columns **Title, Artist, Label, Year, Genre, Versions, Plays**, all sortable;
+on the **Browse page as a List | Table switch**; with its own **text box** next to the filters.
+- **Using it**: Browse → Table. Click a heading to sort (a second click turns it around; numbers
+  start with the most), type in "Filter by artist or title", open the folded Filters. Everything
+  is in the address, so Back and bookmarks work. A row opens the song; Queue and the star as usual.
+- **Server**: `GET /api/library/songs` (host only; `/api/library` is still the library status).
+  The library is sorted once per column and catalog/metadata version, then filtered.
+- **Speed** on a synthetic 90k-track library (54k songs), measured while other tests were running
+  (so on the high side): a column's first sort ≈60–210 ms (Label the slowest), then a filter or
+  text on it ≈25–60 ms, a page from a cached list < 1 ms. The year and genre sorts are worked out
+  again after new song information arrives (during the first artwork crawl, each time).
+- Tests: `test/library-table.test.js` (4), the table checks in `test/e2e/filters.mjs` (now 60).
+- Not done: a per-file view (the owner chose per song), Length and Added columns (not chosen),
+  choosing or resizing columns, editing in the table (the year & genre checker is a separate item).
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
-  - ~~Browse/search filters~~ (done, above). Next: the host **Library table** (sortable columns:
-    artist, title, label, year, genre, versions, plays; the Browse page's filters on top).
+  - ~~Browse/search filters~~ and ~~the host Library table~~ (done, above).
   - **Accounts** (username + password).
   - A **year & genre checker** (years and genres that are missing or look wrong, e.g. a
     compilation's year — see "Known limitations").

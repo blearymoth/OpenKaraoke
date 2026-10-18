@@ -704,16 +704,18 @@ export class Catalog {
    * of them) contains every word of `q`, sorted by a column (TABLE_SORTS) — ties by artist, then
    * title; songs without a year or genre last either way. Sorted lists are cached for paging.
    */
-  table({ filter = null, q = '', sort = 'artist', dir = 'asc', limit = 100, offset = 0 } = {}) {
+  table({ filter = null, q = '', sort = 'artist', dir = 'asc', limit = 100, offset = 0, only = null, onlyKey = '' } = {}) {
     if (!TABLE_SORTS.includes(sort)) sort = 'artist';
     const desc = dir === 'desc';
     const words = fold(q).split(' ').filter(Boolean).slice(0, 8);
-    const key = `${this.version}:${this.metaVersion}|${sort}|${desc}|${words.join(' ')}|${JSON.stringify(filter)}`;
+    // `only`: a set of song ids (the year & genre checker's), told apart in the cache by `onlyKey`.
+    const key = `${this.version}:${this.metaVersion}|${sort}|${desc}|${words.join(' ')}|${JSON.stringify(filter)}|${only ? onlyKey : ''}`;
     let list = this._tables.get(key);
     if (!list) {
       // The whole library sorted once per column; a filter or text then only walks it.
       list = [];
       for (const s of this._sortedBy(sort, desc)) {
+        if (only && !only.has(s.id)) continue;
         if (words.length && !words.every((w) => s.hay.includes(w))) continue;
         if (this._passes(s, filter)) list.push(s);
       }
@@ -824,13 +826,17 @@ export class Catalog {
     return out;
   }
 
-  /** One row of the Library table: the song summary, its labels, genre and plays here. */
+  /**
+   * One row of the Library table: the song summary, its labels, genre and plays here, and which
+   * of year and genre the host set (`own`).
+   */
   tableRow(s) {
     const out = this.songSummary(s);
     const labels = this.songLabels(s);
     if (labels.length) out.labels = labels.slice(0, 12);
-    const genre = this.metaFor(s.key)?.genre;
-    if (genre) out.genre = genre;
+    const m = this.metaFor(s.key);
+    if (m?.genre) out.genre = m.genre;
+    if (m?.host) out.own = { ...m.host };
     out.plays = this.plays.get(s.id) || 0;
     return out;
   }

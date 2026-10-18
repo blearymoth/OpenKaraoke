@@ -14,6 +14,7 @@ import { mediaRoutes } from './http/media.js';
 import { Hub } from './ws/hub.js';
 import { Room } from './room/room.js';
 import { ArtworkService } from './artwork/service.js';
+import { SongMeta } from './library/songmeta.js';
 import { ArtFeed } from './artwork/feed.js';
 import { lanAddresses, isLocalAddress } from './util/net.js';
 import { HttpError } from './util/errors.js';
@@ -52,13 +53,14 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   const library = new LibraryService({ dataDir, settings });
   await library.init({ scan });
   if (watch) library.startWatcher();
-  const artwork = new ArtworkService({ dataDir, settings, library, fetch, version: VERSION });
+  const songMeta = await new SongMeta(path.join(dataDir, 'songmeta.json')).load(); // the host's years and genres
+  const artwork = new ArtworkService({ dataDir, settings, library, fetch, version: VERSION, overrides: songMeta });
   await artwork.init({ crawl });
 
   const router = new Router();
   const hub = new Hub();
   // `instance` tells this process apart from another server on the same address (/api/health).
-  const app = { dataDir, settings, library, artwork, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [], stemRun, videoTool };
+  const app = { dataDir, settings, library, artwork, songMeta, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [], stemRun, videoTool };
 
   // The party hotspot (PLAN §20).
   const hotspot = new Hotspot({
@@ -130,6 +132,7 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   hub.on('leave', (client) => room.onLeave(client));
   app.closers.push((opts) => room.close(opts));
   app.closers.push((opts) => artwork.close(opts));
+  app.closers.push(({ save = true } = {}) => (save ? songMeta.flush() : songMeta.discard()));
   app.closers.push(() => hotspot.close());
   hotspot.on('change', (view) => room.onHotspot(view));
   // After the hotspot stops or drops, the home network's address comes back a few seconds

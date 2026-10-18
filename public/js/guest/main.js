@@ -217,6 +217,67 @@ function NowSinging({ state }) {
   </section>`;
 }
 
+const SEEK_IDLE_MS = 6000; // a drag that hears nothing for this long ends by itself (a lost pointer)
+const SEEK_HOLD_MS = 1200; // after a seek, the bar shows where it went until the TV catches up
+
+/**
+ * The singer's own controls while their song is on (`me.controls`): play/pause, restart, seek.
+ * Each request names the song, so a tap that lands after it changed is refused. A drag ends on
+ * release (pointerup, change); a cancelled or lost pointer, or a drag that goes quiet, drops it
+ * and the bar follows the song again.
+ */
+function SingerControls({ state }) {
+  useTick(250);
+  const cur = state.current;
+  const p = state.player;
+  const [drag, setDrag] = useState(null);
+  const pending = useRef(null); // the dragged position, until it is sent or dropped
+  const timer = useRef(0);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const send = (t, body = {}) => ask(t, { entryId: cur.id, ...body });
+  const later = (fn, ms) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(fn, ms);
+  };
+  const drop = () => {
+    clearTimeout(timer.current);
+    pending.current = null;
+    setDrag(null);
+  };
+  const move = (v) => {
+    pending.current = v;
+    setDrag(v);
+    later(drop, SEEK_IDLE_MS);
+  };
+  const commit = () => {
+    const pos = pending.current;
+    if (pos === null) return;
+    pending.current = null;
+    send('player.seek', { pos });
+    later(() => setDrag(null), SEEK_HOLD_MS);
+  };
+  const lost = () => { if (pending.current !== null) drop(); };
+  const dur = p.dur || cur.dur || 0;
+  const pos = Math.min(drag ?? livePos(), dur || Infinity);
+  const intro = p.state === 'intro';
+  const playing = p.state === 'playing';
+  return html`<div class="singer-controls" role="group" aria-label="Your song">
+    <div class="singer-buttons">
+      <button class="btn small singer-play" onClick=${() => send(playing ? 'player.pause' : 'player.resume')}>
+        <${Icon} name=${playing ? 'pause' : 'play'} size=${16} /> ${playing ? 'Pause' : intro ? 'Start now' : 'Play'}</button>
+      <button class="btn small singer-restart" disabled=${intro} onClick=${() => send('player.restart')}><${Icon} name="restart" size=${16} /> Restart</button>
+    </div>
+    <div class="singer-seek">
+      <span class="num time">${formatTime(pos)}</span>
+      <input type="range" min="0" max=${dur || 1} step="1" value=${pos} disabled=${intro || !dur} aria-label="Seek"
+        style=${{ '--p': `${dur ? (pos / dur) * 100 : 0}%` }}
+        onInput=${(e) => move(Number(e.currentTarget.value))} onChange=${commit} onPointerUp=${commit}
+        onPointerCancel=${lost} onLostPointerCapture=${lost} />
+      <span class="num time">${formatTime(dur)}</span>
+    </div>
+  </div>`;
+}
+
 function MyTurn({ state }) {
   const mine = state.queue.find((e) => e.mine);
   const pending = state.me.pending;
@@ -227,7 +288,8 @@ function MyTurn({ state }) {
     const on = (state.player?.lead || 0) > 0;
     return html`<section class="g-turn now"><div class="big-emoji">🎤</div><div class="grow"><b>It's your turn!</b><p>${state.current.title} — the lyrics are on the TV.</p>
       ${guide && html`<button class=${`btn small guide-btn ${on ? 'on' : ''}`} aria-pressed=${on} onClick=${() => ask('player.lead', { level: on ? 0 : 50 })}>
-        <${Icon} name="headphones" size=${16} /> Guide singer: ${on ? 'on' : 'off'}</button>`}</div></section>`;
+        <${Icon} name="headphones" size=${16} /> Guide singer: ${on ? 'on' : 'off'}</button>`}
+      ${state.me.controls && html`<${SingerControls} key=${state.current.id} state=${state} />`}</div></section>`;
   }
   if (mine) {
     const first = mine.position === 1;

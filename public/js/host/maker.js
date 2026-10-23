@@ -285,6 +285,26 @@ function InstallBlock({ m }) {
 function MakerSettings({ settings, m }) {
   const save = (key, value) => saveSetting(`maker.${key}`, value);
   return html`
+    <h3 class="section-title">Songs from guests</h3>
+    <div class="setting bool">
+      <div class="setting-text"><b>Guests can ask for a song from YouTube</b><p class="hint">They paste a link (and the lyrics, if they have them) on their phone’s Me tab; you approve each one — a popup asks, and Decisions keeps them.</p></div>
+      <div class="setting-control"><${Switch} checked=${settings.guestLinks} label="Guests can ask for a song from YouTube" onChange=${(v) => save('guestLinks', v)} /></div>
+    </div>
+    ${settings.guestLinks && html`
+    <div class="setting bool">
+      <div class="setting-text"><b>Queue it for them when it’s made</b></div>
+      <div class="setting-control"><${Switch} checked=${settings.queueWhenDone} label="Queue it for them when it’s made" onChange=${(v) => save('queueWhenDone', v)} /></div>
+    </div>
+    <div class="setting">
+      <div class="setting-text"><b>Songs a guest can have on the way</b></div>
+      <div class="setting-control"><select class="select" value=${String(settings.maxPerGuest)} onChange=${(e) => save('maxPerGuest', Number(e.currentTarget.value))}>
+        ${[1, 2, 3, 5, 0].map((n) => html`<option value=${n}>${n || 'No limit'}</option>`)}</select></div>
+    </div>
+    <div class="setting">
+      <div class="setting-text"><b>Songs waiting, from everyone</b><p class="hint">More are refused until some are made.</p></div>
+      <div class="setting-control"><select class="select" value=${String(settings.maxWaiting)} onChange=${(e) => save('maxWaiting', Number(e.currentTarget.value))}>
+        ${[5, 10, 20, 50].map((n) => html`<option value=${n}>${n}</option>`)}</select></div>
+    </div>`}
     <h3 class="section-title">Making songs</h3>
     <div class="setting mk-out">
       <div class="setting-text"><b>Save new songs in</b>

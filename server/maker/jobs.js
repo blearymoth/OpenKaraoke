@@ -47,8 +47,9 @@ export class Maker {
    * @param {() => boolean} o.songPlaying someone is singing now
    * @param {() => void} o.onChange
    */
-  constructor({ dataDir, tool, lane, settings, library, songPlaying = () => false, onChange = () => {}, vocals = null }) {
+  constructor({ dataDir, tool, lane, settings, library, songPlaying = () => false, onChange = () => {}, vocals = null, onJob = () => {} }) {
     this.dir = path.join(dataDir, 'maker');
+    this.onJob = onJob; // a job moved on (running, waiting, finished, in the library): song links follow it
     this.vocals = vocals; // { file(trackId, name), kept(trackId) }: the stems' cache (PLAN §30)
     this.tool = tool || null;
     this.lane = lane;
@@ -194,9 +195,16 @@ export class Maker {
    * A new job: `{ song: { upload } | { path } | { url }, artist, title, language, theme, lyrics }`
    * (models from the settings). → the job's view.
    */
-  async make(input) {
+  /** Why no song can be made right now ('' = it can). */
+  readyProblem() {
+    if (!this.tool) return 'The Karaoke maker is not available.';
+    if (!this.where?.installed) return 'Install autokaraoke first (Settings → Karaoke maker).';
+    return this.outInfo().problem;
+  }
+
+  async make(input, { tag = '' } = {}) {
     if (!this.tool) throw new UserError('The Karaoke maker is not available.');
-    if (!this.where?.installed) throw new UserError('Install autokaraoke first (below).');
+    if (!this.where?.installed) throw new UserError('Install autokaraoke first (Settings → Karaoke maker).');
     const s = input?.song || {};
     let song;
     let label;
@@ -238,7 +246,7 @@ export class Maker {
     const job = {
       id: newId(), status: 'queued', stage: '', percent: 0, bar: '', lines: [], song, label, upload,
       kind: upload ? 'upload' : s.url ? 'url' : 'path', artist, title, lyrics, out, opts, now: false,
-      createdAt: Date.now(), startedAt: 0, finishedAt: 0, error: '', result: null,
+      createdAt: Date.now(), startedAt: 0, finishedAt: 0, error: '', result: null, tag: typeof tag === 'string' ? tag : '',
     };
     this.jobs.push(job);
     this.trim();
@@ -307,6 +315,7 @@ export class Maker {
           if (job.status !== 'waiting') {
             job.status = 'waiting';
             this.onChange();
+            this.tell(job);
           }
           clearTimeout(this.waitTimer);
           this.waitTimer = setTimeout(() => void this.pump(), WAIT_CHECK_MS);
@@ -325,6 +334,7 @@ export class Maker {
     job.stage = job.kind === 'url' ? 'download' : 'separate';
     job.bar = '';
     this.onChange();
+    this.tell(job);
     const release = await this.lane.acquire('maker');
     this.running = { job, run: null, release };
     let lyricsFile = '';
@@ -384,6 +394,7 @@ export class Maker {
       this.finish(job, 'done');
       await this.addToLibrary(job);
       await this.keepVocals(job);
+      this.tell(job);
     } catch (e) {
       log.info(`making ${job.label} failed: ${e.message}`);
       this.finish(job, 'failed', e instanceof UserError ? e.message : 'Could not start autokaraoke.');
@@ -401,6 +412,16 @@ export class Maker {
     job.finishedAt = Date.now();
     if (job.upload && status === 'done') this.dropUpload(job.upload);
     this.onChange();
+    if (status !== 'done') this.tell(job); // (done: once it is in the library)
+  }
+
+  tell(job) {
+    if (!job.tag) return;
+    try {
+      this.onJob({ ...this.jobView(job), tag: job.tag });
+    } catch (e) {
+      log.info(`a job's follower failed: ${e.message}`);
+    }
   }
 
   /** The library folder the song was saved in, rescanned; then which song the pair is. */

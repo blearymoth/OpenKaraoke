@@ -117,6 +117,10 @@ export const DEFAULT_SETTINGS = {
     whisperModel: 'auto', // 'auto': the hardware check's pick (medium with a big graphics card, else small)
     demucsModel: 'htdemucs',
     duringSongs: false, // on a PC without a graphics card, start making a song while someone sings
+    guestLinks: false, // guests may ask for a song from a YouTube link (the host approves each one)
+    queueWhenDone: true, // a guest's song, once made, is queued for them
+    maxPerGuest: 2, // a guest's songs on the way at once (0 = no limit)
+    maxWaiting: 20, // songs asked for and not made yet, from everyone
     lookupLyrics: true, // no lyrics typed: autokaraoke looks them up (before Whisper writes down what it hears)
     lyricsSources: ['lrclib'], // where, in order: sidecar, lrclib, netease, lyricsovh
   },
@@ -240,6 +244,8 @@ export class Settings extends JsonDoc {
       for (const [key, list] of [['theme', MAKER_THEMES], ['whisperModel', ['auto', ...WHISPER_MODELS]], ['demucsModel', DEMUCS_MODELS]]) {
         if (Object.hasOwn(mk, key) && !list.includes(mk[key])) delete mk[key];
       }
+      if (Object.hasOwn(mk, 'maxPerGuest')) mk.maxPerGuest = Math.max(0, Math.min(10, Math.round(mk.maxPerGuest)));
+      if (Object.hasOwn(mk, 'maxWaiting')) mk.maxWaiting = Math.max(1, Math.min(100, Math.round(mk.maxWaiting)));
       if (Object.hasOwn(mk, 'lyricsSources')) mk.lyricsSources = [...new Set(mk.lyricsSources.filter((x) => LYRICS_SOURCES.includes(x)))];
       if (Object.hasOwn(mk, 'language') && !/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(mk.language)) delete mk.language;
       if (Object.hasOwn(mk, 'out') && mk.out !== '' && !path.isAbsolute(mk.out)) delete mk.out;

@@ -247,3 +247,16 @@ body.guest {
 .g-version .grow { display: grid; min-width: 0; }
 .g-now-version { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; margin-top: 8px; }
 .g-app .vote-btn { min-height: 40px; }
+
+/* ---- a song from a link (the Me tab, PLAN §31.12) ---------------------------------------------- */
+.link-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.link-form { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.link-form p { margin: 0; }
+.link-form textarea { font-family: inherit; line-height: 1.5; resize: vertical; }
+.toggle-row.small { font-size: 15px; }
+.my-links { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.my-link { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-md); background: var(--stage-2); }
+.my-link .grow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.my-link.done b { color: var(--ok); }
+.my-link.failed b, .my-link.denied b { color: var(--ink-2); }
+.g-ask-link { display: flex; justify-content: center; margin: -8px 0 16px; }

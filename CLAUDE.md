@@ -82,6 +82,8 @@ Server (`server/`)
   `OPENKARAOKE_FAKE_MAKER=1`).
 - `lyrics/edits.js` — the lyrics editor's edits (PLAN §31.10): data/lyrics/<trackId>/ (timing.json +
   the CDG autokaraoke draws from it), served in place of the disc's CDG; revert, write back, rekey.
+- `room/links.js` — songs from a link (PLAN §31.12): guests' YouTube requests (`data/requests.json`), limits,
+  the host's decision, the maker job, queued for the guest, their phone told.
 - `room/accounts.js` (`data/accounts.json`: guests' usernames, scrypt hashes, token versions — an
   account is one guest identity; `app.guestOf(token)` for HTTP — PLAN §28).
 - `library/songmeta.js` (`data/songmeta.json`: the host's own years and genres, laid over the
@@ -137,12 +139,13 @@ Browser (`public/`, plain ES modules, Preact + htm)
   sound, live preview, TV window), `devices.js` (screens, host devices, guests), `menu.js`,
   `views.js`, `dialogs.js`, `settings.js`, `hotspot.js` (party hotspot block + banner),
   `vocals.js` (Lead control + Vocals dialog), `graphics.js` (Settings → About → Graphics, desktop app),
-  `system.js` (Settings → About → On this computer, desktop app), `maker.js` (Settings → Karaoke maker), `lyrics-editor.js`
+  `system.js` (Settings → About → On this computer, desktop app), `maker.js` (Settings → Karaoke maker), `decisions.js` (#/decisions + the popup: guests'
+  song links, requests, photos, screens waiting), `lyrics-editor.js`
   (#/lyrics/<trackId>: autokaraoke's word timings),
   `monitor.js` (the headphone
   monitor: the TV's audio engine on headphones, in time with the TV — PLAN §29).
 - `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts, the
-  singer's own controls during their song (PLAN §24).
+  singer's own controls during their song (PLAN §24), a song from a YouTube link (Me tab, §31.12).
 - `js/games/` — each game's host/TV/phone UI; `pitch3d.js` draws Pitch rings in WebGL 1 (no library;
   the flat playfield without WebGL).
 - `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`, `versions.js`

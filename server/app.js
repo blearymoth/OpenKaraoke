@@ -67,7 +67,7 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   // `instance` tells this process apart from another server on the same address (/api/health).
   /** A guest's identity from their token (a plain guest token or a signed-in account's), or null. */
   const guestOf = (token) => accounts.identity({ guest: auth.verify(token, 'guest')?.id || null, account: auth.verify(token, 'account')?.id || null });
-  const app = { dataDir, settings, library, artwork, songMeta, accounts, guestOf, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [], stemRun, videoTool, makerTool, lane: new Lane() };
+  const app = { dataDir, settings, library, artwork, songMeta, accounts, guestOf, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [], stemRun, videoTool, makerTool, lane: new Lane(), fetch };
 
   // The party hotspot (PLAN §20).
   const hotspot = new Hotspot({

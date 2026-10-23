@@ -387,6 +387,7 @@ player.play {entryId?}  player.pause  player.resume  player.next  player.restart
 player.seek {pos}  player.key {semitones}  player.tempo {rate}  player.channel {mode}  player.volume {v}
 player.lead {level}  player.layout {layout}  player.version {trackId}   (vocals, §21)
 stems.separate {trackId}  player.vox {level}   (separated vocals on any audio version, §30)
+link.add {url, lyrics, artist, title}  link.cancel {id}   (guest or host)   link.approve|deny|retry|remove {id}  link.clear  (host, §31.12)
 maker.make {song: {path}|{upload}|{url}, artist, title, language, theme, lyrics}  maker.cancel|now|dismiss {id}
 maker.check  maker.install {gpu, youtube}  maker.setup {whisperModel, demucsModel}  maker.cancelTask   (host, §31.9)
 version.vote {trackId, vote: 1|-1|0}   display.identify {id}   (§22)
@@ -2091,4 +2092,41 @@ made; other discs' lyrics are pictures and have nothing to edit.
   marked separated (`trackPrefs.stems`), so **Separated vocals** (§30) is ready at once, and the
   lyrics editor has a **Guide vocal** button (the vocal in step with the song). About 10 MB a minute
   of song in the data folder.
+
+### 31.12 Songs from a link: guests ask, the host decides (2026-10-23)
+
+From the SongGetter/autokaraoke handoff (23 Oct). `karaoke-maker.patch` (the 10 Oct version) was not
+available, so this follows its description.
+
+- **Asking** (`server/room/links.js` `Links`, `data/requests.json`). With
+  `maker.guestLinks` on (off by default) and the maker able to make songs, a guest's Me tab has
+  **A song that isn't here?**: a YouTube link (`parseLink`, checked on the phone too) and, if they
+  have them, the lyrics. An empty search offers it as well. Limits: `maker.maxPerGuest` (2) open
+  requests a guest, `maker.maxWaiting` (20) from everyone, 5 open per network address, 3 in 10
+  minutes from one phone. A video already asked for is refused, and one already made says it is in
+  the library. The video's title comes from YouTube's oEmbed (no key; nothing when offline). A
+  request belongs to the guest's identity (`client.data.deviceId`): their account when signed in,
+  so it follows them to another phone, else their phone (owner, 2026-10-23).
+- **Deciding** (host only, not co-hosts). A non-modal popup (`DecisionPopup`, `role=status`) asks
+  at once about the oldest request: Approve / Deny / Later / "Check the lyrics…". **Decisions**
+  (`#/decisions`, in the nav with a badge) has the requests with their link, an artist and title to
+  fill in, and the lyrics to correct before Approve (the host's text wins over the guest's). Below
+  are those being made (step, progress), the recent ones (Try again, Remove, Clear), then song
+  requests, photos and screens waiting. The host can also ask (`link.add` from the host: approved
+  at once) or **Make a song yourself** (the Karaoke maker).
+- **Making it**: an approved request is a Karaoke maker job tagged with the request (`Maker.make(…,
+  { tag })`; the maker tells `Links.onJob` as the job moves on). It follows the same rules as
+  any job: the heavy-job lane, waiting during songs without a graphics card, the lyrics' authority
+  (§31.11). Once it is in the library it is **queued for the guest** (`maker.queueWhenDone`, on:
+  `room.queueForGuest`, as the host would, so their limits don't apply; the entry is theirs,
+  `source: 'link'`). Their phone is told (`notify { kind: 'link', state: done | failed | denied }`).
+  A ban cancels the guest's undecided requests. After a restart an approved request is made again
+  (working → queued).
+- **Protocol**: `link.add {url, lyrics, artist, title}` and `link.cancel {id}` (guests: their own;
+  the host: any), `link.approve {id, artist, title, lyrics}`, `link.deny {id, reason}`,
+  `link.retry {id}`, `link.remove {id}`, `link.clear`. Host view: `links`, `linkCounts`. Guest
+  view: `rules.links` (null when off), `me.links`.
+- **Tests**: `test/links.test.js` (5), `test/maker-links.test.js` (3), `test/e2e/links.mjs` (23).
+- **Not built**: the lyrics preview before approval (the old "§25" spec in the patch: parked by the
+  owner).
 

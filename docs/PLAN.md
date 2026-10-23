@@ -2074,3 +2074,21 @@ made; other discs' lyrics are pictures and have nothing to edit.
   - render options other than the colours (lines on screen, font size, lead, page gap): a disc made
     with other options is redrawn with autokaraoke's defaults.
 
+### 31.11 Lyrics lookup and kept vocals (2026-10-23)
+
+- **The lyrics' authority** (the owner's order: the host's edit > a guest's text > a lyrics service
+  > Whisper). Typed lyrics go with `--lyrics … --retime`. With none typed and
+  `maker.lookupLyrics` on, the job asks autokaraoke to look them up (`--lyrics-sources`, from
+  `maker.lyricsSources`, default `['lrclib']`; also `sidecar`, `netease`, `lyricsovh` — the last two
+  unofficial). autokaraoke ignores a text the singing doesn't match (its `--lyrics-min-match`,
+  0.35) and then lets Whisper write down what it hears. Only a copy that knows the flag gets it:
+  the check reads `make --help` (`features.lookup`); autokaraoke's lookup is on its
+  `lyrics-lookup` branch (SongGetter PR #1). The job says where its lyrics came from ("as typed",
+  "from LRCLIB", "written down by Whisper — check them in the lyrics editor").
+- **Kept vocals** (owner, 2026-10-23): every make runs with `--keep-stems`; when the song is in the
+  library, `NAME.work/vocals.wav` and `instrumental.wav` move into `data/stems/<trackId>/` (vocal.wav,
+  music.wav — copied when the library is on another drive) and the `.work` folder goes. The track is
+  marked separated (`trackPrefs.stems`), so **Separated vocals** (§30) is ready at once, and the
+  lyrics editor has a **Guide vocal** button (the vocal in step with the song). About 10 MB a minute
+  of song in the data folder.
+

@@ -15,7 +15,7 @@ import { logger } from '../util/log.js';
 import { parseLink, cleanLyrics } from '../../shared/maker.js';
 import { assess } from '../system/specs.js';
 import {
-  readMakeLine, makeArgs, cleanName, guessNames, isSongFile, THEMES, WHISPER_MODELS, DEMUCS_MODELS,
+  readMakeLine, makeArgs, cleanName, guessNames, isSongFile, THEMES, WHISPER_MODELS, DEMUCS_MODELS, LYRICS_SOURCES,
 } from './autokaraoke.js';
 
 const log = logger('maker');
@@ -47,8 +47,9 @@ export class Maker {
    * @param {() => boolean} o.songPlaying someone is singing now
    * @param {() => void} o.onChange
    */
-  constructor({ dataDir, tool, lane, settings, library, songPlaying = () => false, onChange = () => {} }) {
+  constructor({ dataDir, tool, lane, settings, library, songPlaying = () => false, onChange = () => {}, vocals = null }) {
     this.dir = path.join(dataDir, 'maker');
+    this.vocals = vocals; // { file(trackId, name), kept(trackId) }: the stems' cache (PLAN §30)
     this.tool = tool || null;
     this.lane = lane;
     this.settings = settings;
@@ -226,6 +227,10 @@ export class Maker {
       theme: THEMES.includes(input.theme) ? input.theme : this.settings.get('maker.theme'),
       whisperModel: this.whisperModel(),
       demucsModel: this.settings.get('maker.demucsModel'),
+      keepStems: true, // (its separated vocals: the song's Separated vocals and the editor's guide)
+      // The lyrics' authority: typed lyrics, else a lyrics service (if this autokaraoke can), else Whisper.
+      lyricsSources: !lyrics && this.settings.get('maker.lookupLyrics') && this.checks?.features?.lookup
+        ? (this.settings.get('maker.lyricsSources') || []).filter((x) => LYRICS_SOURCES.includes(x)) : [],
     };
     const { folder: out, problem } = this.outInfo();
     if (problem) throw new UserError(problem);
@@ -351,6 +356,7 @@ export class Maker {
         if (r.mp3) job.mp3 = r.mp3;
         if (r.timing) job.timing = r.timing;
         if (r.mp3Name) job.names = { mp3: r.mp3Name, cdg: r.cdgName };
+        if (r.lyricsFrom) job.lyricsFrom = r.lyricsFrom;
       };
       const run = this.tool.start(this.where, 'make', {
         song: job.song, out: job.out, lyricsFile, artist: job.artist, title: job.title, ...job.opts,
@@ -377,6 +383,7 @@ export class Maker {
       job.percent = 100;
       this.finish(job, 'done');
       await this.addToLibrary(job);
+      await this.keepVocals(job);
     } catch (e) {
       log.info(`making ${job.label} failed: ${e.message}`);
       this.finish(job, 'failed', e instanceof UserError ? e.message : 'Could not start autokaraoke.');
@@ -418,6 +425,44 @@ export class Maker {
       log.info(`could not add ${mp3} to the library: ${e.message}`);
     } finally {
       job.result.scanning = false;
+      this.onChange();
+    }
+  }
+
+  /**
+   * autokaraoke's separated vocals and instrumental (`--keep-stems`: NAME.work/) become the new
+   * track's stems (data/stems/<trackId>/vocal.wav, music.wav): the song has Separated vocals at
+   * once (§30), and the lyrics editor a guide vocal. Not left beside the song in the library.
+   */
+  async keepVocals(job) {
+    const r = job.result;
+    if (!r?.mp3) return;
+    const work = r.mp3.replace(/\.mp3$/i, '.work');
+    const move = async (from, to) => {
+      try {
+        await fsp.rename(from, to);
+      } catch (e) {
+        if (e.code !== 'EXDEV') throw e;
+        await fsp.copyFile(from, `${to}.part`); // (another drive)
+        await fsp.rename(`${to}.part`, to);
+        await fsp.rm(from, { force: true });
+      }
+    };
+    try {
+      const vocal = path.join(work, 'vocals.wav');
+      const inst = path.join(work, 'instrumental.wav');
+      const dest = r.trackId && this.vocals?.file(r.trackId, 'vocal.wav');
+      if (dest && (await fsp.stat(vocal).catch(() => null)) && (await fsp.stat(inst).catch(() => null))) {
+        await fsp.mkdir(path.dirname(dest), { recursive: true });
+        await move(inst, this.vocals.file(r.trackId, 'music.wav'));
+        await move(vocal, dest); // (the vocal last: it marks the pair done)
+        r.vocals = true;
+        this.vocals.kept(r.trackId);
+      }
+    } catch (e) {
+      log.info(`could not keep the vocals of ${r.mp3}: ${e.message}`);
+    } finally {
+      await fsp.rm(work, { recursive: true, force: true }).catch(() => {});
       this.onChange();
     }
   }
@@ -485,7 +530,7 @@ export class Maker {
       id: j.id, status: j.status, stage: j.stage, percent: Math.round(j.percent || 0), bar: j.bar, kind: j.kind,
       label: j.kind === 'url' ? j.label : path.basename(j.label), artist: j.artist, title: j.title, lyrics: !!j.lyrics.trim(),
       out: j.out, error: j.error, now: j.now, createdAt: j.createdAt, startedAt: j.startedAt, finishedAt: j.finishedAt,
-      lines: j.lines.slice(-40), result: j.result ? { ...j.result } : null,
+      lines: j.lines.slice(-40), result: j.result ? { ...j.result } : null, lyricsFrom: j.lyricsFrom || (j.lyrics.trim() ? 'typed' : ''),
     };
   }
 
@@ -506,6 +551,7 @@ export class Maker {
       verdict: this.verdict || null,
       specsAt: this.specsAt || 0,
       whisperModel: this.whisperModel(),
+      lookup: !!this.checks?.features?.lookup,
     };
   }
 

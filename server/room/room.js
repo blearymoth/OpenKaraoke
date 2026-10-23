@@ -194,6 +194,14 @@ export class Room {
       library: this.library,
       songPlaying: () => ['intro', 'playing'].includes(this.s.player.state),
       onChange: () => this.markDirty(),
+      // A made song's separated vocals, kept: it has Separated vocals at once (§30).
+      vocals: {
+        file: (trackId, name) => this.stems.file(trackId, name),
+        kept: (trackId) => {
+          this.s.trackPrefs[trackId] = { ...(this.s.trackPrefs[trackId] || {}), stems: true };
+          void this.stems.ensure(trackId);
+        },
+      },
     });
     // The lyrics editor's edits (server/lyrics/, PLAN §31.5): drawn by autokaraoke, served in place
     // of the disc's CDG; the TV reloads the song on now when its lyrics change.
@@ -201,6 +209,7 @@ export class Room {
       dataDir: app.dataDir,
       library: this.library,
       maker: this.maker,
+      vocalOf: async (trackId) => (this.stemAsked(trackId) && !this.stemOk(trackId) && (await this.stems.filesReady(trackId)) ? `/media/${trackId}/stem/vocal` : null),
       onChange: (trackId) => {
         if (this.s.current?.trackId === trackId) this.s.player.reload = (this.s.player.reload || 0) + 1;
         this.markDirty();

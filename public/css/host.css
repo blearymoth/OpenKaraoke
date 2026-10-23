@@ -778,3 +778,5 @@ label.btn.disabled { opacity: 0.45; pointer-events: none; }
   .mk-facts dd { margin-bottom: 6px; }
 }
 .mk-kicker { font-size: 12px; font-weight: 800; color: var(--bulb); text-transform: var(--kicker-case); letter-spacing: var(--kicker-tracking); }
+.mk-source-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.mk-source-list .check-row { display: flex; align-items: center; gap: 10px; }

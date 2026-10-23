@@ -78,6 +78,7 @@ try {
   const lyricsSent = tool.state.runs.find((r) => r.kind === 'make');
   check(!!lyricsSent?.opts.lyricsFile && job.lines.some((l) => /^Aligning \d+ words/.test(l)), 'the lyrics went to autokaraoke');
   check(await fs.stat(path.join(made, 'Pixel Band - Night Drive.cdg')).then(() => true, () => false) && app.library.paths.length === 1, 'saved in the library’s “OpenKaraoke Maker” folder');
+  check(await seen(host, '.mk-job.done:has-text("Night Drive") .mk-lyrics-from:has-text("as typed")') && await seen(host, '.mk-job.done:has-text("Night Drive") .mk-lyrics-from:has-text("Separated vocals is ready")'), 'the job says where its lyrics came from, and that its vocals are kept');
   await shot(host, 'maker-done');
   await host.click('.mk-job.done:has-text("Night Drive") button:has-text("Queue it")');
   await host.waitForSelector('.dialog button:has-text("Add to queue")');

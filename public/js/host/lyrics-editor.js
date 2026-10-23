@@ -70,12 +70,14 @@ export function LyricsEditor({ trackId }) {
   const [nowWord, setNowWord] = useState(null);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [guide, setGuide] = useState(false);
   const [tap, setTap] = useState(false);
   const [textMode, setTextMode] = useState(null); // the text being edited, or null
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState('');
   const [dur, setDur] = useState(0);
   const audio = useRef(null);
+  const vocal = useRef(null);
   const undo = useRef([]);
   const redo = useRef([]);
   const songRef = useRef(null);
@@ -172,6 +174,33 @@ export function LyricsEditor({ trackId }) {
   }, []);
 
   useEffect(() => { if (audio.current) audio.current.playbackRate = speed; }, [speed]);
+
+  // The guide vocal (the song's separated vocals, kept when it was made): follows the song.
+  useEffect(() => {
+    const a = audio.current;
+    const v = vocal.current;
+    if (!a || !v || !guide) {
+      v?.pause();
+      return undefined;
+    }
+    const sync = () => {
+      v.playbackRate = a.playbackRate;
+      if (Math.abs(v.currentTime - a.currentTime) > 0.08) v.currentTime = a.currentTime;
+      if (a.paused !== v.paused) {
+        if (a.paused) v.pause();
+        else v.play().catch(() => {});
+      }
+    };
+    const events = ['play', 'pause', 'seeked', 'ratechange'];
+    for (const e of events) a.addEventListener(e, sync);
+    const timer = setInterval(sync, 500);
+    sync();
+    return () => {
+      for (const e of events) a.removeEventListener(e, sync);
+      clearInterval(timer);
+      v.pause();
+    };
+  }, [guide, info?.vocal]);
 
   // The selected word stays in view.
   useEffect(() => {
@@ -372,11 +401,13 @@ export function LyricsEditor({ trackId }) {
       ${!info.renderer && html` <span class="warn-text">autokaraoke isn’t installed, so saved lyrics can’t be drawn (Settings → Karaoke maker).</span>`}</p>
 
     <audio ref=${audio} src=${info.audio} preload="auto"></audio>
+    ${info.vocal && html`<audio ref=${vocal} src=${info.vocal} preload="auto"></audio>`}
     <div class="le-transport">
       <button class="icon-btn le-play" aria-label=${playing ? 'Pause' : 'Play'} onClick=${playPause}><${Icon} name=${playing ? 'pause' : 'play'} size=${22} /></button>
       <span class="le-time mono" ref=${timeRef}>0:00.00 / 0:00</span>
       <input class="le-seek" ref=${seekRef} type="range" min="0" max=${Math.max(1, dur || info.timing.duration || 1)} step="0.01" aria-label="Position in the song"
         onInput=${(e) => seek(Number(e.currentTarget.value))} />
+      ${info.vocal && html`<button class=${`btn small ${guide ? 'primary' : 'ghost'}`} aria-pressed=${guide} title="The singer, separated when the song was made, to time the words by" onClick=${() => setGuide(!guide)}><${Icon} name="mic" size=${14} /> Guide vocal</button>`}
       <div class="segmented" role="group" aria-label="Speed">${SPEEDS.map(([v, l]) => html`<button class=${speed === v ? 'on' : ''} onClick=${() => setSpeed(v)}>${l}</button>`)}</div>
       <button class="icon-btn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled=${!undo.current.length} onClick=${() => back(undo, redo)}><${Icon} name="history" size=${18} /></button>
     </div>

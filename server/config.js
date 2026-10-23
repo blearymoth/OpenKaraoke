@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { JsonDoc, deepMerge, isPlainObject } from './util/jsonfile.js';
 import { THEMES, DEFAULT_THEME, ACCENT_RE, normalizeAccent, normalizeAppearance } from '../shared/themes.js';
 import { LYRICS_LOOKS, LYRICS_MOTIONS, LYRICS_LAYOUTS, LIGHTER_EFFECTS, DEFAULT_LYRICS_LOOK, DEFAULT_LYRICS_MOTION, DEFAULT_LYRICS_LAYOUT, DEFAULT_LIGHTER_EFFECTS } from '../shared/lyrics.js';
-import { THEMES as MAKER_THEMES, WHISPER_MODELS, DEMUCS_MODELS } from './maker/autokaraoke.js';
+import { THEMES as MAKER_THEMES, WHISPER_MODELS, DEMUCS_MODELS, LYRICS_SOURCES } from './maker/autokaraoke.js';
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const PUBLIC_DIR = path.join(APP_ROOT, 'public');
@@ -117,6 +117,8 @@ export const DEFAULT_SETTINGS = {
     whisperModel: 'auto', // 'auto': the hardware check's pick (medium with a big graphics card, else small)
     demucsModel: 'htdemucs',
     duringSongs: false, // on a PC without a graphics card, start making a song while someone sings
+    lookupLyrics: true, // no lyrics typed: autokaraoke looks them up (before Whisper writes down what it hears)
+    lyricsSources: ['lrclib'], // where, in order: sidecar, lrclib, netease, lyricsovh
   },
   guests: {
     reactions: true,
@@ -238,6 +240,7 @@ export class Settings extends JsonDoc {
       for (const [key, list] of [['theme', MAKER_THEMES], ['whisperModel', ['auto', ...WHISPER_MODELS]], ['demucsModel', DEMUCS_MODELS]]) {
         if (Object.hasOwn(mk, key) && !list.includes(mk[key])) delete mk[key];
       }
+      if (Object.hasOwn(mk, 'lyricsSources')) mk.lyricsSources = [...new Set(mk.lyricsSources.filter((x) => LYRICS_SOURCES.includes(x)))];
       if (Object.hasOwn(mk, 'language') && !/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(mk.language)) delete mk.language;
       if (Object.hasOwn(mk, 'out') && mk.out !== '' && !path.isAbsolute(mk.out)) delete mk.out;
     }

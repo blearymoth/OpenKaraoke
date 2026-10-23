@@ -14,6 +14,8 @@ const LANGUAGES = [['en', 'English'], ['fi', 'Finnish'], ['sv', 'Swedish'], ['no
 const THEMES = [['classic', 'Classic (amber)'], ['blue', 'Blue'], ['green', 'Green']];
 const WHISPER = [['auto', 'Auto — picked for this computer'], ['small', 'Small — 0.5 GB, quickest'], ['medium', 'Medium — 1.5 GB (recommended)'], ['turbo', 'Turbo — 1.6 GB'], ['large-v3', 'Large — 3.1 GB, best on hard songs (≈10 GB of graphics memory)']];
 const DEMUCS = [['htdemucs', 'Standard (recommended)'], ['htdemucs_ft', 'Fine-tuned — cleaner, about 4× slower']];
+const SOURCES = [['lrclib', 'LRCLIB', 'recommended'], ['sidecar', 'A .txt beside the song', 'for songs on this computer'], ['netease', 'NetEase', 'unofficial'], ['lyricsovh', 'lyrics.ovh', 'unofficial, not checked yet']];
+const LYRICS_FROM = { typed: 'Lyrics: as typed.', whisper: 'Lyrics: written down by Whisper — check them in the lyrics editor.', looking: 'Looking the lyrics up…' };
 const STEPS = [['download', 'Download'], ['separate', 'Remove the singer'], ['timing', 'Time the lyrics'], ['cdg', 'Draw the lyrics'], ['done', 'Done']];
 const STATUS = { queued: 'Waiting its turn', waiting: 'Waiting for the song to end', running: 'Working', done: 'Done', failed: 'Didn’t work', cancelled: 'Cancelled' };
 const ACCEPT = '.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.wma,.aiff,.aif,.mp4,.m4v,.mkv,.webm,.mov,audio/*';
@@ -170,6 +172,7 @@ function Job({ job, songs }) {
     <${JobSteps} job=${job} />
     ${job.status === 'running' && html`<div class="mk-bar" role="progressbar" aria-valuenow=${job.percent} aria-valuemin="0" aria-valuemax="100"><i style=${`width:${Math.max(3, job.percent)}%`}></i></div>`}
     ${job.status === 'running' && job.bar && html`<p class="hint mono ellipsis">${job.bar}</p>`}
+    ${job.lyricsFrom && html`<p class="hint mk-lyrics-from">${LYRICS_FROM[job.lyricsFrom] || `Lyrics: from ${job.lyricsFrom}.`}${job.result?.vocals ? ' Its vocals are kept: Separated vocals is ready for it.' : ''}</p>`}
     ${job.status === 'waiting' && html`<p class="hint">This computer has no graphics card, so the room’s sound comes first: it starts when the song ends.</p>`}
     ${job.status === 'failed' && html`<p class="warn-text">${job.error || 'autokaraoke stopped.'}</p>`}
     ${job.status === 'done' && r && html`<div class="mk-result">
@@ -292,6 +295,19 @@ function MakerSettings({ settings, m }) {
         <button class="btn" onClick=${() => chooseFolder((p) => save('out', p))}><${Icon} name="folder" size=${16} /> Change…</button>
       </div>
     </div>
+    <div class="setting bool">
+      <div class="setting-text"><b>Look the lyrics up when none are typed</b>
+        <p class="hint">${m.lookup ? 'Lyrics someone typed always come first; then a lyrics service; Whisper writes down what it hears only when nothing was found.'
+          : 'This copy of autokaraoke can’t look lyrics up yet — update it to its lyrics-lookup version. Until then Whisper writes down what it hears.'}</p></div>
+      <div class="setting-control"><${Switch} checked=${settings.lookupLyrics} disabled=${!m.lookup} label="Look the lyrics up when none are typed" onChange=${(v) => save('lookupLyrics', v)} /></div>
+    </div>
+    ${m.lookup && settings.lookupLyrics && html`<div class="setting column mk-sources">
+      <div class="setting-text"><b>Where to look</b><p class="hint">In this order. A text the singing doesn’t match is not used.</p></div>
+      <div class="mk-source-list">${SOURCES.map(([id, label, note]) => html`<label class="check-row">
+        <${Switch} checked=${settings.lyricsSources.includes(id)} label=${label}
+          onChange=${(on) => save('lyricsSources', on ? [...settings.lyricsSources.filter((x) => x !== id), id] : settings.lyricsSources.filter((x) => x !== id))} />
+        <span>${label} <span class="hint">${note}</span></span></label>`)}</div>
+    </div>`}
     <div class="setting">
       <div class="setting-text"><b>Lyric timer</b><p class="hint">A bigger model times hard songs better, and is slower.</p></div>
       <div class="setting-control"><select class="select" value=${settings.whisperModel} onChange=${(e) => save('whisperModel', e.currentTarget.value)}>${WHISPER.map(([v, l]) => html`<option value=${v}>${l}</option>`)}</select></div>

@@ -40,9 +40,11 @@ export class LyricEdits {
    * @param {import('../library/service.js').LibraryService} o.library
    * @param {import('../maker/jobs.js').Maker} o.maker  autokaraoke (its `render`)
    * @param {(trackId: string) => void} [o.onChange]  an edit was drawn or reverted
+   * @param {(trackId: string) => Promise<string|null>} [o.vocalOf]  the separated vocal's URL, if any
    */
-  constructor({ dataDir, library, maker, onChange = () => {} }) {
+  constructor({ dataDir, library, maker, onChange = () => {}, vocalOf = async () => null }) {
     this.root = path.join(dataDir, 'lyrics');
+    this.vocalOf = vocalOf; // the song's separated vocal (a URL), for a guide while editing
     this.library = library;
     this.maker = maker;
     this.onChange = onChange;
@@ -127,6 +129,7 @@ export class LyricEdits {
       edited,
       drawn: this.drawn.has(trackId),
       audio: `/media/${trackId}/audio`,
+      vocal: await this.vocalOf(trackId).catch(() => null),
       file: f.timing,
       renderer: !!this.maker?.where?.installed,
     };

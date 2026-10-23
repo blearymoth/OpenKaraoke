@@ -251,3 +251,53 @@ test('maker: not installed — install it from the page, then download the model
   assert.ok(v.where.installed && v.checks.setup.offline, 'installed, models there');
   assert.ok(v.task.lines.some((l) => /Installing PyTorch/.test(l)));
 });
+
+test('maker: the lyrics’ authority (typed, else a lyrics service, else Whisper) and the vocals kept for §30', async (t) => {
+  const tool = fakeAutokaraoke({ seconds: 0.1 });
+  const { app, room, connect, req } = await setupRoom({}, { makerTool: tool });
+  t.after(() => app.close());
+  const host = await connect('host');
+  await until(() => room.maker.checks?.features);
+  assert.equal(room.hostView().maker.lookup, true, 'this autokaraoke can look lyrics up');
+  const src = path.join(await tmpDir('ok-src-'), 'Pixel Band - Night Drive.mp3');
+  await writePcmWav(src, { hz: 220, seconds: 2 });
+  const make = async (input) => {
+    const job = await req(host, 'maker.make', { song: { path: src }, ...input });
+    await until(() => room.maker.jobs.find((j) => j.id === job.id).result?.scanning === false);
+    return { view: room.hostView().maker.jobs.find((j) => j.id === job.id), run: tool.state.runs.filter((r) => r.kind === 'make').at(-1) };
+  };
+
+  // Nothing typed: looked up (LRCLIB, the default source).
+  let { view, run } = await make({ title: 'Looked Up' });
+  assert.deepEqual(run.opts.lyricsSources, ['lrclib']);
+  assert.equal(view.lyricsFrom, 'LRCLIB');
+  // The vocals are the track's stems now: Separated vocals is ready, nothing left in the library.
+  const id = view.result.trackId;
+  assert.equal(view.result.vocals, true);
+  await until(() => room.stems.view(id).status === 'ready');
+  assert.ok(room.stemAsked(id) && room.stemsFor(id), 'Separated vocals (§30) at once');
+  await fs.stat(room.stems.file(id, 'vocal.wav'));
+  await fs.stat(room.stems.file(id, 'music.wav'));
+  assert.equal(await fs.stat(view.result.mp3.replace(/\.mp3$/, '.work')).then(() => true, () => false), false, 'no .work folder left in the library');
+  assert.equal((await room.lyrics.open(id)).vocal, `/media/${id}/stem/vocal`, 'the lyrics editor’s guide vocal');
+
+  // Typed: those, retimed, no lookup.
+  ({ view, run } = await make({ title: 'Typed', lyrics: 'My own words here' }));
+  assert.deepEqual(run.opts.lyricsSources, []);
+  assert.equal(view.lyricsFrom, 'typed');
+  // Nothing found: Whisper.
+  tool.state.lookupHit = '';
+  ({ view } = await make({ title: 'Not Found' }));
+  assert.equal(view.lyricsFrom, 'whisper');
+  // Lookup off, or an autokaraoke without it: straight to Whisper.
+  app.settings.update({ maker: { lookupLyrics: false } });
+  ({ run } = await make({ title: 'Off' }));
+  assert.deepEqual(run.opts.lyricsSources, []);
+  app.settings.update({ maker: { lookupLyrics: true, lyricsSources: ['netease', 'evil', 'lrclib'] } });
+  assert.deepEqual(app.settings.get('maker.lyricsSources'), ['netease', 'lrclib'], 'only sources autokaraoke knows');
+  tool.state.lookup = false;
+  await room.maker.check();
+  assert.equal(room.hostView().maker.lookup, false);
+  ({ run } = await make({ title: 'Old Copy' }));
+  assert.deepEqual(run.opts.lyricsSources, [], 'never a flag this copy doesn’t know');
+});

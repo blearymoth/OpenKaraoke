@@ -157,6 +157,9 @@ export function readMakeLine(text, { status = false } = {}) {
   }
   let m;
   if ((m = /\((\d+)s\)\s*$/.exec(s)) && / - |\?/.test(s)) out.duration = Number(m[1]);
+  if (/^Looking for lyrics:/.test(s)) return { stage: 'timing', lyricsFrom: 'looking' };
+  if ((m = /^used the lyrics from (.+?), saved in /.exec(s))) return { lyricsFrom: m[1].slice(0, 40) };
+  if (/^no lyrics found; transcribing instead|^No lyrics given: transcribing/.test(s)) return { stage: 'timing', lyricsFrom: 'whisper' };
   if (/^Separating vocals with|^Using cached stems/.test(s)) Object.assign(out, { stage: 'separate', percent: /^Using cached/.test(s) ? 100 : 0 });
   else if ((m = /^Instrumental: (.+\.mp3)$/.exec(s))) Object.assign(out, { stage: 'timing', percent: 0, mp3: m[1] });
   else if (/^(?:Loading Whisper model|Downloading Whisper model|Aligning \d+ words|No lyrics given|Using existing .*timing\.json)/.test(s)) out.stage = 'timing';
@@ -236,6 +239,9 @@ export function autokaraokeTool({ env = process.env, homedir = os.homedir() } = 
         ]);
         out.version = (ver.out || ver.err).trim().split('\n')[0].slice(0, 40);
         out.setup = readSetupCheck(setup.out);
+        // What this copy can do: looking lyrics up came with its lyrics-lookup version.
+        const help = await run(where.python, ['-m', 'autokaraoke', 'make', '--help'], { env: e });
+        out.features = { lookup: /--lyrics-sources/.test(help.out + help.err) };
       }
       return out;
     },

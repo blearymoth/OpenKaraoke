@@ -12,7 +12,7 @@ import { parseLink } from '/shared/maker.js';
 const LANGUAGES = [['en', 'English'], ['fi', 'Finnish'], ['sv', 'Swedish'], ['no', 'Norwegian'], ['da', 'Danish'], ['de', 'German'],
   ['nl', 'Dutch'], ['fr', 'French'], ['es', 'Spanish'], ['it', 'Italian'], ['pt', 'Portuguese'], ['pl', 'Polish'], ['ja', 'Japanese'], ['ko', 'Korean'], ['zh', 'Chinese']];
 const THEMES = [['classic', 'Classic (amber)'], ['blue', 'Blue'], ['green', 'Green']];
-const WHISPER = [['small', 'Small — 0.5 GB, quickest'], ['medium', 'Medium — 1.5 GB (recommended)'], ['turbo', 'Turbo — 1.6 GB'], ['large-v3', 'Large — 3.1 GB, best on hard songs (≈10 GB of graphics memory)']];
+const WHISPER = [['auto', 'Auto — picked for this computer'], ['small', 'Small — 0.5 GB, quickest'], ['medium', 'Medium — 1.5 GB (recommended)'], ['turbo', 'Turbo — 1.6 GB'], ['large-v3', 'Large — 3.1 GB, best on hard songs (≈10 GB of graphics memory)']];
 const DEMUCS = [['htdemucs', 'Standard (recommended)'], ['htdemucs_ft', 'Fine-tuned — cleaner, about 4× slower']];
 const STEPS = [['download', 'Download'], ['separate', 'Remove the singer'], ['timing', 'Time the lyrics'], ['cdg', 'Draw the lyrics'], ['done', 'Done']];
 const STATUS = { queued: 'Waiting its turn', waiting: 'Waiting for the song to end', running: 'Working', done: 'Done', failed: 'Didn’t work', cancelled: 'Cancelled' };
@@ -195,6 +195,30 @@ function Check({ ok, title, children }) {
 }
 
 /** What this computer has, and autokaraoke's models (the installer window's checks). */
+const VERDICT_ICON = { fast: 'check', good: 'check', slow: 'clock', no: 'alert' };
+
+/** The hardware check's verdict: is this PC up to making karaoke (and separating vocals)? */
+function Verdict({ m }) {
+  const v = m.verdict;
+  const sp = m.specs;
+  if (!v || !sp) return html`<div class="mk-card mk-verdict"><p class="hint">${m.checking ? 'Looking at this computer…' : 'This computer hasn’t been checked yet.'}</p></div>`;
+  const gpu = [...(sp.gpus || [])].sort((a, b) => b.memMB - a.memMB)[0];
+  return html`<div class=${`mk-card mk-verdict ${v.verdict}`}>
+    <div class="mk-verdict-head"><span class="mk-verdict-mark"><${Icon} name=${VERDICT_ICON[v.verdict] || 'alert'} size=${20} /></span>
+      <div><div class="mk-kicker">This computer</div><b class="mk-verdict-word">${v.label}</b></div></div>
+    <p>${v.why}</p>
+    <dl class="mk-facts">
+      <dt>Graphics card</dt><dd>${gpu ? `${gpu.name}, ${(gpu.memMB / 1024).toFixed(1)} GB` : 'No NVIDIA card'}</dd>
+      <dt>Processor</dt><dd>${sp.cores} cores</dd>
+      <dt>Memory</dt><dd>${sp.memGB} GB</dd>
+      <dt>Free space</dt><dd>${sp.freeGB === null ? '—' : `${sp.freeGB} GB`}</dd>
+      <dt>Lyric timer</dt><dd>${m.whisperModel}${m.whisperModel === v.model ? ' (suits this computer)' : ''}</dd>
+    </dl>
+    ${v.warnings.map((w) => html`<p class="warn-text">${w}</p>`)}
+    <p class="hint">Checked every time OpenKaraoke starts${m.specsAt ? ` — last ${new Date(m.specsAt).toLocaleString()}` : ''}. The same goes for separating the vocals of a song.</p>
+  </div>`;
+}
+
 function Checks({ m }) {
   const c = m.checks;
   if (!c) return html`<p class="hint">${m.checking ? 'Looking at this computer…' : 'Not checked yet.'}</p>`;
@@ -291,6 +315,7 @@ export function MakerSection({ state }) {
   const running = m.task?.status === 'running';
   return html`<div class="maker">
     <p class="muted mk-intro">Turn any song into a karaoke track with autokaraoke: it removes the singer, times the lyrics you paste, draws the lyrics screen and adds the song to the library.</p>
+    <${Verdict} m=${m} />
     ${installed && missing.length > 0 && html`<div class="banner warn mk-banner"><${Icon} name="alert" size=${18} />
       <div class="grow"><b>The models aren’t downloaded yet.</b><p class="hint">${missing.map((x) => x.name).join(', ')} — needed once, then songs are made without the internet.</p></div>
       <button class="btn small" disabled=${running} onClick=${() => act('maker.setup', {})}>Download</button></div>`}

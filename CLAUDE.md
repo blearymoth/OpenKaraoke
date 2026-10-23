@@ -98,6 +98,8 @@ Server (`server/`)
   `data/video/` WebM cache, one at a time, the song on stage first). `createApp({ videoTool })`:
   `start.js` passes the real ffmpeg, tests a stand-in (never the real one except
   `test/video.test.js`'s last test and `test/e2e/video-convert.mjs`, when ffmpeg is installed).
+- `system/specs.js` — the hardware check (PLAN §31.2): NVIDIA cards (nvidia-smi through the caller's
+  runner), cores, memory, free space; `assess()` → fast / fast enough / slow but fine / not recommended.
 - `artwork/placeholder.js` — gradient + initials SVG (real artwork comes in M5).
 - `util/` — log (+ `setLogSink` for the desktop log file), useragent (device names for the host's
   Devices list), jsonfile (`JsonDoc`), net (LAN

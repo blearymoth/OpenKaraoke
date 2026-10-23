@@ -1984,9 +1984,18 @@ built (§31.7); the benchmark (1) and guests' wishes (3) are not.
   `AUTOKARAOKE_MODELS` or the launcher's. Every command is `python -m autokaraoke …` through
   `spawn` (never a shell), options first, then `--` and the song or file; each value is checked
   (`makeArgs`, `renderArgs`, `setupArgs`, `installArgs`).
-- **The checks** (the installer window's): Python, FFmpeg with the MP3 encoder, the NVIDIA card
-  (`nvidia-smi -L`), autokaraoke's version and `setup --check` (each model, ready or missing, the
-  space used, offline-ready). "Check again" redoes them.
+- **The checks** (the installer window's): Python, FFmpeg with the MP3 encoder, autokaraoke's
+  version and `setup --check` (each model, ready or missing, the space used, offline-ready).
+  "Check again" redoes them; they also run at every start.
+- **The hardware check** (`server/system/specs.js`, 2026-10-23): NVIDIA cards and their memory
+  (`nvidia-smi --query-gpu=name,memory.total`), processor cores, memory, free space where the
+  models are. `assess()` gives the verdict shown first on the page: **Fast** (an NVIDIA card with
+  ≥ 5.9 GB: Whisper medium), **Fast enough** (≥ 3.8 GB: small), **Slow but fine** (the processor,
+  with 8 cores and 16 GB or 4 cores and 12 GB: small), else **Not recommended**; less than 10 GB
+  (a card) or 6 GB free is a warning. Kept in `data/maker/specs.json` (shown at once after a
+  restart). The lyric timer's default is **Auto** (`maker.whisperModel: 'auto'`): the verdict's
+  model. Without a card doing the work (fast / fast enough), a job waits while someone sings.
+  "Separate the vocals" (§30) warns on a "Not recommended" computer.
 - **Installing** from the page runs its `install.sh` (`bash`, in its folder) with `--gpu` or
   `--cpu` and `--no-youtube` when YouTube is off; **Download the models** runs `setup` for the
   chosen models. Their output shows as it comes; one at a time, and not while a song is being made.
@@ -2009,8 +2018,8 @@ built (§31.7); the benchmark (1) and guests' wishes (3) are not.
   `util/lane.js` lane, ahead of a waiting song; `make` runs at the lowest priority with
   `OMP_NUM_THREADS` = cores − 2. Without a graphics card a job waits while a song plays
   (`maker.duringSongs` off, the default); "Start now" overrides it.
-- **Settings**: `maker.out`, `addToLibrary`, `language`, `theme` (classic, blue, green),
-  `whisperModel` (small, medium, turbo, large-v3), `demucsModel` (htdemucs, htdemucs_ft),
+- **Settings**: `maker.out`, `language`, `theme` (classic, blue, green),
+  `whisperModel` (auto, small, medium, turbo, large-v3), `demucsModel` (htdemucs, htdemucs_ft),
   `duringSongs`; anything autokaraoke would refuse is ignored.
 - **Room actions** (host only): `maker.make`, `maker.cancel`, `maker.now`, `maker.dismiss`,
   `maker.check`, `maker.install`, `maker.setup`, `maker.cancelTask`; the host view carries

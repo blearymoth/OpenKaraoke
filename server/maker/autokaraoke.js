@@ -11,6 +11,7 @@ import { spawn, execFile } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { locateAutokaraoke } from './where.js';
+import { gatherSpecs } from '../system/specs.js';
 
 export { locateAutokaraoke, rootFromLauncher } from './where.js';
 
@@ -214,15 +215,16 @@ export function autokaraokeTool({ env = process.env, homedir = os.homedir() } = 
     locate: () => locateAutokaraoke({ env, homedir }),
 
     async check(where, { whisperModel = 'medium', demucsModel = 'htdemucs' } = {}) {
-      const [py, ff, gpu] = await Promise.all([
+      const [py, ff, specs] = await Promise.all([
         run(where.installed ? where.python : 'python3', ['--version']),
         run('ffmpeg', ['-hide_banner', '-encoders']),
-        run('nvidia-smi', ['-L'], { timeout: 8000 }),
+        gatherSpecs({ run: (f, a) => run(f, a, { timeout: 8000 }), diskPaths: [where.modelsDir, where.root, homedir] }),
       ]);
       const out = {
         python: py.code === 0 ? (py.out || py.err).trim().replace(/^Python\s+/, '') : '',
         ffmpeg: ff.missing ? 'missing' : /libmp3lame/.test(ff.out + ff.err) ? 'ready' : 'no-mp3',
-        gpu: gpu.code === 0 ? gpuNameOf(gpu.out) : '',
+        gpu: [...specs.gpus].sort((a, b) => b.memMB - a.memMB)[0]?.name || '',
+        specs,
         version: '',
         setup: null,
       };

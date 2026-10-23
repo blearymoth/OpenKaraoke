@@ -113,8 +113,9 @@ export function VocalsDialog() {
  * vocals, on a recording with the singer the singer (and backing). The room hears it; the
  * headphone monitor has its own level.
  */
-export function SeparatedVocals({ p, cur }) {
+export function SeparatedVocals({ p, cur, verdict = null }) {
   if (!cur || p.stems === null || p.stems === undefined) return null;
+  const slow = verdict?.verdict === 'no' ? html`<p class="warn-text">This computer is slow for this (${verdict.why}) Separating can take long and slow the TV down.</p>` : null;
   const separate = async () => {
     const r = await act('stems.separate', { trackId: cur.trackId });
     if (r?.status === 'separating') toast('Separating the vocals — it takes a minute or two; the TV switches over by itself.', 'info', 6000);
@@ -126,7 +127,7 @@ export function SeparatedVocals({ p, cur }) {
         : html`<button class="btn small" disabled=${!p.stemsEnabled} onClick=${separate}><${Icon} name="sparkles" size=${15} /> ${p.stems === 'failed' ? 'Try separating again' : 'Separate the vocals'}</button>
           <p class="hint">${p.stems === 'failed' ? 'The vocals could not be separated.'
             : p.stemsEnabled ? 'Then turn the vocals down or off: backing vocals on a karaoke track, the singer on a recording.'
-            : 'Needs autokaraoke’s separator on this computer.'}</p>`}
+            : 'Needs autokaraoke’s separator on this computer.'}</p>${p.stems !== 'failed' && p.stemsEnabled ? slow : null}`}
     </div>`;
   }
   const set = (level) => act('player.vox', { level });

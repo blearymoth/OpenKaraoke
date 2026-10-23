@@ -763,3 +763,18 @@ label.btn.disabled { opacity: 0.45; pointer-events: none; }
   .le-word-tools { position: static; }
   .le-pline { font-size: 21px; }
 }
+.mk-verdict-head { display: flex; align-items: center; gap: 12px; }
+.mk-verdict-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--stage-3); color: var(--ink-2); flex: none; }
+.mk-verdict.fast .mk-verdict-mark, .mk-verdict.good .mk-verdict-mark { background: rgba(var(--ok-rgb), 0.16); color: var(--ok); }
+.mk-verdict.slow .mk-verdict-mark { background: var(--bulb-soft); color: var(--bulb); }
+.mk-verdict.no .mk-verdict-mark { background: var(--bad-bg); color: var(--bad-pill-ink); }
+.mk-verdict-word { font-family: var(--font-display); font-size: 24px; font-weight: 800; }
+.mk-verdict p { margin: 0; }
+.mk-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 0; font-size: 14px; }
+.mk-facts dt { color: var(--ink-3); }
+.mk-facts dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .mk-facts { grid-template-columns: minmax(0, 1fr); }
+  .mk-facts dd { margin-bottom: 6px; }
+}
+.mk-kicker { font-size: 12px; font-weight: 800; color: var(--bulb); text-transform: var(--kicker-case); letter-spacing: var(--kicker-tracking); }

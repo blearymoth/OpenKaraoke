@@ -13,6 +13,7 @@ import { pipeline } from 'node:stream/promises';
 import { UserError } from '../util/errors.js';
 import { logger } from '../util/log.js';
 import { parseLink, cleanLyrics } from '../../shared/maker.js';
+import { assess } from '../system/specs.js';
 import {
   readMakeLine, makeArgs, cleanName, guessNames, isSongFile, THEMES, WHISPER_MODELS, DEMUCS_MODELS,
 } from './autokaraoke.js';
@@ -74,6 +75,10 @@ export class Maker {
   async init() {
     if (!this.tool) return;
     await fsp.rm(path.join(this.dir, 'uploads'), { recursive: true, force: true }).catch(() => {}); // (a restart forgets them)
+    try { // the last check's verdict, until this start's check is done
+      const saved = JSON.parse(await fsp.readFile(path.join(this.dir, 'specs.json'), 'utf8'));
+      if (saved?.specs && saved?.verdict) Object.assign(this, { specs: saved.specs, verdict: saved.verdict, specsAt: saved.at || 0 });
+    } catch { /* none yet */ }
     this.where = await this.tool.locate().catch(() => null);
     this.onChange();
   }
@@ -98,6 +103,17 @@ export class Maker {
     return this.outInfo().folder;
   }
 
+  /** The lyric timer model: the host's, or ("auto") the one the hardware check picked. */
+  whisperModel() {
+    const set = this.settings.get('maker.whisperModel');
+    return WHISPER_MODELS.includes(set) ? set : this.verdict?.model || 'medium';
+  }
+
+  /** The graphics card does the work (the verdict is fast or fast enough). */
+  onGpu() {
+    return this.verdict ? ['fast', 'good'].includes(this.verdict.verdict) : !!this.checks?.gpu;
+  }
+
   /** Looks at this computer and the install again (the page's "Check again", and after a task). */
   async check() {
     if (!this.tool || this.checking) return this.view();
@@ -105,7 +121,17 @@ export class Maker {
     this.onChange();
     try {
       this.where = await this.tool.locate();
-      this.checks = await this.tool.check(this.where, { whisperModel: this.settings.get('maker.whisperModel'), demucsModel: this.settings.get('maker.demucsModel') });
+      this.checks = await this.tool.check(this.where, { whisperModel: this.whisperModel(), demucsModel: this.settings.get('maker.demucsModel') });
+      if (this.checks?.specs) {
+        this.specs = this.checks.specs;
+        this.verdict = assess(this.specs);
+        this.specsAt = Date.now();
+        await fsp.mkdir(this.dir, { recursive: true });
+        await fsp.writeFile(path.join(this.dir, 'specs.json'), JSON.stringify({ at: this.specsAt, specs: this.specs, verdict: this.verdict }));
+        if (this.settings.get('maker.whisperModel') === 'auto') { // (the models check was for the old guess)
+          this.checks = await this.tool.check(this.where, { whisperModel: this.whisperModel(), demucsModel: this.settings.get('maker.demucsModel') });
+        }
+      }
     } catch (e) {
       log.info(`check failed: ${e.message}`);
     } finally {
@@ -198,7 +224,7 @@ export class Maker {
     const opts = {
       language: typeof input.language === 'string' && /^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(input.language) ? input.language : this.settings.get('maker.language') || 'en',
       theme: THEMES.includes(input.theme) ? input.theme : this.settings.get('maker.theme'),
-      whisperModel: this.settings.get('maker.whisperModel'),
+      whisperModel: this.whisperModel(),
       demucsModel: this.settings.get('maker.demucsModel'),
     };
     const { folder: out, problem } = this.outInfo();
@@ -262,7 +288,7 @@ export class Maker {
 
   /** A job should wait: no graphics card, someone is singing, and the host wants the room's sound first. */
   mustWait(job) {
-    return !job.now && !this.settings.get('maker.duringSongs') && !this.checks?.gpu && this.songPlaying();
+    return !job.now && !this.settings.get('maker.duringSongs') && !this.onGpu() && this.songPlaying();
   }
 
   async pump() {
@@ -418,7 +444,7 @@ export class Maker {
     this.task = task;
     const args = kind === 'install'
       ? { gpu: !!opts.gpu, youtube: opts.youtube !== false }
-      : { whisperModel: WHISPER_MODELS.includes(opts.whisperModel) ? opts.whisperModel : this.settings.get('maker.whisperModel'),
+      : { whisperModel: WHISPER_MODELS.includes(opts.whisperModel) ? opts.whisperModel : this.whisperModel(),
         demucsModel: DEMUCS_MODELS.includes(opts.demucsModel) ? opts.demucsModel : this.settings.get('maker.demucsModel') };
     let last = 0;
     const run = this.tool.start(this.where, kind, {
@@ -475,7 +501,11 @@ export class Maker {
       outProblem: this.outInfo().problem,
       task: this.task ? { kind: this.task.kind, status: this.task.status, code: this.task.code, bar: this.task.bar, lines: this.task.lines.slice(-60) } : null,
       jobs: this.jobs.map((j) => this.jobView(j)),
-      waitsDuringSongs: !this.checks?.gpu && !this.settings.get('maker.duringSongs'),
+      waitsDuringSongs: !this.onGpu() && !this.settings.get('maker.duringSongs'),
+      specs: this.specs || null,
+      verdict: this.verdict || null,
+      specsAt: this.specsAt || 0,
+      whisperModel: this.whisperModel(),
     };
   }
 

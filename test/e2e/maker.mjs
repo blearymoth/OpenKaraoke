@@ -56,7 +56,8 @@ try {
   const host = watch(await browser.newPage({ viewport: { width: 1440, height: 900 } }), 'host');
   await host.goto(`${base}/host#/settings/maker`);
   check(await seen(host, '.maker .mk-form'), 'Settings → Karaoke maker: the form (autokaraoke is installed)');
-  check(await seen(host, '.mk-checks li.ok:has-text("Python")') && await seen(host, '.mk-checks li:has-text("Lyric timer · medium")'), 'this computer’s checks and the models');
+  check(await seen(host, '.mk-checks li.ok:has-text("Python")') && await seen(host, '.mk-checks li:has-text("Lyric timer · small")'), 'this computer’s checks and the models (Auto: the small lyric timer here)');
+  check(await seen(host, '.mk-verdict.slow:has-text("Slow but fine")') && await seen(host, '.mk-facts dd:has-text("8 cores")'), 'the hardware check: “Slow but fine”, with the facts');
   check(await seen(host, '.mk-checks li:has-text("No NVIDIA graphics card")'), 'no graphics card: it says the processor does the work');
 
   // ---- upload, lyrics, make, then queue and play it -----------------------------------------------

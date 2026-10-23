@@ -114,7 +114,7 @@ export const DEFAULT_SETTINGS = {
     out: '', // the save folder, inside a library folder ('' = <first library folder>/OpenKaraoke Maker)
     language: 'en',
     theme: 'classic', // autokaraoke's colours: classic, blue, green
-    whisperModel: 'medium',
+    whisperModel: 'auto', // 'auto': the hardware check's pick (medium with a big graphics card, else small)
     demucsModel: 'htdemucs',
     duringSongs: false, // on a PC without a graphics card, start making a song while someone sings
   },
@@ -235,7 +235,7 @@ export class Settings extends JsonDoc {
     }
     const mk = clean.maker;
     if (mk) { // (a value autokaraoke would refuse is ignored)
-      for (const [key, list] of [['theme', MAKER_THEMES], ['whisperModel', WHISPER_MODELS], ['demucsModel', DEMUCS_MODELS]]) {
+      for (const [key, list] of [['theme', MAKER_THEMES], ['whisperModel', ['auto', ...WHISPER_MODELS]], ['demucsModel', DEMUCS_MODELS]]) {
         if (Object.hasOwn(mk, key) && !list.includes(mk[key])) delete mk[key];
       }
       if (Object.hasOwn(mk, 'language') && !/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(mk.language)) delete mk.language;

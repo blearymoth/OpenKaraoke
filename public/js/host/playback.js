@@ -110,7 +110,7 @@ function SoundSection({ state }) {
         <p class="hint">${p.vocals?.adjustable && !idle
           ? 'The original singer on this version: off, quiet or full — the music stays as it is. ⋯ for which side and other versions.'
           : 'Which channels play. For a multiplex track not recognised as one, pick the side without the guide singer — or ⋯ to tell which side the singer is on.'}</p>
-        <${SeparatedVocals} p=${p} cur=${state.current} />
+        <${SeparatedVocals} p=${p} cur=${state.current} verdict=${state.maker?.verdict} />
       </div>
     </div>
     <${MonitorCard} state=${state} />

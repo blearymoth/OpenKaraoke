@@ -7,12 +7,15 @@ import { html, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { Switch, Spinner, go } from '../lib/components.js';
 import { act, toast, openDialog, chooseFolder, chooseSongFile, saveSetting } from './state.js';
+import { parseLink } from '/shared/maker.js';
 
 const LANGUAGES = [['en', 'English'], ['fi', 'Finnish'], ['sv', 'Swedish'], ['no', 'Norwegian'], ['da', 'Danish'], ['de', 'German'],
   ['nl', 'Dutch'], ['fr', 'French'], ['es', 'Spanish'], ['it', 'Italian'], ['pt', 'Portuguese'], ['pl', 'Polish'], ['ja', 'Japanese'], ['ko', 'Korean'], ['zh', 'Chinese']];
 const THEMES = [['classic', 'Classic (amber)'], ['blue', 'Blue'], ['green', 'Green']];
-const WHISPER = [['small', 'Small — 0.5 GB, quickest'], ['medium', 'Medium — 1.5 GB (recommended)'], ['turbo', 'Turbo — 1.6 GB'], ['large-v3', 'Large — 3.1 GB, best on hard songs (≈10 GB of graphics memory)']];
+const WHISPER = [['auto', 'Auto — picked for this computer'], ['small', 'Small — 0.5 GB, quickest'], ['medium', 'Medium — 1.5 GB (recommended)'], ['turbo', 'Turbo — 1.6 GB'], ['large-v3', 'Large — 3.1 GB, best on hard songs (≈10 GB of graphics memory)']];
 const DEMUCS = [['htdemucs', 'Standard (recommended)'], ['htdemucs_ft', 'Fine-tuned — cleaner, about 4× slower']];
+const SOURCES = [['lrclib', 'LRCLIB', 'recommended'], ['sidecar', 'A .txt beside the song', 'for songs on this computer'], ['netease', 'NetEase', 'unofficial'], ['lyricsovh', 'lyrics.ovh', 'unofficial, not checked yet']];
+const LYRICS_FROM = { typed: 'Lyrics: as typed.', whisper: 'Lyrics: written down by Whisper — check them in the lyrics editor.', looking: 'Looking the lyrics up…' };
 const STEPS = [['download', 'Download'], ['separate', 'Remove the singer'], ['timing', 'Time the lyrics'], ['cdg', 'Draw the lyrics'], ['done', 'Done']];
 const STATUS = { queued: 'Waiting its turn', waiting: 'Waiting for the song to end', running: 'Working', done: 'Done', failed: 'Didn’t work', cancelled: 'Cancelled' };
 const ACCEPT = '.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.wma,.aiff,.aif,.mp4,.m4v,.mkv,.webm,.mov,audio/*';
@@ -83,8 +86,10 @@ function MakeForm({ settings }) {
     file.text().then((text) => set({ lyrics: text.slice(0, 50000) }), () => toast('Could not read that file', 'error'));
     if (lyricsRef.current) lyricsRef.current.value = '';
   };
+  const link = f.mode === 'link' && f.url.trim() ? parseLink(f.url) : null;
+  const linkError = link?.error || '';
   const song = f.mode === 'upload' ? (f.upload ? { upload: f.upload.id } : null)
-    : f.mode === 'link' ? (f.url.trim() ? { url: f.url.trim() } : null)
+    : f.mode === 'link' ? (link?.url ? { url: link.url } : null)
       : (f.path ? { path: f.path } : null);
   const make = async () => {
     if (!song) return toast(f.mode === 'link' ? 'Paste a link first' : 'Choose a song first', 'error');
@@ -114,7 +119,8 @@ function MakeForm({ settings }) {
       </div>`}
       ${f.mode === 'link' && html`<input class="input" type="url" value=${f.url} placeholder="https://www.youtube.com/watch?v=…" aria-label="Link to the song"
         onInput=${(e) => set({ url: e.currentTarget.value })} />
-        <p class="hint">Only songs you have the right to use — your own uploads, or music whose owner allows it (YouTube’s terms restrict downloading).</p>`}
+        ${f.url.trim() && linkError && html`<p class="warn-text">${linkError}</p>`}
+        <p class="hint">A YouTube video. autokaraoke names the song from YouTube unless you type it below. Only songs you have the right to use — your own uploads, or music whose owner allows it (YouTube’s terms restrict downloading).</p>`}
     </div>
     <div class="row-2">
       <label class="field"><span>Artist</span><input class="input" value=${f.artist} maxlength="120" onInput=${(e) => set({ artist: e.currentTarget.value })} /></label>
@@ -166,6 +172,7 @@ function Job({ job, songs }) {
     <${JobSteps} job=${job} />
     ${job.status === 'running' && html`<div class="mk-bar" role="progressbar" aria-valuenow=${job.percent} aria-valuemin="0" aria-valuemax="100"><i style=${`width:${Math.max(3, job.percent)}%`}></i></div>`}
     ${job.status === 'running' && job.bar && html`<p class="hint mono ellipsis">${job.bar}</p>`}
+    ${job.lyricsFrom && html`<p class="hint mk-lyrics-from">${LYRICS_FROM[job.lyricsFrom] || `Lyrics: from ${job.lyricsFrom}.`}${job.result?.vocals ? ' Its vocals are kept: Separated vocals is ready for it.' : ''}</p>`}
     ${job.status === 'waiting' && html`<p class="hint">This computer has no graphics card, so the room’s sound comes first: it starts when the song ends.</p>`}
     ${job.status === 'failed' && html`<p class="warn-text">${job.error || 'autokaraoke stopped.'}</p>`}
     ${job.status === 'done' && r && html`<div class="mk-result">
@@ -191,6 +198,30 @@ function Check({ ok, title, children }) {
 }
 
 /** What this computer has, and autokaraoke's models (the installer window's checks). */
+const VERDICT_ICON = { fast: 'check', good: 'check', slow: 'clock', no: 'alert' };
+
+/** The hardware check's verdict: is this PC up to making karaoke (and separating vocals)? */
+function Verdict({ m }) {
+  const v = m.verdict;
+  const sp = m.specs;
+  if (!v || !sp) return html`<div class="mk-card mk-verdict"><p class="hint">${m.checking ? 'Looking at this computer…' : 'This computer hasn’t been checked yet.'}</p></div>`;
+  const gpu = [...(sp.gpus || [])].sort((a, b) => b.memMB - a.memMB)[0];
+  return html`<div class=${`mk-card mk-verdict ${v.verdict}`}>
+    <div class="mk-verdict-head"><span class="mk-verdict-mark"><${Icon} name=${VERDICT_ICON[v.verdict] || 'alert'} size=${20} /></span>
+      <div><div class="mk-kicker">This computer</div><b class="mk-verdict-word">${v.label}</b></div></div>
+    <p>${v.why}</p>
+    <dl class="mk-facts">
+      <dt>Graphics card</dt><dd>${gpu ? `${gpu.name}, ${(gpu.memMB / 1024).toFixed(1)} GB` : 'No NVIDIA card'}</dd>
+      <dt>Processor</dt><dd>${sp.cores} cores</dd>
+      <dt>Memory</dt><dd>${sp.memGB} GB</dd>
+      <dt>Free space</dt><dd>${sp.freeGB === null ? '—' : `${sp.freeGB} GB`}</dd>
+      <dt>Lyric timer</dt><dd>${m.whisperModel}${m.whisperModel === v.model ? ' (suits this computer)' : ''}</dd>
+    </dl>
+    ${v.warnings.map((w) => html`<p class="warn-text">${w}</p>`)}
+    <p class="hint">Checked every time OpenKaraoke starts${m.specsAt ? ` — last ${new Date(m.specsAt).toLocaleString()}` : ''}. The same goes for separating the vocals of a song.</p>
+  </div>`;
+}
+
 function Checks({ m }) {
   const c = m.checks;
   if (!c) return html`<p class="hint">${m.checking ? 'Looking at this computer…' : 'Not checked yet.'}</p>`;
@@ -254,15 +285,49 @@ function InstallBlock({ m }) {
 function MakerSettings({ settings, m }) {
   const save = (key, value) => saveSetting(`maker.${key}`, value);
   return html`
-    <h3 class="section-title">Making songs</h3>
+    <h3 class="section-title">Songs from guests</h3>
+    <div class="setting bool">
+      <div class="setting-text"><b>Guests can ask for a song from YouTube</b><p class="hint">They paste a link (and the lyrics, if they have them) on their phone’s Me tab; you approve each one — a popup asks, and Decisions keeps them.</p></div>
+      <div class="setting-control"><${Switch} checked=${settings.guestLinks} label="Guests can ask for a song from YouTube" onChange=${(v) => save('guestLinks', v)} /></div>
+    </div>
+    ${settings.guestLinks && html`
+    <div class="setting bool">
+      <div class="setting-text"><b>Queue it for them when it’s made</b></div>
+      <div class="setting-control"><${Switch} checked=${settings.queueWhenDone} label="Queue it for them when it’s made" onChange=${(v) => save('queueWhenDone', v)} /></div>
+    </div>
     <div class="setting">
-      <div class="setting-text"><b>Save new songs in</b><p class="hint mono ellipsis">${m.out}</p></div>
-      <div class="setting-control"><button class="btn" onClick=${() => chooseFolder((p) => save('out', p))}><${Icon} name="folder" size=${16} /> Change…</button></div>
+      <div class="setting-text"><b>Songs a guest can have on the way</b></div>
+      <div class="setting-control"><select class="select" value=${String(settings.maxPerGuest)} onChange=${(e) => save('maxPerGuest', Number(e.currentTarget.value))}>
+        ${[1, 2, 3, 5, 0].map((n) => html`<option value=${n}>${n || 'No limit'}</option>`)}</select></div>
+    </div>
+    <div class="setting">
+      <div class="setting-text"><b>Songs waiting, from everyone</b><p class="hint">More are refused until some are made.</p></div>
+      <div class="setting-control"><select class="select" value=${String(settings.maxWaiting)} onChange=${(e) => save('maxWaiting', Number(e.currentTarget.value))}>
+        ${[5, 10, 20, 50].map((n) => html`<option value=${n}>${n}</option>`)}</select></div>
+    </div>`}
+    <h3 class="section-title">Making songs</h3>
+    <div class="setting mk-out">
+      <div class="setting-text"><b>Save new songs in</b>
+        <p class="hint mono ellipsis">${m.out || '—'}</p>
+        ${m.outProblem ? html`<p class="warn-text">${m.outProblem}</p>` : html`<p class="hint">Inside your library: that folder is scanned again after each new song.</p>`}</div>
+      <div class="setting-control btn-row">
+        ${settings.out && html`<button class="btn ghost" onClick=${() => save('out', '')}>Default</button>`}
+        <button class="btn" onClick=${() => chooseFolder((p) => save('out', p))}><${Icon} name="folder" size=${16} /> Change…</button>
+      </div>
     </div>
     <div class="setting bool">
-      <div class="setting-text"><b>Add them to the library</b><p class="hint">The folder becomes one of your karaoke folders and is scanned after each new song.</p></div>
-      <div class="setting-control"><${Switch} checked=${settings.addToLibrary} label="Add them to the library" onChange=${(v) => save('addToLibrary', v)} /></div>
+      <div class="setting-text"><b>Look the lyrics up when none are typed</b>
+        <p class="hint">${m.lookup ? 'Lyrics someone typed always come first; then a lyrics service; Whisper writes down what it hears only when nothing was found.'
+          : 'This copy of autokaraoke can’t look lyrics up yet — update it to its lyrics-lookup version. Until then Whisper writes down what it hears.'}</p></div>
+      <div class="setting-control"><${Switch} checked=${settings.lookupLyrics} disabled=${!m.lookup} label="Look the lyrics up when none are typed" onChange=${(v) => save('lookupLyrics', v)} /></div>
     </div>
+    ${m.lookup && settings.lookupLyrics && html`<div class="setting column mk-sources">
+      <div class="setting-text"><b>Where to look</b><p class="hint">In this order. A text the singing doesn’t match is not used.</p></div>
+      <div class="mk-source-list">${SOURCES.map(([id, label, note]) => html`<label class="check-row">
+        <${Switch} checked=${settings.lyricsSources.includes(id)} label=${label}
+          onChange=${(on) => save('lyricsSources', on ? [...settings.lyricsSources.filter((x) => x !== id), id] : settings.lyricsSources.filter((x) => x !== id))} />
+        <span>${label} <span class="hint">${note}</span></span></label>`)}</div>
+    </div>`}
     <div class="setting">
       <div class="setting-text"><b>Lyric timer</b><p class="hint">A bigger model times hard songs better, and is slower.</p></div>
       <div class="setting-control"><select class="select" value=${settings.whisperModel} onChange=${(e) => save('whisperModel', e.currentTarget.value)}>${WHISPER.map(([v, l]) => html`<option value=${v}>${l}</option>`)}</select></div>
@@ -286,9 +351,12 @@ export function MakerSection({ state }) {
   const running = m.task?.status === 'running';
   return html`<div class="maker">
     <p class="muted mk-intro">Turn any song into a karaoke track with autokaraoke: it removes the singer, times the lyrics you paste, draws the lyrics screen and adds the song to the library.</p>
+    <${Verdict} m=${m} />
     ${installed && missing.length > 0 && html`<div class="banner warn mk-banner"><${Icon} name="alert" size=${18} />
       <div class="grow"><b>The models aren’t downloaded yet.</b><p class="hint">${missing.map((x) => x.name).join(', ')} — needed once, then songs are made without the internet.</p></div>
       <button class="btn small" disabled=${running} onClick=${() => act('maker.setup', {})}>Download</button></div>`}
+    ${installed && m.outProblem && html`<div class="banner warn mk-banner"><${Icon} name="alert" size=${18} />
+      <div class="grow"><b>New songs can’t be saved right now.</b><p class="hint">${m.outProblem}</p></div></div>`}
     ${installed ? html`<${MakeForm} settings=${settings} />` : html`<${InstallBlock} m=${m} />`}
     <${Task} task=${m.task} />
     ${m.jobs.length > 0 && html`<div class="mk-jobs">${[...m.jobs].reverse().map((j) => html`<${Job} key=${j.id} job=${j} />`)}</div>`}

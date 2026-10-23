@@ -110,8 +110,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * The stand-in tool. `state`: installed, models ready, the GPU's name ('' = none), and `fail`
  * ('make' | 'render' | 'setup' | 'install') to make that command fail. `seconds`: how long a make takes.
  */
-export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', installed = true, models = true, gpu = '', fail = '', seconds = 1.5, songSeconds = 30 } = {}) {
-  const state = { installed, models, gpu, fail, seconds, songSeconds, runs: [] };
+export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', installed = true, models = true, gpu = '', gpuMB = 8192, cores = 8, memGB = 16, freeGB = 120, fail = '', seconds = 1.5, songSeconds = 30, lookup = true, lookupHit = 'Found on the internet\nAll the words are here' } = {}) {
+  const state = { installed, models, gpu, gpuMB, cores, memGB, freeGB, fail, seconds, songSeconds, lookup, lookupHit, runs: [] };
   const where = () => ({
     root, python: path.join(root, '.venv', 'bin', 'python'), launcher: '', modelsDir: path.join(root, 'models'),
     hasRoot: true, installed: state.installed, installer: path.join(root, 'install.sh'),
@@ -123,6 +123,8 @@ export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', insta
     async check(at, { whisperModel = 'medium', demucsModel = 'htdemucs' } = {}) {
       return {
         python: '3.12.3', ffmpeg: 'ready', gpu: state.gpu, version: state.installed ? '0.1.0' : '',
+        specs: { gpus: state.gpu ? [{ name: state.gpu, memMB: state.gpuMB }] : [], cores: state.cores, memGB: state.memGB, freeGB: state.freeGB },
+        features: { lookup: state.installed && state.lookup },
         setup: state.installed ? {
           folder: path.join(root, 'models'),
           models: [
@@ -211,8 +213,18 @@ export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', insta
           say('RuntimeError: alignment failed; check that the lyrics match the song');
           return { code: 1, signal: null };
         }
-        const lyrics = opts.lyricsFile ? await fs.readFile(opts.lyricsFile, 'utf8') : '';
-        say(lyrics ? `Aligning ${lyrics.split(/\s+/).filter(Boolean).length} words of lyrics to the vocals...` : 'No lyrics given: transcribing the vocals (check the result, Whisper mishears songs)...');
+        let lyrics = opts.lyricsFile ? await fs.readFile(opts.lyricsFile, 'utf8') : '';
+        if (!lyrics && opts.lyricsSources?.length) { // (autokaraoke's lyrics lookup)
+          say(`Looking for lyrics: ${opts.lyricsSources.join(', ')}...`);
+          if (state.lookupHit && opts.lyricsSources.includes('lrclib')) {
+            lyrics = state.lookupHit;
+            say(`  LRCLIB: ${lyrics.split('\n').length} lines (${names.artist} - ${names.title})`);
+            await fs.writeFile(path.join(opts.out, `${base}.lyrics.txt`), `${lyrics}\n`);
+            say(`  used the lyrics from LRCLIB, saved in ${base}.lyrics.txt; edit them and re-run with --lyrics ... --retime to fix words.`);
+          } else say('  no lyrics found; transcribing instead.');
+        } else {
+          say(lyrics ? `Aligning ${lyrics.split(/\s+/).filter(Boolean).length} words of lyrics to the vocals...` : 'No lyrics given: transcribing the vocals (check the result, Whisper mishears songs)...');
+        }
         await sleep(step);
         if (cancelled) return { code: null, signal: 'SIGTERM' };
         const timing = fakeTiming(lyrics, { ...names, language: opts.language, duration: state.songSeconds });
@@ -223,6 +235,12 @@ export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', insta
         await sleep(step);
         await fs.writeFile(path.join(opts.out, `${base}.cdg`), cdgFromTiming(readTiming(timing), state.songSeconds));
         say(`CDG: ${timing.lines.length} screen lines on 1 pages, font 20px (DejaVuSansCondensed-Bold.ttf), 0.2s`);
+        if (opts.keepStems) { // (--keep-stems: NAME.work/vocals.wav and instrumental.wav stay)
+          const work = path.join(opts.out, `${base}.work`);
+          await fs.mkdir(work, { recursive: true });
+          await writePcmWav(path.join(work, 'vocals.wav'), { hz: 880, seconds: 2 });
+          await writePcmWav(path.join(work, 'instrumental.wav'), { hz: 220, seconds: 2 });
+        }
         say(`Done: ${base}.mp3 + ${base}.cdg`);
         return { code: 0, signal: null };
       })();

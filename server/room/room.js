@@ -24,6 +24,7 @@ import { StemJobs } from '../stems/jobs.js';
 import { VideoJobs } from '../video/jobs.js';
 import { Maker } from '../maker/jobs.js';
 import { LyricEdits } from '../lyrics/edits.js';
+import { Links } from './links.js';
 import { Lane } from '../util/lane.js';
 import { needsConversion } from '../video/ffmpeg.js';
 import { readZipEntry } from '../library/zip.js';
@@ -194,13 +195,26 @@ export class Room {
       library: this.library,
       songPlaying: () => ['intro', 'playing'].includes(this.s.player.state),
       onChange: () => this.markDirty(),
+      onJob: (job) => this.links.onJob(job), // (a guest's song from a link follows its job)
+      // A made song's separated vocals, kept: it has Separated vocals at once (§30).
+      vocals: {
+        file: (trackId, name) => this.stems.file(trackId, name),
+        kept: (trackId) => {
+          this.s.trackPrefs[trackId] = { ...(this.s.trackPrefs[trackId] || {}), stems: true };
+          void this.stems.ensure(trackId);
+        },
+      },
     });
+    // Songs from a link (server/room/links.js, PLAN §31.12): guests ask, the host decides, the
+    // maker makes it, it is queued for the guest.
+    this.links = new Links({ dataDir: app.dataDir, room: this, fetch: app.fetch || null });
     // The lyrics editor's edits (server/lyrics/, PLAN §31.5): drawn by autokaraoke, served in place
     // of the disc's CDG; the TV reloads the song on now when its lyrics change.
     this.lyrics = new LyricEdits({
       dataDir: app.dataDir,
       library: this.library,
       maker: this.maker,
+      vocalOf: async (trackId) => (this.stemAsked(trackId) && !this.stemOk(trackId) && (await this.stems.filesReady(trackId)) ? `/media/${trackId}/stem/vocal` : null),
       onChange: (trackId) => {
         if (this.s.current?.trackId === trackId) this.s.player.reload = (this.s.player.reload || 0) + 1;
         this.markDirty();
@@ -226,8 +240,10 @@ export class Room {
     await this.vocals.load();
     // Whether ffmpeg is there, for Settings → Library (in the background: a program is started).
     this.videos.detect().then(() => { if (!this.videos.closed) this.markDirty(); }, () => {});
-    // Where autokaraoke is, then a look at this computer (in the background: programs are started).
-    this.maker.init().then(() => this.maker.check(), () => {});
+    // Where autokaraoke is, then a look at this computer (in the background: programs are started);
+    // approved song links that weren't made before the restart are made then.
+    await this.links.load();
+    this.maker.init().then(() => this.maker.check()).then(() => this.links.resume(), () => {});
     await this.lyrics.load();
     const s = this.s;
     // After a restart nothing is playing: keep the current song paused where it was.
@@ -262,7 +278,7 @@ export class Room {
     this.stems.close();
     this.videos.close();
     this.maker.close();
-    if (save) await Promise.all([this.doc.flush(), this.vocals.flush(), this.versions.flush()]);
+    if (save) await Promise.all([this.doc.flush(), this.vocals.flush(), this.versions.flush(), this.links.doc.flush()]);
     else {
       this.doc.discard();
       this.vocals.discard();
@@ -547,6 +563,13 @@ export class Room {
       'maker.install': [H, (c, m) => this.maker.startTask('install', { gpu: !!m.gpu, youtube: m.youtube !== false })],
       'maker.setup': [H, (c, m) => this.maker.startTask('setup', { whisperModel: m.whisperModel, demucsModel: m.demucsModel })],
       'maker.cancelTask': [H, () => this.maker.cancelTask()],
+      'link.add': [HG, (c, m) => this.links.add(c, m)],
+      'link.cancel': [HG, (c, m) => this.links.cancel(c, m.id)],
+      'link.approve': [H, (c, m) => this.links.approve(m.id, m)],
+      'link.deny': [H, (c, m) => this.links.deny(m.id, m)],
+      'link.retry': [H, (c, m) => this.links.retry(m.id)],
+      'link.remove': [H, (c, m) => this.links.remove(m.id)],
+      'link.clear': [H, () => this.links.clear()],
       'player.layout': [H, (c, m) => this.setLayout(m)],
       'vocal.prepare': [H, (c, m) => this.prepareVocal(m)],
       'player.version': [H, (c, m) => this.setVersion(m)],
@@ -1828,6 +1851,7 @@ export class Room {
       this.s.pending = this.s.pending.filter((e) => e.addedBy !== m.deviceId);
       if (profile.singerId) this.dropInvites(profile.singerId);
       this.photos.dropPending(m.deviceId);
+      this.links.dropPending(m.deviceId);
       this.versions.dropVoter(m.deviceId);
     }
     for (const c of this.hub.list((x) => x.role === GUEST && x.data.deviceId === m.deviceId)) {
@@ -2292,6 +2316,21 @@ export class Room {
     this.startEntry(entry);
     this.markDirty();
     return entry;
+  }
+
+  /**
+   * A song made from a guest's link, queued for them (the host already said yes to it, so the
+   * guest limits and approval don't apply). → true when it was queued.
+   */
+  queueForGuest(deviceId, songId, trackId) {
+    const profile = this.profileOf(deviceId);
+    if (!profile?.name || profile.banned) return false;
+    const singer = this.singerForProfile(deviceId);
+    const r = this.queueAdd({ role: HOST, data: {}, isLocal: true }, { songId, trackId, singerId: singer.id, source: 'host' });
+    const entry = this.s.queue.find((e) => e.id === r.entry?.id) || (this.s.current?.id === r.entry?.id ? this.s.current : null);
+    if (entry) Object.assign(entry, { addedBy: deviceId, source: 'link' });
+    this.markDirty();
+    return true;
   }
 
   /** Sends a message to one guest's phones (device id from their signed token). */
@@ -2765,6 +2804,8 @@ export class Room {
       library: this.library.status(),
       video: { ...this.videos.status(), tracks: this.convertibleCount() },
       maker: this.maker.view(),
+      links: this.links.hostView(),
+      linkCounts: this.links.counts(),
       current: this.currentView({ media: true, version: true, voter: HOST_VOTER }), // (media: the headphone monitor)
       player: this.playerView(),
       queue: s.queue.map((e, i) => ({ ...this.entryView(e), eta: eta[i], addedByName: byName(e) })),
@@ -2860,6 +2901,7 @@ export class Room {
         games: this.settings.get('guests.games'),
         photos: this.settings.get('guests.photos'),
         photoApproval: this.settings.get('guests.photoApproval'),
+        links: this.links.guestsMay() ? { maxPerGuest: this.settings.get('maker.maxPerGuest') } : null, // songs from a link
       },
       current: this.currentView({ version: true }),
       player: (({ state, pos, dur, entryId, introEndsAt, lead, vocals }) => ({ state, pos, dur, entryId, introEndsAt, lead, leadAdjustable: !!vocals?.adjustable }))(this.playerView()),
@@ -2912,6 +2954,7 @@ export class Room {
         controls: this.singerOnNow(deviceId), // their own song is on: play, pause, seek, restart
         account: this.accounts.ofId(deviceId)?.name || null, // signed in as (accounts.js)
         songs: this.singerSongs(profile?.singerId), // what they sang (Your songs)
+        links: this.links.mine(deviceId), // songs they asked for from a link
         // Their vote on the version on now (null: no vote row — one version, votes off, hidden).
         versionVote: base.current?.version && base.rules.versionVotes && !(base.rules.explicitFilter && base.current.flags?.explicit)
           ? this.versions.mine(deviceId, this.s.current.trackId) : null,

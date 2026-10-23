@@ -19,8 +19,7 @@ await fs.mkdir(out, { recursive: true });
 const { chromium } = loadPlaywright();
 const tool = fakeAutokaraoke({ seconds: 3, songSeconds: 30 });
 const { app, base } = await startParty({ makerTool: tool });
-const made = await tmpDir('ok-made-');
-app.settings.update({ maker: { out: made } });
+const made = path.join(app.library.paths[0], 'OpenKaraoke Maker');
 const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
 const errors = [];
 const watch = (page, name) => {
@@ -57,7 +56,8 @@ try {
   const host = watch(await browser.newPage({ viewport: { width: 1440, height: 900 } }), 'host');
   await host.goto(`${base}/host#/settings/maker`);
   check(await seen(host, '.maker .mk-form'), 'Settings → Karaoke maker: the form (autokaraoke is installed)');
-  check(await seen(host, '.mk-checks li.ok:has-text("Python")') && await seen(host, '.mk-checks li:has-text("Lyric timer · medium")'), 'this computer’s checks and the models');
+  check(await seen(host, '.mk-checks li.ok:has-text("Python")') && await seen(host, '.mk-checks li:has-text("Lyric timer · small")'), 'this computer’s checks and the models (Auto: the small lyric timer here)');
+  check(await seen(host, '.mk-verdict.slow:has-text("Slow but fine")') && await seen(host, '.mk-facts dd:has-text("8 cores")'), 'the hardware check: “Slow but fine”, with the facts');
   check(await seen(host, '.mk-checks li:has-text("No NVIDIA graphics card")'), 'no graphics card: it says the processor does the work');
 
   // ---- upload, lyrics, make, then queue and play it -----------------------------------------------
@@ -77,7 +77,8 @@ try {
   const job = jobs().find((j) => j.title === 'Night Drive');
   const lyricsSent = tool.state.runs.find((r) => r.kind === 'make');
   check(!!lyricsSent?.opts.lyricsFile && job.lines.some((l) => /^Aligning \d+ words/.test(l)), 'the lyrics went to autokaraoke');
-  check(app.library.paths.includes(made), 'the save folder is a library folder now');
+  check(await fs.stat(path.join(made, 'Pixel Band - Night Drive.cdg')).then(() => true, () => false) && app.library.paths.length === 1, 'saved in the library’s “OpenKaraoke Maker” folder');
+  check(await seen(host, '.mk-job.done:has-text("Night Drive") .mk-lyrics-from:has-text("as typed")') && await seen(host, '.mk-job.done:has-text("Night Drive") .mk-lyrics-from:has-text("Separated vocals is ready")'), 'the job says where its lyrics came from, and that its vocals are kept');
   await shot(host, 'maker-done');
   await host.click('.mk-job.done:has-text("Night Drive") button:has-text("Queue it")');
   await host.waitForSelector('.dialog button:has-text("Add to queue")');
@@ -101,7 +102,7 @@ try {
   // ---- a link, cancelled ------------------------------------------------------------------------------
   tool.state.seconds = 12;
   await host.click('.mk-form .segmented button:has-text("Link")');
-  await host.fill('input[aria-label="Link to the song"]', 'https://www.youtube.com/watch?v=abc');
+  await host.fill('input[aria-label="Link to the song"]', 'https://youtu.be/dQw4w9WgXcQ?si=share');
   await host.fill('.mk-form .row-2 >> nth=0 >> input >> nth=0', 'Web Band');
   await host.fill('.mk-form .row-2 >> nth=0 >> input >> nth=1', 'Streamed');
   await host.click('button:has-text("Make karaoke")');

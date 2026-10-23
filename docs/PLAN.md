@@ -387,6 +387,7 @@ player.play {entryId?}  player.pause  player.resume  player.next  player.restart
 player.seek {pos}  player.key {semitones}  player.tempo {rate}  player.channel {mode}  player.volume {v}
 player.lead {level}  player.layout {layout}  player.version {trackId}   (vocals, §21)
 stems.separate {trackId}  player.vox {level}   (separated vocals on any audio version, §30)
+link.add {url, lyrics, artist, title}  link.cancel {id}   (guest or host)   link.approve|deny|retry|remove {id}  link.clear  (host, §31.12)
 maker.make {song: {path}|{upload}|{url}, artist, title, language, theme, lyrics}  maker.cancel|now|dismiss {id}
 maker.check  maker.install {gpu, youtube}  maker.setup {whisperModel, demucsModel}  maker.cancelTask   (host, §31.9)
 version.vote {trackId, vote: 1|-1|0}   display.identify {id}   (§22)
@@ -1977,15 +1978,25 @@ its windows redesigned as part of Settings. So OpenKaraoke ships none of it: it 
 runs its command line, and shows the work in **Settings → Karaoke maker**. Milestones 2–4 are
 built (§31.7); the benchmark (1) and guests' wishes (3) are not.
 
-- **Finding it** (`server/maker/autokaraoke.js` `locateAutokaraoke`): `OPENKARAOKE_AUTOKARAOKE_ROOT`,
+- **Finding it** (`server/maker/where.js` `locateAutokaraoke`, also what the vocal separator uses,
+  so there is one answer): `OPENKARAOKE_AUTOKARAOKE_ROOT`,
   else the folder its launcher `~/.local/bin/autokaraoke` runs from, else `~/Projects/autokaraoke`;
   Python is `<root>/.venv/bin/python` (or `OPENKARAOKE_AUTOKARAOKE_PYTHON`), the models
   `AUTOKARAOKE_MODELS` or the launcher's. Every command is `python -m autokaraoke …` through
   `spawn` (never a shell), options first, then `--` and the song or file; each value is checked
   (`makeArgs`, `renderArgs`, `setupArgs`, `installArgs`).
-- **The checks** (the installer window's): Python, FFmpeg with the MP3 encoder, the NVIDIA card
-  (`nvidia-smi -L`), autokaraoke's version and `setup --check` (each model, ready or missing, the
-  space used, offline-ready). "Check again" redoes them.
+- **The checks** (the installer window's): Python, FFmpeg with the MP3 encoder, autokaraoke's
+  version and `setup --check` (each model, ready or missing, the space used, offline-ready).
+  "Check again" redoes them; they also run at every start.
+- **The hardware check** (`server/system/specs.js`, 2026-10-23): NVIDIA cards and their memory
+  (`nvidia-smi --query-gpu=name,memory.total`), processor cores, memory, free space where the
+  models are. `assess()` gives the verdict shown first on the page: **Fast** (an NVIDIA card with
+  ≥ 5.9 GB: Whisper medium), **Fast enough** (≥ 3.8 GB: small), **Slow but fine** (the processor,
+  with 8 cores and 16 GB or 4 cores and 12 GB: small), else **Not recommended**; less than 10 GB
+  (a card) or 6 GB free is a warning. Kept in `data/maker/specs.json` (shown at once after a
+  restart). The lyric timer's default is **Auto** (`maker.whisperModel: 'auto'`): the verdict's
+  model. Without a card doing the work (fast / fast enough), a job waits while someone sings.
+  "Separate the vocals" (§30) warns on a "Not recommended" computer.
 - **Installing** from the page runs its `install.sh` (`bash`, in its folder) with `--gpu` or
   `--cpu` and `--no-youtube` when YouTube is off; **Download the models** runs `setup` for the
   chosen models. Their output shows as it comes; one at a time, and not while a song is being made.
@@ -1993,19 +2004,23 @@ built (§31.7); the benchmark (1) and guests' wishes (3) are not.
   folder picker lists song files), an upload from the browser (`POST /api/maker/upload`, host only,
   streamed to `data/maker/uploads/`, 500 MB at most, song file names only; deleted once the song
   is made, and on a restart) or a link (http/https; then a title is needed). Artist and title come
-  from "Artist - Title" file names; the lyrics (≤ 50 KB) go to autokaraoke as a file; the language
+  from "Artist - Title" file names (a link's from YouTube, by autokaraoke); a link must be a YouTube
+  video (`shared/maker.js` `parseLink`: reduced to `https://www.youtube.com/watch?v=<id>`; no other
+  site, playlist, port or credentials); typed lyrics go to autokaraoke as a file with `--retime`
+  (an earlier make's `timing.json` would otherwise win over them); the language
   and colours are the job's, the models the settings'. Progress is read from autokaraoke's own
   messages (`readMakeLine`: download → remove the singer → time the lyrics → draw the lyrics →
   done; a carriage return is a progress bar's update). Cancel kills its process group.
-- **Where the song goes**: `settings.maker.out` (by default autokaraoke's own last folder, or
-  `~/Karaoke`). With `maker.addToLibrary` (on) that folder becomes a library folder of its own and
-  is rescanned by itself; the job then names the song (Queue it, Song details).
+- **Where the song goes** (owner, 2026-10-23: inside the library): `settings.maker.out`, by default
+  `<first library folder>/OpenKaraoke Maker`; it must be inside a library folder whose drive is
+  connected (else nothing is made, and Settings says why). After a song, that library folder (the
+  innermost one holding it) is rescanned; the job then names the song (Queue it, Song details).
 - **During a party** (§31.3): one heavy job at a time — the stems (§21, §30) take the same
   `util/lane.js` lane, ahead of a waiting song; `make` runs at the lowest priority with
   `OMP_NUM_THREADS` = cores − 2. Without a graphics card a job waits while a song plays
   (`maker.duringSongs` off, the default); "Start now" overrides it.
-- **Settings**: `maker.out`, `addToLibrary`, `language`, `theme` (classic, blue, green),
-  `whisperModel` (small, medium, turbo, large-v3), `demucsModel` (htdemucs, htdemucs_ft),
+- **Settings**: `maker.out`, `language`, `theme` (classic, blue, green),
+  `whisperModel` (auto, small, medium, turbo, large-v3), `demucsModel` (htdemucs, htdemucs_ft),
   `duringSongs`; anything autokaraoke would refuse is ignored.
 - **Room actions** (host only): `maker.make`, `maker.cancel`, `maker.now`, `maker.dismiss`,
   `maker.check`, `maker.install`, `maker.setup`, `maker.cancelTask`; the host view carries
@@ -2059,4 +2074,59 @@ made; other discs' lyrics are pictures and have nothing to edit.
   - the TV drawing a `timing.json`'s real text in the lyric layouts;
   - render options other than the colours (lines on screen, font size, lead, page gap): a disc made
     with other options is redrawn with autokaraoke's defaults.
+
+### 31.11 Lyrics lookup and kept vocals (2026-10-23)
+
+- **The lyrics' authority** (the owner's order: the host's edit > a guest's text > a lyrics service
+  > Whisper). Typed lyrics go with `--lyrics … --retime`. With none typed and
+  `maker.lookupLyrics` on, the job asks autokaraoke to look them up (`--lyrics-sources`, from
+  `maker.lyricsSources`, default `['lrclib']`; also `sidecar`, `netease`, `lyricsovh` — the last two
+  unofficial). autokaraoke ignores a text the singing doesn't match (its `--lyrics-min-match`,
+  0.35) and then lets Whisper write down what it hears. Only a copy that knows the flag gets it:
+  the check reads `make --help` (`features.lookup`); autokaraoke's lookup is on its
+  `lyrics-lookup` branch (SongGetter PR #1). The job says where its lyrics came from ("as typed",
+  "from LRCLIB", "written down by Whisper — check them in the lyrics editor").
+- **Kept vocals** (owner, 2026-10-23): every make runs with `--keep-stems`; when the song is in the
+  library, `NAME.work/vocals.wav` and `instrumental.wav` move into `data/stems/<trackId>/` (vocal.wav,
+  music.wav — copied when the library is on another drive) and the `.work` folder goes. The track is
+  marked separated (`trackPrefs.stems`), so **Separated vocals** (§30) is ready at once, and the
+  lyrics editor has a **Guide vocal** button (the vocal in step with the song). About 10 MB a minute
+  of song in the data folder.
+
+### 31.12 Songs from a link: guests ask, the host decides (2026-10-23)
+
+From the SongGetter/autokaraoke handoff (23 Oct). `karaoke-maker.patch` (the 10 Oct version) was not
+available, so this follows its description.
+
+- **Asking** (`server/room/links.js` `Links`, `data/requests.json`). With
+  `maker.guestLinks` on (off by default) and the maker able to make songs, a guest's Me tab has
+  **A song that isn't here?**: a YouTube link (`parseLink`, checked on the phone too) and, if they
+  have them, the lyrics. An empty search offers it as well. Limits: `maker.maxPerGuest` (2) open
+  requests a guest, `maker.maxWaiting` (20) from everyone, 5 open per network address, 3 in 10
+  minutes from one phone. A video already asked for is refused, and one already made says it is in
+  the library. The video's title comes from YouTube's oEmbed (no key; nothing when offline). A
+  request belongs to the guest's identity (`client.data.deviceId`): their account when signed in,
+  so it follows them to another phone, else their phone (owner, 2026-10-23).
+- **Deciding** (host only, not co-hosts). A non-modal popup (`DecisionPopup`, `role=status`) asks
+  at once about the oldest request: Approve / Deny / Later / "Check the lyrics…". **Decisions**
+  (`#/decisions`, in the nav with a badge) has the requests with their link, an artist and title to
+  fill in, and the lyrics to correct before Approve (the host's text wins over the guest's). Below
+  are those being made (step, progress), the recent ones (Try again, Remove, Clear), then song
+  requests, photos and screens waiting. The host can also ask (`link.add` from the host: approved
+  at once) or **Make a song yourself** (the Karaoke maker).
+- **Making it**: an approved request is a Karaoke maker job tagged with the request (`Maker.make(…,
+  { tag })`; the maker tells `Links.onJob` as the job moves on). It follows the same rules as
+  any job: the heavy-job lane, waiting during songs without a graphics card, the lyrics' authority
+  (§31.11). Once it is in the library it is **queued for the guest** (`maker.queueWhenDone`, on:
+  `room.queueForGuest`, as the host would, so their limits don't apply; the entry is theirs,
+  `source: 'link'`). Their phone is told (`notify { kind: 'link', state: done | failed | denied }`).
+  A ban cancels the guest's undecided requests. After a restart an approved request is made again
+  (working → queued).
+- **Protocol**: `link.add {url, lyrics, artist, title}` and `link.cancel {id}` (guests: their own;
+  the host: any), `link.approve {id, artist, title, lyrics}`, `link.deny {id, reason}`,
+  `link.retry {id}`, `link.remove {id}`, `link.clear`. Host view: `links`, `linkCounts`. Guest
+  view: `rules.links` (null when off), `me.links`.
+- **Tests**: `test/links.test.js` (5), `test/maker-links.test.js` (3), `test/e2e/links.mjs` (23).
+- **Not built**: the lyrics preview before approval (the old "§25" spec in the patch: parked by the
+  owner).
 

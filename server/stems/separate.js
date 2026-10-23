@@ -4,12 +4,12 @@
 // karaoke track the vocal is its backing vocals, on a recording with the singer it is all of them.
 // The model is STEM_MODEL (OPENKARAOKE_STEM_MODEL may name another that autokaraoke knows).
 // OpenKaraoke does not import Demucs or PyTorch. The child is the autokaraoke virtualenv's
-// Python, found from the launcher ~/.local/bin/autokaraoke (or OPENKARAOKE_AUTOKARAOKE_PYTHON).
+// Python, found as the Karaoke maker finds it (server/maker/where.js).
 // Node itself stays free of runtime npm dependencies.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
-import path from 'node:path';
+import { locateAutokaraoke } from '../maker/where.js';
 
 /** Same order as autokaraoke's cmd_make: configure caches, then separate(), then one WAV. */
 export const SEPARATE_PY = `
@@ -34,37 +34,17 @@ for data, dest in ((inst, music_path), (vocals, vocal_path)):  # the vocal last:
 print("STEMS_OK", flush=True)
 `.trim();
 
-/** The venv python next to the program the launcher execs, or ''. */
-export function pythonFromLauncher(text) {
-  const m = String(text || '').match(/^exec "([^"]+)"/m);
-  if (!m) return '';
-  return path.join(path.dirname(m[1]), 'python');
-}
-
-/** The models folder the launcher exports, or ''. */
-export function modelsDirFromLauncher(text) {
-  const m = String(text || '').match(/AUTOKARAOKE_MODELS="\$\{AUTOKARAOKE_MODELS:-([^}]+)\}"/);
-  return m ? m[1] : '';
-}
+export { pythonFromLauncher, modelsDirFromLauncher } from '../maker/where.js';
 
 /**
- * Where the separator lives. `OPENKARAOKE_AUTOKARAOKE_PYTHON` wins; otherwise the launcher
- * ~/.local/bin/autokaraoke; otherwise ~/Projects/autokaraoke/.venv.
+ * Where the separator lives: autokaraoke's Python and models folder, found as everything else
+ * finds autokaraoke (maker/where.js). `OPENKARAOKE_AUTOKARAOKE_PYTHON` wins outright.
  */
 export async function resolveAutokaraoke({ env = process.env, homedir = os.homedir(), readFile = fs.readFile } = {}) {
-  const fromEnv = env.AUTOKARAOKE_MODELS || '';
   if (env.OPENKARAOKE_AUTOKARAOKE_PYTHON) {
-    return { python: env.OPENKARAOKE_AUTOKARAOKE_PYTHON, modelsDir: fromEnv };
+    return { python: env.OPENKARAOKE_AUTOKARAOKE_PYTHON, modelsDir: env.AUTOKARAOKE_MODELS || '' };
   }
-  let python = '';
-  let modelsDir = fromEnv;
-  try {
-    const text = await readFile(path.join(homedir, '.local', 'bin', 'autokaraoke'), 'utf8');
-    python = pythonFromLauncher(text);
-    if (!modelsDir) modelsDir = modelsDirFromLauncher(text);
-  } catch { /* no launcher: fall through */ }
-  if (!python) python = path.join(homedir, 'Projects', 'autokaraoke', '.venv', 'bin', 'python');
-  if (!modelsDir) modelsDir = path.join(homedir, 'Projects', 'autokaraoke', 'models');
+  const { python, modelsDir } = await locateAutokaraoke({ env, homedir, readFile });
   return { python, modelsDir };
 }
 

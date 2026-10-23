@@ -9,6 +9,7 @@ import { AVATARS, COLORS, REACTIONS, DENIED_MESSAGES, GAME_LABELS, formatKey, si
 import { GAME_UI } from '../games/index.js';
 import { FilterPanel, FilterChip, filterChoices } from '../lib/filters.js';
 import { emptyFilters, filterCount, filterParams } from '/shared/filters.js';
+import { parseLink, LINK_STATES } from '/shared/maker.js';
 import { applyAppearance, followAppearance } from '../lib/theme.js';
 
 sendGuestToken(); // song details come with this guest's own votes (never the host's view)
@@ -86,6 +87,13 @@ conn.on('notify', (m) => {
     buzz([400, 150, 400, 150, 400]);
   } else if (m.kind === 'cohost') {
     toast('The host made you a co-host: player controls are on your Home tab.', 'ok', 6000);
+  } else if (m.kind === 'link') { // a song asked for from a link (PLAN §31.12)
+    const title = typeof m.title === 'string' ? m.title.slice(0, 120) : 'your song';
+    if (m.state === 'done') {
+      toast(m.queued ? `“${title}” is ready — it’s in the queue for you 🎤` : `“${title}” is ready — find it in Songs`, 'ok', 7000);
+      buzz([120, 80, 120]);
+    } else if (m.state === 'failed') toast(`“${title}” couldn’t be made this time`, 'error', 6000);
+    else if (m.state === 'denied') toast(`The host passed on “${title}”${m.reason ? `: ${String(m.reason).slice(0, 120)}` : ''}`, 'error', 6000);
   } else if (m.kind === 'game' && typeof m.text === 'string') {
     toast(m.text.slice(0, 140), 'ok', 6000); // a party game calls on this guest (wheel result…)
     buzz([200, 100, 200]);
@@ -904,7 +912,8 @@ function SearchTab({ state }) {
           <button class="icon-btn add" aria-label=${`Sing ${s.title}`} onClick=${() => openSong(s.id)}><${Icon} name="plus" size=${22} /></button>
         </${SongRow}>`)}</div>
         ${page.error && !page.loading && html`<${LoadError} error=${page.error} onRetry=${page.retry} big=${!page.items.length} />`}
-        ${!page.items.length && !page.loading && !page.error && typed && html`<${Empty} icon="🤷" title="No songs found">Try fewer words, or just the artist.</${Empty}>`}
+        ${!page.items.length && !page.loading && !page.error && typed && html`<${Empty} icon="🤷" title="No songs found">Try fewer words, or just the artist.</${Empty}>
+          ${state.rules.links && html`<p class="g-ask-link"><button class="btn" onClick=${() => { setTab('me'); setTimeout(() => document.getElementById('link-card')?.scrollIntoView({ block: 'start' }), 80); }}><${Icon} name="send" size=${16} /> Ask for it from YouTube</button></p>`}`}
         ${!page.items.length && !page.loading && !page.error && !typed && n > 0 && html`<${Empty} icon="🎚️" title="No songs match all of these">Take a filter or two away.</${Empty}>`}
         ${page.loading && !page.items.length && html`<${Spinner} />`}
         <${MoreSentinel} active=${page.hasMore && !page.error} onMore=${page.more} />`}
@@ -978,6 +987,50 @@ function QueueTab({ state }) {
   </div>`;
 }
 
+const LINK_STEP = { download: 'downloading', separate: 'taking the singer out', mp3: 'taking the singer out', timing: 'timing the lyrics', cdg: 'drawing the lyrics', done: 'nearly there' };
+
+/** Me tab: ask for a song that isn't in the library, from a YouTube link (the host approves it). */
+function LinkCard({ state }) {
+  const rules = state.rules.links;
+  const mine = state.me.links || [];
+  const [url, setUrl] = useState('');
+  const [lyrics, setLyrics] = useState('');
+  const [withLyrics, setWithLyrics] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!rules && !mine.length) return null;
+  const check = url.trim() ? parseLink(url) : null;
+  const send = async (e) => {
+    e.preventDefault();
+    if (!check?.url) return;
+    setBusy(true);
+    const r = await ask('link.add', { url: check.url, lyrics: withLyrics ? lyrics : '' });
+    setBusy(false);
+    if (!r) return;
+    toast('Sent to the host — you’ll hear when it’s ready', 'ok', 5000);
+    setUrl('');
+    setLyrics('');
+    setWithLyrics(false);
+  };
+  return html`<section class="g-card-inline link-card" id="link-card">
+    <h2 class="g-h2">A song that isn’t here?</h2>
+    ${rules && html`<form class="link-form" onSubmit=${send}>
+      <p class="muted">Paste a YouTube link: the host makes it into karaoke${rules.maxPerGuest ? ` (up to ${rules.maxPerGuest} at a time)` : ''}.</p>
+      <input class="input" type="url" inputmode="url" value=${url} placeholder="https://youtu.be/…" aria-label="YouTube link" onInput=${(e) => setUrl(e.currentTarget.value)} />
+      ${url.trim() && check?.error && html`<p class="warn-text">${check.error}</p>`}
+      <label class="toggle-row small"><span>I have the lyrics</span>
+        <span class="switch"><input type="checkbox" checked=${withLyrics} aria-label="I have the lyrics" onChange=${(e) => setWithLyrics(e.currentTarget.checked)} /><span></span></span></label>
+      ${withLyrics && html`<textarea class="input" rows="6" value=${lyrics} placeholder="One sung line per line" aria-label="Lyrics" onInput=${(e) => setLyrics(e.currentTarget.value)}></textarea>`}
+      <button class="btn primary block" disabled=${busy || !check?.url}><${Icon} name="send" size=${18} /> Ask the host</button>
+    </form>`}
+    ${mine.length > 0 && html`<ul class="my-links">${mine.map((r) => html`<li key=${r.id} class=${`my-link ${r.state}`}>
+      <div class="grow"><b class="ellipsis">${r.title}</b>
+        <span class="hint">${LINK_STATES[r.state]}${r.state === 'working' && r.stage ? ` — ${LINK_STEP[r.stage] || 'working'}` : ''}${r.state === 'done' && r.queued ? ' — in the queue for you' : ''}${r.error && r.state !== 'done' ? ` (${r.error})` : ''}</span></div>
+      ${r.state === 'done' && r.songId && html`<button class="btn small" onClick=${() => openSong(r.songId)}>Sing it</button>`}
+      ${['pending', 'queued', 'working'].includes(r.state) && html`<button class="btn small ghost" onClick=${() => ask('link.cancel', { id: r.id })}>Cancel</button>`}
+    </li>`)}</ul>`}
+  </section>`;
+}
+
 function MeTab({ state }) {
   const [editing, setEditing] = useState(false);
   const me = state.me;
@@ -997,6 +1050,7 @@ function MeTab({ state }) {
           <button class="btn small" onClick=${() => setEditing(true)}><${Icon} name="edit" size=${16} /> Edit</button>
         </section>`}
     <${AccountCard} state=${state} />
+    <${LinkCard} state=${state} />
     ${state.rules.photos && html`<${PhotoCard} state=${state} />`}
     <label class="toggle-row"><span><b>Duet invitations</b><br /><span class="hint">Other guests can ask you to sing a song with them.</span></span>
       <span class="switch"><input type="checkbox" checked=${me.profile.duetInvites !== false} aria-label="Duet invitations" onChange=${setInvites} /><span></span></span>

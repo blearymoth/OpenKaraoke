@@ -40,9 +40,11 @@ export class LyricEdits {
    * @param {import('../library/service.js').LibraryService} o.library
    * @param {import('../maker/jobs.js').Maker} o.maker  autokaraoke (its `render`)
    * @param {(trackId: string) => void} [o.onChange]  an edit was drawn or reverted
+   * @param {(trackId: string) => Promise<string|null>} [o.vocalOf]  the separated vocal's URL, if any
    */
-  constructor({ dataDir, library, maker, onChange = () => {} }) {
+  constructor({ dataDir, library, maker, onChange = () => {}, vocalOf = async () => null }) {
     this.root = path.join(dataDir, 'lyrics');
+    this.vocalOf = vocalOf; // the song's separated vocal (a URL), for a guide while editing
     this.library = library;
     this.maker = maker;
     this.onChange = onChange;
@@ -127,6 +129,7 @@ export class LyricEdits {
       edited,
       drawn: this.drawn.has(trackId),
       audio: `/media/${trackId}/audio`,
+      vocal: await this.vocalOf(trackId).catch(() => null),
       file: f.timing,
       renderer: !!this.maker?.where?.installed,
     };
@@ -204,10 +207,13 @@ export class LyricEdits {
       for (const file of [f.timing, f.cdg, f.lrc]) {
         if ((await exists(file)) && !(await exists(`${file}.orig`))) await fs.copyFile(file, `${file}.orig`);
       }
-      await fs.copyFile(draft, f.timing);
+      // Each file whole or not at all (written beside it, then renamed): a reader never sees half.
+      await fs.copyFile(draft, `${f.timing}.part`);
+      await fs.rename(`${f.timing}.part`, f.timing);
       await fs.copyFile(cdg, `${f.cdg}.part`);
       await fs.rename(`${f.cdg}.part`, f.cdg);
-      await fs.writeFile(f.lrc, timingToLrc(song));
+      await fs.writeFile(`${f.lrc}.part`, timingToLrc(song));
+      await fs.rename(`${f.lrc}.part`, f.lrc);
     } catch (e) {
       throw new UserError(e.code === 'EACCES' || e.code === 'EROFS' ? 'That folder can’t be written to (a read-only drive?). The edit stays in OpenKaraoke.' : `Could not write the files: ${e.message}`);
     }

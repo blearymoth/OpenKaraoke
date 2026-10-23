@@ -8,14 +8,18 @@
 // Pure helpers (argument lists, progress, the setup check) are exported for the tests; the
 // tool itself is `autokaraokeTool()` (server/start.js), or a stand-in (server/maker/fake.js).
 import { spawn, execFile } from 'node:child_process';
-import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { pythonFromLauncher, modelsDirFromLauncher } from '../stems/separate.js';
+import { locateAutokaraoke } from './where.js';
+import { gatherSpecs } from '../system/specs.js';
+
+export { locateAutokaraoke, rootFromLauncher } from './where.js';
 
 export const THEMES = ['classic', 'blue', 'green'];
 export const WHISPER_MODELS = ['small', 'medium', 'turbo', 'large-v3'];
 export const DEMUCS_MODELS = ['htdemucs', 'htdemucs_ft'];
+/** Where autokaraoke can look lyrics up (its lyrics_lookup.SOURCES; `make --lyrics-sources`). */
+export const LYRICS_SOURCES = ['sidecar', 'lrclib', 'netease', 'lyricsovh'];
 /** What a song file may be (anything ffmpeg decodes that people keep music in). */
 export const SONG_EXTS = new Set(['mp3', 'm4a', 'aac', 'flac', 'wav', 'ogg', 'opus', 'wma', 'aiff', 'aif', 'mp4', 'm4v', 'mkv', 'webm', 'mov']);
 const LANGUAGE_RE = /^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/;
@@ -54,7 +58,7 @@ export function isSongFile(name) {
  * `python -m autokaraoke make …` (options first, then `--` and the song, so a name that starts
  * with "-" is never an option). Throws on a value that is not allowed.
  */
-export function makeArgs({ song, out, lyricsFile = '', artist = '', title = '', language = 'en', theme = 'classic', whisperModel = 'medium', demucsModel = 'htdemucs' }) {
+export function makeArgs({ song, out, lyricsFile = '', artist = '', title = '', language = 'en', theme = 'classic', whisperModel = 'medium', demucsModel = 'htdemucs', lyricsSources = [], keepStems = false }) {
   if (typeof song !== 'string' || !song) throw new Error('No song');
   if (!cleanUrl(song) && !path.isAbsolute(song)) throw new Error('The song must be a file path or a link');
   if (typeof out !== 'string' || !path.isAbsolute(out)) throw new Error('The save folder must be an absolute path');
@@ -66,8 +70,14 @@ export function makeArgs({ song, out, lyricsFile = '', artist = '', title = '', 
     '--whisper-model', whisperModel, '--model', demucsModel];
   if (lyricsFile) {
     if (!path.isAbsolute(lyricsFile)) throw new Error('Bad lyrics file');
-    args.push('--lyrics', lyricsFile);
+    // Typed lyrics are the authority: --retime, or a timing.json left from an earlier make of the
+    // same song would be used instead of them.
+    args.push('--lyrics', lyricsFile, '--retime');
+  } else if (lyricsSources.length) {
+    if (!lyricsSources.every((x) => LYRICS_SOURCES.includes(x))) throw new Error('Unknown lyrics source');
+    args.push('--lyrics-sources', lyricsSources.join(','));
   }
+  if (keepStems) args.push('--keep-stems');
   const a = cleanName(artist);
   const t = cleanName(title);
   if (a) args.push('--artist', a);
@@ -147,6 +157,9 @@ export function readMakeLine(text, { status = false } = {}) {
   }
   let m;
   if ((m = /\((\d+)s\)\s*$/.exec(s)) && / - |\?/.test(s)) out.duration = Number(m[1]);
+  if (/^Looking for lyrics:/.test(s)) return { stage: 'timing', lyricsFrom: 'looking' };
+  if ((m = /^used the lyrics from (.+?), saved in /.exec(s))) return { lyricsFrom: m[1].slice(0, 40) };
+  if (/^no lyrics found; transcribing instead|^No lyrics given: transcribing/.test(s)) return { stage: 'timing', lyricsFrom: 'whisper' };
   if (/^Separating vocals with|^Using cached stems/.test(s)) Object.assign(out, { stage: 'separate', percent: /^Using cached/.test(s) ? 100 : 0 });
   else if ((m = /^Instrumental: (.+\.mp3)$/.exec(s))) Object.assign(out, { stage: 'timing', percent: 0, mp3: m[1] });
   else if (/^(?:Loading Whisper model|Downloading Whisper model|Aligning \d+ words|No lyrics given|Using existing .*timing\.json)/.test(s)) out.stage = 'timing';
@@ -183,34 +196,6 @@ export function gpuNameOf(text) {
   return name.trim();
 }
 
-/** The launcher's `exec "<root>/.venv/bin/autokaraoke"` → <root>, or ''. */
-export function rootFromLauncher(text) {
-  const m = /^exec "([^"]+)"/m.exec(String(text || ''));
-  if (!m) return '';
-  const bin = path.dirname(m[1]); // <root>/.venv/bin
-  return path.basename(bin) === 'bin' && path.basename(path.dirname(bin)) === '.venv' ? path.dirname(path.dirname(bin)) : '';
-}
-
-const exists = (p) => fs.stat(p).then(() => true, () => false);
-
-/**
- * Where autokaraoke is: `OPENKARAOKE_AUTOKARAOKE_ROOT`, else the folder the launcher
- * (~/.local/bin/autokaraoke) runs from, else ~/Projects/autokaraoke.
- * → { root, python, launcher, modelsDir, hasRoot, installed, installer }
- */
-export async function locateAutokaraoke({ env = process.env, homedir = os.homedir() } = {}) {
-  const launcher = path.join(homedir, '.local', 'bin', 'autokaraoke');
-  let text = '';
-  try { text = await fs.readFile(launcher, 'utf8'); } catch { /* no launcher */ }
-  const root = env.OPENKARAOKE_AUTOKARAOKE_ROOT || rootFromLauncher(text) || path.join(homedir, 'Projects', 'autokaraoke');
-  const python = env.OPENKARAOKE_AUTOKARAOKE_PYTHON || pythonFromLauncher(text) || path.join(root, '.venv', 'bin', 'python');
-  const modelsDir = env.AUTOKARAOKE_MODELS || modelsDirFromLauncher(text) || path.join(root, 'models');
-  const [hasRoot, installed, installer] = await Promise.all([
-    exists(path.join(root, 'autokaraoke', 'cli.py')), exists(python), exists(path.join(root, 'install.sh')),
-  ]);
-  return { root, python, launcher: text ? launcher : '', modelsDir, hasRoot, installed, installer: installer ? path.join(root, 'install.sh') : '' };
-}
-
 function run(file, args, { timeout = 30000, env } = {}) {
   return new Promise((resolve) => {
     execFile(file, args, { timeout, env, maxBuffer: 1 << 20 }, (err, stdout, stderr) => {
@@ -233,15 +218,16 @@ export function autokaraokeTool({ env = process.env, homedir = os.homedir() } = 
     locate: () => locateAutokaraoke({ env, homedir }),
 
     async check(where, { whisperModel = 'medium', demucsModel = 'htdemucs' } = {}) {
-      const [py, ff, gpu] = await Promise.all([
+      const [py, ff, specs] = await Promise.all([
         run(where.installed ? where.python : 'python3', ['--version']),
         run('ffmpeg', ['-hide_banner', '-encoders']),
-        run('nvidia-smi', ['-L'], { timeout: 8000 }),
+        gatherSpecs({ run: (f, a) => run(f, a, { timeout: 8000 }), diskPaths: [where.modelsDir, where.root, homedir] }),
       ]);
       const out = {
         python: py.code === 0 ? (py.out || py.err).trim().replace(/^Python\s+/, '') : '',
         ffmpeg: ff.missing ? 'missing' : /libmp3lame/.test(ff.out + ff.err) ? 'ready' : 'no-mp3',
-        gpu: gpu.code === 0 ? gpuNameOf(gpu.out) : '',
+        gpu: [...specs.gpus].sort((a, b) => b.memMB - a.memMB)[0]?.name || '',
+        specs,
         version: '',
         setup: null,
       };
@@ -253,6 +239,9 @@ export function autokaraokeTool({ env = process.env, homedir = os.homedir() } = 
         ]);
         out.version = (ver.out || ver.err).trim().split('\n')[0].slice(0, 40);
         out.setup = readSetupCheck(setup.out);
+        // What this copy can do: looking lyrics up came with its lyrics-lookup version.
+        const help = await run(where.python, ['-m', 'autokaraoke', 'make', '--help'], { env: e });
+        out.features = { lookup: /--lyrics-sources/.test(help.out + help.err) };
       }
       return out;
     },

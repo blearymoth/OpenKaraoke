@@ -14,6 +14,7 @@ import { Playlists } from './playlists.js';
 import { Photos } from './photos.js';
 import { Settings } from './settings.js';
 import { LyricsEditor } from './lyrics-editor.js';
+import { Decisions, DecisionPopup, decisionsCount } from './decisions.js';
 import { Games } from './games.js';
 import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
 import { followAppearance } from '../lib/theme.js';
@@ -35,6 +36,7 @@ const NAV = [
   ['/playlists', 'music', 'Playlists', 'desktop-only'],
   ['/singers', 'users', 'Singers', 'desktop-only'],
   ['/games', 'game', 'Games'],
+  ['/decisions', 'bell', 'Decisions', 'desktop-only'],
   ['/photos', 'eye', 'Photos', 'desktop-only'],
   ['/history', 'history', 'History', 'desktop-only'],
   ['/settings', 'settings', 'Settings', 'desktop-only'],
@@ -50,8 +52,12 @@ function navBadge(path, state) {
     if (waiting) return html`<span class="badge bulb">${waiting}</span>`;
     return state.queue.length ? html`<span class="badge neon">${state.queue.length}</span>` : null;
   }
+  if (path === '/decisions' || path === '/more') {
+    const d = path === '/decisions' ? decisionsCount(state) : (state.linkCounts?.pending || 0) + pendingPhotos();
+    return d ? html`<span class="badge bulb">${d}</span>` : null;
+  }
   const n = path === '/games' ? (state.game && !state.game.ended ? 'live' : 0)
-    : path === '/photos' || path === '/more' ? pendingPhotos()
+    : path === '/photos' ? pendingPhotos()
     : 0;
   return n ? html`<span class="badge neon">${n}</span>` : null;
 }
@@ -162,6 +168,7 @@ function Main({ route, narrow }) {
     case 'history': return html`<${History} />`;
     case 'settings': return html`<${Settings} section=${b} />`;
     case 'lyrics': return html`<${LyricsEditor} trackId=${b} key=${b} />`;
+    case 'decisions': return html`<${Decisions} />`;
     case 'panel': return narrow
       ? html`<div class="panel-page"><${AdminPanel} page=${true} tab=${PANEL_TABS.includes(b) ? b : store.get().panelTab} /></div>`
       : html`<${PanelRedirect} tab=${b} />`;
@@ -223,6 +230,7 @@ function App() {
     ${narrow ? !fullPlayer && html`<${MiniPlayer} />` : html`<${PlayerBar} />`}
     <${Dialogs} />
     <${UpdateToast} route=${route} />
+    <${DecisionPopup} route=${route} />
     <${Toasts} store=${toasts.store} />
   </div>`;
 }

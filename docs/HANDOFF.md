@@ -1,7 +1,8 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-23 (the lyrics editor, the Karaoke maker — autokaraoke in Settings — and
-Pitch rings in 3D; see those sections below. Before that, on
+_Last updated: 2026-10-23 (songs from a link — guests ask, the host decides —, the hardware check,
+lyrics lookup and kept vocals; before that the lyrics editor, the Karaoke maker — autokaraoke in
+Settings — and Pitch rings in 3D; see those sections below. Before that, on
 2026-10-18: separated vocals on any version, the headphone monitor, guest accounts, the year &
 genre checker, the Library table, browse filters, singer playback controls. Run in a cloud sandbox
 without the owner's PC or drive)._
@@ -11,9 +12,9 @@ without the owner's PC or drive)._
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 599/599; `npm run e2e` → 28 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 599/599; `npm run e2e` → 29 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `lyrics-editor.mjs` the lyrics editor, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `lyrics-editor.mjs` the lyrics editor, `links.mjs` songs from a link, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
@@ -1345,6 +1346,39 @@ PLAN §31.10. For the songs autokaraoke made (a `NAME.timing.json` beside the CD
 - Tests: `test/timing.test.js` (5), `test/lyrics-editor.test.js` (3), `test/e2e/lyrics-editor.mjs` (27).
 - Owner checklist: on a song made with the real autokaraoke — fix a few words, tap a verse, save
   while it plays on the TV, and check the colours match the original drawing.
+
+## Songs from a link, the hardware check, lyrics lookup, kept vocals (2026-10-23)
+From the SongGetter/autokaraoke handoff (PLAN §31.2, §31.9, §31.11, §31.12). The owner chose:
+- songs are saved inside the library;
+- the vocals are kept;
+- a request belongs to the guest's account when signed in;
+- vocal separations go before maker jobs.
+- **Guests ask** (Settings → Karaoke maker → *Guests can ask for a song from YouTube*; off by
+  default): their phone's Me tab takes a YouTube link and, if they have them, the lyrics.
+  - A popup asks you at once; **Decisions** (in the nav, with a badge) has every request, the lyrics
+    to correct, the ones being made and the recent ones.
+  - Approve → the Karaoke maker makes it → it is queued for them, and their phone is told.
+- **The hardware check** opens Settings → Karaoke maker: the graphics card and its memory, cores,
+  memory and free space.
+  - The verdict is fast / fast enough / slow but fine / not recommended. It runs at every start.
+  - The lyric timer's default is **Auto** (the verdict's model).
+- **Lyrics**: typed ones win (with `--retime` now: before, an old `timing.json` won). Otherwise
+  autokaraoke looks them up (LRCLIB by default), and only then does Whisper listen. Looking up needs
+  autokaraoke's `lyrics-lookup` version (SongGetter PR #1); an older copy is detected and not
+  asked.
+- **Kept vocals**: every made song keeps its separated vocals in `data/stems/`, so it has
+  Separated vocals at once, and the lyrics editor has a **Guide vocal** button.
+- **Also**: links are YouTube videos only; new songs go to `<first library folder>/OpenKaraoke
+  Maker` (it must be inside a connected library folder); one way to find autokaraoke for
+  everything (`server/maker/where.js`).
+- Tests: `test/links.test.js` (5), `test/maker-links.test.js` (3), `test/specs.test.js` (4),
+  `test/maker.test.js` (8), `test/e2e/links.mjs` (23), `test/e2e/maker.mjs` (29).
+- Owner checklist, on the PC with the real autokaraoke:
+  - merge SongGetter PR #1 and update `~/Projects/autokaraoke` (`git status` there first: the
+    handoff saw uncommitted work);
+  - check the verdict;
+  - a guest asks for a song from their phone; approve it; it is made and queued;
+  - a song with no lyrics typed (looked up), and one LRCLIB doesn't know (Whisper).
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

@@ -8,14 +8,13 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { UserError } from '../util/errors.js';
 import { logger } from '../util/log.js';
-import { rescanForPaths } from '../library/service.js';
+import { parseLink, cleanLyrics } from '../../shared/maker.js';
 import {
-  readMakeLine, makeArgs, cleanName, cleanUrl, guessNames, isSongFile, THEMES, WHISPER_MODELS, DEMUCS_MODELS,
+  readMakeLine, makeArgs, cleanName, guessNames, isSongFile, THEMES, WHISPER_MODELS, DEMUCS_MODELS,
 } from './autokaraoke.js';
 
 const log = logger('maker');
@@ -33,15 +32,8 @@ const inside = (dir, root) => {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 };
 
-/** The folder autokaraoke's own window saved to last, or ~/Karaoke (its default). */
-export function defaultOut(homedir = os.homedir()) {
-  try {
-    const base = process.env.XDG_CONFIG_HOME || path.join(homedir, '.config');
-    const saved = JSON.parse(fs.readFileSync(path.join(base, 'autokaraoke', 'window.json'), 'utf8'));
-    if (typeof saved.out === 'string' && path.isAbsolute(saved.out)) return saved.out;
-  } catch { /* none saved */ }
-  return path.join(homedir, 'Karaoke');
-}
+/** The default save folder's name, inside the first library folder. */
+export const MAKER_FOLDER = 'OpenKaraoke Maker';
 
 export class Maker {
   /**
@@ -54,7 +46,7 @@ export class Maker {
    * @param {() => boolean} o.songPlaying someone is singing now
    * @param {() => void} o.onChange
    */
-  constructor({ dataDir, tool, lane, settings, library, songPlaying = () => false, onChange = () => {}, homedir = os.homedir() }) {
+  constructor({ dataDir, tool, lane, settings, library, songPlaying = () => false, onChange = () => {} }) {
     this.dir = path.join(dataDir, 'maker');
     this.tool = tool || null;
     this.lane = lane;
@@ -62,7 +54,6 @@ export class Maker {
     this.library = library;
     this.songPlaying = songPlaying;
     this.onChange = onChange;
-    this.homedir = homedir;
     this.where = null;
     this.checks = null;
     this.checking = false;
@@ -87,9 +78,24 @@ export class Maker {
     this.onChange();
   }
 
-  out() {
+  /**
+   * Where made songs go: the host's folder, else <first library folder>/OpenKaraoke Maker. It must
+   * be inside a library folder whose drive is connected. → { folder, root, problem }
+   */
+  outInfo() {
+    const roots = this.library.paths;
     const saved = this.settings.get('maker.out');
-    return typeof saved === 'string' && path.isAbsolute(saved) ? saved : defaultOut(this.homedir);
+    const folder = typeof saved === 'string' && path.isAbsolute(saved) ? path.resolve(saved) : roots[0] ? path.join(roots[0], MAKER_FOLDER) : '';
+    const root = roots.find((r) => inside(folder, r)) || '';
+    const online = !!root && this.library.status().roots.some((r) => r.path === root && r.online);
+    const problem = !roots.length ? 'Add a karaoke folder first (Settings → Library): new songs are saved inside it.'
+      : !root ? 'The save folder must be inside one of your karaoke folders.'
+        : !online ? 'The drive with that karaoke folder isn’t connected.' : '';
+    return { folder, root, problem };
+  }
+
+  out() {
+    return this.outInfo().folder;
   }
 
   /** Looks at this computer and the install again (the page's "Check again", and after a task). */
@@ -173,8 +179,9 @@ export class Maker {
       song = this.uploads.get(upload).file;
       label = this.uploads.get(upload).name;
     } else if (typeof s.url === 'string' && s.url) {
-      song = cleanUrl(s.url);
-      if (!song) throw new UserError('That link doesn’t look right (it should start with https://).');
+      const link = parseLink(s.url);
+      if (link.error) throw new UserError(link.error);
+      song = link.url;
       label = song;
     } else if (typeof s.path === 'string' && s.path) {
       if (!path.isAbsolute(s.path) || !isSongFile(s.path)) throw new UserError('Choose a song file (MP3, M4A, FLAC, WAV, OGG, Opus…).');
@@ -183,19 +190,19 @@ export class Maker {
       song = path.resolve(s.path);
       label = path.basename(song);
     } else throw new UserError('Choose a song file, upload one, or paste a link.');
-    const lyrics = typeof input.lyrics === 'string' ? input.lyrics.replace(/\r\n?/g, '\n') : '';
-    if (lyrics.length > MAX_LYRICS) throw new UserError('Those lyrics are too long.');
+    if (typeof input.lyrics === 'string' && input.lyrics.length > MAX_LYRICS) throw new UserError('Those lyrics are too long.');
+    const lyrics = cleanLyrics(input.lyrics);
     const guess = upload || s.path ? guessNames(label) : { artist: '', title: '' };
     const artist = cleanName(input.artist) || guess.artist;
     const title = cleanName(input.title) || guess.title;
-    if (!title && !upload && !s.path) throw new UserError('Type the song’s title (and artist) for a link.');
     const opts = {
       language: typeof input.language === 'string' && /^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(input.language) ? input.language : this.settings.get('maker.language') || 'en',
       theme: THEMES.includes(input.theme) ? input.theme : this.settings.get('maker.theme'),
       whisperModel: this.settings.get('maker.whisperModel'),
       demucsModel: this.settings.get('maker.demucsModel'),
     };
-    const out = this.out();
+    const { folder: out, problem } = this.outInfo();
+    if (problem) throw new UserError(problem);
     makeArgs({ song, out, artist, title, ...opts }); // (throws on anything it won't run)
     const job = {
       id: newId(), status: 'queued', stage: '', percent: 0, bar: '', lines: [], song, label, upload,
@@ -363,7 +370,7 @@ export class Maker {
     this.onChange();
   }
 
-  /** The save folder as a library folder of its own, rescanned; then which song the pair is. */
+  /** The library folder the song was saved in, rescanned; then which song the pair is. */
   async addToLibrary(job) {
     const mp3 = job.mp3 || (job.names ? path.join(job.out, job.names.mp3) : '');
     if (!mp3) return;
@@ -372,14 +379,14 @@ export class Maker {
     this.onChange();
     try {
       const out = path.resolve(job.out);
-      let roots = this.library.paths.filter((r) => inside(out, r));
-      if (this.settings.get('maker.addToLibrary') && !this.library.paths.includes(out)) {
-        const before = this.library.paths;
-        const after = await this.library.setPaths([...before, out]);
-        roots = rescanForPaths(before, after);
-      } else if (this.library.paths.includes(out)) roots = [out];
+      // The innermost library folder it is in (a folder inside another is scanned as its own).
+      const roots = this.library.paths.filter((r) => inside(out, r)).sort((a, b) => b.length - a.length).slice(0, 1);
       if (roots.length) await this.library.scan({ reason: 'made with autokaraoke', roots });
-      const track = this.findTrack(cdg);
+      let track = this.findTrack(cdg);
+      if (!track && this.library.scanning) { // (another scan was running: ours follows it)
+        await Promise.resolve(this.library.scanning).catch(() => {});
+        track = this.findTrack(cdg);
+      }
       if (track) Object.assign(job.result, { trackId: track.id, songId: track.songId });
     } catch (e) {
       log.info(`could not add ${mp3} to the library: ${e.message}`);
@@ -465,6 +472,7 @@ export class Maker {
       checks: this.checks,
       checking: this.checking,
       out: this.out(),
+      outProblem: this.outInfo().problem,
       task: this.task ? { kind: this.task.kind, status: this.task.status, code: this.task.code, bar: this.task.bar, lines: this.task.lines.slice(-60) } : null,
       jobs: this.jobs.map((j) => this.jobView(j)),
       waitsDuringSongs: !this.checks?.gpu && !this.settings.get('maker.duringSongs'),

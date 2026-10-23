@@ -74,10 +74,11 @@ Server (`server/`)
 - `stems/` — autokaraoke's separator (`separate.js`: Demucs, the model name, music + vocal),
   `jobs.js` (`data/stems/`, one at a time): a multiplex track's vocal for the preview, and any
   audio version the host has separated, played by the room at a Vocals level (PLAN §30).
-- `maker/` — the Karaoke maker (PLAN §31.9): `autokaraoke.js` (finding autokaraoke in
-  ~/Projects/autokaraoke, its command lines, reading its output; the real tool), `jobs.js` (`Maker`:
+- `maker/` — the Karaoke maker (PLAN §31.9): `where.js` (finding autokaraoke — ~/Projects/autokaraoke,
+  its launcher, the env overrides — for the maker and the stems alike), `autokaraoke.js` (its command
+  lines, reading its output; the real tool), `jobs.js` (`Maker`:
   uploads, jobs in the heavy-job lane `util/lane.js` shared with the stems, waiting during songs,
-  adding the save folder to the library, install/models), `fake.js` (the stand-in tests use;
+  the save folder inside the library and its rescan, install/models), `fake.js` (the stand-in tests use;
   `OPENKARAOKE_FAKE_MAKER=1`).
 - `lyrics/edits.js` — the lyrics editor's edits (PLAN §31.10): data/lyrics/<trackId>/ (timing.json +
   the CDG autokaraoke draws from it), served in place of the disc's CDG; revert, write back, rekey.
@@ -114,7 +115,7 @@ sung lines, found in one pass: each pixel's unsung/sung colour and moment — PL
 time), `graphics.js` (which WebGL renderers draw in software), `pitch3d.js` (Pitch rings' 3D scene: matrices,
 meshes, ring poses, the camera — pure), `monitor.js` (the headphone monitor's
 timing rules), `timing.js` (autokaraoke's timing.json: reading, cleaning, LRC, new words keep the times, the
-editor's operations — PLAN §31.10), `filters.js` (browse filters: several
+editor's operations — PLAN §31.10), `maker.js` (song links: YouTube only, `parseLink`; typed lyrics; request states), `filters.js` (browse filters: several
 decades, genres, tags and version types, read from repeated URL parameters — PLAN §25; the Library
 table's columns — §26).
 

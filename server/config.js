@@ -111,8 +111,7 @@ export const DEFAULT_SETTINGS = {
     maxCacheMB: 3072,
   },
   maker: { // the Karaoke maker: songs made with autokaraoke (PLAN §31)
-    out: '', // the save folder ('' = autokaraoke's own last one, else ~/Karaoke)
-    addToLibrary: true, // the save folder becomes a library folder, rescanned after each song
+    out: '', // the save folder, inside a library folder ('' = <first library folder>/OpenKaraoke Maker)
     language: 'en',
     theme: 'classic', // autokaraoke's colours: classic, blue, green
     whisperModel: 'medium',

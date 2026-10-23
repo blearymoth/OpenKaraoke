@@ -1977,7 +1977,8 @@ its windows redesigned as part of Settings. So OpenKaraoke ships none of it: it 
 runs its command line, and shows the work in **Settings → Karaoke maker**. Milestones 2–4 are
 built (§31.7); the benchmark (1) and guests' wishes (3) are not.
 
-- **Finding it** (`server/maker/autokaraoke.js` `locateAutokaraoke`): `OPENKARAOKE_AUTOKARAOKE_ROOT`,
+- **Finding it** (`server/maker/where.js` `locateAutokaraoke`, also what the vocal separator uses,
+  so there is one answer): `OPENKARAOKE_AUTOKARAOKE_ROOT`,
   else the folder its launcher `~/.local/bin/autokaraoke` runs from, else `~/Projects/autokaraoke`;
   Python is `<root>/.venv/bin/python` (or `OPENKARAOKE_AUTOKARAOKE_PYTHON`), the models
   `AUTOKARAOKE_MODELS` or the launcher's. Every command is `python -m autokaraoke …` through
@@ -1993,13 +1994,17 @@ built (§31.7); the benchmark (1) and guests' wishes (3) are not.
   folder picker lists song files), an upload from the browser (`POST /api/maker/upload`, host only,
   streamed to `data/maker/uploads/`, 500 MB at most, song file names only; deleted once the song
   is made, and on a restart) or a link (http/https; then a title is needed). Artist and title come
-  from "Artist - Title" file names; the lyrics (≤ 50 KB) go to autokaraoke as a file; the language
+  from "Artist - Title" file names (a link's from YouTube, by autokaraoke); a link must be a YouTube
+  video (`shared/maker.js` `parseLink`: reduced to `https://www.youtube.com/watch?v=<id>`; no other
+  site, playlist, port or credentials); typed lyrics go to autokaraoke as a file with `--retime`
+  (an earlier make's `timing.json` would otherwise win over them); the language
   and colours are the job's, the models the settings'. Progress is read from autokaraoke's own
   messages (`readMakeLine`: download → remove the singer → time the lyrics → draw the lyrics →
   done; a carriage return is a progress bar's update). Cancel kills its process group.
-- **Where the song goes**: `settings.maker.out` (by default autokaraoke's own last folder, or
-  `~/Karaoke`). With `maker.addToLibrary` (on) that folder becomes a library folder of its own and
-  is rescanned by itself; the job then names the song (Queue it, Song details).
+- **Where the song goes** (owner, 2026-10-23: inside the library): `settings.maker.out`, by default
+  `<first library folder>/OpenKaraoke Maker`; it must be inside a library folder whose drive is
+  connected (else nothing is made, and Settings says why). After a song, that library folder (the
+  innermost one holding it) is rescanned; the job then names the song (Queue it, Song details).
 - **During a party** (§31.3): one heavy job at a time — the stems (§21, §30) take the same
   `util/lane.js` lane, ahead of a waiting song; `make` runs at the lowest priority with
   `OMP_NUM_THREADS` = cores − 2. Without a graphics card a job waits while a song plays

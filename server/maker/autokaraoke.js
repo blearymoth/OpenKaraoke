@@ -8,14 +8,17 @@
 // Pure helpers (argument lists, progress, the setup check) are exported for the tests; the
 // tool itself is `autokaraokeTool()` (server/start.js), or a stand-in (server/maker/fake.js).
 import { spawn, execFile } from 'node:child_process';
-import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { pythonFromLauncher, modelsDirFromLauncher } from '../stems/separate.js';
+import { locateAutokaraoke } from './where.js';
+
+export { locateAutokaraoke, rootFromLauncher } from './where.js';
 
 export const THEMES = ['classic', 'blue', 'green'];
 export const WHISPER_MODELS = ['small', 'medium', 'turbo', 'large-v3'];
 export const DEMUCS_MODELS = ['htdemucs', 'htdemucs_ft'];
+/** Where autokaraoke can look lyrics up (its lyrics_lookup.SOURCES; `make --lyrics-sources`). */
+export const LYRICS_SOURCES = ['sidecar', 'lrclib', 'netease', 'lyricsovh'];
 /** What a song file may be (anything ffmpeg decodes that people keep music in). */
 export const SONG_EXTS = new Set(['mp3', 'm4a', 'aac', 'flac', 'wav', 'ogg', 'opus', 'wma', 'aiff', 'aif', 'mp4', 'm4v', 'mkv', 'webm', 'mov']);
 const LANGUAGE_RE = /^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/;
@@ -54,7 +57,7 @@ export function isSongFile(name) {
  * `python -m autokaraoke make …` (options first, then `--` and the song, so a name that starts
  * with "-" is never an option). Throws on a value that is not allowed.
  */
-export function makeArgs({ song, out, lyricsFile = '', artist = '', title = '', language = 'en', theme = 'classic', whisperModel = 'medium', demucsModel = 'htdemucs' }) {
+export function makeArgs({ song, out, lyricsFile = '', artist = '', title = '', language = 'en', theme = 'classic', whisperModel = 'medium', demucsModel = 'htdemucs', lyricsSources = [], keepStems = false }) {
   if (typeof song !== 'string' || !song) throw new Error('No song');
   if (!cleanUrl(song) && !path.isAbsolute(song)) throw new Error('The song must be a file path or a link');
   if (typeof out !== 'string' || !path.isAbsolute(out)) throw new Error('The save folder must be an absolute path');
@@ -66,8 +69,14 @@ export function makeArgs({ song, out, lyricsFile = '', artist = '', title = '', 
     '--whisper-model', whisperModel, '--model', demucsModel];
   if (lyricsFile) {
     if (!path.isAbsolute(lyricsFile)) throw new Error('Bad lyrics file');
-    args.push('--lyrics', lyricsFile);
+    // Typed lyrics are the authority: --retime, or a timing.json left from an earlier make of the
+    // same song would be used instead of them.
+    args.push('--lyrics', lyricsFile, '--retime');
+  } else if (lyricsSources.length) {
+    if (!lyricsSources.every((x) => LYRICS_SOURCES.includes(x))) throw new Error('Unknown lyrics source');
+    args.push('--lyrics-sources', lyricsSources.join(','));
   }
+  if (keepStems) args.push('--keep-stems');
   const a = cleanName(artist);
   const t = cleanName(title);
   if (a) args.push('--artist', a);
@@ -181,34 +190,6 @@ export function gpuNameOf(text) {
   let name = first.includes(':') ? first.slice(first.indexOf(':') + 1).trim() : first;
   if (name.includes(' (')) name = name.slice(0, name.indexOf(' ('));
   return name.trim();
-}
-
-/** The launcher's `exec "<root>/.venv/bin/autokaraoke"` → <root>, or ''. */
-export function rootFromLauncher(text) {
-  const m = /^exec "([^"]+)"/m.exec(String(text || ''));
-  if (!m) return '';
-  const bin = path.dirname(m[1]); // <root>/.venv/bin
-  return path.basename(bin) === 'bin' && path.basename(path.dirname(bin)) === '.venv' ? path.dirname(path.dirname(bin)) : '';
-}
-
-const exists = (p) => fs.stat(p).then(() => true, () => false);
-
-/**
- * Where autokaraoke is: `OPENKARAOKE_AUTOKARAOKE_ROOT`, else the folder the launcher
- * (~/.local/bin/autokaraoke) runs from, else ~/Projects/autokaraoke.
- * → { root, python, launcher, modelsDir, hasRoot, installed, installer }
- */
-export async function locateAutokaraoke({ env = process.env, homedir = os.homedir() } = {}) {
-  const launcher = path.join(homedir, '.local', 'bin', 'autokaraoke');
-  let text = '';
-  try { text = await fs.readFile(launcher, 'utf8'); } catch { /* no launcher */ }
-  const root = env.OPENKARAOKE_AUTOKARAOKE_ROOT || rootFromLauncher(text) || path.join(homedir, 'Projects', 'autokaraoke');
-  const python = env.OPENKARAOKE_AUTOKARAOKE_PYTHON || pythonFromLauncher(text) || path.join(root, '.venv', 'bin', 'python');
-  const modelsDir = env.AUTOKARAOKE_MODELS || modelsDirFromLauncher(text) || path.join(root, 'models');
-  const [hasRoot, installed, installer] = await Promise.all([
-    exists(path.join(root, 'autokaraoke', 'cli.py')), exists(python), exists(path.join(root, 'install.sh')),
-  ]);
-  return { root, python, launcher: text ? launcher : '', modelsDir, hasRoot, installed, installer: installer ? path.join(root, 'install.sh') : '' };
 }
 
 function run(file, args, { timeout = 30000, env } = {}) {

@@ -7,6 +7,7 @@ import { html, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { Switch, Spinner, go } from '../lib/components.js';
 import { act, toast, openDialog, chooseFolder, chooseSongFile, saveSetting } from './state.js';
+import { parseLink } from '/shared/maker.js';
 
 const LANGUAGES = [['en', 'English'], ['fi', 'Finnish'], ['sv', 'Swedish'], ['no', 'Norwegian'], ['da', 'Danish'], ['de', 'German'],
   ['nl', 'Dutch'], ['fr', 'French'], ['es', 'Spanish'], ['it', 'Italian'], ['pt', 'Portuguese'], ['pl', 'Polish'], ['ja', 'Japanese'], ['ko', 'Korean'], ['zh', 'Chinese']];
@@ -83,8 +84,10 @@ function MakeForm({ settings }) {
     file.text().then((text) => set({ lyrics: text.slice(0, 50000) }), () => toast('Could not read that file', 'error'));
     if (lyricsRef.current) lyricsRef.current.value = '';
   };
+  const link = f.mode === 'link' && f.url.trim() ? parseLink(f.url) : null;
+  const linkError = link?.error || '';
   const song = f.mode === 'upload' ? (f.upload ? { upload: f.upload.id } : null)
-    : f.mode === 'link' ? (f.url.trim() ? { url: f.url.trim() } : null)
+    : f.mode === 'link' ? (link?.url ? { url: link.url } : null)
       : (f.path ? { path: f.path } : null);
   const make = async () => {
     if (!song) return toast(f.mode === 'link' ? 'Paste a link first' : 'Choose a song first', 'error');
@@ -114,7 +117,8 @@ function MakeForm({ settings }) {
       </div>`}
       ${f.mode === 'link' && html`<input class="input" type="url" value=${f.url} placeholder="https://www.youtube.com/watch?v=…" aria-label="Link to the song"
         onInput=${(e) => set({ url: e.currentTarget.value })} />
-        <p class="hint">Only songs you have the right to use — your own uploads, or music whose owner allows it (YouTube’s terms restrict downloading).</p>`}
+        ${f.url.trim() && linkError && html`<p class="warn-text">${linkError}</p>`}
+        <p class="hint">A YouTube video. autokaraoke names the song from YouTube unless you type it below. Only songs you have the right to use — your own uploads, or music whose owner allows it (YouTube’s terms restrict downloading).</p>`}
     </div>
     <div class="row-2">
       <label class="field"><span>Artist</span><input class="input" value=${f.artist} maxlength="120" onInput=${(e) => set({ artist: e.currentTarget.value })} /></label>
@@ -255,13 +259,14 @@ function MakerSettings({ settings, m }) {
   const save = (key, value) => saveSetting(`maker.${key}`, value);
   return html`
     <h3 class="section-title">Making songs</h3>
-    <div class="setting">
-      <div class="setting-text"><b>Save new songs in</b><p class="hint mono ellipsis">${m.out}</p></div>
-      <div class="setting-control"><button class="btn" onClick=${() => chooseFolder((p) => save('out', p))}><${Icon} name="folder" size=${16} /> Change…</button></div>
-    </div>
-    <div class="setting bool">
-      <div class="setting-text"><b>Add them to the library</b><p class="hint">The folder becomes one of your karaoke folders and is scanned after each new song.</p></div>
-      <div class="setting-control"><${Switch} checked=${settings.addToLibrary} label="Add them to the library" onChange=${(v) => save('addToLibrary', v)} /></div>
+    <div class="setting mk-out">
+      <div class="setting-text"><b>Save new songs in</b>
+        <p class="hint mono ellipsis">${m.out || '—'}</p>
+        ${m.outProblem ? html`<p class="warn-text">${m.outProblem}</p>` : html`<p class="hint">Inside your library: that folder is scanned again after each new song.</p>`}</div>
+      <div class="setting-control btn-row">
+        ${settings.out && html`<button class="btn ghost" onClick=${() => save('out', '')}>Default</button>`}
+        <button class="btn" onClick=${() => chooseFolder((p) => save('out', p))}><${Icon} name="folder" size=${16} /> Change…</button>
+      </div>
     </div>
     <div class="setting">
       <div class="setting-text"><b>Lyric timer</b><p class="hint">A bigger model times hard songs better, and is slower.</p></div>
@@ -289,6 +294,8 @@ export function MakerSection({ state }) {
     ${installed && missing.length > 0 && html`<div class="banner warn mk-banner"><${Icon} name="alert" size=${18} />
       <div class="grow"><b>The models aren’t downloaded yet.</b><p class="hint">${missing.map((x) => x.name).join(', ')} — needed once, then songs are made without the internet.</p></div>
       <button class="btn small" disabled=${running} onClick=${() => act('maker.setup', {})}>Download</button></div>`}
+    ${installed && m.outProblem && html`<div class="banner warn mk-banner"><${Icon} name="alert" size=${18} />
+      <div class="grow"><b>New songs can’t be saved right now.</b><p class="hint">${m.outProblem}</p></div></div>`}
     ${installed ? html`<${MakeForm} settings=${settings} />` : html`<${InstallBlock} m=${m} />`}
     <${Task} task=${m.task} />
     ${m.jobs.length > 0 && html`<div class="mk-jobs">${[...m.jobs].reverse().map((j) => html`<${Job} key=${j.id} job=${j} />`)}</div>`}

@@ -1,23 +1,22 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-18 (separated vocals on any version: the host has a version separated
-and the room plays it with the vocals off, quiet or full — see "Separated vocals on any version"
-below. Earlier the same day: the headphone monitor, guest accounts, the year & genre checker, the
-Library table, browse filters, singer playback controls. Run in a cloud sandbox without the
-owner's PC or drive)._
+_Last updated: 2026-10-23 (Pitch rings in 3D — see "Pitch rings in 3D" below. Before that, on
+2026-10-18: separated vocals on any version, the headphone monitor, guest accounts, the year &
+genre checker, the Library table, browse filters, singer playback controls. Run in a cloud sandbox
+without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 578/578; `npm run e2e` → 26 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 584/584; `npm run e2e` → 26 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
   the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
-  plain http), `game-pitch.mjs` the pitch rings, `video-convert.mjs` an AVI through ffmpeg); `npm --prefix desktop test` → 51/51 + 35/35 + 8/8 (the
+  plain http), `game-pitch.mjs` the pitch rings (in 3D, a sung G4, and the flat playfield without WebGL), `video-convert.mjs` an AVI through ffmpeg); `npm --prefix desktop test` → 51/51 + 35/35 + 8/8 (the
   desktop app, also against the built installer, the setup window, and a 20k-track library through
   the worker threads; the release workflow also
   runs the setup test against the real AppImage from `OpenKaraoke-Setup.zip`). Every milestone also went through an independent review
@@ -1290,12 +1289,29 @@ the host asks, on htdemucs (the model name in one place).
   autokaraoke); check the time it takes, that the TV switches over without a jump, and how
   Off sounds.
 
+## Pitch rings in 3D (2026-10-23)
+PLAN §13, item 7. Same game, rules, server and phones; the TV draws the run in 3D.
+- **What you see**: the ball flies into the screen at the height of the sung note (the camera
+  follows it a little); rings come out of the distance at their note's height and reach the ball
+  when the server scores them; a cleared ring turns green and opens up, a missed one red, and both
+  fade just past the ball. Lane marks at the scale's notes and a moving floor give the depth.
+- **How**: WebGL 1 by hand, no library (`public/js/games/pitch3d.js`: two small shaders, a torus
+  and a sphere); the maths (camera, poses, meshes) is pure in `shared/pitch3d.js`, and the tests
+  check that every ring and the ball stay on screen at any height and screen shape. Colours are
+  the skin's tokens.
+- **Slow PCs**: the canvas lowers its resolution when frames slow down (to 45 % at most), and starts
+  at 70 % with the lighter effects. Without WebGL (or after a lost context) the old flat playfield
+  plays the same run.
+- Tests: `test/pitch3d.test.js` (6), `test/e2e/game-pitch.mjs` (13: WebGL on the TV, frames keep
+  coming, the TV hears a sung G4 at its height, the flat playfield without WebGL, the mic error).
+- Owner checklist: a run on the party PC's TV (frame rate, the ring sizes from the sofa, both skins).
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
   - ~~Browse/search filters~~, ~~the host Library table~~, ~~the year & genre checker~~,
-    ~~guest accounts~~, ~~the headphone monitor~~ and ~~separated vocals~~ (done, above).
-  - **Pitch rings rebuilt in 3D** (the pitch game, `test/e2e/game-pitch.mjs`).
+    ~~guest accounts~~, ~~the headphone monitor~~, ~~separated vocals~~ and ~~Pitch rings in 3D~~
+    (done, above).
   - **Making karaoke in the app** with the owner's SongGetter/autokaraoke: planned in PLAN §31
     (size: ≈4 GB CPU-only, ≈7.5 GB with an NVIDIA GPU, never bundled; hardware tiers; one ML
     job at a time at low priority during a party; milestones; open questions). Not started.

@@ -104,7 +104,8 @@ analysis — PLAN §21), `lyrics.js` (readable lyrics: the looks' and layouts' s
 colour roles, the readable palette, the scroll timeline — PLAN §9.5), `lyric-lines.js` (a disc's
 sung lines, found in one pass: each pixel's unsung/sung colour and moment — PLAN §9.6),
 `lyric-layout.js` (when and where lines show: two lines, the scrolling list; pure functions of the
-time), `graphics.js` (which WebGL renderers draw in software), `monitor.js` (the headphone monitor's
+time), `graphics.js` (which WebGL renderers draw in software), `pitch3d.js` (Pitch rings' 3D scene: matrices,
+meshes, ring poses, the camera — pure), `monitor.js` (the headphone monitor's
 timing rules), `filters.js` (browse filters: several
 decades, genres, tags and version types, read from repeated URL parameters — PLAN §25; the Library
 table's columns — §26).
@@ -129,6 +130,8 @@ Browser (`public/`, plain ES modules, Preact + htm)
   monitor: the TV's audio engine on headphones, in time with the TV — PLAN §29).
 - `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts, the
   singer's own controls during their song (PLAN §24).
+- `js/games/` — each game's host/TV/phone UI; `pitch3d.js` draws Pitch rings in WebGL 1 (no library;
+  the flat playfield without WebGL).
 - `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`, `versions.js`
   (version names/labels, thumbs up/down), `filters.js` (the browse filter panel and chips, host and guest),
   `components.js`, `icons.js`, `theme.js` (follows the skin live, `token()` for code that needs

@@ -218,7 +218,7 @@ shared/
   graphics.js           ✅ which WebGL renderers draw in software (TV lighter effects, desktop Graphics)
   protocol.js           ✅ shared constants shared by server and clients
   themes.js             ✅ skins (Studio, Party): ids, names, appearance validation
-  quiz.js wheel.js applause.js pitch.js   ✅ game rules shared by the server and the TV/phones
+  quiz.js wheel.js applause.js pitch.js pitch3d.js   ✅ game rules shared by the server and the TV/phones
 public/
   index.html            ✅ landing: links to Host / TV / Join + QR
   host.html tv.html guest.html   ✅ app shells (import maps not needed; import /js/... directly)
@@ -830,9 +830,21 @@ Phones auto-join when they send an answer/vote; the host controls start/next/end
    intervals among participants; that phone vibrates.
 6. **Applause meter**: 5 s mic measurement on the PC (localhost is a secure context; phones on
    LAN http are not, so no phone mics) → 0–100 meter.
-7. **Pitch rings**: the singer's pitch moves a ball on the TV; rings scroll in and they sing
+7. **Pitch rings**: the singer's pitch moves a ball on the TV; rings come in and they sing
    through the hole (party-computer mic only, no reference tone). Score = rings cleared per run;
    best count wins. This is not pitch-graded karaoke — CDG has no melody (see §13.9).
+   **In 3D** (owner request, 2026-10-18): the TV draws the run with WebGL 1, by hand
+   (`public/js/games/pitch3d.js`; the scene's maths in `shared/pitch3d.js`). The camera is behind
+   the ball, which flies into the screen at the height of the sung pitch (the octave spans y = 0…10;
+   the camera follows the ball a little). The rings are tori that come out of the distance at their
+   note's height and reach the ball at their arrival time, the same moment the server scores them.
+   A ring forgives `HOLE_CENTS` at the octave's scale and the ball fits through it. Past the ball, a
+   ring slows and fades: a cleared one turns `--ok` and opens up, a missed one turns `--bad`.
+   Lane marks at every note of the scale run into the distance, and a floor grid moves at the
+   rings' speed. Colours are the skin's tokens; fog fades to `--stage`. The canvas drops to a lower
+   resolution when the average frame is slower than 26 ms (down to 45 %), and starts at 70 % with
+   the lighter effects on. Without WebGL, or after a lost context, the flat playfield (rings sliding
+   in from the right) draws the same run. The game rules, the server and the phones are unchanged.
 8. **Ratings & recap**: optional 1–5 ★ after each song; "Party recap" screen (top singers,
    most-sung artists, crowd favourite, total songs/time).
 9. Not possible with CDG (no melody/lyric text): pitch-scored *songs* (grading the melody of a
@@ -952,7 +964,8 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
   on headphones on the PC, with its own guide level (§29).
 - ✅ **Separated vocals** (owner request, 2026-10-18): any audio version, separated when the host
   asks, plays in the room and the headphones with the vocals at a level (§30).
-- Open (owner's list, 2026-10-18; not started): the Pitch rings game rebuilt in 3D.
+- ✅ **Pitch rings in 3D** (owner request, 2026-10-18): the TV flies the run in WebGL, with the
+  flat playfield when there is no WebGL (§13, item 7).
 - Planned (owner request, 2026-10-18; not started): making karaoke in the app with the owner's
   SongGetter/autokaraoke (§31): size, hardware tiers, party rules, milestones, open questions.
 - Parked: the host seek bar after the TV window toggles, lyric layouts, the lyrics editor (paused

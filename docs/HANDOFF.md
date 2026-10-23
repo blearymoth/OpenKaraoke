@@ -1,23 +1,23 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-18 (separated vocals on any version: the host has a version separated
-and the room plays it with the vocals off, quiet or full — see "Separated vocals on any version"
-below. Earlier the same day: the headphone monitor, guest accounts, the year & genre checker, the
-Library table, browse filters, singer playback controls. Run in a cloud sandbox without the
-owner's PC or drive)._
+_Last updated: 2026-10-23 (the lyrics editor, the Karaoke maker — autokaraoke in Settings — and
+Pitch rings in 3D; see those sections below. Before that, on
+2026-10-18: separated vocals on any version, the headphone monitor, guest accounts, the year &
+genre checker, the Library table, browse filters, singer playback controls. Run in a cloud sandbox
+without the owner's PC or drive)._
 
 ## TL;DR
 - **M0–M7 are built.** On top of the party-ready M4 version, session 3 added cover art and
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 578/578; `npm run e2e` → 26 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 599/599; `npm run e2e` → 28 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `lyrics-editor.mjs` the lyrics editor, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
-  plain http), `game-pitch.mjs` the pitch rings, `video-convert.mjs` an AVI through ffmpeg); `npm --prefix desktop test` → 51/51 + 35/35 + 8/8 (the
+  plain http), `game-pitch.mjs` the pitch rings (in 3D, a sung G4, and the flat playfield without WebGL), `video-convert.mjs` an AVI through ffmpeg); `npm --prefix desktop test` → 51/51 + 35/35 + 8/8 (the
   desktop app, also against the built installer, the setup window, and a 20k-track library through
   the worker threads; the release workflow also
   runs the setup test against the real AppImage from `OpenKaraoke-Setup.zip`). Every milestone also went through an independent review
@@ -1290,17 +1290,76 @@ the host asks, on htdemucs (the model name in one place).
   autokaraoke); check the time it takes, that the TV switches over without a jump, and how
   Off sounds.
 
+## Pitch rings in 3D (2026-10-23)
+PLAN §13, item 7. Same game, rules, server and phones; the TV draws the run in 3D.
+- **What you see**: the ball flies into the screen at the height of the sung note (the camera
+  follows it a little); rings come out of the distance at their note's height and reach the ball
+  when the server scores them; a cleared ring turns green and opens up, a missed one red, and both
+  fade just past the ball. Lane marks at the scale's notes and a moving floor give the depth.
+- **How**: WebGL 1 by hand, no library (`public/js/games/pitch3d.js`: two small shaders, a torus
+  and a sphere); the maths (camera, poses, meshes) is pure in `shared/pitch3d.js`, and the tests
+  check that every ring and the ball stay on screen at any height and screen shape. Colours are
+  the skin's tokens.
+- **Slow PCs**: the canvas lowers its resolution when frames slow down (to 45 % at most), and starts
+  at 70 % with the lighter effects. Without WebGL (or after a lost context) the old flat playfield
+  plays the same run.
+- Tests: `test/pitch3d.test.js` (6), `test/e2e/game-pitch.mjs` (13: WebGL on the TV, frames keep
+  coming, the TV hears a sung G4 at its height, the flat playfield without WebGL, the mic error).
+- Owner checklist: a run on the party PC's TV (frame rate, the ring sizes from the sofa, both skins).
+
+## Karaoke maker: autokaraoke in Settings (2026-10-23)
+PLAN §31.9. The owner's autokaraoke (SongGetter) stays where it is, in `~/Projects/autokaraoke`;
+OpenKaraoke finds it and runs its command line, and **Settings → Karaoke maker** replaces its two
+GTK windows (the maker and the installer).
+- **Using it**: choose a song on this computer, upload one, or paste a link; artist and title fill
+  in from "Artist - Title" names; paste the lyrics (or leave them empty: autokaraoke transcribes);
+  **Make karaoke**. The job shows its steps (download, remove the singer, time the lyrics, draw the
+  lyrics), a progress bar and autokaraoke's log; then **Queue it**. The save folder (autokaraoke's
+  own last one, or `~/Karaoke`) becomes a library folder and is rescanned by itself.
+- **Not installed yet**: the page checks Python, FFmpeg (with the MP3 encoder) and the graphics
+  card, and **Install** runs autokaraoke's `install.sh` (graphics card or processor, YouTube on or
+  off). **Download the models** when they are missing.
+- **At a party**: one heavy job at a time (the vocal separation shares the lane and goes first),
+  autokaraoke at the lowest priority with fewer threads; without a graphics card a new song waits
+  for the one on stage (**Start now** overrides; a setting turns waiting off).
+- **Try it without autokaraoke**: `OPENKARAOKE_FAKE_MAKER=1 npm start` (a stand-in that writes a
+  real pair; `=missing` shows the install).
+- Tests: `test/maker.test.js` (7), `test/e2e/maker.mjs` (27).
+- Owner checklist: on the PC, with the real autokaraoke — the checks (version, models, the
+  graphics card), make one song from a file with lyrics and one from a YouTube link; the time it
+  takes; that it plays; the TV's sound while a song is made during a song (without a graphics card).
+
+## Lyrics editor (2026-10-23)
+PLAN §31.10. For the songs autokaraoke made (a `NAME.timing.json` beside the CDG): Song details →
+**Edit lyrics**, or the button on a finished Karaoke maker job.
+- **Using it**: play the song (½×, ¾×, 1×; on the preview headphones if chosen) and watch the
+  preview wipe. Click a word to change its text or times: ±0.05 s, or the keys `[` `]` (start) and
+  `,` `.` (end), S/E at the play head. **Tap along**: hold T while each word is sung. **Edit the
+  words**: fix the text; the times stay. Undo with Ctrl+Z. **Save**.
+- **Saving**: the edit is kept in `data/lyrics/<track>/`, and autokaraoke redraws the lyrics in the
+  disc's own colours. The TV is served the new drawing and reloads it if the song is on. The song's
+  files are unchanged until **Write into the song's folder** (the originals kept once as `.orig`).
+  **Revert** goes back to autokaraoke's own timing.
+- Not done: re-timing a verse with Whisper, a guide vocal while editing, the TV drawing the real
+  text, and render options other than the colours.
+- Tests: `test/timing.test.js` (5), `test/lyrics-editor.test.js` (3), `test/e2e/lyrics-editor.mjs` (27).
+- Owner checklist: on a song made with the real autokaraoke — fix a few words, tap a verse, save
+  while it plays on the TV, and check the colours match the original drawing.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
   - ~~Browse/search filters~~, ~~the host Library table~~, ~~the year & genre checker~~,
-    ~~guest accounts~~, ~~the headphone monitor~~ and ~~separated vocals~~ (done, above).
-  - **Pitch rings rebuilt in 3D** (the pitch game, `test/e2e/game-pitch.mjs`).
+    ~~guest accounts~~, ~~the headphone monitor~~, ~~separated vocals~~ and ~~Pitch rings in 3D~~
+    (done, above).
+  - ~~Making karaoke in the app~~ (the Karaoke maker, above). Still open from PLAN §31: the
+    benchmark ("about N minutes"), guests' wishes, AMD/Intel graphics.
+  - ~~The lyrics editor~~ (above). Still open from PLAN §31.5: re-timing a verse with Whisper
+    (a small SongGetter change), a guide vocal while editing, the TV drawing the real text.
 - **Parked** (not without the owner):
   - The host **seek bar** after the TV window is toggled (`SeekBar` in
     `public/js/host/player.js` clears its drag only on `change`) — not reproduced.
   - **Lyric layouts** — no further work for now.
-  - The **lyrics editor**.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, mic monitoring
   with reverb on the PC. The multiplex vocal stem is still only the song-dialog preview; the
   headphone monitor (in time with the TV) plays the channel matrix instead.

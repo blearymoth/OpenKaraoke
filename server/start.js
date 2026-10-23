@@ -12,6 +12,7 @@ import { fetchHealth } from './net/hotspot.js';
 import { runAutokaraokeSeparate } from './stems/separate.js';
 import { fakeStemRun } from './stems/fake.js';
 import { ffmpegTool } from './video/ffmpeg.js';
+import { autokaraokeTool } from './maker/autokaraoke.js';
 
 /** A port problem a free port can solve (as opposed to e.g. EADDRNOTAVAIL: a wrong --host). */
 const MOVABLE = new Set(['EADDRINUSE', 'EACCES']);
@@ -81,7 +82,12 @@ export async function startServer({ dataDir, args = {}, env = process.env, appOp
 
     const stemRun = appOptions.stemRun || (env.OPENKARAOKE_FAKE_STEMS === '1' ? fakeStemRun : runAutokaraokeSeparate);
     const videoTool = appOptions.videoTool || ffmpegTool({ env: process.env });
-    const app = await createApp({ dataDir, args, ...appOptions, stemRun, videoTool, hotspot: { ...(await hotspotOptions(log)), ...appOptions.hotspot } });
+    // The Karaoke maker: autokaraoke in ~/Projects/autokaraoke (PLAN §31). OPENKARAOKE_FAKE_MAKER=1
+    // tries the page with a stand-in (it imports the test CDG writer, so only when asked).
+    const makerTool = appOptions.makerTool || (env.OPENKARAOKE_FAKE_MAKER
+      ? (await import('./maker/fake.js')).fakeAutokaraoke({ installed: env.OPENKARAOKE_FAKE_MAKER !== 'missing', seconds: 8 })
+      : autokaraokeTool({ env: process.env }));
+    const app = await createApp({ dataDir, args, ...appOptions, stemRun, videoTool, makerTool, hotspot: { ...(await hotspotOptions(log)), ...appOptions.hotspot } });
     for (let attempt = 1; ; attempt++) {
       try {
         await app.listen(port, host);

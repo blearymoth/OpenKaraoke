@@ -74,6 +74,13 @@ Server (`server/`)
 - `stems/` — autokaraoke's separator (`separate.js`: Demucs, the model name, music + vocal),
   `jobs.js` (`data/stems/`, one at a time): a multiplex track's vocal for the preview, and any
   audio version the host has separated, played by the room at a Vocals level (PLAN §30).
+- `maker/` — the Karaoke maker (PLAN §31.9): `autokaraoke.js` (finding autokaraoke in
+  ~/Projects/autokaraoke, its command lines, reading its output; the real tool), `jobs.js` (`Maker`:
+  uploads, jobs in the heavy-job lane `util/lane.js` shared with the stems, waiting during songs,
+  adding the save folder to the library, install/models), `fake.js` (the stand-in tests use;
+  `OPENKARAOKE_FAKE_MAKER=1`).
+- `lyrics/edits.js` — the lyrics editor's edits (PLAN §31.10): data/lyrics/<trackId>/ (timing.json +
+  the CDG autokaraoke draws from it), served in place of the disc's CDG; revert, write back, rekey.
 - `room/accounts.js` (`data/accounts.json`: guests' usernames, scrypt hashes, token versions — an
   account is one guest identity; `app.guestOf(token)` for HTTP — PLAN §28).
 - `library/songmeta.js` (`data/songmeta.json`: the host's own years and genres, laid over the
@@ -104,8 +111,10 @@ analysis — PLAN §21), `lyrics.js` (readable lyrics: the looks' and layouts' s
 colour roles, the readable palette, the scroll timeline — PLAN §9.5), `lyric-lines.js` (a disc's
 sung lines, found in one pass: each pixel's unsung/sung colour and moment — PLAN §9.6),
 `lyric-layout.js` (when and where lines show: two lines, the scrolling list; pure functions of the
-time), `graphics.js` (which WebGL renderers draw in software), `monitor.js` (the headphone monitor's
-timing rules), `filters.js` (browse filters: several
+time), `graphics.js` (which WebGL renderers draw in software), `pitch3d.js` (Pitch rings' 3D scene: matrices,
+meshes, ring poses, the camera — pure), `monitor.js` (the headphone monitor's
+timing rules), `timing.js` (autokaraoke's timing.json: reading, cleaning, LRC, new words keep the times, the
+editor's operations — PLAN §31.10), `filters.js` (browse filters: several
 decades, genres, tags and version types, read from repeated URL parameters — PLAN §25; the Library
 table's columns — §26).
 
@@ -125,10 +134,14 @@ Browser (`public/`, plain ES modules, Preact + htm)
   sound, live preview, TV window), `devices.js` (screens, host devices, guests), `menu.js`,
   `views.js`, `dialogs.js`, `settings.js`, `hotspot.js` (party hotspot block + banner),
   `vocals.js` (Lead control + Vocals dialog), `graphics.js` (Settings → About → Graphics, desktop app),
-  `system.js` (Settings → About → On this computer, desktop app), `monitor.js` (the headphone
+  `system.js` (Settings → About → On this computer, desktop app), `maker.js` (Settings → Karaoke maker), `lyrics-editor.js`
+  (#/lyrics/<trackId>: autokaraoke's word timings),
+  `monitor.js` (the headphone
   monitor: the TV's audio engine on headphones, in time with the TV — PLAN §29).
 - `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts, the
   singer's own controls during their song (PLAN §24).
+- `js/games/` — each game's host/TV/phone UI; `pitch3d.js` draws Pitch rings in WebGL 1 (no library;
+  the flat playfield without WebGL).
 - `js/lib/` — `ws-client.js` (reconnect, `request()`, `sendReliable()`), `store.js`, `versions.js`
   (version names/labels, thumbs up/down), `filters.js` (the browse filter panel and chips, host and guest),
   `components.js`, `icons.js`, `theme.js` (follows the skin live, `token()` for code that needs

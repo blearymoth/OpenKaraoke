@@ -13,6 +13,7 @@ import { Home, Search, Artists, Artist, Collections, Tag, Browse, BrowseFilters,
 import { Playlists } from './playlists.js';
 import { Photos } from './photos.js';
 import { Settings } from './settings.js';
+import { LyricsEditor } from './lyrics-editor.js';
 import { Games } from './games.js';
 import { TEMPO_STEP, DENIED_MESSAGES } from '/shared/protocol.js';
 import { followAppearance } from '../lib/theme.js';
@@ -160,6 +161,7 @@ function Main({ route, narrow }) {
     case 'photos': return html`<${Photos} />`;
     case 'history': return html`<${History} />`;
     case 'settings': return html`<${Settings} section=${b} />`;
+    case 'lyrics': return html`<${LyricsEditor} trackId=${b} key=${b} />`;
     case 'panel': return narrow
       ? html`<div class="panel-page"><${AdminPanel} page=${true} tab=${PANEL_TABS.includes(b) ? b : store.get().panelTab} /></div>`
       : html`<${PanelRedirect} tab=${b} />`;

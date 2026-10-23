@@ -11,6 +11,7 @@ import { SystemBlock } from './system.js';
 import { HotspotBlock } from './hotspot.js';
 import { GraphicsBlock } from './graphics.js';
 import { DisplayRow, PairingRow } from './devices.js';
+import { MakerSection } from './maker.js';
 
 /** display.lyricsLook (shared/lyrics.js; the Playback tab offers it too, in short). */
 /** display.lyricsLayout (the Playback tab offers it too, in short). */
@@ -34,6 +35,7 @@ const SECTIONS = [
   },
   { id: 'appearance', title: 'Appearance', icon: 'palette', custom: 'appearance' },
   { id: 'library', title: 'Library', icon: 'folder', custom: 'library' },
+  { id: 'maker', title: 'Karaoke maker', icon: 'sparkles', custom: 'maker' },
   {
     id: 'queue', title: 'Queue & guests', icon: 'list', fields: [
       { path: 'queue.mode', label: 'Queue order', type: 'select', options: [['rotation', 'Fair rotation — one song per singer per round'], ['fifo', 'First come, first served']] },
@@ -419,6 +421,7 @@ export function Settings({ section = 'party' }) {
         <h2>${current.title}</h2>
         ${current.custom === 'appearance' && html`<${AppearanceSection} state=${state} />`}
         ${current.custom === 'library' && html`<${LibrarySection} state=${state} lib=${lib} />`}
+        ${current.custom === 'maker' && html`<${MakerSection} state=${state} />`}
         ${current.custom === 'about' && html`<${About} state=${state} />`}
         ${current.custom === 'artwork' && html`<${ArtworkSection} state=${state} />`}
         ${current.custom === 'displays' && html`<${DisplaysSection} state=${state} />`}

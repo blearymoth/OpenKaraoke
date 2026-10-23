@@ -23,6 +23,7 @@ import { Lru } from '../util/lru.js';
 import { defaultMusicDirs } from '../config.js';
 import { rescanForPaths } from '../library/service.js';
 import { logger } from '../util/log.js';
+import { isSongFile } from '../maker/autokaraoke.js';
 
 const log = logger('api');
 const COLOR_RE = /^#[0-9a-f]{3,8}$/i;
@@ -115,7 +116,7 @@ export function apiRoutes(router, app) {
     return { items: summaries(ids.map((id) => cat().song(id)).filter(Boolean)) };
   });
 
-  router.get('/api/songs/:id', (ctx) => {
+  router.get('/api/songs/:id', async (ctx) => {
     const detail = cat().songDetail(ctx.params.id);
     if (!detail) throw new HttpError(404, 'Song not found');
     detail.meta = app.artwork?.publicSongMeta(detail.key) || null;
@@ -142,6 +143,10 @@ export function apiRoutes(router, app) {
         if (asked) void app.room.stems.ensure(v.id); // (separated before a restart: found on disk)
         v.stems = asked ? app.room.stems.view(v.id).status : 'idle';
       }
+      // The host: versions autokaraoke made can have their lyrics edited (PLAN §31.5).
+      await Promise.all(detail.versions.map(async (v) => {
+        if (await app.room.lyrics.editable(cat().track(v.id))) v.lyrics = { edited: app.room.lyrics.gen(v.id) > 0 };
+      }));
     }
     const voter = guestId || (ctx.isHost ? HOST_VOTER : null);
     return app.room ? app.room.decorateVersions(detail, { voter, guest }) : detail;
@@ -386,7 +391,42 @@ export function apiRoutes(router, app) {
 
   router.get('/api/fs/list', async (ctx) => {
     requireHost(ctx);
-    return listFolders(ctx.query.get('path') || '');
+    return listFolders(ctx.query.get('path') || '', { songs: ctx.query.get('files') === 'songs' });
+  });
+
+  // The lyrics editor (PLAN §31.5), host only: open a version's timed lyrics (an edit, else
+  // autokaraoke's own), save an edit (autokaraoke draws it; the TV shows it), revert, write back.
+  // (HTTP, not the WebSocket: a long song's timing is more than one message.)
+  router.get('/api/lyrics/:trackId', async (ctx) => {
+    requireHost(ctx);
+    return app.room.lyrics.open(ctx.params.trackId);
+  });
+  router.post('/api/lyrics/:trackId', async (ctx) => {
+    requireHost(ctx);
+    const body = await readJsonBody(ctx.req, 2 * 1024 * 1024);
+    return app.room.lyrics.save(ctx.params.trackId, body.timing);
+  });
+  router.post('/api/lyrics/:trackId/revert', async (ctx) => {
+    requireHost(ctx);
+    return app.room.lyrics.revert(ctx.params.trackId);
+  });
+  router.post('/api/lyrics/:trackId/write', async (ctx) => {
+    requireHost(ctx);
+    return app.room.lyrics.writeBack(ctx.params.trackId);
+  });
+
+  // The Karaoke maker (PLAN §31): a song file from the host's browser, streamed into the data
+  // folder for autokaraoke (the name in x-file-name, URI-encoded).
+  router.post('/api/maker/upload', async (ctx) => {
+    requireHost(ctx);
+    let name = '';
+    try { name = decodeURIComponent(String(ctx.req.headers['x-file-name'] || '')); } catch { /* bad encoding */ }
+    try {
+      return { upload: await app.room.maker.receiveUpload(ctx.req, name) };
+    } catch (e) {
+      ctx.res.setHeader('connection', 'close'); // (refused before or while reading: don't wait for the rest)
+      throw e;
+    }
   });
 
   songbookRoutes(router, app, { requireHost });
@@ -452,7 +492,11 @@ export function apiRoutes(router, app) {
 }
 
 /** Folder picker data: sub-folders of `p`, or likely drive/music locations when `p` is empty. */
-export async function listFolders(p) {
+/**
+ * The folder picker: drives and the home folder, or one folder's sub-folders (and, with `songs`,
+ * its song files — the Karaoke maker's "Choose a file").
+ */
+export async function listFolders(p, { songs = false } = {}) {
   if (!p) {
     const seen = new Set();
     const out = [];
@@ -486,20 +530,27 @@ export async function listFolders(p) {
     throw new HttpError(400, `Cannot open this folder (${e.code || e.message})`);
   }
   const dirs = [];
+  const files = [];
   let karaokeFiles = 0;
   for (const e of entries) {
     if (e.name.startsWith('.')) continue;
     let isDir = e.isDirectory();
     if (e.isSymbolicLink()) isDir = await fsp.stat(path.join(abs, e.name)).then((s) => s.isDirectory(), () => false);
     if (isDir) dirs.push(e.name);
-    else if (/\.(cdg|mp4|webm|mkv|zip)$/i.test(e.name)) karaokeFiles++;
+    else {
+      if (/\.(cdg|mp4|webm|mkv|zip)$/i.test(e.name)) karaokeFiles++;
+      if (songs && isSongFile(e.name)) files.push(e.name);
+    }
   }
-  dirs.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  const byName = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  dirs.sort(byName);
+  files.sort(byName);
   const parent = path.dirname(abs);
   return {
     path: abs,
     parent: parent === abs ? null : parent,
     dirs: dirs.slice(0, 5000).map((name) => ({ name, path: path.join(abs, name) })),
     karaokeFiles,
+    ...(songs ? { files: files.slice(0, 5000).map((name) => ({ name, path: path.join(abs, name) })) } : {}),
   };
 }

@@ -218,7 +218,7 @@ shared/
   graphics.js           ✅ which WebGL renderers draw in software (TV lighter effects, desktop Graphics)
   protocol.js           ✅ shared constants shared by server and clients
   themes.js             ✅ skins (Studio, Party): ids, names, appearance validation
-  quiz.js wheel.js applause.js pitch.js   ✅ game rules shared by the server and the TV/phones
+  quiz.js wheel.js applause.js pitch.js pitch3d.js   ✅ game rules shared by the server and the TV/phones
 public/
   index.html            ✅ landing: links to Host / TV / Join + QR
   host.html tv.html guest.html   ✅ app shells (import maps not needed; import /js/... directly)
@@ -387,6 +387,8 @@ player.play {entryId?}  player.pause  player.resume  player.next  player.restart
 player.seek {pos}  player.key {semitones}  player.tempo {rate}  player.channel {mode}  player.volume {v}
 player.lead {level}  player.layout {layout}  player.version {trackId}   (vocals, §21)
 stems.separate {trackId}  player.vox {level}   (separated vocals on any audio version, §30)
+maker.make {song: {path}|{upload}|{url}, artist, title, language, theme, lyrics}  maker.cancel|now|dismiss {id}
+maker.check  maker.install {gpu, youtube}  maker.setup {whisperModel, demucsModel}  maker.cancelTask   (host, §31.9)
 version.vote {trackId, vote: 1|-1|0}   display.identify {id}   (§22)
 singer.add/update/remove/merge     guest.update(me) guest.kick guest.ban guest.cohost
 favorite.toggle {songId}  playlist.save/delete/queue   settings.update {patch}   library.rescan
@@ -456,7 +458,10 @@ GET  /media/:trackId/video     video (Range)
 POST /api/photos               guest photo upload (raw image body ≤ 4 MB, x-guest-token header;
                                the phone’s camera takes the frame in the page, then resizes it)
 GET  /api/photos/:id           approved photo
-GET  /api/fs/list?path=…       (host only) list sub-folders for the library folder picker
+GET  /api/fs/list?path=…[&files=songs]  (host only) sub-folders for the folder picker (and song files: the Karaoke maker)
+POST /api/maker/upload          (host only) a song file for the Karaoke maker; body = the bytes, name in x-file-name (§31.9)
+GET  /api/lyrics/:trackId       (host only) the lyrics editor: autokaraoke's timing (or the edit) — POST it { timing } to save and draw;
+     POST …/revert, POST …/write (into the song's folder) (§31.10)
 GET  /api/history?limit        (host only)   GET /api/export/songbook?format=html|csv&…
 GET  /print/qr                 printable A4 QR card
 ```
@@ -830,9 +835,21 @@ Phones auto-join when they send an answer/vote; the host controls start/next/end
    intervals among participants; that phone vibrates.
 6. **Applause meter**: 5 s mic measurement on the PC (localhost is a secure context; phones on
    LAN http are not, so no phone mics) → 0–100 meter.
-7. **Pitch rings**: the singer's pitch moves a ball on the TV; rings scroll in and they sing
+7. **Pitch rings**: the singer's pitch moves a ball on the TV; rings come in and they sing
    through the hole (party-computer mic only, no reference tone). Score = rings cleared per run;
    best count wins. This is not pitch-graded karaoke — CDG has no melody (see §13.9).
+   **In 3D** (owner request, 2026-10-18): the TV draws the run with WebGL 1, by hand
+   (`public/js/games/pitch3d.js`; the scene's maths in `shared/pitch3d.js`). The camera is behind
+   the ball, which flies into the screen at the height of the sung pitch (the octave spans y = 0…10;
+   the camera follows the ball a little). The rings are tori that come out of the distance at their
+   note's height and reach the ball at their arrival time, the same moment the server scores them.
+   A ring forgives `HOLE_CENTS` at the octave's scale and the ball fits through it. Past the ball, a
+   ring slows and fades: a cleared one turns `--ok` and opens up, a missed one turns `--bad`.
+   Lane marks at every note of the scale run into the distance, and a floor grid moves at the
+   rings' speed. Colours are the skin's tokens; fog fades to `--stage`. The canvas drops to a lower
+   resolution when the average frame is slower than 26 ms (down to 45 %), and starts at 70 % with
+   the lighter effects on. Without WebGL, or after a lost context, the flat playfield (rings sliding
+   in from the right) draws the same run. The game rules, the server and the phones are unchanged.
 8. **Ratings & recap**: optional 1–5 ★ after each song; "Party recap" screen (top singers,
    most-sung artists, crowd favourite, total songs/time).
 9. Not possible with CDG (no melody/lyric text): pitch-scored *songs* (grading the melody of a
@@ -952,8 +969,13 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
   on headphones on the PC, with its own guide level (§29).
 - ✅ **Separated vocals** (owner request, 2026-10-18): any audio version, separated when the host
   asks, plays in the room and the headphones with the vocals at a level (§30).
-- Open (owner's list, 2026-10-18; not started): the Pitch rings game rebuilt in 3D.
-- Parked: the host seek bar after the TV window toggles, lyric layouts, the lyrics editor.
+- ✅ **Pitch rings in 3D** (owner request, 2026-10-18): the TV flies the run in WebGL, with the
+  flat playfield when there is no WebGL (§13, item 7).
+- ✅ **Karaoke maker** (owner request, 2026-10-23): autokaraoke from `~/Projects/autokaraoke` in
+  Settings — make a track from a file, an upload or a link, install it, the models (§31.9).
+- ✅ **Lyrics editor** (owner request, 2026-10-23): the word timings of autokaraoke's songs —
+  tap along, nudges, the words as text; drawn by autokaraoke, shown on the TV (§31.10).
+- Parked: the host seek bar after the TV window toggles, lyric layouts.
 
 ## 19. Open questions for the owner
 - Host PIN default: none (localhost-only host) — OK?
@@ -1771,3 +1793,270 @@ routes, the level for host and co-hosts kept per version, another song), `test/s
 (the script keeps the music, the model name), `test/e2e/stems.mjs` (the TV switches to the stems
 mid-song where it was, Off/Quiet on the TV's gains, the monitor's own level, the song dialog's
 button, the next song plays its file).
+
+## 31. Making karaoke in the app: SongGetter / autokaraoke
+
+The owner's own tool, `blearymoth/SongGetter` (the Python package `autokaraoke`, MIT, ≈2,300 lines),
+turns an ordinary song (a file, or a YouTube URL through yt-dlp) into `Artist - Title.mp3` +
+`.cdg`, plus `.timing.json` (word timings that can be edited by hand) and `.lrc`. It works in
+three steps:
+
+1. Demucs `htdemucs` removes the lead vocal.
+2. Whisper (stable-ts) force-aligns pasted lyrics to the isolated vocal, or transcribes them if
+   none are given.
+3. Its own renderer draws the CDG with a word-by-word wipe.
+
+OpenKaraoke already runs its separator for §21 and §30 (`server/stems/separate.js`), found
+through the launcher `~/.local/bin/autokaraoke`. This section is the plan for the rest: making
+new karaoke tracks from the host page.
+
+### 31.1 Size
+
+The sizes come from SongGetter's README. Only the GPU environment was measured; the rest are
+its own estimates.
+
+| piece | size | needed for |
+| --- | --- | --- |
+| the `autokaraoke` package | ≈0.2 MB | everything |
+| numpy + Pillow (render only) | tens of MB (estimate) | redrawing a CDG from `timing.json` (≈1 s a song), the lyrics editor |
+| PyTorch + Demucs, CPU build | ≈2–2.5 GB (estimate) | separation (§21 preview, §30, making) |
+| PyTorch + Demucs, NVIDIA build | ≈6 GB (measured; 4.3 GB of it is CUDA) | the same, on the GPU |
+| Demucs `htdemucs` | ≈80 MB (`htdemucs_ft` ≈320 MB) | separation |
+| Whisper + a model | `small` 0.5 GB, `medium` 1.5 GB (default), `turbo` 1.6 GB, `large-v3` 3.1 GB | timing the lyrics |
+| yt-dlp | small; it also needs a JavaScript runtime on PATH | YouTube |
+| **total** | **≈4 GB CPU-only, ≈7.5 GB with an NVIDIA GPU** | making karaoke |
+
+- **Per song:** ≈7 MB kept (MP3 + a ≈1.7 MB CDG for 4 minutes). During a job, ≈85 MB of
+  temporary WAVs. YouTube audio is cached at ≈4 MB a song.
+- **Installing:** ≈4 GB of extra temporary space.
+
+So it is **never bundled** with OpenKaraoke. The AppImage, .deb, .rpm and the plain server stay
+as they are, and autokaraoke is an optional add-on installed only on request. Render-only is a
+small step that fits any PC.
+
+### 31.2 Hardware
+
+**What to detect on the PC** (no root needed):
+- `nvidia-smi -L` and the driver version (the same check as SongGetter's `install.sh`).
+- The GPU vendor in `/sys/class/drm/card*/device/vendor`: `0x10de` NVIDIA, `0x1002` AMD,
+  `0x8086` Intel.
+- `os.totalmem()` and `os.cpus()`.
+- Free space where it would go (`fs.statfs`).
+- Python ≥ 3.10 with `venv` (Debian and Ubuntu need the `python3-venv` package).
+- ffmpeg with `libmp3lame` (`video/ffmpeg.js` already finds ffmpeg).
+
+| PC | what runs | default models |
+| --- | --- | --- |
+| NVIDIA, ≥ 6 GB GPU memory | everything on the GPU (driver ≥ 580: PyPI's CUDA 13 build; older drivers: the CUDA 12.8 build, as `install.sh` does) | `htdemucs` + Whisper `medium` (≈5 GB); `large-v3` needs ≈10 GB |
+| NVIDIA, 3–5 GB | separation on the GPU (Demucs needs ≥ 3 GB) | Whisper `small` |
+| AMD or Intel GPU | the CPU build: SongGetter's installer has no ROCm/XPU path. A ROCm build exists for some AMD cards; that comes later, and only after a test on such a card | as CPU |
+| CPU only, ≥ 8 GB RAM, ≥ 4 cores | works, but slowly: "minutes per song" (not measured) | `htdemucs` + Whisper `small` |
+| < 8 GB RAM, or not enough disk | making is not offered; render-only and the editor still work | — |
+
+**Measure, don't guess.** After installing, run a 30 s clip through separation and timing on
+the device that will be used, and keep the seconds per minute of song in `data/maker.json`.
+Before every job, show "about N minutes for this song". None of the speeds above have been
+measured on the owner's PC.
+
+### 31.3 During a party
+
+The TV's audio plays on the same PC. A CPU-only job at full speed could take the CPU from the
+browser's audio and drawing (crackles, slow lyrics). The rules:
+
+- **One ML job at a time** across the app. The §21 vocal preview, §30 separated vocals and
+  making karaoke share one lane, with the song on now first.
+- **The child runs at the lowest priority** (`os.setPriority(pid, 19)`) and with fewer threads
+  (`OMP_NUM_THREADS` / torch threads = cores − 2, at least 1).
+- **On a CPU-only PC, a making job waits while a song plays** unless the host says "Now". GPU
+  jobs run at any time.
+- Later: if the TV reports audio underruns, pause the job.
+
+### 31.4 How it plugs in
+
+- **Finding it:** as today (`resolveAutokaraoke`: `OPENKARAOKE_AUTOKARAOKE_PYTHON`, the
+  launcher, `~/Projects/autokaraoke/.venv`). A **Karaoke maker** card in Settings → About shows:
+  found or not, the version, the models present (`autokaraoke setup --check`), the device, the
+  measured speed and the space used.
+- **Installing:** the owner chooses (§31.8).
+  - **(a) Kept separate:** the card links to SongGetter's `install_gui.py`, and the app finds the
+    install afterwards.
+  - **(b) Installed by OpenKaraoke:** the package ships with OpenKaraoke or comes from a
+    SongGetter release. Its environment goes to `~/.local/share/openkaraoke/autokaraoke/`, and
+    `install.sh` runs as a child with progress, with `--cpu`/`--gpu` from the detection.
+    Uninstalling deletes that folder and shows the space it frees.
+  - SongGetter is a **private** repository, so (b) needs the code in this repository or a
+    public release.
+- **Making a song** (`server/maker/`, host only). The inputs:
+  - the source: a file uploaded through the host page or a path in an "Incoming" folder, or an
+    http(s) URL (no leading `-`, passed after `--`);
+  - title and artist, filled in from the name and tags;
+  - the lyrics (≤ 20 KB, one sung line per line; left empty, they are transcribed with a
+    warning);
+  - the language, and the tier's models.
+
+  It runs `python -m autokaraoke make …` through `spawn`, never a shell, every value its own
+  argument; `make` already has these options. Progress comes from stderr, where a carriage
+  return means a progress update (as autokaraoke's own `job.split_progress`). Cancelling kills
+  the process group.
+- **Where the songs go:** a folder the host picks, by default `~/Karaoke/Made with
+  autokaraoke`, not `data/` (these are media the owner keeps, and `data/` is state). It is added
+  as one more library root (the scanner already takes several) and rescanned by itself. A pair
+  with a `.timing.json` beside it is marked as made here.
+- **Guests' wishes:** a guest searching for a song the library doesn't have can ask the host to
+  make it (title + artist only, rate-limited, no URLs from guests). The host finds a source,
+  pastes the lyrics and starts it. When it is ready, the guest is told and can queue it. Guests
+  never start a download or a job.
+- **The lyrics editor** (paused by the owner, 2026-10-18) works with autokaraoke: §31.5.
+
+### 31.5 The lyrics editor, with autokaraoke
+
+The editor is for the songs autokaraoke makes, which are the ones that need it. Whisper's
+timing drifts on fast rap, long melismas, or lyrics that don't match what is sung, and a
+transcribed song (no lyrics pasted) mishears words. Autokaraoke helps at each step:
+
+- **The words and times come from its `.timing.json`**, beside the pair. The editor shows each
+  word's text and start/end against the song, with tap-along (Space marks the next word),
+  nudges, and shifting a line or the rest of the song.
+- **Changing the words keeps the times.** Autokaraoke's `align.transfer_timing` moves times from
+  old words to new text character by character (difflib, no ML), and interpolates the words it
+  can't match. The host pastes the real lyrics over a transcription, or fixes a misheard word,
+  and the timing follows. This is pure Python and runs with the render-only install; a small
+  port to `shared/` would also let the browser preview it at once.
+- **Re-timing a stretch with Whisper.** If a verse is off, the host selects it and autokaraoke
+  aligns only that stretch of the vocal, and the times go back into the song. This needs:
+  - the vocal: autokaraoke's `NAME.work/vocals.wav` if it was kept (`--keep-stems`), else a
+    separation of the original (§30's job and files);
+  - a small new function in SongGetter: align a slice of `vocals16k` and add its offset (today's
+    `align()` takes the whole song);
+  - the full ML install (§31.1).
+- **Redrawing the CDG**: `autokaraoke render` with the render-only install, in about a second.
+  The TV then reloads it (a version in the CDG's URL, so no cached copy is shown).
+  `timing.json` doesn't record the render options the song was made with (theme, lines, font,
+  lead, page gap). SongGetter would keep them in a new `render` field, and older files get the
+  defaults.
+- **Where the edits go** (to decide when unpaused): next to the pair, as autokaraoke itself does
+  (the original kept once as `.orig`), or an overlay in `data/` served instead of the disc's CDG
+  (the library untouched, e.g. a read-only drive).
+- **Beyond the editor:** with a `timing.json` the TV knows the real text, so the lyric layouts
+  (§9.6) could draw it as text instead of reading the CDG's pixels. For a disc that has a vocal
+  (multiplex §21, or a version with the singer separated by §30), autokaraoke could also make a
+  `timing.json` from pasted lyrics without touching the disc's CDG.
+
+### 31.6 Legal and safety
+
+- YouTube's terms restrict downloading. The Make page carries SongGetter's README note; URLs
+  come only from the host; there is no bulk playlist download from the party pages.
+- Every value is validated and is its own argument; the lyrics go to a temporary file the
+  server writes; names are made safe (autokaraoke's `_safe`); output goes only to the chosen
+  folder, and an existing pair is never overwritten.
+
+### 31.7 Milestones
+
+1. The Karaoke maker card: detection, status, benchmark (no installing).
+2. Make from a file with pasted lyrics; the output folder as a library root; the one ML lane
+   and the party rules (§31.3).
+3. YouTube URLs; guests' wishes.
+4. Install and uninstall from the app, once the owner has chosen the code's source.
+5. The lyrics editor (§31.5): editing and redrawing (render-only), text changes that keep the
+   times, then re-timing a stretch with Whisper; text lyrics on the TV from `timing.json`.
+
+### 31.8 Open questions for the owner (2026-10-18; see §31.9 for what the owner chose)
+
+- Install from the app (b), or keep it separate (a)? With (b), where does the code come from:
+  this repository, or a public SongGetter release?
+- The output folder: on the USB drive with the library, or the PC's own disk?
+- On a CPU-only PC: may jobs run while someone sings?
+- Guests' wishes: wanted?
+- The lyrics editor, when it is unpaused: save the edits next to the pair, or in an overlay in `data/`?
+  And may SongGetter get the two small changes in §31.5 (aligning a stretch, the `render` field)?
+
+### 31.9 Built: the Karaoke maker (2026-10-23)
+
+The owner chose to **use the autokaraoke on their PC, in `~/Projects/autokaraoke`**, and to have
+its windows redesigned as part of Settings. So OpenKaraoke ships none of it: it finds that copy,
+runs its command line, and shows the work in **Settings → Karaoke maker**. Milestones 2–4 are
+built (§31.7); the benchmark (1) and guests' wishes (3) are not.
+
+- **Finding it** (`server/maker/autokaraoke.js` `locateAutokaraoke`): `OPENKARAOKE_AUTOKARAOKE_ROOT`,
+  else the folder its launcher `~/.local/bin/autokaraoke` runs from, else `~/Projects/autokaraoke`;
+  Python is `<root>/.venv/bin/python` (or `OPENKARAOKE_AUTOKARAOKE_PYTHON`), the models
+  `AUTOKARAOKE_MODELS` or the launcher's. Every command is `python -m autokaraoke …` through
+  `spawn` (never a shell), options first, then `--` and the song or file; each value is checked
+  (`makeArgs`, `renderArgs`, `setupArgs`, `installArgs`).
+- **The checks** (the installer window's): Python, FFmpeg with the MP3 encoder, the NVIDIA card
+  (`nvidia-smi -L`), autokaraoke's version and `setup --check` (each model, ready or missing, the
+  space used, offline-ready). "Check again" redoes them.
+- **Installing** from the page runs its `install.sh` (`bash`, in its folder) with `--gpu` or
+  `--cpu` and `--no-youtube` when YouTube is off; **Download the models** runs `setup` for the
+  chosen models. Their output shows as it comes; one at a time, and not while a song is being made.
+- **Making a song** (`server/maker/jobs.js` `Maker`): the song is a file on this computer (the
+  folder picker lists song files), an upload from the browser (`POST /api/maker/upload`, host only,
+  streamed to `data/maker/uploads/`, 500 MB at most, song file names only; deleted once the song
+  is made, and on a restart) or a link (http/https; then a title is needed). Artist and title come
+  from "Artist - Title" file names; the lyrics (≤ 50 KB) go to autokaraoke as a file; the language
+  and colours are the job's, the models the settings'. Progress is read from autokaraoke's own
+  messages (`readMakeLine`: download → remove the singer → time the lyrics → draw the lyrics →
+  done; a carriage return is a progress bar's update). Cancel kills its process group.
+- **Where the song goes**: `settings.maker.out` (by default autokaraoke's own last folder, or
+  `~/Karaoke`). With `maker.addToLibrary` (on) that folder becomes a library folder of its own and
+  is rescanned by itself; the job then names the song (Queue it, Song details).
+- **During a party** (§31.3): one heavy job at a time — the stems (§21, §30) take the same
+  `util/lane.js` lane, ahead of a waiting song; `make` runs at the lowest priority with
+  `OMP_NUM_THREADS` = cores − 2. Without a graphics card a job waits while a song plays
+  (`maker.duringSongs` off, the default); "Start now" overrides it.
+- **Settings**: `maker.out`, `addToLibrary`, `language`, `theme` (classic, blue, green),
+  `whisperModel` (small, medium, turbo, large-v3), `demucsModel` (htdemucs, htdemucs_ft),
+  `duringSongs`; anything autokaraoke would refuse is ignored.
+- **Room actions** (host only): `maker.make`, `maker.cancel`, `maker.now`, `maker.dismiss`,
+  `maker.check`, `maker.install`, `maker.setup`, `maker.cancelTask`; the host view carries
+  `maker` (where, checks, the task, the jobs with their last 40 lines).
+- **Tests**: a stand-in tool (`server/maker/fake.js`, also `OPENKARAOKE_FAKE_MAKER=1` to try the
+  page by hand, `=missing` for the install) writes a real pair — the song's MP3, a word-timed
+  `timing.json` and a CDG drawn from it. `test/maker.test.js` (7), `test/e2e/maker.mjs` (27).
+- **Not built**: the benchmark and "about N minutes" (§31.2); guests' wishes; AMD/Intel graphics
+  (autokaraoke's installer has no path for them); uninstalling from the page (delete the folder).
+
+### 31.10 Built: the lyrics editor (2026-10-23)
+
+The owner asked for it to be finished after the Karaoke maker. It edits the songs autokaraoke
+made; other discs' lyrics are pictures and have nothing to edit.
+
+- **Which versions**: a CD+G track with autokaraoke's `NAME.timing.json` beside its CDG. Song
+  details shows **Edit lyrics** on those versions (host only; "Lyrics (edited)" once edited), and
+  a finished Karaoke maker job has the button too. The editor is a page of its own,
+  `#/lyrics/<trackId>` (`public/js/host/lyrics-editor.js`).
+- **Editing** (`shared/timing.js`, pure, every change a new song for undo):
+  - The song plays in the page, on the headphones chosen for previews, at ½×, ¾× or 1×.
+  - A preview wipes the current line and shows the next, as the TV does; the word being sung
+    lights up in the list.
+  - The selected word has its text, start and end, with ±0.05 s buttons. Keys: ←→ word, ↑↓ line,
+    `[` `]` start, `,` `.` end (Shift: ¼ s), S/E start/end at the play head, Enter plays from the
+    word, Space plays or pauses (not the party), Ctrl+Z / Ctrl+Y undo and redo.
+  - A line, or a line and all after it, moves by ±0.1 s or +0.5 s; a word can be deleted.
+  - **Tap along**: hold T (or the Tap button) while each word is sung. Its start is the key going
+    down (the word before ends just before it) and its end the key coming up; then the next word.
+  - **Edit the words**: the lyrics as text. autokaraoke's `transfer_timing`, ported, keeps each
+    word's time and fits new words in between.
+- **Saving** (`server/lyrics/edits.js` `LyricEdits`; `GET/POST /api/lyrics/:trackId`, `/revert`,
+  `/write`, host only, over HTTP because a long song's timing is more than one WebSocket message):
+  - The edit goes to `data/lyrics/<trackId>/timing.json`, and `autokaraoke render` draws it
+    (`lyrics.cdg`, about a second, no ML, outside the heavy-job lane).
+  - The colours are the ones the disc was drawn in: the sung colour of its first colour table names
+    autokaraoke's theme (`cdgTheme`). `timing.json` doesn't record its theme, so this is used
+    instead of the `render` field §31.5 proposed.
+  - `/media/<id>/cdg` serves that drawing in place of the disc's, the TV's URL gets `?edit=<n>`, and
+    the song on now reloads where it is.
+  - If drawing fails, the edit is still saved, the TV keeps the last drawing and the host sees
+    autokaraoke's reason. Without autokaraoke the edit is saved and the host is told to install it.
+  - **Revert** removes the edit. **Write into the song's folder** copies it beside the pair
+    (`NAME.timing.json`, `NAME.cdg`, `NAME.lrc`), keeping each original once as `NAME.….orig`; it
+    says so if the drive is read-only.
+  - An edit follows its file to a new track id (`rekey`).
+- **Tests**: `test/timing.test.js` (5), `test/lyrics-editor.test.js` (3), `test/e2e/lyrics-editor.mjs` (27).
+- **Not built** (§31.5):
+  - re-timing a stretch with Whisper (needs the new SongGetter function);
+  - the guide vocal while editing (autokaraoke deletes `NAME.work/vocals.wav` unless `--keep-stems`);
+  - the TV drawing a `timing.json`'s real text in the lyric layouts;
+  - render options other than the colours (lines on screen, font size, lead, page gap): a disc made
+    with other options is redrawn with autokaraoke's defaults.
+

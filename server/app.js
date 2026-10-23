@@ -21,6 +21,7 @@ import { lanAddresses, isLocalAddress } from './util/net.js';
 import { HttpError } from './util/errors.js';
 import { Hotspot } from './net/hotspot.js';
 import { logger } from './util/log.js';
+import { Lane } from './util/lane.js';
 
 /** Without a runner (tests, e2e) nothing can reach NetworkManager: server/start.js gives the real one. */
 const noNetworkManager = async () => {
@@ -42,8 +43,10 @@ const noNetworkManager = async () => {
  *   ffmpegTool). Tests omit it or pass a fake; server/start.js passes the real ffmpeg.
  * @param {Function|null} [opts.stemRun] separates a multiplex track's vocal (autokaraoke). Tests
  *   omit it, so nothing is spawned. server/start.js passes the real runner.
+ * @param {object|null} [opts.makerTool] autokaraoke for the Karaoke maker (server/maker/autokaraoke.js
+ *   autokaraokeTool, or the stand-in in server/maker/fake.js). Without it the maker is off.
  */
-export async function createApp({ dataDir, args = {}, scan, watch = true, fetch = globalThis.fetch, crawl = true, hotspot: hotspotOpts = {}, stemRun = null, videoTool = null } = {}) {
+export async function createApp({ dataDir, args = {}, scan, watch = true, fetch = globalThis.fetch, crawl = true, hotspot: hotspotOpts = {}, stemRun = null, videoTool = null, makerTool = null } = {}) {
   const settings = new Settings(dataDir);
   await settings.load();
   applyArgs(settings, args);
@@ -64,7 +67,7 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   // `instance` tells this process apart from another server on the same address (/api/health).
   /** A guest's identity from their token (a plain guest token or a signed-in account's), or null. */
   const guestOf = (token) => accounts.identity({ guest: auth.verify(token, 'guest')?.id || null, account: auth.verify(token, 'account')?.id || null });
-  const app = { dataDir, settings, library, artwork, songMeta, accounts, guestOf, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [], stemRun, videoTool };
+  const app = { dataDir, settings, library, artwork, songMeta, accounts, guestOf, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [], stemRun, videoTool, makerTool, lane: new Lane() };
 
   // The party hotspot (PLAN §20).
   const hotspot = new Hotspot({

@@ -1,5 +1,5 @@
 // Host dialogs: add to queue, song details, edit queue entry, invite, folder picker.
-import { html, useEffect, useMemo, useState } from '../vendor/preact.js';
+import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore, formatTime, artStore } from '../lib/store.js';
 import { Modal, Cover, Spinner, Stepper, useFetch, apiGet, copyText, SongBadges, go, clearFetchCache } from '../lib/components.js';
@@ -159,7 +159,7 @@ function VersionsTable({ song, songId }) {
           ${many && html`<td class="num" data-label="Sung">${v.plays ? `${v.plays}×` : html`<span class="faint">—</span>`}</td>
             <td><${VersionVote} v=${v} label=${`Votes for ${versionName(v)}`} onVote=${(x) => vote(v, x)} /></td>`}
           <td class="file ellipsis" title=${v.file}>${v.file}</td>
-          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} vocal=${wantsVocalPreview(v)} />`}${v.stems !== undefined && html`<${SeparateButton} v=${v} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
+          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} vocal=${wantsVocalPreview(v)} />`}${v.stems !== undefined && html`<${SeparateButton} v=${v} />`}${v.lyrics && html`<button class="btn small ghost" title=${v.lyrics.edited ? 'You edited these lyrics' : 'Fix the timing of autokaraoke’s lyrics'} onClick=${() => { closeDialog(); go(`/lyrics/${v.id}`); }}><${Icon} name="edit" size=${14} /> ${v.lyrics.edited ? 'Lyrics (edited)' : 'Edit lyrics'}</button>`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
         </tr>`;
       })}</tbody>
     </table>
@@ -401,28 +401,36 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
-export function FolderDialog({ onPick }) {
+/** The server's folder browser; with `files: 'songs'` it picks a song file instead (the Karaoke maker). */
+export function FolderDialog({ onPick, files = '' }) {
   const [path, setPath] = useState('');
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [manual, setManual] = useState('');
+  const songs = files === 'songs';
+  const seq = useRef(0);
   const load = async (p) => {
     setError(null);
+    const n = ++seq.current;
     try {
-      const d = await apiGet('/api/fs/list', { path: p });
+      const d = await apiGet('/api/fs/list', { path: p, files: songs ? 'songs' : '' });
+      if (n !== seq.current) return; // (a later folder was asked for meanwhile)
       setData(d);
       setPath(d.path);
-      setManual(d.path);
+      if (p) setManual(d.path); // (the drives: what is being typed stays)
     } catch (e) {
-      setError(e.message);
+      if (n === seq.current) setError(e.message);
     }
   };
   useEffect(() => { load(''); }, []);
   const crumbs = path ? path.split('/').filter(Boolean).map((part, i, all) => ({ name: part, path: `/${all.slice(0, i + 1).join('/')}` })) : [];
-  return html`<${Modal} title="Choose your karaoke folder" wide onClose=${closeDialog} footer=${html`
-      <span class="hint grow">${path ? (data?.karaokeFiles ? `${data.karaokeFiles} karaoke files directly in this folder.` : 'Sub-folders are scanned too.') : 'Pick a drive or folder.'}</span>
+  const footer = songs
+    ? html`<span class="hint grow">${path ? `${data?.files?.length || 'No'} song file${data?.files?.length === 1 ? '' : 's'} here.` : 'Pick a drive or folder.'}</span>
+      <button class="btn ghost" onClick=${closeDialog}>Cancel</button>`
+    : html`<span class="hint grow">${path ? (data?.karaokeFiles ? `${data.karaokeFiles} karaoke files directly in this folder.` : 'Sub-folders are scanned too.') : 'Pick a drive or folder.'}</span>
       <button class="btn ghost" onClick=${closeDialog}>Cancel</button>
-      <button class="btn primary" disabled=${!path} onClick=${() => { onPick(path); closeDialog(); }}>Use this folder</button>`}>
+      <button class="btn primary" disabled=${!path} onClick=${() => { onPick(path); closeDialog(); }}>Use this folder</button>`;
+  return html`<${Modal} title=${songs ? 'Choose a song' : 'Choose your karaoke folder'} wide onClose=${closeDialog} footer=${footer}>
     <div class="crumbs">
       <button class="chip" onClick=${() => load('')}><${Icon} name="home" size=${14} /> Drives</button>
       ${crumbs.map((c) => html`<${Icon} name="chevronRight" size=${14} /><button class="chip" onClick=${() => load(c.path)}>${c.name}</button>`)}
@@ -435,7 +443,8 @@ export function FolderDialog({ onPick }) {
     <div class="folder-list">
       ${data?.parent && html`<button class="folder" onClick=${() => load(data.parent)}><${Icon} name="chevronLeft" size=${18} /> Up one level</button>`}
       ${data?.dirs.map((d) => html`<button class="folder" onClick=${() => load(d.path)}><${Icon} name="folder" size=${18} /> <span class="ellipsis">${d.name}</span></button>`)}
-      ${data && !data.dirs.length && html`<p class="hint">No sub-folders here.</p>`}
+      ${songs && data?.files?.map((f) => html`<button class="folder song-file" onClick=${() => { onPick(f.path); closeDialog(); }}><${Icon} name="music" size=${18} /> <span class="ellipsis">${f.name}</span></button>`)}
+      ${data && !data.dirs.length && !data.files?.length && html`<p class="hint">${songs ? 'No sub-folders or song files here.' : 'No sub-folders here.'}</p>`}
       ${!data && !error && html`<${Spinner} />`}
     </div>
   </${Modal}>`;
@@ -477,7 +486,7 @@ export function Dialogs() {
     case 'edit': return html`<${EditDialog} entryId=${dialog.entryId} />`;
     case 'invite': return html`<${InviteDialog} />`;
     case 'vocals': return html`<${VocalsDialog} />`;
-    case 'folder': return html`<${FolderDialog} onPick=${dialog.onPick} />`;
+    case 'folder': return html`<${FolderDialog} onPick=${dialog.onPick} files=${dialog.files} />`;
     case 'announce': return html`<${AnnounceDialog} />`;
     default: return null;
   }

@@ -1,15 +1,16 @@
 // Pitch rings (PLAN §13.9): the main TV listens with the party computer's microphone and
-// draws the playfield. The singer's pitch moves a ball; rings scroll in. Phones follow the
+// draws the playfield (in 3D, pitch3d.js; flat without WebGL). The singer's pitch moves a ball; rings come in. Phones follow the
 // score and do not open a microphone. No reference tone — the ring's height is the target.
 import { html, useEffect, useRef, useState } from '../vendor/preact.js';
 import { Countdown, ensureCss } from './common.js';
 import { token } from '../lib/theme.js';
-import { detectPitch, pitchHeight, HOLE_CENTS, HZ_INTERVAL_MS } from '/shared/pitch.js';
+import { detectPitch, pitchHeight, scaleNotes, HOLE_CENTS, HZ_INTERVAL_MS } from '/shared/pitch.js';
+import { createPitch3D } from './pitch3d.js';
 
 ensureCss('/css/games/pitch.css');
 
 export const icon = '⭕';
-export const blurb = 'Sing to fly a ball through the rings. The TV computer listens.';
+export const blurb = 'Sing to fly a ball through the rings, in 3D. The TV computer listens.';
 
 const BALL_X = 0.18;
 /** The mic is released at the latest this long after the run (the server has already moved on). */
@@ -119,93 +120,124 @@ function paint(name, fallback) {
   return token(name) || fallback;
 }
 
-/** The playfield. Rings move by their arrival time; the ball's height is the live pitch. */
+/** The ball's height on screen: the live pitch on the main TV (smoothed, falling when quiet), else the server's. */
+function ballFollower(liveRef, main) {
+  let shown = 0;
+  let hold = 0;
+  return (g) => {
+    const live = liveRef.current;
+    const frame = performance.now();
+    if (main && typeof live === 'number') {
+      shown += (live - shown) * 0.55;
+      hold = frame;
+    } else if (main) {
+      if (frame - hold > 130) shown += (0 - shown) * 0.16;
+    } else {
+      shown = g.ball || 0;
+    }
+    return Math.max(0, Math.min(1, shown));
+  };
+}
+
+/** The flat playfield (no WebGL): rings slide in from the right, the ball rises with the pitch. */
+function drawFlat(canvas, g, t, ball) {
+  const cssW = canvas.clientWidth;
+  const cssH = canvas.clientHeight;
+  if (cssW < 2 || cssH < 2) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const pxW = Math.floor(cssW * dpr);
+  const pxH = Math.floor(cssH * dpr);
+  if (canvas.width !== pxW || canvas.height !== pxH) {
+    canvas.width = pxW;
+    canvas.height = pxH;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const ink = paint('--ink', '#fff');
+  const ink2 = paint('--ink-2', '#ccc');
+  const neon = paint('--neon', '#fff');
+  const ok = paint('--ok', '#fff');
+  const bad = paint('--bad', '#fff');
+  const stage = paint('--stage', '#000');
+  const bulb = paint('--bulb', '#fff');
+  ctx.fillStyle = stage;
+  ctx.fillRect(0, 0, cssW, cssH);
+  const pad = cssH * 0.1;
+  const inner = cssH - pad * 2;
+  const yOf = (height) => pad + (1 - height) * inner;
+  const travel = g.travel || 3600;
+  const ballX = BALL_X * cssW;
+  // Lane the ball flies.
+  ctx.globalAlpha = 0.35;
+  ctx.strokeStyle = ink2;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(ballX, pad);
+  ctx.lineTo(ballX, cssH - pad);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  const hole = (HOLE_CENTS / 1200) * inner;
+  for (const ring of g.rings || []) {
+    const dt = ring.arriveAt - t;
+    const x = ballX + (dt / travel) * (cssW - ballX);
+    if (x < -hole * 3 || x > cssW + hole * 3) continue;
+    const y = yOf(ring.height);
+    ctx.strokeStyle = !ring.scored ? neon : ring.cleared ? ok : bad;
+    ctx.lineWidth = Math.max(10, hole * 0.7);
+    ctx.beginPath();
+    ctx.arc(x, y, hole + ctx.lineWidth * 0.45, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  const ballR = Math.max(16, hole * 0.62);
+  ctx.fillStyle = bulb;
+  ctx.beginPath();
+  ctx.arc(ballX, yOf(ball), ballR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = ink;
+  ctx.stroke();
+}
+
+/**
+ * The playfield: in 3D (WebGL — the ball flies into the screen, rings come out of the distance at
+ * their note's height), or flat when the browser has no WebGL or loses it. Rings move by their
+ * arrival time; the ball's height is the live pitch.
+ */
 function Playfield({ game, now, liveRef, main }) {
   const ref = useRef(null);
   const gameRef = useRef(game);
   gameRef.current = game;
+  const [flat, setFlat] = useState(false);
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return undefined;
+    const scene = flat ? null : createPitch3D(canvas);
+    if (!scene) canvas.dataset.renderer = '2d';
+    const lost = (e) => { e.preventDefault(); setFlat(true); };
+    canvas.addEventListener('webglcontextlost', lost);
+    const follow = ballFollower(liveRef, main);
+    const g0 = gameRef.current;
+    const lowHz = g0.lowHz || scaleNotes(g0.range)[0].hz;
+    const lanes = [...new Set(scaleNotes(g0.range).map((n) => pitchHeight(n.hz, lowHz)).filter((h) => h != null))];
     let raf = 0;
-    let shown = 0;
-    let hold = 0;
+    let frames = 0;
     const draw = () => {
       raf = requestAnimationFrame(draw);
       const g = gameRef.current;
-      const cssW = canvas.clientWidth;
-      const cssH = canvas.clientHeight;
-      if (cssW < 2 || cssH < 2) return;
-      const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const pxW = Math.floor(cssW * dpr);
-      const pxH = Math.floor(cssH * dpr);
-      if (canvas.width !== pxW || canvas.height !== pxH) {
-        canvas.width = pxW;
-        canvas.height = pxH;
-      }
-      const ctx = canvas.getContext('2d');
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const ink = paint('--ink', '#fff');
-      const ink2 = paint('--ink-2', '#ccc');
-      const neon = paint('--neon', '#fff');
-      const ok = paint('--ok', '#fff');
-      const bad = paint('--bad', '#fff');
-      const stage = paint('--stage', '#000');
-      const bulb = paint('--bulb', '#fff');
-      ctx.fillStyle = stage;
-      ctx.fillRect(0, 0, cssW, cssH);
-      const pad = cssH * 0.1;
-      const inner = cssH - pad * 2;
-      const yOf = (height) => pad + (1 - height) * inner;
-      const travel = g.travel || 3600;
-      const ballX = BALL_X * cssW;
-      const t = now();
-      // Lane the ball flies.
-      ctx.globalAlpha = 0.35;
-      ctx.strokeStyle = ink2;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(ballX, pad);
-      ctx.lineTo(ballX, cssH - pad);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      const hole = (HOLE_CENTS / 1200) * inner;
-      const rings = g.rings || [];
-      for (const ring of rings) {
-        const dt = ring.arriveAt - t;
-        const x = ballX + (dt / travel) * (cssW - ballX);
-        if (x < -hole * 3 || x > cssW + hole * 3) continue;
-        const y = yOf(ring.height);
-        ctx.strokeStyle = !ring.scored ? neon : ring.cleared ? ok : bad;
-        ctx.lineWidth = Math.max(10, hole * 0.7);
-        ctx.beginPath();
-        ctx.arc(x, y, hole + ctx.lineWidth * 0.45, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      const live = liveRef.current;
-      const frame = performance.now();
-      if (main && typeof live === 'number') {
-        shown += (live - shown) * 0.55;
-        hold = frame;
-      } else if (main) {
-        if (frame - hold > 130) shown += (0 - shown) * 0.16;
-      } else {
-        shown = g.ball || 0;
-      }
-      const ballR = Math.max(16, hole * 0.62);
-      const by = yOf(Math.max(0, Math.min(1, shown)));
-      ctx.fillStyle = bulb;
-      ctx.beginPath();
-      ctx.arc(ballX, by, ballR, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = ink;
-      ctx.stroke();
+      const ball = follow(g);
+      if (scene) {
+        if (!scene.frame({ ballHeight: ball, rings: g.rings || [], now: now(), travel: g.travel || 3600, lanes })) return;
+      } else drawFlat(canvas, g, now(), ball);
+      if (++frames % 30 === 0) canvas.dataset.frames = String(frames);
     };
     raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
-  }, [game.round, main]);
-  return html`<canvas ref=${ref} class="pn-field" aria-label="Pitch rings playfield"></canvas>`;
+    return () => {
+      cancelAnimationFrame(raf);
+      canvas.removeEventListener('webglcontextlost', lost);
+      scene?.destroy();
+    };
+  }, [game.round, main, flat]);
+  return html`<canvas key=${flat ? 'flat' : '3d'} ref=${ref} class="pn-field" aria-label="Pitch rings playfield"></canvas>`;
 }
 
 function Board({ game }) {

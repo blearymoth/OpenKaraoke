@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { JsonDoc, deepMerge, isPlainObject } from './util/jsonfile.js';
 import { THEMES, DEFAULT_THEME, ACCENT_RE, normalizeAccent, normalizeAppearance } from '../shared/themes.js';
 import { LYRICS_LOOKS, LYRICS_MOTIONS, LYRICS_LAYOUTS, LIGHTER_EFFECTS, DEFAULT_LYRICS_LOOK, DEFAULT_LYRICS_MOTION, DEFAULT_LYRICS_LAYOUT, DEFAULT_LIGHTER_EFFECTS } from '../shared/lyrics.js';
+import { THEMES as MAKER_THEMES, WHISPER_MODELS, DEMUCS_MODELS } from './maker/autokaraoke.js';
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const PUBLIC_DIR = path.join(APP_ROOT, 'public');
@@ -108,6 +109,15 @@ export const DEFAULT_SETTINGS = {
     theaudiodbKey: '123',
     fanartKey: '',
     maxCacheMB: 3072,
+  },
+  maker: { // the Karaoke maker: songs made with autokaraoke (PLAN §31)
+    out: '', // the save folder ('' = autokaraoke's own last one, else ~/Karaoke)
+    addToLibrary: true, // the save folder becomes a library folder, rescanned after each song
+    language: 'en',
+    theme: 'classic', // autokaraoke's colours: classic, blue, green
+    whisperModel: 'medium',
+    demucsModel: 'htdemucs',
+    duringSongs: false, // on a PC without a graphics card, start making a song while someone sings
   },
   guests: {
     reactions: true,
@@ -223,6 +233,14 @@ export class Settings extends JsonDoc {
     // The same for the choices from a list (the TV's lyrics and effects).
     for (const [key, list] of DISPLAY_CHOICES) {
       if (clean.display && Object.hasOwn(clean.display, key) && !(typeof patch.display[key] === 'string' && list.includes(patch.display[key]))) delete clean.display[key];
+    }
+    const mk = clean.maker;
+    if (mk) { // (a value autokaraoke would refuse is ignored)
+      for (const [key, list] of [['theme', MAKER_THEMES], ['whisperModel', WHISPER_MODELS], ['demucsModel', DEMUCS_MODELS]]) {
+        if (Object.hasOwn(mk, key) && !list.includes(mk[key])) delete mk[key];
+      }
+      if (Object.hasOwn(mk, 'language') && !/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(mk.language)) delete mk.language;
+      if (Object.hasOwn(mk, 'out') && mk.out !== '' && !path.isAbsolute(mk.out)) delete mk.out;
     }
     deepMerge(this.data, clean);
     this.save();

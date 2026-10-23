@@ -77,6 +77,15 @@ export function mediaRoutes(router, app) {
     if (!track) throw new HttpError(404, 'Unknown track (the library may have been rescanned)');
     const source = mediaSource(track, part);
     if (!source) throw new HttpError(404, `This track has no ${part}`);
+    // Lyrics edited in the editor (PLAN §31.5): autokaraoke's new drawing, in the data folder.
+    const edited = part === 'cdg' ? app.room?.lyrics.cdgFor(track.id) : null;
+    if (edited) {
+      const st = await fsp.stat(edited).catch(() => null);
+      if (st) {
+        const etag = `W/"e${st.size.toString(16)}-${Math.floor(st.mtimeMs).toString(16)}"`;
+        return sendCdg(req, res, await cdgEntry(`${edited}:${etag}`, () => fsp.readFile(edited)), etag);
+      }
+    }
 
     try {
       if (source.zipEntry) {

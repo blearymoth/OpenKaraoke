@@ -22,6 +22,9 @@ import { clampLead, resolveVocals, leadKind, LAYOUTS } from '../../shared/vocals
 import { vocalStemAllowed } from '../../shared/stems.js';
 import { StemJobs } from '../stems/jobs.js';
 import { VideoJobs } from '../video/jobs.js';
+import { Maker } from '../maker/jobs.js';
+import { LyricEdits } from '../lyrics/edits.js';
+import { Lane } from '../util/lane.js';
 import { needsConversion } from '../video/ffmpeg.js';
 import { readZipEntry } from '../library/zip.js';
 import { fold } from '../../shared/text.js';
@@ -165,6 +168,7 @@ export class Room {
       allowed: (id) => this.stemOk(id) || this.stemAsked(id),
       needsMusic: (id) => !this.stemOk(id),
       sourceOf: (id) => this.stemSource(id),
+      lane: app.lane || null,
       onChange: (id, st) => {
         if (this.s.current?.trackId !== id) return;
         // The song on now was separated: the TV loads the stems (where it is in the song).
@@ -179,6 +183,28 @@ export class Room {
       tool: app.videoTool || null,
       sourceOf: (track) => this.library.absPath(track, 'video'),
       onChange: (trackId, view) => this.onVideoChange(trackId, view),
+    });
+    // Songs made with autokaraoke from Settings → Karaoke maker (server/maker/, PLAN §31), in the
+    // heavy-job lane shared with the stems. `makerTool` is null in tests unless given.
+    this.maker = new Maker({
+      dataDir: app.dataDir,
+      tool: app.makerTool || null,
+      lane: app.lane || new Lane(),
+      settings: this.settings,
+      library: this.library,
+      songPlaying: () => ['intro', 'playing'].includes(this.s.player.state),
+      onChange: () => this.markDirty(),
+    });
+    // The lyrics editor's edits (server/lyrics/, PLAN §31.5): drawn by autokaraoke, served in place
+    // of the disc's CDG; the TV reloads the song on now when its lyrics change.
+    this.lyrics = new LyricEdits({
+      dataDir: app.dataDir,
+      library: this.library,
+      maker: this.maker,
+      onChange: (trackId) => {
+        if (this.s.current?.trackId === trackId) this.s.player.reload = (this.s.player.reload || 0) + 1;
+        this.markDirty();
+      },
     });
     this.declined = new Set(); // "inviter>invitee>song" duet invitations turned down this session
     this.handlers = this.buildHandlers();
@@ -200,6 +226,9 @@ export class Room {
     await this.vocals.load();
     // Whether ffmpeg is there, for Settings → Library (in the background: a program is started).
     this.videos.detect().then(() => { if (!this.videos.closed) this.markDirty(); }, () => {});
+    // Where autokaraoke is, then a look at this computer (in the background: programs are started).
+    this.maker.init().then(() => this.maker.check(), () => {});
+    await this.lyrics.load();
     const s = this.s;
     // After a restart nothing is playing: keep the current song paused where it was.
     const p = s.player;
@@ -232,6 +261,7 @@ export class Room {
     this.photos.close();
     this.stems.close();
     this.videos.close();
+    this.maker.close();
     if (save) await Promise.all([this.doc.flush(), this.vocals.flush(), this.versions.flush()]);
     else {
       this.doc.discard();
@@ -286,6 +316,7 @@ export class Room {
     const versions = this.versions.rekey(list);
     const vocals = this.vocals.rekey(list);
     const stems = this.stems.rekey(list);
+    this.lyrics.rekey(list);
     const prefs = rekeyRecords(this.s.trackPrefs, list);
     const map = new Map(list.map((m) => [m.from, m.to]));
     let pointed = 0;
@@ -508,6 +539,14 @@ export class Room {
       'player.lead': [[HOST, 'tv-local', GUEST], (c, m) => this.setLead(c, m)],
       'player.vox': [PLAYER, (c, m) => this.setVox(m)],
       'stems.separate': [H, (c, m) => this.separateStems(m)],
+      'maker.make': [H, (c, m) => this.maker.make(m)],
+      'maker.cancel': [H, (c, m) => this.maker.cancel(m.id)],
+      'maker.now': [H, (c, m) => this.maker.now(m.id)],
+      'maker.dismiss': [H, (c, m) => this.maker.dismiss(m.id)],
+      'maker.check': [H, () => this.maker.check()],
+      'maker.install': [H, (c, m) => this.maker.startTask('install', { gpu: !!m.gpu, youtube: m.youtube !== false })],
+      'maker.setup': [H, (c, m) => this.maker.startTask('setup', { whisperModel: m.whisperModel, demucsModel: m.demucsModel })],
+      'maker.cancelTask': [H, () => this.maker.cancelTask()],
       'player.layout': [H, (c, m) => this.setLayout(m)],
       'vocal.prepare': [H, (c, m) => this.prepareVocal(m)],
       'player.version': [H, (c, m) => this.setVersion(m)],
@@ -2376,7 +2415,9 @@ export class Room {
    * ffmpeg has converted it; until then `converting` says how far it is (or why it can't be).
    */
   mediaFor(track) {
-    const media = mediaUrls(track);
+    let media = mediaUrls(track);
+    const edit = track && this.lyrics.gen(track.id);
+    if (edit && media?.kind === 'cdg') media = { ...media, cdg: `${media.cdg}?edit=${edit}` }; // (an edited CDG: a new URL each time)
     const stems = track && this.stemsFor(track.id);
     if (stems && media?.kind === 'cdg') return { ...media, stems }; // (PLAN §30)
     if (media?.kind !== 'video' || track.kind !== 'video' || !needsConversion(track.video)) return media;
@@ -2723,6 +2764,7 @@ export class Room {
       hasPin,
       library: this.library.status(),
       video: { ...this.videos.status(), tracks: this.convertibleCount() },
+      maker: this.maker.view(),
       current: this.currentView({ media: true, version: true, voter: HOST_VOTER }), // (media: the headphone monitor)
       player: this.playerView(),
       queue: s.queue.map((e, i) => ({ ...this.entryView(e), eta: eta[i], addedByName: byName(e) })),

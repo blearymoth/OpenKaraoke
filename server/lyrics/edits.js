@@ -207,10 +207,13 @@ export class LyricEdits {
       for (const file of [f.timing, f.cdg, f.lrc]) {
         if ((await exists(file)) && !(await exists(`${file}.orig`))) await fs.copyFile(file, `${file}.orig`);
       }
-      await fs.copyFile(draft, f.timing);
+      // Each file whole or not at all (written beside it, then renamed): a reader never sees half.
+      await fs.copyFile(draft, `${f.timing}.part`);
+      await fs.rename(`${f.timing}.part`, f.timing);
       await fs.copyFile(cdg, `${f.cdg}.part`);
       await fs.rename(`${f.cdg}.part`, f.cdg);
-      await fs.writeFile(f.lrc, timingToLrc(song));
+      await fs.writeFile(`${f.lrc}.part`, timingToLrc(song));
+      await fs.rename(`${f.lrc}.part`, f.lrc);
     } catch (e) {
       throw new UserError(e.code === 'EACCES' || e.code === 'EROFS' ? 'That folder can’t be written to (a read-only drive?). The edit stays in OpenKaraoke.' : `Could not write the files: ${e.message}`);
     }

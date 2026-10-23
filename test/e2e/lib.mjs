@@ -142,13 +142,13 @@ export class WsClient {
  * `addTracks(dir)`: writes more tracks into the library folder before it is scanned. `artFetch`:
  * another fake network for the artwork providers.
  */
-export async function startParty({ crawl = false, hotspot, addTracks, stemRun = null, videoTool = null, artFetch = null } = {}) {
+export async function startParty({ crawl = false, hotspot, addTracks, stemRun = null, videoTool = null, artFetch = null, makerTool = null } = {}) {
   const lib = await tmpDir('ok-e2e-lib-');
   await makeDemoLibrary(lib, { log: () => {} });
   if (addTracks) await addTracks(lib);
   const dataDir = await tmpDir('ok-e2e-data-');
   const fetch = artFetch || fakeArtFetch({ unknown: new Set(['dj hush']) });
-  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch, crawl, hotspot, stemRun, videoTool });
+  const app = await createApp({ dataDir, args: { library: [lib] }, scan: false, watch: false, fetch, crawl, hotspot, stemRun, videoTool, makerTool });
   await app.library.scan();
   app.settings.update({ playback: { countdown: 3 } });
   await app.listen(0, '127.0.0.1');

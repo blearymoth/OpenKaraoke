@@ -23,6 +23,7 @@ import { Lru } from '../util/lru.js';
 import { defaultMusicDirs } from '../config.js';
 import { rescanForPaths } from '../library/service.js';
 import { logger } from '../util/log.js';
+import { isSongFile } from '../maker/autokaraoke.js';
 
 const log = logger('api');
 const COLOR_RE = /^#[0-9a-f]{3,8}$/i;
@@ -386,7 +387,21 @@ export function apiRoutes(router, app) {
 
   router.get('/api/fs/list', async (ctx) => {
     requireHost(ctx);
-    return listFolders(ctx.query.get('path') || '');
+    return listFolders(ctx.query.get('path') || '', { songs: ctx.query.get('files') === 'songs' });
+  });
+
+  // The Karaoke maker (PLAN §31): a song file from the host's browser, streamed into the data
+  // folder for autokaraoke (the name in x-file-name, URI-encoded).
+  router.post('/api/maker/upload', async (ctx) => {
+    requireHost(ctx);
+    let name = '';
+    try { name = decodeURIComponent(String(ctx.req.headers['x-file-name'] || '')); } catch { /* bad encoding */ }
+    try {
+      return { upload: await app.room.maker.receiveUpload(ctx.req, name) };
+    } catch (e) {
+      ctx.res.setHeader('connection', 'close'); // (refused before or while reading: don't wait for the rest)
+      throw e;
+    }
   });
 
   songbookRoutes(router, app, { requireHost });
@@ -452,7 +467,11 @@ export function apiRoutes(router, app) {
 }
 
 /** Folder picker data: sub-folders of `p`, or likely drive/music locations when `p` is empty. */
-export async function listFolders(p) {
+/**
+ * The folder picker: drives and the home folder, or one folder's sub-folders (and, with `songs`,
+ * its song files — the Karaoke maker's "Choose a file").
+ */
+export async function listFolders(p, { songs = false } = {}) {
   if (!p) {
     const seen = new Set();
     const out = [];
@@ -486,20 +505,27 @@ export async function listFolders(p) {
     throw new HttpError(400, `Cannot open this folder (${e.code || e.message})`);
   }
   const dirs = [];
+  const files = [];
   let karaokeFiles = 0;
   for (const e of entries) {
     if (e.name.startsWith('.')) continue;
     let isDir = e.isDirectory();
     if (e.isSymbolicLink()) isDir = await fsp.stat(path.join(abs, e.name)).then((s) => s.isDirectory(), () => false);
     if (isDir) dirs.push(e.name);
-    else if (/\.(cdg|mp4|webm|mkv|zip)$/i.test(e.name)) karaokeFiles++;
+    else {
+      if (/\.(cdg|mp4|webm|mkv|zip)$/i.test(e.name)) karaokeFiles++;
+      if (songs && isSongFile(e.name)) files.push(e.name);
+    }
   }
-  dirs.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  const byName = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  dirs.sort(byName);
+  files.sort(byName);
   const parent = path.dirname(abs);
   return {
     path: abs,
     parent: parent === abs ? null : parent,
     dirs: dirs.slice(0, 5000).map((name) => ({ name, path: path.join(abs, name) })),
     karaokeFiles,
+    ...(songs ? { files: files.slice(0, 5000).map((name) => ({ name, path: path.join(abs, name) })) } : {}),
   };
 }

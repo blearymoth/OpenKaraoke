@@ -154,6 +154,11 @@ export async function chooseFolder(onPick) {
   openDialog({ type: 'folder', onPick });
 }
 
+/** Asks for a song file on this computer (the server's browser; the Karaoke maker). */
+export function chooseSongFile(onPick) {
+  openDialog({ type: 'folder', files: 'songs', onPick });
+}
+
 /** Position of the current song, interpolated between the TV's 4 Hz reports. */
 export function livePosition() {
   const { state, time } = store.get();

@@ -22,6 +22,8 @@ import { clampLead, resolveVocals, leadKind, LAYOUTS } from '../../shared/vocals
 import { vocalStemAllowed } from '../../shared/stems.js';
 import { StemJobs } from '../stems/jobs.js';
 import { VideoJobs } from '../video/jobs.js';
+import { Maker } from '../maker/jobs.js';
+import { Lane } from '../util/lane.js';
 import { needsConversion } from '../video/ffmpeg.js';
 import { readZipEntry } from '../library/zip.js';
 import { fold } from '../../shared/text.js';
@@ -165,6 +167,7 @@ export class Room {
       allowed: (id) => this.stemOk(id) || this.stemAsked(id),
       needsMusic: (id) => !this.stemOk(id),
       sourceOf: (id) => this.stemSource(id),
+      lane: app.lane || null,
       onChange: (id, st) => {
         if (this.s.current?.trackId !== id) return;
         // The song on now was separated: the TV loads the stems (where it is in the song).
@@ -179,6 +182,17 @@ export class Room {
       tool: app.videoTool || null,
       sourceOf: (track) => this.library.absPath(track, 'video'),
       onChange: (trackId, view) => this.onVideoChange(trackId, view),
+    });
+    // Songs made with autokaraoke from Settings → Karaoke maker (server/maker/, PLAN §31), in the
+    // heavy-job lane shared with the stems. `makerTool` is null in tests unless given.
+    this.maker = new Maker({
+      dataDir: app.dataDir,
+      tool: app.makerTool || null,
+      lane: app.lane || new Lane(),
+      settings: this.settings,
+      library: this.library,
+      songPlaying: () => ['intro', 'playing'].includes(this.s.player.state),
+      onChange: () => this.markDirty(),
     });
     this.declined = new Set(); // "inviter>invitee>song" duet invitations turned down this session
     this.handlers = this.buildHandlers();
@@ -200,6 +214,8 @@ export class Room {
     await this.vocals.load();
     // Whether ffmpeg is there, for Settings → Library (in the background: a program is started).
     this.videos.detect().then(() => { if (!this.videos.closed) this.markDirty(); }, () => {});
+    // Where autokaraoke is, then a look at this computer (in the background: programs are started).
+    this.maker.init().then(() => this.maker.check(), () => {});
     const s = this.s;
     // After a restart nothing is playing: keep the current song paused where it was.
     const p = s.player;
@@ -232,6 +248,7 @@ export class Room {
     this.photos.close();
     this.stems.close();
     this.videos.close();
+    this.maker.close();
     if (save) await Promise.all([this.doc.flush(), this.vocals.flush(), this.versions.flush()]);
     else {
       this.doc.discard();
@@ -508,6 +525,14 @@ export class Room {
       'player.lead': [[HOST, 'tv-local', GUEST], (c, m) => this.setLead(c, m)],
       'player.vox': [PLAYER, (c, m) => this.setVox(m)],
       'stems.separate': [H, (c, m) => this.separateStems(m)],
+      'maker.make': [H, (c, m) => this.maker.make(m)],
+      'maker.cancel': [H, (c, m) => this.maker.cancel(m.id)],
+      'maker.now': [H, (c, m) => this.maker.now(m.id)],
+      'maker.dismiss': [H, (c, m) => this.maker.dismiss(m.id)],
+      'maker.check': [H, () => this.maker.check()],
+      'maker.install': [H, (c, m) => this.maker.startTask('install', { gpu: !!m.gpu, youtube: m.youtube !== false })],
+      'maker.setup': [H, (c, m) => this.maker.startTask('setup', { whisperModel: m.whisperModel, demucsModel: m.demucsModel })],
+      'maker.cancelTask': [H, () => this.maker.cancelTask()],
       'player.layout': [H, (c, m) => this.setLayout(m)],
       'vocal.prepare': [H, (c, m) => this.prepareVocal(m)],
       'player.version': [H, (c, m) => this.setVersion(m)],
@@ -2723,6 +2748,7 @@ export class Room {
       hasPin,
       library: this.library.status(),
       video: { ...this.videos.status(), tracks: this.convertibleCount() },
+      maker: this.maker.view(),
       current: this.currentView({ media: true, version: true, voter: HOST_VOTER }), // (media: the headphone monitor)
       player: this.playerView(),
       queue: s.queue.map((e, i) => ({ ...this.entryView(e), eta: eta[i], addedByName: byName(e) })),

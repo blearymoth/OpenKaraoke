@@ -1,6 +1,7 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-23 (Pitch rings in 3D — see "Pitch rings in 3D" below. Before that, on
+_Last updated: 2026-10-23 (the Karaoke maker — autokaraoke in Settings — and Pitch rings in 3D;
+see those sections below. Before that, on
 2026-10-18: separated vocals on any version, the headphone monitor, guest accounts, the year &
 genre checker, the Library table, browse filters, singer playback controls. Run in a cloud sandbox
 without the owner's PC or drive)._
@@ -10,9 +11,9 @@ without the owner's PC or drive)._
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 584/584; `npm run e2e` → 26 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 595/595; `npm run e2e` → 27 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
@@ -1306,15 +1307,36 @@ PLAN §13, item 7. Same game, rules, server and phones; the TV draws the run in 
   coming, the TV hears a sung G4 at its height, the flat playfield without WebGL, the mic error).
 - Owner checklist: a run on the party PC's TV (frame rate, the ring sizes from the sofa, both skins).
 
+## Karaoke maker: autokaraoke in Settings (2026-10-23)
+PLAN §31.9. The owner's autokaraoke (SongGetter) stays where it is, in `~/Projects/autokaraoke`;
+OpenKaraoke finds it and runs its command line, and **Settings → Karaoke maker** replaces its two
+GTK windows (the maker and the installer).
+- **Using it**: choose a song on this computer, upload one, or paste a link; artist and title fill
+  in from "Artist - Title" names; paste the lyrics (or leave them empty: autokaraoke transcribes);
+  **Make karaoke**. The job shows its steps (download, remove the singer, time the lyrics, draw the
+  lyrics), a progress bar and autokaraoke's log; then **Queue it**. The save folder (autokaraoke's
+  own last one, or `~/Karaoke`) becomes a library folder and is rescanned by itself.
+- **Not installed yet**: the page checks Python, FFmpeg (with the MP3 encoder) and the graphics
+  card, and **Install** runs autokaraoke's `install.sh` (graphics card or processor, YouTube on or
+  off). **Download the models** when they are missing.
+- **At a party**: one heavy job at a time (the vocal separation shares the lane and goes first),
+  autokaraoke at the lowest priority with fewer threads; without a graphics card a new song waits
+  for the one on stage (**Start now** overrides; a setting turns waiting off).
+- **Try it without autokaraoke**: `OPENKARAOKE_FAKE_MAKER=1 npm start` (a stand-in that writes a
+  real pair; `=missing` shows the install).
+- Tests: `test/maker.test.js` (7), `test/e2e/maker.mjs` (27).
+- Owner checklist: on the PC, with the real autokaraoke — the checks (version, models, the
+  graphics card), make one song from a file with lyrics and one from a YouTube link; the time it
+  takes; that it plays; the TV's sound while a song is made during a song (without a graphics card).
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
   - ~~Browse/search filters~~, ~~the host Library table~~, ~~the year & genre checker~~,
     ~~guest accounts~~, ~~the headphone monitor~~, ~~separated vocals~~ and ~~Pitch rings in 3D~~
     (done, above).
-  - **Making karaoke in the app** with the owner's SongGetter/autokaraoke: planned in PLAN §31
-    (size: ≈4 GB CPU-only, ≈7.5 GB with an NVIDIA GPU, never bundled; hardware tiers; one ML
-    job at a time at low priority during a party; milestones; open questions). Not started.
+  - ~~Making karaoke in the app~~ (the Karaoke maker, above). Still open from PLAN §31: the
+    benchmark ("about N minutes"), guests' wishes, AMD/Intel graphics.
 - **Parked** (not without the owner):
   - The host **seek bar** after the TV window is toggled (`SeekBar` in
     `public/js/host/player.js` clears its drag only on `change`) — not reproduced.

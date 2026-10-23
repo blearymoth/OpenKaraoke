@@ -668,3 +668,55 @@ body.host .toasts { bottom: 104px; }
 .update-toast-text span { color: var(--ink-2); font-size: 14px; }
 .update-toast .btn-row { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
 
+
+/* ---- Settings → Karaoke maker (autokaraoke, PLAN §31) --------------------------------------- */
+.maker { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.mk-intro { margin: 0; max-width: 70ch; }
+.mk-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 16px 18px; border-radius: var(--r-lg); background: var(--stage-2); border: 1px solid var(--line); }
+.mk-card > .setting:first-of-type { border-top: 0; }
+.mk-title { display: flex; align-items: center; gap: 10px; font-size: 18px; margin: 0; }
+.mk-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.mk-label { font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.mk-field .segmented { justify-self: start; max-width: 100%; }
+.mk-pick { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: var(--r-md); background: var(--stage); border: 1px solid var(--line); }
+.mk-chosen { flex: 1; font-weight: 650; }
+.mk-chosen.muted { font-weight: 500; color: var(--ink-3); }
+label.btn { position: relative; }
+label.btn.disabled { opacity: 0.45; pointer-events: none; }
+.mk-form .row-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.mk-lyrics textarea { resize: vertical; min-height: 150px; font-family: inherit; line-height: 1.5; }
+.mk-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.mk-banner { align-items: center; }
+.mk-banner p { margin: 2px 0 0; }
+.mk-jobs { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.mk-job-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mk-job-head b { flex: 1; font-size: 16px; }
+.mk-state.running, .mk-state.queued { background: var(--neon-soft); color: var(--ink); }
+.mk-state.waiting { background: var(--bulb-soft); color: var(--bulb); }
+.mk-state.done { background: rgba(var(--ok-rgb), 0.16); color: var(--ok); }
+.mk-state.failed { background: var(--bad-bg); color: var(--bad-pill-ink); }
+.mk-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.mk-steps li { display: flex; align-items: center; gap: 8px; color: var(--ink-3); font-size: 14px; font-weight: 600; }
+.mk-dot { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--stage-3); color: var(--ink-2); font-size: 12px; font-weight: 800; }
+.mk-steps li.done { color: var(--ink-2); }
+.mk-steps li.done .mk-dot { background: rgba(var(--ok-rgb), 0.18); color: var(--ok); }
+.mk-steps li.now { color: var(--ink); }
+.mk-steps li.now .mk-dot { background: var(--neon); color: var(--neon-ink); box-shadow: var(--glow); }
+.mk-steps li.bad .mk-dot { background: var(--bad-bg); color: var(--bad-pill-ink); }
+.mk-bar { height: 8px; border-radius: var(--r-pill); background: var(--stage-3); overflow: hidden; }
+.mk-bar i { display: block; height: 100%; border-radius: inherit; background: var(--neon); transition: width 0.4s; }
+.mk-bar.indeterminate i { width: 30%; animation: mk-slide 1.4s ease-in-out infinite; }
+@keyframes mk-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+.mk-result { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.mk-result .hint { display: inline-flex; align-items: center; gap: 8px; }
+.mk-log-box { flex: 1; min-width: 0; }
+.mk-log-box summary { cursor: pointer; color: var(--ink-2); font-size: 14px; font-weight: 600; }
+.mk-log { margin: 8px 0 0; max-height: 240px; overflow: auto; padding: 10px 12px; border-radius: var(--r-md); background: var(--stage); border: 1px solid var(--line);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; line-height: 1.45; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.mk-checks { margin: 0; }
+.folder.song-file { color: var(--ink); }
+@media (max-width: 600px) {
+  .mk-card { padding: 14px; }
+  .mk-form .row-2 { grid-template-columns: minmax(0, 1fr); }
+  .mk-pick { flex-wrap: wrap; }
+}

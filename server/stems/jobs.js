@@ -28,14 +28,16 @@ export class StemJobs {
    * @param {(trackId: string) => boolean} [opts.needsMusic]  music.wav must be there too (not multiplex)
    * @param {(trackId: string) => Promise<string|null>} opts.sourceOf  absolute audio path in the library, or a copy under the data folder
    * @param {(trackId: string, state: object) => void} [opts.onChange]
+   * @param {import('../util/lane.js').Lane} [opts.lane]  one heavy job at a time, shared with the Karaoke maker
    */
-  constructor({ dataDir, run, allowed, sourceOf, onChange, needsMusic = () => false }) {
+  constructor({ dataDir, run, allowed, sourceOf, onChange, needsMusic = () => false, lane = null }) {
     this.dataDir = dataDir;
     this.run = typeof run === 'function' ? run : null;
     this.allowed = allowed;
     this.needsMusic = needsMusic;
     this.sourceOf = sourceOf;
     this.onChange = onChange || (() => {});
+    this.lane = lane;
     this.memory = new Map();
     this.queue = [];
     this.running = null;
@@ -139,9 +141,15 @@ export class StemJobs {
           await fs.mkdir(dir, { recursive: true });
           const vocal = path.join(dir, 'vocal.wav');
           const music = path.join(dir, 'music.wav');
-          await this.run({
-            src, vocal, music, trackId, onChild: (child) => { this.child = child; },
-          });
+          const release = this.lane ? await this.lane.acquire('stems', { urgent: true }) : () => {};
+          try {
+            if (this.closed) return;
+            await this.run({
+              src, vocal, music, trackId, onChild: (child) => { this.child = child; },
+            });
+          } finally {
+            release();
+          }
           if (this.closed) return;
           if (!(await this.filesReady(trackId))) throw new Error('Separator finished without the stems');
           await this.removeSource(dir);

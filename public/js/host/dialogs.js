@@ -159,7 +159,7 @@ function VersionsTable({ song, songId }) {
           ${many && html`<td class="num" data-label="Sung">${v.plays ? `${v.plays}×` : html`<span class="faint">—</span>`}</td>
             <td><${VersionVote} v=${v} label=${`Votes for ${versionName(v)}`} onVote=${(x) => vote(v, x)} /></td>`}
           <td class="file ellipsis" title=${v.file}>${v.file}</td>
-          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} vocal=${wantsVocalPreview(v)} />`}${v.stems !== undefined && html`<${SeparateButton} v=${v} />`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
+          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} vocal=${wantsVocalPreview(v)} />`}${v.stems !== undefined && html`<${SeparateButton} v=${v} />`}${v.lyrics && html`<button class="btn small ghost" title=${v.lyrics.edited ? 'You edited these lyrics' : 'Fix the timing of autokaraoke’s lyrics'} onClick=${() => { closeDialog(); go(`/lyrics/${v.id}`); }}><${Icon} name="edit" size=${14} /> ${v.lyrics.edited ? 'Lyrics (edited)' : 'Edit lyrics'}</button>`}<button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
         </tr>`;
       })}</tbody>
     </table>

@@ -460,6 +460,8 @@ POST /api/photos               guest photo upload (raw image body ≤ 4 MB, x-gu
 GET  /api/photos/:id           approved photo
 GET  /api/fs/list?path=…[&files=songs]  (host only) sub-folders for the folder picker (and song files: the Karaoke maker)
 POST /api/maker/upload          (host only) a song file for the Karaoke maker; body = the bytes, name in x-file-name (§31.9)
+GET  /api/lyrics/:trackId       (host only) the lyrics editor: autokaraoke's timing (or the edit) — POST it { timing } to save and draw;
+     POST …/revert, POST …/write (into the song's folder) (§31.10)
 GET  /api/history?limit        (host only)   GET /api/export/songbook?format=html|csv&…
 GET  /print/qr                 printable A4 QR card
 ```
@@ -971,8 +973,9 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
   flat playfield when there is no WebGL (§13, item 7).
 - ✅ **Karaoke maker** (owner request, 2026-10-23): autokaraoke from `~/Projects/autokaraoke` in
   Settings — make a track from a file, an upload or a link, install it, the models (§31.9).
-- Parked: the host seek bar after the TV window toggles, lyric layouts, the lyrics editor (paused
-  by the owner, 2026-10-18; it belongs to §31.5, milestone 5).
+- ✅ **Lyrics editor** (owner request, 2026-10-23): the word timings of autokaraoke's songs —
+  tap along, nudges, the words as text; drawn by autokaraoke, shown on the TV (§31.10).
+- Parked: the host seek bar after the TV window toggles, lyric layouts.
 
 ## 19. Open questions for the owner
 - Host PIN default: none (localhost-only host) — OK?
@@ -2012,4 +2015,48 @@ built (§31.7); the benchmark (1) and guests' wishes (3) are not.
   `timing.json` and a CDG drawn from it. `test/maker.test.js` (7), `test/e2e/maker.mjs` (27).
 - **Not built**: the benchmark and "about N minutes" (§31.2); guests' wishes; AMD/Intel graphics
   (autokaraoke's installer has no path for them); uninstalling from the page (delete the folder).
+
+### 31.10 Built: the lyrics editor (2026-10-23)
+
+The owner asked for it to be finished after the Karaoke maker. It edits the songs autokaraoke
+made; other discs' lyrics are pictures and have nothing to edit.
+
+- **Which versions**: a CD+G track with autokaraoke's `NAME.timing.json` beside its CDG. Song
+  details shows **Edit lyrics** on those versions (host only; "Lyrics (edited)" once edited), and
+  a finished Karaoke maker job has the button too. The editor is a page of its own,
+  `#/lyrics/<trackId>` (`public/js/host/lyrics-editor.js`).
+- **Editing** (`shared/timing.js`, pure, every change a new song for undo):
+  - The song plays in the page, on the headphones chosen for previews, at ½×, ¾× or 1×.
+  - A preview wipes the current line and shows the next, as the TV does; the word being sung
+    lights up in the list.
+  - The selected word has its text, start and end, with ±0.05 s buttons. Keys: ←→ word, ↑↓ line,
+    `[` `]` start, `,` `.` end (Shift: ¼ s), S/E start/end at the play head, Enter plays from the
+    word, Space plays or pauses (not the party), Ctrl+Z / Ctrl+Y undo and redo.
+  - A line, or a line and all after it, moves by ±0.1 s or +0.5 s; a word can be deleted.
+  - **Tap along**: hold T (or the Tap button) while each word is sung. Its start is the key going
+    down (the word before ends just before it) and its end the key coming up; then the next word.
+  - **Edit the words**: the lyrics as text. autokaraoke's `transfer_timing`, ported, keeps each
+    word's time and fits new words in between.
+- **Saving** (`server/lyrics/edits.js` `LyricEdits`; `GET/POST /api/lyrics/:trackId`, `/revert`,
+  `/write`, host only, over HTTP because a long song's timing is more than one WebSocket message):
+  - The edit goes to `data/lyrics/<trackId>/timing.json`, and `autokaraoke render` draws it
+    (`lyrics.cdg`, about a second, no ML, outside the heavy-job lane).
+  - The colours are the ones the disc was drawn in: the sung colour of its first colour table names
+    autokaraoke's theme (`cdgTheme`). `timing.json` doesn't record its theme, so this is used
+    instead of the `render` field §31.5 proposed.
+  - `/media/<id>/cdg` serves that drawing in place of the disc's, the TV's URL gets `?edit=<n>`, and
+    the song on now reloads where it is.
+  - If drawing fails, the edit is still saved, the TV keeps the last drawing and the host sees
+    autokaraoke's reason. Without autokaraoke the edit is saved and the host is told to install it.
+  - **Revert** removes the edit. **Write into the song's folder** copies it beside the pair
+    (`NAME.timing.json`, `NAME.cdg`, `NAME.lrc`), keeping each original once as `NAME.….orig`; it
+    says so if the drive is read-only.
+  - An edit follows its file to a new track id (`rekey`).
+- **Tests**: `test/timing.test.js` (5), `test/lyrics-editor.test.js` (3), `test/e2e/lyrics-editor.mjs` (27).
+- **Not built** (§31.5):
+  - re-timing a stretch with Whisper (needs the new SongGetter function);
+  - the guide vocal while editing (autokaraoke deletes `NAME.work/vocals.wav` unless `--keep-stems`);
+  - the TV drawing a `timing.json`'s real text in the lyric layouts;
+  - render options other than the colours (lines on screen, font size, lead, page gap): a disc made
+    with other options is redrawn with autokaraoke's defaults.
 

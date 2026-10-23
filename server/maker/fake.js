@@ -176,8 +176,10 @@ export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', insta
           const st = await fs.stat(opts.audio).catch(() => null);
           const duration = song.duration || (st ? state.songSeconds : 30);
           await fs.writeFile(opts.output, cdgFromTiming(song, duration));
-          const stem = opts.timing.replace(/\.timing\.json$/, '');
-          await fs.writeFile(`${stem}.lrc`, timingToLrc(song));
+          // (as autokaraoke: NAME.timing.json → NAME.lrc, any other name → its stem + .lrc)
+          const name = path.basename(opts.timing);
+          const stem = name.endsWith('.timing.json') ? name.slice(0, -'.timing.json'.length) : name.replace(/\.[^.]*$/, '');
+          await fs.writeFile(path.join(path.dirname(opts.timing), `${stem}.lrc`), timingToLrc(song));
           say(`Wrote ${opts.output}`);
           return { code: 0, signal: null };
         }

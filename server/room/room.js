@@ -23,6 +23,7 @@ import { vocalStemAllowed } from '../../shared/stems.js';
 import { StemJobs } from '../stems/jobs.js';
 import { VideoJobs } from '../video/jobs.js';
 import { Maker } from '../maker/jobs.js';
+import { LyricEdits } from '../lyrics/edits.js';
 import { Lane } from '../util/lane.js';
 import { needsConversion } from '../video/ffmpeg.js';
 import { readZipEntry } from '../library/zip.js';
@@ -194,6 +195,17 @@ export class Room {
       songPlaying: () => ['intro', 'playing'].includes(this.s.player.state),
       onChange: () => this.markDirty(),
     });
+    // The lyrics editor's edits (server/lyrics/, PLAN §31.5): drawn by autokaraoke, served in place
+    // of the disc's CDG; the TV reloads the song on now when its lyrics change.
+    this.lyrics = new LyricEdits({
+      dataDir: app.dataDir,
+      library: this.library,
+      maker: this.maker,
+      onChange: (trackId) => {
+        if (this.s.current?.trackId === trackId) this.s.player.reload = (this.s.player.reload || 0) + 1;
+        this.markDirty();
+      },
+    });
     this.declined = new Set(); // "inviter>invitee>song" duet invitations turned down this session
     this.handlers = this.buildHandlers();
     this.breakMusic = new BreakMusic(this);
@@ -216,6 +228,7 @@ export class Room {
     this.videos.detect().then(() => { if (!this.videos.closed) this.markDirty(); }, () => {});
     // Where autokaraoke is, then a look at this computer (in the background: programs are started).
     this.maker.init().then(() => this.maker.check(), () => {});
+    await this.lyrics.load();
     const s = this.s;
     // After a restart nothing is playing: keep the current song paused where it was.
     const p = s.player;
@@ -303,6 +316,7 @@ export class Room {
     const versions = this.versions.rekey(list);
     const vocals = this.vocals.rekey(list);
     const stems = this.stems.rekey(list);
+    this.lyrics.rekey(list);
     const prefs = rekeyRecords(this.s.trackPrefs, list);
     const map = new Map(list.map((m) => [m.from, m.to]));
     let pointed = 0;
@@ -2401,7 +2415,9 @@ export class Room {
    * ffmpeg has converted it; until then `converting` says how far it is (or why it can't be).
    */
   mediaFor(track) {
-    const media = mediaUrls(track);
+    let media = mediaUrls(track);
+    const edit = track && this.lyrics.gen(track.id);
+    if (edit && media?.kind === 'cdg') media = { ...media, cdg: `${media.cdg}?edit=${edit}` }; // (an edited CDG: a new URL each time)
     const stems = track && this.stemsFor(track.id);
     if (stems && media?.kind === 'cdg') return { ...media, stems }; // (PLAN §30)
     if (media?.kind !== 'video' || track.kind !== 'video' || !needsConversion(track.video)) return media;

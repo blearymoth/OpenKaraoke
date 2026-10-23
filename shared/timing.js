@@ -209,3 +209,109 @@ function interpolate(starts, ends) {
   }
   for (let k = 0; k < n; k++) if (ends[k] < starts[k]) ends[k] = starts[k];
 }
+
+// ---- editing (the lyrics editor; every operation returns a new song, so undo keeps the old) ----
+
+const r3 = (n) => Math.max(0, Math.round(n * 1000) / 1000);
+const copy = (song) => ({ ...song, lines: song.lines.map((l) => ({ words: l.words.map((w) => ({ ...w })) })) });
+
+/** Every word in order: [{ li, wi, w }]. */
+export function flatWords(song) {
+  const out = [];
+  song.lines.forEach((l, li) => l.words.forEach((w, wi) => out.push({ li, wi, w })));
+  return out;
+}
+
+/** The word being sung at `t` — else the last one that started before it — as { li, wi }, or null. */
+export function wordAt(song, t) {
+  let found = null;
+  for (let li = 0; li < song.lines.length; li++) {
+    const words = song.lines[li].words;
+    for (let wi = 0; wi < words.length; wi++) {
+      if (words[wi].start > t) return found;
+      found = { li, wi };
+    }
+  }
+  return found;
+}
+
+/** The word `dir` words after (or before) { li, wi }, staying inside the song. */
+export function stepWord(song, li, wi, dir) {
+  const flat = flatWords(song);
+  const i = flat.findIndex((x) => x.li === li && x.wi === wi);
+  const j = Math.max(0, Math.min(flat.length - 1, (i < 0 ? 0 : i) + dir));
+  return flat.length ? { li: flat[j].li, wi: flat[j].wi } : null;
+}
+
+/** One word changed (`start`, `end`, `text`); the end never before the start. */
+export function setWord(song, li, wi, patch) {
+  const next = copy(song);
+  const w = next.lines[li]?.words[wi];
+  if (!w) return song;
+  if (patch.text !== undefined) {
+    const text = String(patch.text).replace(/\s+/g, ' ').trim();
+    if (text) w.text = text.slice(0, 80);
+  }
+  if (Number.isFinite(patch.start)) w.start = r3(patch.start);
+  if (Number.isFinite(patch.end)) w.end = r3(patch.end);
+  if (w.end < w.start) {
+    if (Number.isFinite(patch.end) && !Number.isFinite(patch.start)) w.start = w.end;
+    else w.end = w.start;
+  }
+  return next;
+}
+
+/** A word's start, end or both moved by `delta` seconds. */
+export function nudgeWord(song, li, wi, which, delta) {
+  const w = song.lines[li]?.words[wi];
+  if (!w) return song;
+  if (which === 'start') return setWord(song, li, wi, { start: Math.min(w.end, w.start + delta) });
+  if (which === 'end') return setWord(song, li, wi, { end: Math.max(w.start, w.end + delta) });
+  return setWord(song, li, wi, { start: w.start + delta, end: w.end + delta });
+}
+
+/** Lines `from` … `to` (inclusive) moved by `delta` seconds (never before 0). */
+export function shiftLines(song, from, to, delta) {
+  const next = copy(song);
+  const first = next.lines[from]?.words[0];
+  if (!first) return song;
+  const d = Math.max(-first.start, delta);
+  for (let li = from; li <= Math.min(to, next.lines.length - 1); li++) {
+    for (const w of next.lines[li].words) {
+      w.start = r3(w.start + d);
+      w.end = r3(w.end + d);
+    }
+  }
+  return next;
+}
+
+/**
+ * Tap along: the key went down as the word began. Its start is `t`; the word before it ends by
+ * then; until the key comes up the word lasts at least to its old end (or 0.3 s).
+ */
+export function tapDown(song, li, wi, t) {
+  const w = song.lines[li]?.words[wi];
+  if (!w) return song;
+  let next = setWord(song, li, wi, { start: t, end: Math.max(t + 0.3, w.end) });
+  const prev = stepWord(next, li, wi, -1);
+  if (prev && (prev.li !== li || prev.wi !== wi)) {
+    const p = next.lines[prev.li].words[prev.wi];
+    if (p.end > t - 0.02) next = setWord(next, prev.li, prev.wi, { end: Math.max(p.start, t - 0.02) });
+  }
+  return next;
+}
+
+/** Tap along: the key came up as the word ended (at least 50 ms after it began). */
+export function tapUp(song, li, wi, t) {
+  const w = song.lines[li]?.words[wi];
+  if (!w) return song;
+  return setWord(song, li, wi, { end: Math.max(w.start + 0.05, t) });
+}
+
+/** A word removed (a line with no words left goes too). */
+export function deleteWord(song, li, wi) {
+  const next = copy(song);
+  next.lines[li]?.words.splice(wi, 1);
+  next.lines = next.lines.filter((l) => l.words.length);
+  return next;
+}

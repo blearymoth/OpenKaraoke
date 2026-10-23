@@ -1,7 +1,7 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-23 (the Karaoke maker — autokaraoke in Settings — and Pitch rings in 3D;
-see those sections below. Before that, on
+_Last updated: 2026-10-23 (the lyrics editor, the Karaoke maker — autokaraoke in Settings — and
+Pitch rings in 3D; see those sections below. Before that, on
 2026-10-18: separated vocals on any version, the headphone monitor, guest accounts, the year &
 genre checker, the Library table, browse filters, singer playback controls. Run in a cloud sandbox
 without the owner's PC or drive)._
@@ -11,9 +11,9 @@ without the owner's PC or drive)._
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 595/595; `npm run e2e` → 27 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 599/599; `npm run e2e` → 28 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `lyrics-editor.mjs` the lyrics editor, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
@@ -1329,6 +1329,23 @@ GTK windows (the maker and the installer).
   graphics card), make one song from a file with lyrics and one from a YouTube link; the time it
   takes; that it plays; the TV's sound while a song is made during a song (without a graphics card).
 
+## Lyrics editor (2026-10-23)
+PLAN §31.10. For the songs autokaraoke made (a `NAME.timing.json` beside the CDG): Song details →
+**Edit lyrics**, or the button on a finished Karaoke maker job.
+- **Using it**: play the song (½×, ¾×, 1×; on the preview headphones if chosen) and watch the
+  preview wipe. Click a word to change its text or times: ±0.05 s, or the keys `[` `]` (start) and
+  `,` `.` (end), S/E at the play head. **Tap along**: hold T while each word is sung. **Edit the
+  words**: fix the text; the times stay. Undo with Ctrl+Z. **Save**.
+- **Saving**: the edit is kept in `data/lyrics/<track>/`, and autokaraoke redraws the lyrics in the
+  disc's own colours. The TV is served the new drawing and reloads it if the song is on. The song's
+  files are unchanged until **Write into the song's folder** (the originals kept once as `.orig`).
+  **Revert** goes back to autokaraoke's own timing.
+- Not done: re-timing a verse with Whisper, a guide vocal while editing, the TV drawing the real
+  text, and render options other than the colours.
+- Tests: `test/timing.test.js` (5), `test/lyrics-editor.test.js` (3), `test/e2e/lyrics-editor.mjs` (27).
+- Owner checklist: on a song made with the real autokaraoke — fix a few words, tap a verse, save
+  while it plays on the TV, and check the colours match the original drawing.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
@@ -1337,13 +1354,12 @@ GTK windows (the maker and the installer).
     (done, above).
   - ~~Making karaoke in the app~~ (the Karaoke maker, above). Still open from PLAN §31: the
     benchmark ("about N minutes"), guests' wishes, AMD/Intel graphics.
+  - ~~The lyrics editor~~ (above). Still open from PLAN §31.5: re-timing a verse with Whisper
+    (a small SongGetter change), a guide vocal while editing, the TV drawing the real text.
 - **Parked** (not without the owner):
   - The host **seek bar** after the TV window is toggled (`SeekBar` in
     `public/js/host/player.js` clears its drag only on `change`) — not reproduced.
   - **Lyric layouts** — no further work for now.
-  - The **lyrics editor**: paused by the owner (2026-10-18). It works with autokaraoke, PLAN §31.5: edit
-    its `.timing.json`, keep the times when the words change, re-time a stretch with Whisper,
-    redraw the CDG with the render-only install.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, mic monitoring
   with reverb on the PC. The multiplex vocal stem is still only the song-dialog preview; the
   headphone monitor (in time with the TV) plays the channel matrix instead.

@@ -116,7 +116,7 @@ export function apiRoutes(router, app) {
     return { items: summaries(ids.map((id) => cat().song(id)).filter(Boolean)) };
   });
 
-  router.get('/api/songs/:id', (ctx) => {
+  router.get('/api/songs/:id', async (ctx) => {
     const detail = cat().songDetail(ctx.params.id);
     if (!detail) throw new HttpError(404, 'Song not found');
     detail.meta = app.artwork?.publicSongMeta(detail.key) || null;
@@ -143,6 +143,10 @@ export function apiRoutes(router, app) {
         if (asked) void app.room.stems.ensure(v.id); // (separated before a restart: found on disk)
         v.stems = asked ? app.room.stems.view(v.id).status : 'idle';
       }
+      // The host: versions autokaraoke made can have their lyrics edited (PLAN §31.5).
+      await Promise.all(detail.versions.map(async (v) => {
+        if (await app.room.lyrics.editable(cat().track(v.id))) v.lyrics = { edited: app.room.lyrics.gen(v.id) > 0 };
+      }));
     }
     const voter = guestId || (ctx.isHost ? HOST_VOTER : null);
     return app.room ? app.room.decorateVersions(detail, { voter, guest }) : detail;
@@ -388,6 +392,27 @@ export function apiRoutes(router, app) {
   router.get('/api/fs/list', async (ctx) => {
     requireHost(ctx);
     return listFolders(ctx.query.get('path') || '', { songs: ctx.query.get('files') === 'songs' });
+  });
+
+  // The lyrics editor (PLAN §31.5), host only: open a version's timed lyrics (an edit, else
+  // autokaraoke's own), save an edit (autokaraoke draws it; the TV shows it), revert, write back.
+  // (HTTP, not the WebSocket: a long song's timing is more than one message.)
+  router.get('/api/lyrics/:trackId', async (ctx) => {
+    requireHost(ctx);
+    return app.room.lyrics.open(ctx.params.trackId);
+  });
+  router.post('/api/lyrics/:trackId', async (ctx) => {
+    requireHost(ctx);
+    const body = await readJsonBody(ctx.req, 2 * 1024 * 1024);
+    return app.room.lyrics.save(ctx.params.trackId, body.timing);
+  });
+  router.post('/api/lyrics/:trackId/revert', async (ctx) => {
+    requireHost(ctx);
+    return app.room.lyrics.revert(ctx.params.trackId);
+  });
+  router.post('/api/lyrics/:trackId/write', async (ctx) => {
+    requireHost(ctx);
+    return app.room.lyrics.writeBack(ctx.params.trackId);
   });
 
   // The Karaoke maker (PLAN §31): a song file from the host's browser, streamed into the data

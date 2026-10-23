@@ -5,7 +5,7 @@
 // the server (server/maker/); this page only asks and shows state.maker.
 import { html, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
-import { Switch, Spinner } from '../lib/components.js';
+import { Switch, Spinner, go } from '../lib/components.js';
 import { act, toast, openDialog, chooseFolder, chooseSongFile, saveSetting } from './state.js';
 
 const LANGUAGES = [['en', 'English'], ['fi', 'Finnish'], ['sv', 'Swedish'], ['no', 'Norwegian'], ['da', 'Danish'], ['de', 'German'],
@@ -172,7 +172,8 @@ function Job({ job, songs }) {
       ${r.scanning ? html`<span class="hint"><${Spinner} /> Adding it to the library…</span>`
         : song ? html`<span class="hint">In the library now.</span>
           <button class="btn small primary" onClick=${() => openDialog({ type: 'add', songId: r.songId, trackId: r.trackId })}><${Icon} name="plus" size=${14} /> Queue it</button>
-          <button class="btn small" onClick=${() => openDialog({ type: 'song', songId: r.songId })}>Song details</button>`
+          <button class="btn small" onClick=${() => openDialog({ type: 'song', songId: r.songId })}>Song details</button>
+          <button class="btn small" onClick=${() => go(`/lyrics/${r.trackId}`)}><${Icon} name="edit" size=${14} /> Edit lyrics</button>`
           : html`<span class="hint">Saved in ${job.out}.</span>`}
     </div>`}
     <div class="mk-row">

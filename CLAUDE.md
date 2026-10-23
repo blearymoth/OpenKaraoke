@@ -79,6 +79,8 @@ Server (`server/`)
   uploads, jobs in the heavy-job lane `util/lane.js` shared with the stems, waiting during songs,
   adding the save folder to the library, install/models), `fake.js` (the stand-in tests use;
   `OPENKARAOKE_FAKE_MAKER=1`).
+- `lyrics/edits.js` — the lyrics editor's edits (PLAN §31.10): data/lyrics/<trackId>/ (timing.json +
+  the CDG autokaraoke draws from it), served in place of the disc's CDG; revert, write back, rekey.
 - `room/accounts.js` (`data/accounts.json`: guests' usernames, scrypt hashes, token versions — an
   account is one guest identity; `app.guestOf(token)` for HTTP — PLAN §28).
 - `library/songmeta.js` (`data/songmeta.json`: the host's own years and genres, laid over the
@@ -111,7 +113,8 @@ sung lines, found in one pass: each pixel's unsung/sung colour and moment — PL
 `lyric-layout.js` (when and where lines show: two lines, the scrolling list; pure functions of the
 time), `graphics.js` (which WebGL renderers draw in software), `pitch3d.js` (Pitch rings' 3D scene: matrices,
 meshes, ring poses, the camera — pure), `monitor.js` (the headphone monitor's
-timing rules), `timing.js` (autokaraoke's timing.json: reading, cleaning, LRC, new words keep the times — PLAN §31.5), `filters.js` (browse filters: several
+timing rules), `timing.js` (autokaraoke's timing.json: reading, cleaning, LRC, new words keep the times, the
+editor's operations — PLAN §31.10), `filters.js` (browse filters: several
 decades, genres, tags and version types, read from repeated URL parameters — PLAN §25; the Library
 table's columns — §26).
 
@@ -131,7 +134,8 @@ Browser (`public/`, plain ES modules, Preact + htm)
   sound, live preview, TV window), `devices.js` (screens, host devices, guests), `menu.js`,
   `views.js`, `dialogs.js`, `settings.js`, `hotspot.js` (party hotspot block + banner),
   `vocals.js` (Lead control + Vocals dialog), `graphics.js` (Settings → About → Graphics, desktop app),
-  `system.js` (Settings → About → On this computer, desktop app), `maker.js` (Settings → Karaoke maker),
+  `system.js` (Settings → About → On this computer, desktop app), `maker.js` (Settings → Karaoke maker), `lyrics-editor.js`
+  (#/lyrics/<trackId>: autokaraoke's word timings),
   `monitor.js` (the headphone
   monitor: the TV's audio engine on headphones, in time with the TV — PLAN §29).
 - `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts, the

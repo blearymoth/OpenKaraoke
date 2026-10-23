@@ -59,3 +59,33 @@ test('timing: new words keep the old times (a fixed word, a split line, an added
   const none = transferTiming([['zzz', 'qqq']], old).flatMap((l) => l.words);
   assert.ok(none.every((x) => Number.isFinite(x.start) && Number.isFinite(x.end) && x.end >= x.start));
 });
+
+test('timing: editing — nudges, a line shifted, tap along, which word is sung, delete', async () => {
+  const { nudgeWord, shiftLines, tapDown, tapUp, wordAt, stepWord, deleteWord, setWord } = await import('../shared/timing.js');
+  const song = readTiming(file);
+  const n = nudgeWord(song, 0, 0, 'start', -0.05);
+  assert.equal(n.lines[0].words[0].start, 12.25);
+  assert.equal(song.lines[0].words[0].start, 12.3, 'the old song is untouched (undo)');
+  assert.equal(nudgeWord(song, 0, 0, 'start', 5).lines[0].words[0].start, 12.71, 'a start never passes its end');
+  assert.equal(nudgeWord(song, 0, 0, 'end', -5).lines[0].words[0].end, 12.3, 'an end never comes before its start');
+  const s = shiftLines(song, 1, 1, -0.5);
+  assert.deepEqual(s.lines[1].words.map((w) => [w.start, w.end]), [[13.5, 13.7], [13.75, 14]]);
+  assert.equal(shiftLines(song, 0, 1, -100).lines[0].words[0].start, 0, 'never before the song starts');
+  // Tap "me" at 13.2 (it began early): "it’s" ends before it; up at 13.9.
+  let t = tapDown(song, 0, 2, 13.2);
+  assert.equal(t.lines[0].words[2].start, 13.2);
+  t = tapDown(song, 0, 2, 12.9);
+  assert.equal(t.lines[0].words[1].end, 12.88, 'the word before ends just before the tap');
+  t = tapUp(t, 0, 2, 13.9);
+  assert.equal(t.lines[0].words[2].end, 13.9);
+  assert.equal(tapUp(t, 0, 2, 0).lines[0].words[2].end, 12.95, 'at least 50 ms long');
+  assert.deepEqual(wordAt(song, 13.1), { li: 0, wi: 2 });
+  assert.deepEqual(wordAt(song, 14.3), { li: 1, wi: 1 });
+  assert.equal(wordAt(song, 1), null);
+  assert.deepEqual(stepWord(song, 0, 2, 1), { li: 1, wi: 0 }, 'next word: the next line');
+  assert.deepEqual(stepWord(song, 1, 1, 1), { li: 1, wi: 1 }, 'stays at the end');
+  const d = deleteWord(deleteWord(song, 1, 0), 1, 0);
+  assert.equal(d.lines.length, 1, 'an empty line goes');
+  assert.equal(setWord(song, 0, 0, { text: '  Hallo  ' }).lines[0].words[0].text, 'Hallo');
+  assert.equal(setWord(song, 0, 0, { text: '   ' }).lines[0].words[0].text, 'Hello', 'a word can’t be emptied (delete it)');
+});

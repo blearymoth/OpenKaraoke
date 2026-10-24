@@ -1442,13 +1442,13 @@ Re-time.
   into the existing environment and downloads its weights (≈158 MB). A fresh Install includes it.
 - Also fixed: a made song showed "In the library now" a moment before its vocals were kept. A test
   caught the gap under load (2 runs in 8).
-- **Phonon-2 comes with OpenKaraoke**: the release build downloads it (`maker/bundle-phonon.sh`) and
-  ships it in the installers (≈280 MB now, from ≈100 MB); Install and Update copy it into the models
-  folder, so the PC never downloads it. Not in git (`maker/bundled/` is ignored).
+- **Where Phonon-2 comes from**: Fermion Research's repository on Hugging Face, downloaded on the PC
+  by Install / Update (≈158 MB), checked against the SHA-256 its package pins. The owner chose this
+  over shipping it inside OpenKaraoke's installers.
 - Tests: `maker/tests/test_phonon.py` (7), plus the maker tests. The real Phonon-2 is checked on
-  GitHub by `.github/workflows/maker.yml` (pull requests touching `maker/`): the bundle is built,
-  then times espeak-ng's spoken lyrics through `autokaraoke words`. The cloud session can't reach
-  Hugging Face.
+  GitHub by `.github/workflows/maker.yml` (pull requests touching `maker/`): fetched from Hugging
+  Face the way an install does, then timing espeak-ng's spoken lyrics through `autokaraoke words`.
+  The cloud session can't reach Hugging Face.
 - Owner checklist: Update the Karaoke maker; make an English song from typed lyrics, and check the
   job says "Timed by Phonon-2" and the words land on time; a song in another language says Whisper;
   compare a hard song with "Whisper only". If Phonon-2 is often off on singing, tell the next session

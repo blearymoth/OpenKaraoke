@@ -4,7 +4,7 @@
 # links to releases/latest/download/OpenKaraoke-Setup.zip; the app's updater
 # (desktop/updater.mjs) follows the latest release.
 #   Version: major.minor from package.json, then this workflow's run number (0.1.42, 0.1.43, …).
-#   Only the 10 newest releases are kept (the installers are about 280 MB each, Phonon-2 included).
+#   Only the 10 newest releases are kept (the installers are about 100 MB each).
 name: Desktop app
 
 on:
@@ -68,10 +68,6 @@ jobs:
 
       - name: Electron and electron-builder
         run: npm ci --prefix desktop
-
-      - name: Phonon-2 for the installers (the first lyric timer, so no PC downloads it)
-        timeout-minutes: 15
-        run: maker/bundle-phonon.sh
 
       - name: Installers
         timeout-minutes: 20

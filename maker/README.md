@@ -32,9 +32,8 @@ in `~/.local/share/openkaraoke/autokaraoke/` with a copy of this folder and down
 (about 4 GB, or 8 GB with an NVIDIA graphics card). It needs Python 3.10+ and FFmpeg with the LAME
 MP3 encoder. From a terminal: `maker/install.sh [--cpu|--gpu] [--no-youtube] [--no-phonon]`.
 Phonon-2 runs on the processor (its pip package has no CUDA engine), which is fast enough for it.
-The installers ship Phonon-2's weights (`maker/bundle-phonon.sh` puts them in `maker/bundled/` when
-they are built; CC-BY-4.0, see THIRD_PARTY_LICENSES.md): Install and an Update from the page copy
-them into the models folder. Without that folder (a source checkout), they are downloaded.
+Its weights (≈158 MB, CC-BY-4.0) come from Fermion Research's repository on Hugging Face: `setup`
+downloads them through fermion-research, which checks them against the SHA-256 it pins.
 
 ## The command line (OpenKaraoke reads it)
 

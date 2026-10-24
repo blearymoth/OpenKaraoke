@@ -1,7 +1,7 @@
-# The Karaoke maker's engine (maker/) on a pull request: its tests, and Phonon-2 for real — the
-# bundle the installers ship (maker/bundle-phonon.sh: downloaded, unpacked, loaded offline from a
-# copy), then `autokaraoke words` timing spoken lyrics with it (espeak-ng's voice, so no media is
-# kept in the repository). Nothing is released here (desktop.yml does that on main).
+# The Karaoke maker's engine (maker/) on a pull request: its tests, and Phonon-2 for real — fetched
+# from Fermion Research's repository on Hugging Face exactly as a PC's install does (fermion-research
+# checks it against its pinned SHA-256), then `autokaraoke words` timing spoken lyrics with it,
+# offline (espeak-ng's voice, so no media is kept in the repository). Nothing is released here.
 name: Karaoke maker
 
 on:
@@ -28,21 +28,22 @@ jobs:
           "$RUNNER_TEMP/test-venv/bin/pip" install --quiet numpy pillow pytest
           "$RUNNER_TEMP/test-venv/bin/python" -m pytest -q
 
-      - name: Phonon-2, as the installers ship it
+      - name: Phonon-2 from Hugging Face, as an install fetches it
         timeout-minutes: 15
-        run: maker/bundle-phonon.sh
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet "./maker[phonon]"
+          # (install.sh's get_phonon: the same call, into the models folder)
+          "$RUNNER_TEMP/venv/bin/python" -c 'from autokaraoke import phonon; phonon.download("'"$RUNNER_TEMP/models"'")'
+          "$RUNNER_TEMP/venv/bin/python" -c 'from autokaraoke import phonon; import sys; f = phonon.folder("'"$RUNNER_TEMP/models"'"); print(f); sys.exit(0 if f else 1)'
 
-      - name: Phonon-2 times spoken lyrics (autokaraoke words)
+      - name: Phonon-2 times spoken lyrics (autokaraoke words, offline)
         timeout-minutes: 15
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends espeak-ng ffmpeg
-          python3 -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/pip" install --quiet torch --index-url https://download.pytorch.org/whl/cpu
-          "$RUNNER_TEMP/venv/bin/pip" install --quiet "./maker[phonon]"
-          # The models folder as maker/install.sh leaves it: the bundle copied in, nothing else.
           M="$RUNNER_TEMP/models"
-          mkdir -p "$M/fermion" && cp -a maker/bundled/fermion/speech "$M/fermion/"
           printf 'Hello my friend, the weather is lovely today\nWe are singing a song about the summer\n' > "$RUNNER_TEMP/lyrics.txt"
           espeak-ng -s 140 -w "$RUNNER_TEMP/speech.wav" "$(tr '\n' ' ' < "$RUNNER_TEMP/lyrics.txt")"
           HF_HUB_OFFLINE=1 "$RUNNER_TEMP/venv/bin/python" -m autokaraoke words --vocals "$RUNNER_TEMP/speech.wav" \

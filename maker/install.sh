@@ -58,20 +58,9 @@ EXTRAS=ml
 [[ $YOUTUBE == 1 ]] && EXTRAS="$EXTRAS,youtube"
 [[ $PHONON == 1 ]] && EXTRAS="$EXTRAS,phonon"
 
-# Phonon-2 as the installers ship it (maker/bundled/, from maker/bundle-phonon.sh): copied into the
-# models folder, so it isn't downloaded. An existing copy is left as it is.
-seed_phonon() {
-  [[ $PHONON == 1 && -d "$SRC/bundled/fermion/speech" ]] || return 0
-  say "Phonon-2 (it came with OpenKaraoke)"
-  mkdir -p "$MODELS/fermion/speech"
-  local d
-  for d in "$SRC/bundled/fermion/speech"/*/; do
-    [[ -e "$MODELS/fermion/speech/$(basename "$d")" ]] || cp -a "${d%/}" "$MODELS/fermion/speech/"
-  done
-  cp -f "$SRC/bundled/fermion/"*.txt "$MODELS/fermion/" 2>/dev/null || true
-}
-
-# Phonon-2's weights (≈158 MB) into the models folder; Whisper times songs until they are there.
+# Phonon-2's weights (≈158 MB) into the models folder, from Fermion Research's own repository on
+# Hugging Face (fermion-research checks them against its pinned SHA-256); Whisper times songs until
+# they are there.
 get_phonon() {
   AUTOKARAOKE_MODELS="$MODELS" "$VENV/bin/python" -c 'from autokaraoke import models, phonon; phonon.download(models.models_dir())' \
     || echo "Phonon-2 could not be downloaded now: Whisper times songs until it is (Settings → Karaoke maker → Download)." >&2
@@ -86,10 +75,7 @@ if [[ $CODE_ONLY == 1 ]]; then
     say "Installing Phonon-2, the first lyric timer"
     "${PIP[@]}" -q "fermion-research>=0.2.14"
   fi
-  if [[ $PHONON == 1 ]]; then
-    seed_phonon
-    [[ $GET_MODELS == 1 ]] && get_phonon # (nothing to fetch when it came with OpenKaraoke)
-  fi
+  [[ $PHONON == 1 && $GET_MODELS == 1 ]] && get_phonon # (nothing is fetched when it is already there)
   echo "autokaraoke $("$VENV/bin/python" -m autokaraoke --version)"
   exit 0
 fi
@@ -140,7 +126,6 @@ if [[ -n "$MODELS_FROM" && -d "$MODELS_FROM" && ! -e "$MODELS" ]]; then
   say "Reusing the models in $MODELS_FROM"
   cp -al "$MODELS_FROM" "$MODELS" 2>/dev/null || { rm -rf "$MODELS"; cp -a "$MODELS_FROM" "$MODELS"; }
 fi
-seed_phonon
 if [[ $GET_MODELS == 1 ]]; then
   say "Downloading the models (once)"
   AUTOKARAOKE_MODELS="$MODELS" "$VENV/bin/python" -m autokaraoke setup --whisper-model "$WHISPER"

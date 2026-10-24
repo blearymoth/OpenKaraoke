@@ -215,6 +215,7 @@ export class Room {
       library: this.library,
       maker: this.maker,
       vocalOf: async (trackId) => (this.stemAsked(trackId) && !this.stemOk(trackId) && (await this.stems.filesReady(trackId)) ? `/media/${trackId}/stem/vocal` : null),
+      vocalFileOf: async (trackId) => this.stems?.file?.(trackId, 'vocal.wav') || null,
       onChange: (trackId) => {
         if (this.s.current?.trackId === trackId) this.s.player.reload = (this.s.player.reload || 0) + 1;
         this.markDirty();

@@ -1,6 +1,7 @@
 """Command line: autokaraoke make SONG.mp3 [--lyrics lyrics.txt]  |  autokaraoke render ..."""
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -9,7 +10,7 @@ from pathlib import Path
 
 from . import __version__, audio, lyrics_lookup, models, youtube
 from .render import THEMES, Config, render
-from .timing import load_json, save_json, to_lrc
+from .timing import load_json, render_options, save_json, to_lrc
 
 
 def log(msg):
@@ -34,16 +35,48 @@ def _guess_title_artist(path, tags):
     return title, artist
 
 
-def _render_cfg(args):
-    return Config(lines_on_screen=args.lines, font_path=args.font or "", font_size=args.font_size,
-                  theme=args.theme, lead=args.lead, page_gap=args.page_gap,
-                  title_screen=not args.no_title)
+# timing.json "render" key -> its command-line option (args attribute)
+RENDER_FLAGS = {"theme": "theme", "lines_on_screen": "lines", "font_size": "font_size",
+                "outline": "outline", "lead": "lead", "page_gap": "page_gap"}
 
 
-def _write_cdg(song, duration, cdg_path, args):
+def _render_opts(args, stored=None):
+    """The render options to use: each flag given, else the timing.json's stored value, else
+    the default."""
+    default = Config()
+    opts = {}
+    for key, flag in RENDER_FLAGS.items():
+        v = getattr(args, flag, None)
+        if v is None and stored:
+            v = stored.get(key)
+        opts[key] = getattr(default, key) if v is None else v
+    if opts["theme"] not in THEMES:  # a stored theme this version doesn't know
+        opts["theme"] = default.theme
+    return opts
+
+
+def _render_cfg(args, opts):
+    return Config(font_path=args.font or "", title_screen=not args.no_title, **opts)
+
+
+def _store_render(timing_path, opts):
+    """Record the options a CDG was drawn with in its timing.json, changing nothing else."""
+    try:
+        d = json.loads(Path(timing_path).read_text(encoding="utf-8"))
+        if d.get("render") == opts:
+            return
+        d["render"] = opts
+        tmp = Path(timing_path).with_name(Path(timing_path).name + ".tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        os.replace(tmp, timing_path)
+    except (OSError, ValueError) as e:  # a read-only drive: the CDG is still drawn
+        log(f"  note: could not record the render options in {Path(timing_path).name}: {e}")
+
+
+def _write_cdg(song, duration, cdg_path, args, opts):
     stats = {}
     t0 = time.time()
-    data = render(song, duration, _render_cfg(args), stats)
+    data = render(song, duration, _render_cfg(args, opts), stats)
     Path(cdg_path).write_bytes(data)
     log(f"CDG: {stats['lines']} screen lines on {stats['pages']} pages, font {stats['font_size']}px "
         f"({os.path.basename(stats['font'])}), {time.time() - t0:.1f}s")
@@ -108,11 +141,20 @@ def cmd_lyrics(args):
             print("\n".join(" ".join(l) for l in lines) + "\n")
 
 
+def _times_line(times):
+    """{"download": 12.3, "separate": None, ...} -> "Times: download 12s, separate cached, ..."."""
+    parts = [f"{k} cached" if v is None else f"{k} {round(v)}s" for k, v in times.items()]
+    return "Times: " + ", ".join(parts)
+
+
 def cmd_make(args):
     audio.require_ffmpeg()
+    times = {}  # seconds per stage, for OpenKaraoke's "about N minutes" (None: cached)
     if youtube.is_url(args.song):
+        t0 = time.time()
         src, _, _ = youtube.download(args.song, youtube.cache_dir(), video=False, rename=False,
                                      log=log)
+        times["download"] = time.time() - t0
     else:
         src = Path(args.song)
     if not src.is_file():
@@ -139,21 +181,30 @@ def cmd_make(args):
     device = args.device
     if vocals_wav.exists() and inst_wav.exists() and not args.force:
         log("Using cached stems from " + str(work))
+        times["separate"] = None
     else:
         from .separate import separate
+        t0 = time.time()
         vocals, inst, sr = separate(src, args.model, device, args.shifts, log, mdir=mdir)
         audio.save_wav(vocals_wav, vocals, sr)
         audio.save_wav(inst_wav, inst, sr)
+        times["separate"] = time.time() - t0
 
     # 2. instrumental MP3
+    t0 = time.time()
     audio.encode_mp3(inst_wav, mp3_path, title, artist)
+    times["mp3"] = time.time() - t0
     log(f"Instrumental: {mp3_path}")
+    opts = _render_opts(args)
 
     # 3. timing (kept if it exists, so hand edits survive re-runs)
     if timing_path.exists() and not args.force and not args.retime:
         log(f"Using existing {timing_path.name} (pass --retime to redo it)")
         song = load_json(timing_path)
+        _store_render(timing_path, opts)
+        times["timing"] = None
     else:
+        t0 = time.time()
         from . import align
         from .separate import pick_device
         vocals16k = audio.load(vocals_wav, 16000, 1)[0]
@@ -175,13 +226,17 @@ def cmd_make(args):
         song = align.build_song(lines, title, artist, language, duration)
         if not song.lines:
             raise SystemExit("no lyrics found in the vocals")
+        song.render = opts
         save_json(song, timing_path)
+        times["timing"] = time.time() - t0
         log(f"Timing: {timing_path}")
     song.title, song.artist = title, artist
     (out / f"{base}.lrc").write_text(to_lrc(song), encoding="utf-8")
 
     # 4. CDG
-    _write_cdg(song, duration, cdg_path, args)
+    t0 = time.time()
+    _write_cdg(song, duration, cdg_path, args, opts)
+    times["cdg"] = time.time() - t0
     if not args.keep_stems:
         for f in (vocals_wav, inst_wav):
             f.unlink(missing_ok=True)
@@ -189,6 +244,7 @@ def cmd_make(args):
             work.rmdir()
         except OSError:
             pass
+    log(_times_line(times))
     log(f"Done: {mp3_path.name} + {cdg_path.name}")
 
 
@@ -288,20 +344,68 @@ def cmd_render(args):
     elif not duration:
         raise SystemExit("unknown duration: pass --audio")
     cdg_path = Path(args.output) if args.output else mp3.with_suffix(".cdg")
-    _write_cdg(song, duration, cdg_path, args)
+    opts = _render_opts(args, song.render)
+    _write_cdg(song, duration, cdg_path, args, opts)
+    _store_render(timing, opts)
     timing.with_name(stem + ".lrc").write_text(to_lrc(song), encoding="utf-8")
     log(f"Wrote {cdg_path}")
 
 
+def _fail(msg):
+    log(f"error: {msg}")
+    raise SystemExit(1)
+
+
+def cmd_retime(args):
+    """Re-time the words that start inside [--from, --to] with Whisper, against that slice of
+    the vocal; every other word keeps its time. For OpenKaraoke's lyrics editor."""
+    try:
+        n = _retime(args)
+    except SystemExit as e:
+        if e.code in (None, 0):
+            raise
+        _fail(e.code if isinstance(e.code, str) else f"stopped ({e.code})")
+    except Exception as e:  # noqa: BLE001 - every failure is one "error" line for the editor
+        _fail(str(e) or type(e).__name__)
+    print(f"Retimed {n} words ({args.start:g}\u2013{args.end:g} s)", flush=True)
+
+
+def _retime(args):
+    from . import align
+    timing, vocals = Path(args.timing), Path(args.vocals)
+    if not timing.is_file():
+        raise ValueError(f"no timing file {timing}")
+    if not vocals.is_file():
+        raise ValueError(f"no vocal file {vocals}")
+    song = load_json(timing)
+    audio.require_ffmpeg()
+    vocals16k = audio.load(vocals, 16000, 1)[0]
+    language = args.language or song.language or "en"
+
+    def align_fn(slice16k, lyric_lines):
+        from .separate import pick_device
+        mdir = models.configure(models.models_dir(args.models_dir))
+        model = align.load_model(args.whisper_model, pick_device(args.device), log, mdir=mdir)
+        return align.align(model, slice16k, lyric_lines, language, log)
+
+    n = align.retime_stretch(song, vocals16k, args.start, args.end, align_fn)
+    out = Path(args.output) if args.output else timing
+    save_json(song, out)
+    return n
+
+
 def _add_render_opts(p):
     g = p.add_argument_group("screen")
-    g.add_argument("--lines", type=int, default=4, help="lyric lines on screen (default 4)")
+    # No defaults here: `render` takes an option not given from the timing.json's "render"
+    # field, then render.Config's default.
+    g.add_argument("--lines", type=int, help="lyric lines on screen (default 4)")
     g.add_argument("--font", help="TTF/OTF font file (default: DejaVu Sans Condensed Bold via fontconfig)")
-    g.add_argument("--font-size", type=int, default=0, help="font size in px (default: auto)")
-    g.add_argument("--theme", choices=sorted(THEMES), default="classic")
-    g.add_argument("--lead", type=float, default=4.0, help="show lyrics this many seconds early")
-    g.add_argument("--page-gap", type=float, default=8.0,
-                   help="instrumental gap (s) that starts a fresh screen")
+    g.add_argument("--font-size", type=int, help="font size in px (default: auto)")
+    g.add_argument("--outline", type=int, help="text outline in px (default 2)")
+    g.add_argument("--theme", choices=sorted(THEMES), help="colours (default classic)")
+    g.add_argument("--lead", type=float, help="show lyrics this many seconds early (default 4)")
+    g.add_argument("--page-gap", type=float,
+                   help="instrumental gap (s) that starts a fresh screen (default 8)")
     g.add_argument("--no-title", action="store_true", help="skip the title screen")
 
 
@@ -377,6 +481,20 @@ def main(argv=None):
     r.add_argument("-O", "--output", help="CDG path (default: next to the MP3)")
     _add_render_opts(r)
     r.set_defaults(func=cmd_render)
+
+    rt = sub.add_parser("retime", help="re-time a stretch of a timing.json with Whisper")
+    rt.add_argument("timing", help="NAME.timing.json")
+    rt.add_argument("--vocals", required=True, help="the song's vocal (e.g. NAME.work/vocals.wav)")
+    rt.add_argument("--from", dest="start", type=float, required=True, metavar="S",
+                    help="re-time the words that start at or after S seconds ...")
+    rt.add_argument("--to", dest="end", type=float, required=True, metavar="S",
+                    help="... and at or before S seconds")
+    rt.add_argument("--language", help="lyrics language code (default: the timing's, else en)")
+    rt.add_argument("--whisper-model", default="medium", help="Whisper model (default: medium)")
+    rt.add_argument("--device", default="auto", help="cuda, cpu, mps (default: auto)")
+    rt.add_argument("--models-dir", help="models folder (default: $AUTOKARAOKE_MODELS)")
+    rt.add_argument("-O", "--output", help="where to write the timing (default: in place)")
+    rt.set_defaults(func=cmd_retime)
 
 
     args = ap.parse_args(argv)

@@ -58,3 +58,11 @@ export const LINK_STATES = {
 
 /** States a request can still change from (it is still open). */
 export const OPEN_LINK_STATES = ['pending', 'queued', 'working'];
+
+/** Seconds → "about N minutes" (how long making a song takes on this PC, PLAN §31.2). */
+export function aboutMinutes(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return '';
+  if (seconds < 50) return 'under a minute';
+  const m = Math.max(1, Math.round(seconds / 60));
+  return `about ${m} minute${m === 1 ? '' : 's'}`;
+}

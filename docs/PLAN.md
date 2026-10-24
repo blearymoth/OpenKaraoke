@@ -2151,3 +2151,35 @@ settles §31.8's first question: (b), installed by OpenKaraoke, the code from th
   (`install.sh --code-only`: the code only, seconds, models kept).
 - **Shipping**: `maker/` is in the installers' files (electron-builder); CI runs `maker/`'s tests.
 
+### 31.14 How long a song takes, and the render options (2026-10-23)
+
+- **Measured speed** (§31.2): `make` ends with `Times: download 12s, separate 95s, mp3 3s, timing
+  40s, cdg 2s` (a stage reused from an earlier run says `cached`). `server/maker/speed.js` keeps each
+  stage's seconds per minute of song — the last five, separation per vocal remover and timing per
+  lyric timer — in `data/maker/speed.json`. A job gets "about N minutes for this song on this
+  computer" once autokaraoke has said how long the song is, and the Make form says how long a
+  4-minute song takes. Nothing is shown until this PC has made a song with those models.
+- **The `render` field**: `make` and `render` record how a CDG was drawn in its timing.json:
+  `"render": {"theme", "lines_on_screen", "font_size", "outline", "lead", "page_gap"}`. `render`
+  uses it for every option not on its command line; an older file has none and gets the defaults
+  (`version` stays 1, unknown fields are ignored). The lyrics editor keeps the field
+  (`shared/timing.js` `renderOptions`), and with a stored theme it no longer forces the colours
+  guessed from the CDG — so a redraw has the original's lines, font, lead and page gap too.
+
+### 31.15 Re-timing a stretch with Whisper (2026-10-23)
+
+- **autokaraoke**: `python -m autokaraoke retime TIMING.json --vocals VOCALS.wav --from S --to S
+  [--language xx] [--whisper-model M] [-O OUT.json]` aligns only the words that start inside
+  [from, to] against that slice of the 16 kHz vocal and adds the offset back
+  (`align.retime_stretch`). The new times stay between the untouched words on either side, so
+  every other word keeps its time exactly; the result goes through `clean()` and to `-O` (else in
+  place). It prints `Retimed N words (FROM–TO s)`; a failure is one line with "error" and a
+  non-zero exit.
+- **The editor**: the selected line has **Re-time**. The stretch runs from just after the line
+  before to just before the line after (at most half a second before the line, a second and a half
+  after it). `POST /api/lyrics/:trackId/retime` runs it in the heavy-job lane against the song's
+  kept vocal (`data/stems/<trackId>/vocal.wav`, else `NAME.work/vocals.wav`) and returns the new
+  timing, which is one more change in the editor: undo it, or Save to keep it. Without a vocal the
+  button isn't shown.
+- **Tests**: `maker/tests/test_retime.py` (mocked aligner, a synthetic vocal), `test/maker-extras.test.js` (5).
+

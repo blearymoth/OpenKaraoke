@@ -17,6 +17,7 @@ import { assess } from '../system/specs.js';
 import {
   readMakeLine, makeArgs, cleanName, guessNames, isSongFile, THEMES, WHISPER_MODELS, DEMUCS_MODELS, LYRICS_SOURCES,
 } from './autokaraoke.js';
+import { Speed } from './speed.js';
 
 const log = logger('maker');
 const KEEP_JOBS = 20;
@@ -49,6 +50,7 @@ export class Maker {
    */
   constructor({ dataDir, tool, lane, settings, library, songPlaying = () => false, onChange = () => {}, vocals = null, onJob = () => {} }) {
     this.dir = path.join(dataDir, 'maker');
+    this.speed = new Speed({ file: path.join(this.dir, 'speed.json') }); // this PC's measured speed (PLAN §31.2)
     this.onJob = onJob; // a job moved on (running, waiting, finished, in the library): song links follow it
     this.vocals = vocals; // { file(trackId, name), kept(trackId) }: the stems' cache (PLAN §30)
     this.tool = tool || null;
@@ -81,8 +83,15 @@ export class Maker {
       const saved = JSON.parse(await fsp.readFile(path.join(this.dir, 'specs.json'), 'utf8'));
       if (saved?.specs && saved?.verdict) Object.assign(this, { specs: saved.specs, verdict: saved.verdict, specsAt: saved.at || 0 });
     } catch { /* none yet */ }
+    await this.speed.load();
     this.where = await this.tool.locate().catch(() => null);
     this.onChange();
+  }
+
+  /** Seconds a job is likely to take on this PC, once its length is known; else null. */
+  estimate(job) {
+    if (!job.duration) return null;
+    return this.speed.estimate({ duration: job.duration, url: job.kind === 'url', demucsModel: job.opts.demucsModel, whisperModel: job.opts.whisperModel });
   }
 
   /**
@@ -367,6 +376,8 @@ export class Maker {
         if (r.timing) job.timing = r.timing;
         if (r.mp3Name) job.names = { mp3: r.mp3Name, cdg: r.cdgName };
         if (r.lyricsFrom) job.lyricsFrom = r.lyricsFrom;
+        if (r.duration && !job.duration) job.duration = r.duration;
+        if (r.times) job.times = r.times;
       };
       const run = this.tool.start(this.where, 'make', {
         song: job.song, out: job.out, lyricsFile, artist: job.artist, title: job.title, ...job.opts,
@@ -391,6 +402,9 @@ export class Maker {
       }
       job.stage = 'done';
       job.percent = 100;
+      if (this.speed.record({ times: job.times, duration: job.duration, demucsModel: job.opts.demucsModel, whisperModel: job.opts.whisperModel })) {
+        this.speed.save().catch((e) => log.info(`could not keep this PC's speed: ${e.message}`));
+      }
       this.finish(job, 'done');
       await this.addToLibrary(job);
       await this.keepVocals(job);
@@ -553,6 +567,7 @@ export class Maker {
       label: j.kind === 'url' ? j.label : path.basename(j.label), artist: j.artist, title: j.title, lyrics: !!j.lyrics.trim(),
       out: j.out, error: j.error, now: j.now, createdAt: j.createdAt, startedAt: j.startedAt, finishedAt: j.finishedAt,
       lines: j.lines.slice(-40), result: j.result ? { ...j.result } : null, lyricsFrom: j.lyricsFrom || (j.lyrics.trim() ? 'typed' : ''),
+      duration: j.duration || 0, estimate: j.finishedAt ? null : this.estimate(j), times: j.times || null,
     };
   }
 
@@ -573,6 +588,8 @@ export class Maker {
       verdict: this.verdict || null,
       specsAt: this.specsAt || 0,
       whisperModel: this.whisperModel(),
+      // seconds a 4-minute song takes on this PC, once it has made one (else null)
+      typical: this.speed.estimate({ duration: 240, demucsModel: this.settings.get('maker.demucsModel'), whisperModel: this.whisperModel() }),
       lookup: !!this.checks?.features?.lookup,
     };
   }

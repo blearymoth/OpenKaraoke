@@ -328,6 +328,35 @@ export function LyricsEditor({ trackId }) {
       setBusy('');
     }
   };
+  /**
+   * Whisper re-times line `li` against the song's vocal (autokaraoke retime): the stretch runs from
+   * just after the line before to just before the line after, so only this line's words move.
+   * The result is one more change (undo, or Save to keep it).
+   */
+  const retimeLine = async (li) => {
+    const s = songRef.current;
+    const line = s.lines[li];
+    if (!line) return;
+    const first = line.words[0].start;
+    const last = line.words.at(-1);
+    const prevEnd = li > 0 ? s.lines[li - 1].words.at(-1).end : 0;
+    const nextStart = li + 1 < s.lines.length ? s.lines[li + 1].words[0].start : Infinity;
+    const from = Math.max(0, Math.min(first, Math.max(prevEnd + 0.001, first - 0.5)));
+    const to = Math.max(last.start, Math.min(nextStart - 0.001, last.end + 1.5, (info.timing.duration || Infinity)));
+    setBusy('retime');
+    try {
+      const d = await apiPost(`/api/lyrics/${encodeURIComponent(trackId)}/retime`, {
+        timing: timingJson({ ...s, title: info.timing.title, artist: info.timing.artist, language: info.timing.language, duration: info.timing.duration }),
+        from: Math.round(from * 1000) / 1000, to: Math.round(to * 1000) / 1000,
+      });
+      change(readTiming(d.timing));
+      toast(`Whisper re-timed ${d.retimed} word${d.retimed === 1 ? '' : 's'} — play it, then Save to keep it`, 'ok', 6000);
+    } catch (e) {
+      toast(e.message, 'error', 8000);
+    } finally {
+      setBusy('');
+    }
+  };
   const revert = async () => {
     if (!confirm('Go back to autokaraoke’s own timing? Your edit is thrown away.')) return;
     setBusy('revert');
@@ -450,6 +479,8 @@ export function LyricsEditor({ trackId }) {
           <button class="btn small ghost" title="The whole line 0.1 s earlier" onClick=${() => change(shiftLines(song, li, li, -0.1))}>−0.1</button>
           <button class="btn small ghost" title="The whole line 0.1 s later" onClick=${() => change(shiftLines(song, li, li, 0.1))}>+0.1</button>
           <button class="btn small ghost" title="This line and every one after it 0.5 s later" onClick=${() => change(shiftLines(song, li, song.lines.length - 1, 0.5))}>+0.5 →</button>
+          ${info.retime && li === sel.li && html`<button class="btn small ghost le-retime" title="Whisper listens to the singer and times this line's words again (the other lines stay)" disabled=${!!busy} onClick=${() => retimeLine(li)}>
+            ${busy === 'retime' ? html`<${Spinner} />` : html`<${Icon} name="sparkles" size=${14} />`} Re-time</button>`}
         </div>
       </li>`)}
     </ol>`}

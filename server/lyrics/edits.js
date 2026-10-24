@@ -41,8 +41,10 @@ export class LyricEdits {
    * @param {import('../maker/jobs.js').Maker} o.maker  autokaraoke (its `render`)
    * @param {(trackId: string) => void} [o.onChange]  an edit was drawn or reverted
    * @param {(trackId: string) => Promise<string|null>} [o.vocalOf]  the separated vocal's URL, if any
+   * @param {(trackId: string) => Promise<string|null>} [o.vocalFileOf]  the kept vocal's file, if any
    */
-  constructor({ dataDir, library, maker, onChange = () => {}, vocalOf = async () => null }) {
+  constructor({ dataDir, library, maker, onChange = () => {}, vocalOf = async () => null, vocalFileOf = async () => null }) {
+    this.vocalFileOf = vocalFileOf; // the vocal file, for re-timing with Whisper
     this.root = path.join(dataDir, 'lyrics');
     this.vocalOf = vocalOf; // the song's separated vocal (a URL), for a guide while editing
     this.library = library;
@@ -132,6 +134,7 @@ export class LyricEdits {
       vocal: await this.vocalOf(trackId).catch(() => null),
       file: f.timing,
       renderer: !!this.maker?.where?.installed,
+      retime: !!this.maker?.where?.installed && !!(await this.vocalFile(trackId, f)),
     };
   }
 
@@ -158,9 +161,12 @@ export class LyricEdits {
       if (!this.maker?.tool || !where?.installed) {
         return { ...(await this.open(trackId)), drawnNow: false, error: 'Saved. autokaraoke is needed to draw the lyrics: install it in Settings → Karaoke maker.' };
       }
-      // The disc's colours, if autokaraoke drew it (its timing.json doesn't say).
+      // The timing's own render options (autokaraoke uses them); an older timing.json has none, so
+      // the disc's colours come from its CDG.
       let theme = '';
-      try { theme = cdgTheme(await fs.readFile(f.cdg)); } catch { /* gone */ }
+      if (!song.render?.theme) {
+        try { theme = cdgTheme(await fs.readFile(f.cdg)); } catch { /* gone */ }
+      }
       const out = path.join(dir, 'lyrics.cdg.part.cdg');
       const lines = [];
       const run = this.maker.tool.start(where, 'render', { timing: timingFile, audio: f.audio, output: out, theme, onLine: (l) => lines.push(l) });
@@ -178,6 +184,63 @@ export class LyricEdits {
       return { ...(await this.open(trackId)), drawnNow: true };
     } finally {
       this.busy.delete(trackId);
+    }
+  }
+
+  /** The song's vocal for re-timing: the kept one (data/stems), else NAME.work/vocals.wav. */
+  async vocalFile(trackId, f) {
+    const kept = await this.vocalFileOf(trackId);
+    if (kept && (await exists(kept))) return kept;
+    const work = f.timing.replace(/\.timing\.json$/, '.work');
+    const beside = path.join(work, 'vocals.wav');
+    return (await exists(beside)) ? beside : null;
+  }
+
+  /**
+   * Re-times the words that start inside [from, to] with Whisper (`autokaraoke retime`, in the
+   * heavy-job lane): `raw` is the editor's song now. Nothing is saved: the editor gets the new
+   * timing back as one more change, to keep (Save) or undo. → { timing, retimed }
+   */
+  async retime(trackId, raw, { from, to } = {}) {
+    const { f } = this.track(trackId);
+    const where = this.maker?.where;
+    if (!this.maker?.tool || !where?.installed) throw new UserError('Re-timing needs the Karaoke maker: install it in Settings → Karaoke maker.');
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to <= from || to - from > 120) throw new UserError('Pick up to two minutes of the song to re-time.');
+    let song;
+    try {
+      song = readTiming(raw);
+    } catch (e) {
+      throw new UserError(`Those lyrics can’t be re-timed: ${e.message}`);
+    }
+    const vocals = await this.vocalFile(trackId, f);
+    if (!vocals) throw new UserError('Re-timing needs the song’s vocal: separate it first (Song details → Separated vocals).');
+    if (this.busy.has(trackId)) throw new UserError('Still working on this song — a moment.');
+    this.busy.add(trackId);
+    const dir = this.dir(trackId);
+    const input = path.join(dir, 'retime-in.json');
+    const output = path.join(dir, 'retime-out.json');
+    const release = this.maker.lane ? await this.maker.lane.acquire('retime') : () => {};
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(input, `${JSON.stringify(timingJson(song), null, 1)}\n`);
+      const lines = [];
+      const run = this.maker.tool.start(where, 'retime', {
+        timing: input, vocals, output, from, to, language: song.language || '', whisperModel: this.maker.whisperModel(),
+        onLine: (l) => lines.push(l),
+      });
+      const { code } = await run.done;
+      const done = lines.map((l) => /^Retimed (\d+) words/.exec(l)).find(Boolean);
+      if (code !== 0 || !done) {
+        const why = [...lines].reverse().find((l) => /error/i.test(l)) || lines.at(-1) || `autokaraoke stopped (${code})`;
+        log.info(`re-timing ${trackId} failed: ${why}`);
+        throw new UserError(`Whisper could not re-time it: ${why.replace(/^error:\s*/i, '').slice(0, 200)}`);
+      }
+      const timing = timingJson(readTiming(JSON.parse(await fs.readFile(output, 'utf8'))));
+      return { timing, retimed: Number(done[1]) };
+    } finally {
+      release();
+      this.busy.delete(trackId);
+      await Promise.all([input, output].map((p) => fs.rm(p, { force: true })));
     }
   }
 

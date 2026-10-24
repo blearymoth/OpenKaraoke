@@ -186,6 +186,29 @@ export function fakeAutokaraoke({ root = '/home/you/.local/share/openkaraoke/aut
           say(`Wrote ${opts.output}`);
           return { code: 0, signal: null };
         }
+        if (kind === 'retime') { // (autokaraoke retime: the words starting in [from, to], 0.1 s later)
+          await sleep(step);
+          if (cancelled) return { code: null, signal: 'SIGTERM' };
+          if (state.fail === 'retime') {
+            say('error: no words start between those times');
+            return { code: 1, signal: null };
+          }
+          const d = JSON.parse(await fs.readFile(opts.timing, 'utf8'));
+          let n = 0;
+          for (const l of d.lines) {
+            for (const w of l.words) {
+              if (w.start >= opts.from && w.start <= opts.to) {
+                w.start = Math.round((w.start + 0.1) * 1000) / 1000;
+                w.end = Math.round((w.end + 0.1) * 1000) / 1000;
+                n += 1;
+              }
+            }
+          }
+          state.runs.at(-1).retimed = n;
+          await fs.writeFile(opts.output, `${JSON.stringify(d, null, 1)}\n`);
+          say(`Retimed ${n} words (${opts.from}\u2013${opts.to} s)`);
+          return { code: 0, signal: null };
+        }
         // make
         const isUrl = /^https?:/.test(opts.song);
         const names = { artist: opts.artist || 'Unknown', title: opts.title || 'Song' };
@@ -242,6 +265,7 @@ export function fakeAutokaraoke({ root = '/home/you/.local/share/openkaraoke/aut
           await writePcmWav(path.join(work, 'vocals.wav'), { hz: 880, seconds: 2 });
           await writePcmWav(path.join(work, 'instrumental.wav'), { hz: 220, seconds: 2 });
         }
+        say(`Times: ${isUrl ? 'download 2s, ' : ''}separate 6s, mp3 1s, timing 4s, cdg 1s`);
         say(`Done: ${base}.mp3 + ${base}.cdg`);
         return { code: 0, signal: null };
       })();

@@ -76,7 +76,7 @@ Server (`server/`)
   audio version the host has separated, played by the room at a Vocals level (PLAN §30).
 - `maker/` — the Karaoke maker (PLAN §31.9, §31.13): `where.js` (finding its install —
   ~/.local/share/openkaraoke/autokaraoke, else an older SongGetter copy, the env overrides — for the
-  maker and the stems alike), `autokaraoke.js` (its command
+  maker and the stems alike), `speed.js` (this PC's measured speed, "about N minutes", PLAN §31.14), `autokaraoke.js` (its command
   lines, reading its output; the real tool), `jobs.js` (`Maker`:
   uploads, jobs in the heavy-job lane `util/lane.js` shared with the stems, waiting during songs,
   the save folder inside the library and its rescan, install/models), `fake.js` (the stand-in tests use;

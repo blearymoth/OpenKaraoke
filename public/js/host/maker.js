@@ -7,7 +7,7 @@ import { html, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { Switch, Spinner, go } from '../lib/components.js';
 import { act, toast, openDialog, chooseFolder, chooseSongFile, saveSetting } from './state.js';
-import { parseLink } from '/shared/maker.js';
+import { parseLink, aboutMinutes } from '/shared/maker.js';
 
 const LANGUAGES = [['en', 'English'], ['fi', 'Finnish'], ['sv', 'Swedish'], ['no', 'Norwegian'], ['da', 'Danish'], ['de', 'German'],
   ['nl', 'Dutch'], ['fr', 'French'], ['es', 'Spanish'], ['it', 'Italian'], ['pt', 'Portuguese'], ['pl', 'Polish'], ['ja', 'Japanese'], ['ko', 'Korean'], ['zh', 'Chinese']];
@@ -52,7 +52,7 @@ function guessNames(file) {
   return i > 0 ? { artist: stem.slice(0, i).trim(), title: stem.slice(i + 3).trim() } : { artist: '', title: stem.trim() };
 }
 
-function MakeForm({ settings }) {
+function MakeForm({ settings, typical = null }) {
   const [f, setF] = useState(() => ({ ...draft, language: draft.language || settings.language, theme: draft.theme || settings.theme }));
   const [upPct, setUpPct] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -146,6 +146,7 @@ function MakeForm({ settings }) {
     </div>
     <div class="btn-row">
       <button class="btn primary" disabled=${busy || !song || upPct !== null} onClick=${make}><${Icon} name="sparkles" size=${16} /> Make karaoke</button>
+      ${typical !== null && html`<span class="hint mk-typical">A 4-minute song takes ${aboutMinutes(typical)} on this computer.</span>`}
     </div>
   </div>`;
 }
@@ -172,6 +173,7 @@ function Job({ job, songs }) {
     <${JobSteps} job=${job} />
     ${job.status === 'running' && html`<div class="mk-bar" role="progressbar" aria-valuenow=${job.percent} aria-valuemin="0" aria-valuemax="100"><i style=${`width:${Math.max(3, job.percent)}%`}></i></div>`}
     ${job.status === 'running' && job.bar && html`<p class="hint mono ellipsis">${job.bar}</p>`}
+    ${job.estimate !== null && job.estimate !== undefined && !finished && html`<p class="hint mk-estimate"><${Icon} name="clock" size=${13} /> ${aboutMinutes(job.estimate)[0].toUpperCase() + aboutMinutes(job.estimate).slice(1)} for this song on this computer.</p>`}
     ${job.lyricsFrom && html`<p class="hint mk-lyrics-from">${LYRICS_FROM[job.lyricsFrom] || `Lyrics: from ${job.lyricsFrom}.`}${job.result?.vocals ? ' Its vocals are kept: Separated vocals is ready for it.' : ''}</p>`}
     ${job.status === 'waiting' && html`<p class="hint">This computer has no graphics card, so the room’s sound comes first: it starts when the song ends.</p>`}
     ${job.status === 'failed' && html`<p class="warn-text">${job.error || 'autokaraoke stopped.'}</p>`}
@@ -363,7 +365,7 @@ export function MakerSection({ state }) {
       <button class="btn small" disabled=${running} onClick=${() => act('maker.install', { codeOnly: true })}>Update</button></div>`}
     ${installed && m.outProblem && html`<div class="banner warn mk-banner"><${Icon} name="alert" size=${18} />
       <div class="grow"><b>New songs can’t be saved right now.</b><p class="hint">${m.outProblem}</p></div></div>`}
-    ${installed ? html`<${MakeForm} settings=${settings} />` : html`<${InstallBlock} m=${m} />`}
+    ${installed ? html`<${MakeForm} settings=${settings} typical=${m.typical ?? null} />` : html`<${InstallBlock} m=${m} />`}
     ${installed && m.where?.legacy && m.where?.installer && html`<${InstallBlock} m=${m} moving=${true} />`}
     <${Task} task=${m.task} />
     ${m.jobs.length > 0 && html`<div class="mk-jobs">${[...m.jobs].reverse().map((j) => html`<${Job} key=${j.id} job=${j} />`)}</div>`}

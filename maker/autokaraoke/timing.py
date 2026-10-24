@@ -4,9 +4,13 @@ timing.json (hand-editable; re-render with `autokaraoke render`):
 {
   "version": 1,
   "title": "...", "artist": "...", "language": "en", "duration": 213.4,
-  "lines": [ {"words": [ {"text": "Hello", "start": 12.30, "end": 12.71}, ... ]}, ... ]
+  "lines": [ {"words": [ {"text": "Hello", "start": 12.30, "end": 12.71}, ... ]}, ... ],
+  "render": {"theme": "classic", "lines_on_screen": 4, "font_size": 0, "outline": 2,
+             "lead": 4.0, "page_gap": 8.0}
 }
-Times are seconds from the start of the audio.
+Times are seconds from the start of the audio. "render" (optional) is how the CDG was drawn;
+`render` uses it for any option not given on its command line. Older files have none and get
+the defaults. Unknown fields are ignored.
 """
 
 import json
@@ -44,6 +48,30 @@ class Song:
     language: str = ""
     duration: float = 0.0
     lines: list = field(default_factory=list)
+    render: dict = None
+
+
+# The "render" field's keys and their types (render.Config's names).
+RENDER_KEYS = {"theme": str, "lines_on_screen": int, "font_size": int, "outline": int,
+               "lead": float, "page_gap": float}
+
+
+def render_options(d):
+    """A timing.json's "render" value -> the known, well-typed options (or None)."""
+    if not isinstance(d, dict):
+        return None
+    out = {}
+    for key, kind in RENDER_KEYS.items():
+        v = d.get(key)
+        if isinstance(v, bool) or v is None:
+            continue
+        if kind is str and isinstance(v, str) and v:
+            out[key] = v
+        elif kind is int and isinstance(v, (int, float)) and float(v).is_integer() and v >= 0:
+            out[key] = int(v)
+        elif kind is float and isinstance(v, (int, float)) and v >= 0:
+            out[key] = float(v)
+    return out or None
 
 
 def clean(song):
@@ -80,6 +108,7 @@ def to_dict(song):
                        for w in line.words]}
             for line in song.lines
         ],
+        **({"render": dict(song.render)} if song.render else {}),
     }
 
 
@@ -87,7 +116,7 @@ def from_dict(d):
     if d.get("version") != 1:
         raise ValueError("unsupported timing.json version")
     song = Song(d.get("title", ""), d.get("artist", ""), d.get("language", ""),
-                float(d.get("duration", 0)))
+                float(d.get("duration", 0)), render=render_options(d.get("render")))
     for line in d.get("lines", []):
         song.lines.append(Line([Word(w["text"], float(w["start"]), float(w["end"]))
                                 for w in line["words"]]))

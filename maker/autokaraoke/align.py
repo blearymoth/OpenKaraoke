@@ -205,6 +205,50 @@ def lookup_and_align(model, vocals16k, candidates, language, min_match, log=prin
     return lines, heard_lang, None, best
 
 
+def retime_stretch(song, vocals16k, start, end, align_fn, sr=16000):
+    """Re-time only the words that start inside [start, end] against that slice of the vocal
+    (mono float32 at `sr`). `align_fn(slice, lyric_lines)` -> timed Lines for those words, with
+    times from the slice's start; the offset is added back. The new times stay between the
+    untouched words around the stretch, so every other word keeps its time exactly.
+    -> the number of words re-timed. The song is changed in place and cleaned."""
+    from .timing import clean
+    if not (0 <= start < end):
+        raise ValueError(f"bad stretch {start}-{end}: --from must be >= 0 and before --to")
+    flat = [(li, w) for li, line in enumerate(song.lines) for w in line.words]
+    picked = [k for k, (_, w) in enumerate(flat) if start <= w.start <= end]
+    if not picked:
+        raise ValueError(f"no words start between {start:g} and {end:g} s")
+    first, last = picked[0], picked[-1]
+    if picked != list(range(first, last + 1)):
+        raise ValueError("the words in that stretch are out of order; clean the timing first")
+    a = max(0, int(round(start * sr)))
+    b = min(len(vocals16k), int(round(end * sr)))
+    if b - a < sr // 5:
+        raise ValueError(f"the vocal has less than 0.2 s between {start:g} and {end:g} s")
+    lyric_lines, li_prev = [], None
+    for k in picked:
+        li, w = flat[k]
+        if li != li_prev:
+            lyric_lines.append([])
+            li_prev = li
+        lyric_lines[-1].append(w.text)
+    timed = [w for line in align_fn(vocals16k[a:b], lyric_lines) for w in line.words]
+    if len(timed) != len(picked):
+        raise RuntimeError(f"the aligner returned {len(timed)} words for {len(picked)}")
+    lo = max(start, flat[first - 1][1].end) if first > 0 else start
+    hi = min(b / sr, flat[last + 1][1].start) if last + 1 < len(flat) else b / sr
+    offset = a / sr
+    prev_end = lo
+    for k, nw in zip(picked, timed):
+        w = flat[k][1]
+        s = min(max(float(nw.start) + offset, prev_end), hi)
+        e = min(max(float(nw.end) + offset, s), hi)
+        w.start, w.end = s, e
+        prev_end = e
+    clean(song)
+    return len(picked)
+
+
 def build_song(lines, title, artist, language, duration):
     from .timing import clean
     return clean(Song(title, artist, language or "", duration, lines))

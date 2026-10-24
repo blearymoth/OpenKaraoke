@@ -28,7 +28,7 @@ MP3 encoder. From a terminal: `maker/install.sh [--cpu|--gpu] [--no-youtube]`.
 ## The command line (OpenKaraoke reads it)
 
 OpenKaraoke runs `python -m autokaraoke …` from that environment (`server/maker/autokaraoke.js`)
-and reads its output. Keep these stable: the `make`, `render`, `setup`, `retime` and `lyrics`
+and reads its output. Keep these stable: the `make`, `render`, `setup`, `retime`, `words` and `lyrics`
 commands and options, and the progress lines `server/maker/autokaraoke.js` matches.
 
 ## Tests

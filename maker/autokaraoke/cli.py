@@ -394,6 +394,58 @@ def _retime(args):
     return n
 
 
+def cmd_words(args):
+    """Words for a disc that has a vocal (a multiplex guide vocal, or one separated from it):
+    a timing.json from pasted lyrics, looked-up ones, or what Whisper hears, timed against the
+    vocal. No CDG is drawn: the disc keeps its own graphics. For OpenKaraoke (the TV's real
+    words and the lyrics editor on any disc)."""
+    try:
+        song = _words(args)
+    except SystemExit as e:
+        if e.code in (None, 0):
+            raise
+        _fail(e.code if isinstance(e.code, str) else f"stopped ({e.code})")
+    except Exception as e:  # noqa: BLE001 - every failure is one "error" line for OpenKaraoke
+        _fail(str(e) or type(e).__name__)
+    n = sum(len(l.words) for l in song.lines)
+    print(f"Words: {len(song.lines)} lines, {n} words", flush=True)
+
+
+def _words(args):
+    from . import align
+    from .separate import pick_device
+    vocals = Path(args.vocals)
+    if not vocals.is_file():
+        raise ValueError(f"no vocal file {vocals}")
+    audio.require_ffmpeg()
+    vocals16k = audio.load(vocals, 16000, 1)[0]
+    duration = args.duration or len(vocals16k) / 16000
+    out = Path(args.output)
+    mdir = models.configure(models.models_dir(args.models_dir))
+    model = align.load_model(args.whisper_model, pick_device(args.device), log, mdir=mdir)
+    language = args.language or ""
+    if args.lyrics:
+        lyric_lines = align.parse_lyrics(Path(args.lyrics).read_text(encoding="utf-8"), args.keep_sections)
+        if not lyric_lines:
+            raise ValueError("the lyrics file has no lyrics")
+        lines = align.align(model, vocals16k, lyric_lines, language, log)
+        language = language or "en"
+    else:
+        lines = None
+        if args.lyrics_sources:
+            lines, language = _lookup_lyrics(args, model, vocals16k, args.artist, args.title, duration,
+                                             mdir, out.with_name(out.stem.split(".")[0] + ".lyrics.txt"), None)
+        if lines is None:
+            lines, language = align.transcribe(model, vocals16k, args.language, log)
+    song = align.build_song(lines, args.title or "", args.artist or "", language, duration)
+    if not song.lines:
+        raise ValueError("no words were found in the vocal")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    save_json(song, out)
+    log(f"Timing: {out}")
+    return song
+
+
 def _add_render_opts(p):
     g = p.add_argument_group("screen")
     # No defaults here: `render` takes an option not given from the timing.json's "render"
@@ -495,6 +547,25 @@ def main(argv=None):
     rt.add_argument("--models-dir", help="models folder (default: $AUTOKARAOKE_MODELS)")
     rt.add_argument("-O", "--output", help="where to write the timing (default: in place)")
     rt.set_defaults(func=cmd_retime)
+
+    wd = sub.add_parser("words", help="a timing.json for a disc that has a vocal (no CDG drawn)")
+    wd.add_argument("--vocals", required=True, help="the disc's vocal (WAV, or any audio ffmpeg reads)")
+    wd.add_argument("-O", "--output", required=True, help="where to write the timing.json")
+    wd.add_argument("-l", "--lyrics", help="plain-text lyrics, one line per sung line (recommended)")
+    wd.add_argument("--lyrics-sources", metavar="A,B",
+                    help="no --lyrics: look them up here, in order (" + ", ".join(lyrics_lookup.SOURCES)
+                    + "); else Whisper writes down what it hears")
+    wd.add_argument("--lyrics-min-match", type=float, default=0.35, metavar="0..1",
+                    help="a lookup that Whisper hears less of than this is ignored (default 0.35)")
+    wd.add_argument("--keep-sections", action="store_true", help="keep [Chorus]-style lines")
+    wd.add_argument("--title", default="")
+    wd.add_argument("--artist", default="")
+    wd.add_argument("--duration", type=float, default=0.0, help="the song's length in s (default: the vocal's)")
+    wd.add_argument("--language", help="lyrics language code (default: en / auto)")
+    wd.add_argument("--whisper-model", default="medium", help="Whisper model (default: medium)")
+    wd.add_argument("--device", default="auto", help="cuda, cpu, mps (default: auto)")
+    wd.add_argument("--models-dir", help="models folder (default: $AUTOKARAOKE_MODELS)")
+    wd.set_defaults(func=cmd_words)
 
 
     args = ap.parse_args(argv)

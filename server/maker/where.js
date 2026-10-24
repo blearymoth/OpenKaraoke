@@ -1,13 +1,22 @@
-// Where autokaraoke is on this PC — one answer for everything that uses it: the vocal separator
-// (stems/separate.js, PLAN §21, §30), the Karaoke maker and the lyrics editor (§31). The owner's
-// copy is ~/Projects/autokaraoke; its installer writes a launcher, ~/.local/bin/autokaraoke, that
-// names the folder it runs from and its models folder. Each answer has one override:
-//   OPENKARAOKE_AUTOKARAOKE_ROOT    the folder (the SongGetter checkout)
-//   OPENKARAOKE_AUTOKARAOKE_PYTHON  its virtualenv's Python
-//   AUTOKARAOKE_MODELS              its models folder (autokaraoke's own variable)
+// Where the Karaoke maker's Python side is on this PC — one answer for everything that uses it:
+// the vocal separator (stems/separate.js, PLAN §21, §30), the Karaoke maker and the lyrics editor
+// (§31). Its code ships with OpenKaraoke (maker/, the `autokaraoke` package); maker/install.sh
+// builds its environment and models in ~/.local/share/openkaraoke/autokaraoke (§31.4 b).
+//
+// Before that install exists, an older copy from the SongGetter repository still works: the
+// folder its launcher ~/.local/bin/autokaraoke names, else ~/Projects/autokaraoke (`legacy`).
+// Installing then reuses its models. Each answer has one override:
+//   OPENKARAOKE_MAKER_HOME          the install folder
+//   OPENKARAOKE_AUTOKARAOKE_ROOT    an older SongGetter checkout to use
+//   OPENKARAOKE_AUTOKARAOKE_PYTHON  the Python to run
+//   AUTOKARAOKE_MODELS              the models folder (autokaraoke's own variable)
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** The code that ships with OpenKaraoke (read-only inside the AppImage). */
+export const BUNDLED = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'maker');
 
 /** The venv python next to the program the launcher execs, or ''. */
 export function pythonFromLauncher(text) {
@@ -30,24 +39,57 @@ export function rootFromLauncher(text) {
   return path.basename(bin) === 'bin' && path.basename(path.dirname(bin)) === '.venv' ? path.dirname(path.dirname(bin)) : '';
 }
 
+/** Where maker/install.sh puts the environment and models. */
+export function makerHome({ env = process.env, homedir = os.homedir() } = {}) {
+  return env.OPENKARAOKE_MAKER_HOME || path.join(env.XDG_DATA_HOME || path.join(homedir, '.local', 'share'), 'openkaraoke', 'autokaraoke');
+}
+
+/** `__version__ = "0.2.0"` in a package's __init__.py → '0.2.0', or ''. */
+export function versionOf(text) {
+  const m = /^__version__\s*=\s*["']([^"']+)["']/m.exec(String(text || ''));
+  return m ? m[1] : '';
+}
+
 const exists = (p) => fs.stat(p).then(() => true, () => false);
 
 /**
- * Where autokaraoke is: the root (`OPENKARAOKE_AUTOKARAOKE_ROOT`, else the folder the launcher
- * runs from, else ~/Projects/autokaraoke), its Python and models folder.
- * → { root, python, launcher, modelsDir, hasRoot, installed, installer }
+ * → { root, python, modelsDir, installed, hasRoot, installer, source, bundled, legacy, legacyModels, launcher }
+ *   root       where it is installed (or will be): the maker's home, or an older copy's folder
+ *   installed  its Python is there
+ *   hasRoot    the code to install from is there (OpenKaraoke's maker/)
+ *   installer  maker/install.sh, or ''
+ *   bundled    the version that ships with this OpenKaraoke
+ *   legacy     the older SongGetter copy in use ('' when the maker's own install is)
+ *   legacyModels  an older copy's models folder the installer can reuse, or ''
  */
-export async function locateAutokaraoke({ env = process.env, homedir = os.homedir(), readFile = fs.readFile } = {}) {
-  const launcher = path.join(homedir, '.local', 'bin', 'autokaraoke');
+export async function locateAutokaraoke({ env = process.env, homedir = os.homedir(), readFile = fs.readFile, source = BUNDLED } = {}) {
+  const home = makerHome({ env, homedir });
+  const homePython = path.join(home, '.venv', 'bin', 'python');
+  const launcherPath = path.join(homedir, '.local', 'bin', 'autokaraoke');
   let text = '';
-  if (!env.OPENKARAOKE_AUTOKARAOKE_PYTHON || !env.AUTOKARAOKE_MODELS || !env.OPENKARAOKE_AUTOKARAOKE_ROOT) {
-    try { text = await readFile(launcher, 'utf8'); } catch { /* no launcher */ }
-  }
-  const root = env.OPENKARAOKE_AUTOKARAOKE_ROOT || rootFromLauncher(text) || path.join(homedir, 'Projects', 'autokaraoke');
-  const python = env.OPENKARAOKE_AUTOKARAOKE_PYTHON || pythonFromLauncher(text) || path.join(root, '.venv', 'bin', 'python');
-  const modelsDir = env.AUTOKARAOKE_MODELS || modelsDirFromLauncher(text) || path.join(root, 'models');
-  const [hasRoot, installed, installer] = await Promise.all([
-    exists(path.join(root, 'autokaraoke', 'cli.py')), exists(python), exists(path.join(root, 'install.sh')),
+  try { text = await readFile(launcherPath, 'utf8'); } catch { /* no launcher */ }
+  const oldRoot = env.OPENKARAOKE_AUTOKARAOKE_ROOT || rootFromLauncher(text) || path.join(homedir, 'Projects', 'autokaraoke');
+  const oldPython = pythonFromLauncher(text) || path.join(oldRoot, '.venv', 'bin', 'python');
+  const oldModels = modelsDirFromLauncher(text) || path.join(oldRoot, 'models');
+  const [ownInstall, oldInstall, oldHasModels, installer, initText] = await Promise.all([
+    exists(homePython), exists(oldPython), exists(oldModels), exists(path.join(source, 'install.sh')),
+    readFile(path.join(source, 'autokaraoke', '__init__.py'), 'utf8').catch(() => ''),
   ]);
-  return { root, python, launcher: text ? launcher : '', modelsDir, hasRoot, installed, installer: installer ? path.join(root, 'install.sh') : '' };
+  const useOld = !ownInstall && oldInstall && !env.OPENKARAOKE_MAKER_HOME;
+  const root = useOld ? oldRoot : home;
+  const python = env.OPENKARAOKE_AUTOKARAOKE_PYTHON || (useOld ? oldPython : homePython);
+  const modelsDir = env.AUTOKARAOKE_MODELS || (useOld ? oldModels : path.join(home, 'models'));
+  return {
+    root,
+    python,
+    modelsDir,
+    installed: env.OPENKARAOKE_AUTOKARAOKE_PYTHON ? await exists(python) : ownInstall || useOld,
+    hasRoot: !!initText,
+    installer: installer ? path.join(source, 'install.sh') : '',
+    source,
+    bundled: versionOf(initText),
+    legacy: useOld ? oldRoot : '',
+    legacyModels: !ownInstall && oldHasModels && !env.OPENKARAOKE_MAKER_HOME ? oldModels : '',
+    launcher: text ? launcherPath : '',
+  };
 }

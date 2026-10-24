@@ -198,13 +198,13 @@ export class Maker {
   /** Why no song can be made right now ('' = it can). */
   readyProblem() {
     if (!this.tool) return 'The Karaoke maker is not available.';
-    if (!this.where?.installed) return 'Install autokaraoke first (Settings → Karaoke maker).';
+    if (!this.where?.installed) return 'Install the Karaoke maker first (Settings → Karaoke maker).';
     return this.outInfo().problem;
   }
 
   async make(input, { tag = '' } = {}) {
     if (!this.tool) throw new UserError('The Karaoke maker is not available.');
-    if (!this.where?.installed) throw new UserError('Install autokaraoke first (Settings → Karaoke maker).');
+    if (!this.where?.installed) throw new UserError('Install the Karaoke maker first (Settings → Karaoke maker).');
     const s = input?.song || {};
     let song;
     let label;
@@ -504,12 +504,13 @@ export class Maker {
     if (!this.tool) throw new UserError('The Karaoke maker is not available.');
     if (this.task?.status === 'running') throw new UserError('Wait for the install to finish.');
     if (this.running) throw new UserError('Wait for the song being made to finish.');
-    if (kind === 'install' && !this.where?.installer) throw new UserError(`autokaraoke’s installer was not found in ${this.where?.root || '~/Projects/autokaraoke'}.`);
-    if (kind === 'setup' && !this.where?.installed) throw new UserError('Install autokaraoke first.');
+    if (kind === 'install' && !this.where?.installer) throw new UserError('The Karaoke maker’s installer (maker/install.sh) is missing from this copy of OpenKaraoke.');
+    if (kind === 'setup' && !this.where?.installed) throw new UserError('Install the Karaoke maker first.');
     const task = { kind, status: 'running', lines: [], bar: '', code: null, startedAt: Date.now() };
     this.task = task;
     const args = kind === 'install'
-      ? { gpu: !!opts.gpu, youtube: opts.youtube !== false }
+      ? { gpu: !!opts.gpu, youtube: opts.youtube !== false, codeOnly: !!opts.codeOnly && !!this.where?.installed && !this.where?.legacy,
+        modelsFrom: this.where?.legacyModels || '' }
       : { whisperModel: WHISPER_MODELS.includes(opts.whisperModel) ? opts.whisperModel : this.whisperModel(),
         demucsModel: DEMUCS_MODELS.includes(opts.demucsModel) ? opts.demucsModel : this.settings.get('maker.demucsModel') };
     let last = 0;
@@ -560,7 +561,7 @@ export class Maker {
     const w = this.where;
     return {
       enabled: !!this.tool,
-      where: w ? { root: w.root, hasRoot: w.hasRoot, installed: w.installed, installer: !!w.installer } : null,
+      where: w ? { root: w.root, hasRoot: w.hasRoot, installed: w.installed, installer: !!w.installer, legacy: w.legacy || '', bundled: w.bundled || '', reuseModels: !!w.legacyModels } : null,
       checks: this.checks,
       checking: this.checking,
       out: this.out(),

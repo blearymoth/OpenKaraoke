@@ -74,8 +74,9 @@ Server (`server/`)
 - `stems/` — autokaraoke's separator (`separate.js`: Demucs, the model name, music + vocal),
   `jobs.js` (`data/stems/`, one at a time): a multiplex track's vocal for the preview, and any
   audio version the host has separated, played by the room at a Vocals level (PLAN §30).
-- `maker/` — the Karaoke maker (PLAN §31.9): `where.js` (finding autokaraoke — ~/Projects/autokaraoke,
-  its launcher, the env overrides — for the maker and the stems alike), `autokaraoke.js` (its command
+- `maker/` — the Karaoke maker (PLAN §31.9, §31.13): `where.js` (finding its install —
+  ~/.local/share/openkaraoke/autokaraoke, else an older SongGetter copy, the env overrides — for the
+  maker and the stems alike), `autokaraoke.js` (its command
   lines, reading its output; the real tool), `jobs.js` (`Maker`:
   uploads, jobs in the heavy-job lane `util/lane.js` shared with the stems, waiting during songs,
   the save folder inside the library and its rescan, install/models), `fake.js` (the stand-in tests use;

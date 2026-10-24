@@ -43,6 +43,13 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
+      - name: Karaoke maker tests (Python)
+        working-directory: maker
+        run: |
+          python3 -m venv "$RUNNER_TEMP/maker-venv"   # Ubuntu's own Python takes no pip installs
+          "$RUNNER_TEMP/maker-venv/bin/pip" install --quiet numpy pillow pytest
+          "$RUNNER_TEMP/maker-venv/bin/python" -m pytest -q
+
       - name: Tests
         timeout-minutes: 10
         run: npm test

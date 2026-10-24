@@ -1,7 +1,7 @@
-// Settings → Karaoke maker (PLAN §31): autokaraoke's windows, in OpenKaraoke. Make a karaoke
-// track from a song on this computer, an upload or a link (the lyrics pasted in), follow each job
-// step by step, then queue the new song; the maker's settings; and autokaraoke on this computer —
-// the checks, installing it from ~/Projects/autokaraoke, downloading the models. The work runs on
+// Settings → Karaoke maker (PLAN §31). Make a karaoke track from a song on this computer, an
+// upload or a link (the lyrics pasted in), follow each job step by step, then queue the new song;
+// the maker's settings; and its engine on this computer (maker/, the `autokaraoke` package) —
+// the checks, installing or updating it, downloading the models. The work runs on
 // the server (server/maker/); this page only asks and shows state.maker.
 import { html, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
@@ -228,8 +228,10 @@ function Checks({ m }) {
   const ff = { ready: [true, 'Ready, with the MP3 encoder.'], 'no-mp3': [false, 'This FFmpeg has no MP3 encoder (libmp3lame). Fedora: install ffmpeg from RPM Fusion.'],
     missing: [false, 'Not installed. Ubuntu: sudo apt install ffmpeg · Fedora: sudo dnf install ffmpeg-free'] }[c.ffmpeg] || [null, ''];
   return html`<ul class="hs-checks mk-checks">
-    <${Check} ok=${m.where?.installed ? true : m.where?.hasRoot ? null : false} title="autokaraoke">
-      ${m.where?.installed ? `${c.version || 'Installed'} in ${m.where.root}` : m.where?.hasRoot ? `Found in ${m.where.root}, not installed yet.` : `Not found in ${m.where?.root || '~/Projects/autokaraoke'}.`}
+    <${Check} ok=${m.where?.installed ? (m.where.legacy || c.update ? null : true) : m.where?.hasRoot ? null : false} title="Karaoke maker">
+      ${m.where?.installed
+        ? `${c.version || 'Installed'} in ${m.where.root}${m.where.legacy ? ' (the old SongGetter copy)' : ''}${c.update ? ` · ${m.where.bundled} came with OpenKaraoke` : ''}.`
+        : m.where?.hasRoot ? `Not installed yet. It goes to ${m.where.root}.` : 'Missing from this copy of OpenKaraoke.'}
     </${Check}>
     <${Check} ok=${!!c.python} title="Python">${c.python ? `${c.python}` : 'Python 3.10 or newer is needed.'}</${Check}>
     <${Check} ok=${ff[0]} title="FFmpeg">${ff[1]}</${Check}>
@@ -253,21 +255,22 @@ function Task({ task }) {
   </div>`;
 }
 
-function InstallBlock({ m }) {
+function InstallBlock({ m, moving = false }) {
   const gpu = !!m.checks?.gpu;
   const [onGpu, setOnGpu] = useState(gpu);
   const [youtube, setYoutube] = useState(true);
   const running = m.task?.status === 'running';
   if (!m.where?.hasRoot) {
     return html`<div class="mk-card">
-      <h3 class="mk-title"><${Icon} name="alert" size=${18} /> autokaraoke is not on this computer</h3>
-      <p>The Karaoke maker uses your copy of autokaraoke (the SongGetter repository) in <code>${m.where?.root || '~/Projects/autokaraoke'}</code>. Put it there, then check again.</p>
+      <h3 class="mk-title"><${Icon} name="alert" size=${18} /> The Karaoke maker is missing</h3>
+      <p>This copy of OpenKaraoke has no <code>maker</code> folder. Update or reinstall OpenKaraoke, then check again.</p>
       <div class="btn-row"><button class="btn" disabled=${m.checking} onClick=${() => act('maker.check')}><${Icon} name="refresh" size=${16} /> Check again</button></div>
     </div>`;
   }
   return html`<div class="mk-card">
-    <h3 class="mk-title"><${Icon} name="download" size=${18} /> Install autokaraoke</h3>
-    <p class="hint">It downloads the vocal remover and the lyric timer once — about ${onGpu ? '8' : '4'} GB, and the internet is needed this one time. Everything stays in <code>${m.where.root}</code>.</p>
+    <h3 class="mk-title"><${Icon} name="download" size=${18} /> ${moving ? 'Move the Karaoke maker into OpenKaraoke' : 'Install the Karaoke maker'}</h3>
+    ${moving && html`<p class="hint">Songs are made with the old SongGetter copy in <code>${m.where.legacy}</code> now. Installing gives OpenKaraoke its own copy, which updates with it; the old folder is left as it is, and you can delete it afterwards.</p>`}
+    <p class="hint">It downloads the vocal remover and the lyric timer once — about ${onGpu ? '8' : '4'} GB${m.where.reuseModels ? ', less the models already downloaded, which are reused' : ''} — and the internet is needed this one time. Everything goes to <code>${moving ? '~/.local/share/openkaraoke/autokaraoke' : m.where.root}</code>.</p>
     <div class="setting">
       <div class="setting-text"><b>Remove the singer on</b><p class="hint">${gpu ? `The graphics card (${m.checks.gpu}) is much quicker.` : 'No NVIDIA graphics card was found.'}</p></div>
       <div class="setting-control"><select class="select" value=${onGpu ? 'gpu' : 'cpu'} disabled=${!gpu} onChange=${(e) => setOnGpu(e.currentTarget.value === 'gpu')}>
@@ -350,18 +353,22 @@ export function MakerSection({ state }) {
   const missing = m.checks?.setup?.models.filter((x) => !x.ready) || [];
   const running = m.task?.status === 'running';
   return html`<div class="maker">
-    <p class="muted mk-intro">Turn any song into a karaoke track with autokaraoke: it removes the singer, times the lyrics you paste, draws the lyrics screen and adds the song to the library.</p>
+    <p class="muted mk-intro">Turn any song into a karaoke track: it removes the singer, times the lyrics you paste, draws the lyrics screen and adds the song to the library.</p>
     <${Verdict} m=${m} />
     ${installed && missing.length > 0 && html`<div class="banner warn mk-banner"><${Icon} name="alert" size=${18} />
       <div class="grow"><b>The models aren’t downloaded yet.</b><p class="hint">${missing.map((x) => x.name).join(', ')} — needed once, then songs are made without the internet.</p></div>
       <button class="btn small" disabled=${running} onClick=${() => act('maker.setup', {})}>Download</button></div>`}
+    ${installed && m.checks?.update && html`<div class="banner mk-banner"><${Icon} name="download" size=${18} />
+      <div class="grow"><b>A newer Karaoke maker came with OpenKaraoke.</b><p class="hint">${m.checks.version} is installed; ${m.where.bundled} is here. Updating takes a few seconds and keeps the models.</p></div>
+      <button class="btn small" disabled=${running} onClick=${() => act('maker.install', { codeOnly: true })}>Update</button></div>`}
     ${installed && m.outProblem && html`<div class="banner warn mk-banner"><${Icon} name="alert" size=${18} />
       <div class="grow"><b>New songs can’t be saved right now.</b><p class="hint">${m.outProblem}</p></div></div>`}
     ${installed ? html`<${MakeForm} settings=${settings} />` : html`<${InstallBlock} m=${m} />`}
+    ${installed && m.where?.legacy && m.where?.installer && html`<${InstallBlock} m=${m} moving=${true} />`}
     <${Task} task=${m.task} />
     ${m.jobs.length > 0 && html`<div class="mk-jobs">${[...m.jobs].reverse().map((j) => html`<${Job} key=${j.id} job=${j} />`)}</div>`}
     ${installed && html`<${MakerSettings} settings=${settings} m=${m} />`}
-    <h3 class="section-title">autokaraoke on this computer</h3>
+    <h3 class="section-title">The Karaoke maker on this computer</h3>
     <${Checks} m=${m} />
     <div class="btn-row">
       <button class="btn" disabled=${m.checking || running} onClick=${() => act('maker.check')}><${Icon} name="refresh" size=${16} /> ${m.checking ? 'Checking…' : 'Check again'}</button>

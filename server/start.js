@@ -82,7 +82,7 @@ export async function startServer({ dataDir, args = {}, env = process.env, appOp
 
     const stemRun = appOptions.stemRun || (env.OPENKARAOKE_FAKE_STEMS === '1' ? fakeStemRun : runAutokaraokeSeparate);
     const videoTool = appOptions.videoTool || ffmpegTool({ env: process.env });
-    // The Karaoke maker: autokaraoke in ~/Projects/autokaraoke (PLAN §31). OPENKARAOKE_FAKE_MAKER=1
+    // The Karaoke maker: maker/, installed in ~/.local/share/openkaraoke (PLAN §31). OPENKARAOKE_FAKE_MAKER=1
     // tries the page with a stand-in (it imports the test CDG writer, so only when asked).
     const makerTool = appOptions.makerTool || (env.OPENKARAOKE_FAKE_MAKER
       ? (await import('./maker/fake.js')).fakeAutokaraoke({ installed: env.OPENKARAOKE_FAKE_MAKER !== 'missing', seconds: 8 })

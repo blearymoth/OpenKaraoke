@@ -2130,3 +2130,24 @@ available, so this follows its description.
 - **Not built**: the lyrics preview before approval (the old "§25" spec in the patch: parked by the
   owner).
 
+### 31.13 The engine moved into OpenKaraoke (2026-10-23)
+
+The owner retired SongGetter as its own project: its code is now this repository's `maker/` (the
+Python package `autokaraoke`, version 0.2.0), with the 10 Oct lyrics-lookup work included. This
+settles §31.8's first question: (b), installed by OpenKaraoke, the code from this repository.
+
+- **What came over**: the engine — download, separation, alignment, lyrics lookup, `transfer_timing`,
+  the CDG renderer, `setup --check` — and its tests (`maker/tests`, mocked ML, no network). The GTK
+  windows (`gui.py`, `install_gui.py`, `job.py`, `desktop.py`) and the `gui` command did not: this
+  page is the window. The command line OpenKaraoke reads (`make`, `render`, `setup`, `--version`,
+  the output lines `readMakeLine` matches) is unchanged.
+- **Installing** (`maker/install.sh`, from the page): a Python environment and the models in
+  `~/.local/share/openkaraoke/autokaraoke/` (`OPENKARAOKE_MAKER_HOME`), built from a copy of
+  `maker/` (the AppImage's copy is read-only). An older SongGetter install's models are hard-linked
+  across (`--models-from`), so they aren't downloaded again; its folder is left alone.
+- **Finding it** (`server/maker/where.js`): that install; until it exists, an older SongGetter copy
+  (its launcher, else `~/Projects/autokaraoke`), shown as such with a card to move into OpenKaraoke.
+- **Updating**: when the installed copy's version differs from `maker/`'s, the page offers Update
+  (`install.sh --code-only`: the code only, seconds, models kept).
+- **Shipping**: `maker/` is in the installers' files (electron-builder); CI runs `maker/`'s tests.
+

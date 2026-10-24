@@ -1,5 +1,5 @@
 // The Karaoke maker (server/maker/, PLAN §31): autokaraoke's command lines and output, finding
-// it in ~/Projects/autokaraoke, the heavy-job lane, and making songs from Settings with the
+// it (maker/install.sh, or an older SongGetter copy), the heavy-job lane, and making songs from Settings with the
 // stand-in tool — from a file, an upload or a link, into the library; waiting while someone
 // sings on a PC without a graphics card; cancel; a failure; installing; host only.
 import { test } from 'node:test';
@@ -49,6 +49,9 @@ test('maker: autokaraoke’s command lines — options first, the song after "--
   assert.throws(() => renderArgs({ timing: 'a.json', audio: '/a', output: '/b' }));
   assert.ok(setupArgs({ check: true }).includes('--check'));
   assert.deepEqual(installArgs('/p/install.sh', { gpu: true, youtube: false }), ['/p/install.sh', '--gpu', '--no-youtube']);
+  assert.deepEqual(installArgs('/p/install.sh', { modelsFrom: '/old/models' }), ['/p/install.sh', '--cpu', '--models-from', '/old/models']);
+  assert.deepEqual(installArgs('/p/install.sh', { codeOnly: true, gpu: true }), ['/p/install.sh', '--code-only']);
+  assert.throws(() => installArgs('/p/install.sh', { modelsFrom: 'relative' }), /Bad models folder/);
   assert.equal(cleanUrl('javascript:alert(1)'), '');
   assert.equal(cleanUrl('https://www.youtube.com/watch?v=x y'), '');
   assert.ok(cleanUrl('https://www.youtube.com/watch?v=abc'));
@@ -90,24 +93,42 @@ Offline: ready. \`make\` with these models no longer needs the internet (only Yo
   assert.equal(readSetupCheck('  Whisper large-v3                    MISSING\nOffline: NOT ready.').models[0].ready, false);
   assert.equal(gpuNameOf('GPU 0: NVIDIA GeForce RTX 3080 (UUID: GPU-1234)\n'), 'NVIDIA GeForce RTX 3080');
 
+  // The code ships with OpenKaraoke (maker/); the install goes to ~/.local/share/openkaraoke/autokaraoke.
   const home = await tmpDir('ok-home-');
+  const own = path.join(home, '.local', 'share', 'openkaraoke', 'autokaraoke');
   let where = await locateAutokaraoke({ env: {}, homedir: home });
-  assert.equal(where.root, path.join(home, 'Projects', 'autokaraoke'), 'by default: ~/Projects/autokaraoke');
-  assert.equal(where.python, path.join(home, 'Projects', 'autokaraoke', '.venv', 'bin', 'python'));
-  assert.equal(where.hasRoot, false);
-  await fs.mkdir(path.join(home, 'Projects', 'autokaraoke', 'autokaraoke'), { recursive: true });
-  await fs.writeFile(path.join(home, 'Projects', 'autokaraoke', 'autokaraoke', 'cli.py'), '');
-  await fs.writeFile(path.join(home, 'Projects', 'autokaraoke', 'install.sh'), '');
-  where = await locateAutokaraoke({ env: {}, homedir: home });
-  assert.ok(where.hasRoot && where.installer && !where.installed, 'the folder is there, not installed yet');
-  // The launcher an install wrote names the folder it runs from.
+  assert.equal(where.root, own, "by default: the maker's own folder");
+  assert.equal(where.python, path.join(own, '.venv', 'bin', 'python'));
+  assert.ok(where.hasRoot && where.installer.endsWith(path.join('maker', 'install.sh')) && !where.installed, 'the code is here, not installed yet');
+  assert.match(where.bundled, /^\d+\.\d+\.\d+$/, 'the version that ships with OpenKaraoke');
+  assert.equal(where.legacy, '');
+  // An older SongGetter copy, from its launcher, is used until the maker's own install exists,
+  // and its models are offered to the installer.
   const elsewhere = path.join(home, 'src', 'SongGetter');
+  await fs.mkdir(path.join(elsewhere, '.venv', 'bin'), { recursive: true });
+  await fs.mkdir(path.join(elsewhere, 'models'), { recursive: true });
+  await fs.writeFile(path.join(elsewhere, '.venv', 'bin', 'python'), '');
   await fs.mkdir(path.join(home, '.local', 'bin'), { recursive: true });
   await fs.writeFile(path.join(home, '.local', 'bin', 'autokaraoke'), `#!/bin/sh\nexport AUTOKARAOKE_MODELS="\${AUTOKARAOKE_MODELS:-${elsewhere}/models}"\nexec "${elsewhere}/.venv/bin/autokaraoke" "$@"\n`);
   assert.equal(rootFromLauncher(await fs.readFile(path.join(home, '.local', 'bin', 'autokaraoke'), 'utf8')), elsewhere);
   where = await locateAutokaraoke({ env: {}, homedir: home });
+  assert.ok(where.installed);
   assert.equal(where.root, elsewhere);
+  assert.equal(where.legacy, elsewhere);
   assert.equal(where.modelsDir, `${elsewhere}/models`);
+  assert.equal(where.legacyModels, `${elsewhere}/models`);
+  // Once the maker's own install is there it wins; the old folder is no longer used.
+  await fs.mkdir(path.join(own, '.venv', 'bin'), { recursive: true });
+  await fs.writeFile(path.join(own, '.venv', 'bin', 'python'), '');
+  where = await locateAutokaraoke({ env: {}, homedir: home });
+  assert.equal(where.root, own);
+  assert.equal(where.legacy, '');
+  assert.equal(where.legacyModels, '');
+  assert.equal(where.modelsDir, path.join(own, 'models'));
+  // OPENKARAOKE_MAKER_HOME moves the install folder.
+  where = await locateAutokaraoke({ env: { OPENKARAOKE_MAKER_HOME: path.join(home, 'mk') }, homedir: home });
+  assert.equal(where.root, path.join(home, 'mk'));
+  assert.ok(!where.installed && !where.legacy, 'an empty home: not installed, and the old copy is not used');
 });
 
 test('maker: one heavy job at a time, the song on now first', async () => {
@@ -239,14 +260,14 @@ test('maker: not installed — install it from the page, then download the model
   await until(() => room.maker.checks);
   assert.equal(room.hostView().maker.where.installed, false);
   assert.equal(room.hostView().maker.waitsDuringSongs, false, 'a graphics card: jobs run any time');
-  await assert.rejects(req(host, 'maker.make', { song: { url: 'https://x.test/a' }, title: 'A' }), /Install autokaraoke first/);
-  await assert.rejects(req(host, 'maker.setup', {}), /Install autokaraoke first/);
+  await assert.rejects(req(host, 'maker.make', { song: { url: 'https://x.test/a' }, title: 'A' }), /Install the Karaoke maker first/);
+  await assert.rejects(req(host, 'maker.setup', {}), /Install the Karaoke maker first/);
   const ana = await guest('Ana');
   await assert.rejects(req(ana, 'maker.install', { gpu: true }), /not allowed/);
   await req(host, 'maker.install', { gpu: true, youtube: false });
   await assert.rejects(req(host, 'maker.install', {}), /Wait for the install/);
   await until(() => room.maker.task?.status === 'done' && room.maker.checks?.version);
-  assert.deepEqual(tool.state.runs.find((r) => r.kind === 'install').opts, { gpu: true, youtube: false });
+  assert.deepEqual(tool.state.runs.find((r) => r.kind === 'install').opts, { gpu: true, youtube: false, codeOnly: false, modelsFrom: '' });
   const v = room.hostView().maker;
   assert.ok(v.where.installed && v.checks.setup.offline, 'installed, models there');
   assert.ok(v.task.lines.some((l) => /Installing PyTorch/.test(l)));

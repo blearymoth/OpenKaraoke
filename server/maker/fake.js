@@ -110,11 +110,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * The stand-in tool. `state`: installed, models ready, the GPU's name ('' = none), and `fail`
  * ('make' | 'render' | 'setup' | 'install') to make that command fail. `seconds`: how long a make takes.
  */
-export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', installed = true, models = true, gpu = '', gpuMB = 8192, cores = 8, memGB = 16, freeGB = 120, fail = '', seconds = 1.5, songSeconds = 30, lookup = true, lookupHit = 'Found on the internet\nAll the words are here' } = {}) {
+export function fakeAutokaraoke({ root = '/home/you/.local/share/openkaraoke/autokaraoke', legacy = '', installed = true, models = true, gpu = '', gpuMB = 8192, cores = 8, memGB = 16, freeGB = 120, fail = '', seconds = 1.5, songSeconds = 30, lookup = true, lookupHit = 'Found on the internet\nAll the words are here' } = {}) {
   const state = { installed, models, gpu, gpuMB, cores, memGB, freeGB, fail, seconds, songSeconds, lookup, lookupHit, runs: [] };
   const where = () => ({
     root, python: path.join(root, '.venv', 'bin', 'python'), launcher: '', modelsDir: path.join(root, 'models'),
-    hasRoot: true, installed: state.installed, installer: path.join(root, 'install.sh'),
+    hasRoot: true, installed: state.installed, installer: '/opt/OpenKaraoke/maker/install.sh', source: '/opt/OpenKaraoke/maker',
+    bundled: '0.2.0', legacy: state.installed ? legacy : '', legacyModels: legacy ? path.join(legacy, 'models') : '',
   });
   return {
     state,
@@ -122,7 +123,7 @@ export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', insta
 
     async check(at, { whisperModel = 'medium', demucsModel = 'htdemucs' } = {}) {
       return {
-        python: '3.12.3', ffmpeg: 'ready', gpu: state.gpu, version: state.installed ? '0.1.0' : '',
+        python: '3.12.3', ffmpeg: 'ready', gpu: state.gpu, version: state.installed ? '0.2.0' : '', update: false,
         specs: { gpus: state.gpu ? [{ name: state.gpu, memMB: state.gpuMB }] : [], cores: state.cores, memGB: state.memGB, freeGB: state.freeGB },
         features: { lookup: state.installed && state.lookup },
         setup: state.installed ? {

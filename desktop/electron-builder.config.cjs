@@ -5,7 +5,7 @@
 //   OpenKaraoke-<version>.AppImage   the same program on its own (the updater downloads it)
 //   openkaraoke-<version>.x86_64.rpm  Fedora / openSUSE, for everyone (dnf install ./…rpm)
 //   openkaraoke_<version>_amd64.deb   Ubuntu / Debian / Mint, for everyone (apt install ./…deb)
-// The app is the repository itself (server/, public/, shared/ and desktop/), unpacked (no asar):
+// The app is the repository itself (server/, public/, shared/, maker/ and desktop/), unpacked (no asar):
 // the server reads its pages and media from ordinary files, exactly as with `node server/index.js`.
 // OPENKARAOKE_VERSION overrides package.json's version (the release workflow numbers every build).
 const fs = require('node:fs');
@@ -44,6 +44,11 @@ module.exports = {
     'server/**/*',
     'public/**/*',
     'shared/**/*',
+    // The Karaoke maker engine (PLAN §31): maker/install.sh copies it into an environment of its own.
+    'maker/install.sh',
+    'maker/pyproject.toml',
+    'maker/README.md',
+    'maker/autokaraoke/*.py',
     'desktop/main.mjs',
     'desktop/displays.mjs',
     'desktop/graphics.mjs',

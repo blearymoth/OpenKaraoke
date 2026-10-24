@@ -226,8 +226,11 @@ export function fakeAutokaraoke({ root = '/home/you/.local/share/openkaraoke/aut
               continue;
             }
             say(`${label} ${state.lookupHit.split('\n').length} lines  (${opts.artist || '?'} - ${opts.title})`);
+            if (!cancelled) opts.onLine?.('UserWarning: a warning from a library, on stderr', 'err');
             for (const line of state.lookupHit.split('\n')) say(line);
           }
+          if (cancelled) return { code: null, signal: 'SIGTERM' };
+          if (state.fail === 'lyrics') return { code: 1, signal: null }; // (stopped part way: what it printed isn't trusted)
           return { code: 0, signal: null };
         }
         if (kind === 'words') { // (autokaraoke words: a disc's words against its vocal; no CDG)

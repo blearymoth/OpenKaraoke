@@ -55,12 +55,18 @@ export class Links {
     await this.doc.load();
     if (!Array.isArray(this.doc.data.requests)) this.doc.data.requests = [];
     for (const r of this.list) if (r.state === 'working') r.state = 'queued'; // (the job died with the server)
-    for (const r of this.list) if (r.preview?.state === 'looking') r.preview = null; // (the lookup died with it too)
+    for (const r of this.list) {
+      if (r.preview?.state !== 'looking') continue;
+      r.preview = null; // (the lookup died with it too: done again in resume())
+      r.relook = r.state === 'pending';
+    }
   }
 
   /** After the maker knows where autokaraoke is: the approved requests are made (again). */
   resume() {
     for (const r of this.list.filter((x) => x.state === 'queued' && !this.room.maker.jobs.some((j) => j.tag === x.id && !j.finishedAt))) this.startJob(r);
+    // A lookup the restart cut short: looked up again (the maker knows where autokaraoke is now).
+    for (const r of this.list) if (r.state === 'pending' && r.relook && r.title) void this.preview(r).catch(() => {});
   }
 
   find(id) {
@@ -164,25 +170,36 @@ export class Links {
    * artist, title }. Shown with the request; Approve uses them unless the host changed them.
    */
   async preview(r) {
-    if (this.looking.has(r.id)) return this.looking.get(r.id);
+    const { artist, title } = r;
+    const running = this.looking.get(r.id);
+    if (running) {
+      if (running.artist === artist && running.title === title) return running.run;
+      await running.run; // (other names now: the host corrected them; looked up once that one is done)
+      if (this.looking.has(r.id)) return this.preview(r);
+      if (r.state !== 'pending') return r.preview;
+    }
     const run = (async () => {
-      r.preview = { state: 'looking', artist: r.artist, title: r.title };
+      r.preview = { state: 'looking', artist, title };
+      delete r.relook;
       this.changed();
+      let preview;
       try {
-        const hit = await this.room.maker.previewLyrics({ artist: r.artist, title: r.title });
-        r.preview = hit.found
-          ? { state: 'found', label: hit.label, lines: hit.lines, match: hit.match, text: hit.text, artist: r.artist, title: r.title }
-          : { state: 'none', artist: r.artist, title: r.title };
+        const hit = await this.room.maker.previewLyrics({ artist, title });
+        preview = hit.found
+          ? { state: 'found', label: hit.label, lines: hit.lines, match: hit.match, text: hit.text, artist, title }
+          : { state: 'none', artist, title };
       } catch (e) {
-        r.preview = { state: 'failed', error: e instanceof UserError ? e.message : 'The lyrics couldn’t be looked up just now.', artist: r.artist, title: r.title };
+        preview = { state: 'failed', error: e instanceof UserError ? e.message : 'The lyrics couldn’t be looked up just now.', artist, title };
         if (!(e instanceof UserError)) log.info(`lyrics lookup for ${r.id} failed: ${e.message}`);
       } finally {
         this.looking.delete(r.id);
       }
+      r.preview = preview;
+      if (r.state !== 'pending') this.settle(r); // (decided while it looked: its text isn't kept)
       this.changed();
       return r.preview;
     })();
-    this.looking.set(r.id, run);
+    this.looking.set(r.id, { artist, title, run });
     return run;
   }
 
@@ -212,7 +229,7 @@ export class Links {
     const problem = this.room.maker.readyProblem();
     if (problem) throw new UserError(problem);
     if (typeof m.lyrics === 'string') r.lyrics = cleanLyrics(m.lyrics);
-    else if (!r.lyrics && r.preview?.state === 'found') r.lyrics = r.preview.text; // (what the host saw)
+    else if (!r.lyrics && r.preview?.state === 'found') r.lyrics = cleanLyrics(r.preview.text); // (what the host saw)
     if (typeof m.artist === 'string') r.artist = clean(m.artist);
     if (typeof m.title === 'string') r.title = clean(m.title);
     r.state = 'queued';

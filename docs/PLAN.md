@@ -2164,7 +2164,12 @@ available, so this follows its description.
   ("Found on LRCLIB, 24 lines"), or that nothing was found. **Look up again** uses the artist and
   title as corrected (`link.lyrics {id, artist, title}`). Approve uses what is shown, as typed lyrics
   (`--lyrics … --retime`: not looked up again), from the popup too. The host's own edits are never
-  overwritten unasked. The preview's text is dropped once decided.
+  overwritten unasked. The preview's text is dropped once decided (also when a lookup ends after the
+  decision). Two lookups run at once at most (each is a Python process on the party PC); only what
+  the command prints on stdout is read (a library's warnings never become lyrics), and a lookup that
+  stops part way (given up after 45 s, or failed) is "couldn't be looked up", never half a song.
+  Names corrected while a lookup runs are looked up once it ends; a lookup cut short by a restart is
+  done again.
 - **Deny with a note** (owner, 2026-10-24): Deny… opens a dialog (also from the popup). It has a note
   for the guest (quick ones, or typed; 200 characters), and the library searched for the request's
   song, so the host can send them a version that is already there (`songId`, checked against the

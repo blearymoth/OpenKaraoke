@@ -63,7 +63,7 @@ function PendingLink({ r }) {
     setLooking(false);
     if (!v?.preview) return undefined;
     if (v.preview.state === 'found') {
-      if (!edited.current && !lyrics.trim()) setLyrics(v.preview.text);
+      if (!edited.current) setLyrics(v.preview.text); // (the box follows the lookups until the host types in it)
       else if (confirm(`Use the lyrics found on ${v.preview.label} in place of the ones in the box?`)) {
         setLyrics(v.preview.text);
         edited.current = false;

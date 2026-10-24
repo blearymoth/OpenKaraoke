@@ -137,3 +137,45 @@ test('links: deny with a note and a song the library has; host only; checked', a
   const third = await req(ana, 'link.add', { url: YT('dQw4w9WgXcQ') });
   assert.equal((await req(host, 'link.deny', { id: third.id, reason: long })).error.length, 200, 'a note is 200 characters at most');
 });
+
+test('links: the lookup — names corrected while it runs, decided while it runs, stopped part way, two at once', async (t) => {
+  const tool = fakeAutokaraoke({ seconds: 0.8, lookupHit: 'Never gonna give you up' });
+  const { app, room, req, guest, connect } = await setupRoom({}, { makerTool: tool, fetch: oembed });
+  t.after(() => app.close());
+  await until(() => room.maker.checks);
+  app.settings.update({ maker: { guestLinks: true } });
+  const host = await connect('host');
+  const ana = await guest('Ana');
+  const lookups = () => tool.state.runs.filter((x) => x.kind === 'lyrics');
+
+  // The host corrects the names while the first lookup runs: theirs is looked up after it.
+  const a = await req(ana, 'link.add', { url: YT('9bZkp7q19f0') });
+  await until(() => lookups().length === 1);
+  const fixed = await req(host, 'link.lyrics', { id: a.id, artist: 'Rick Astley', title: 'Never Gonna Give You Up' });
+  assert.equal(fixed.preview.state, 'found');
+  assert.equal(fixed.preview.title, 'Never Gonna Give You Up');
+  assert.deepEqual(lookups().map((x) => x.opts.title), ['Nothing Like It At All', 'Never Gonna Give You Up']);
+  assert.equal(fixed.preview.text, 'Never gonna give you up', 'a library’s warnings (stderr) aren’t lyrics');
+
+  // Denied while it looks: the text found after isn't kept on the decided request.
+  const b = await req(ana, 'link.add', { url: YT('dQw4w9WgXcQ') });
+  await until(() => room.links.list.find((x) => x.id === b.id).preview?.state === 'looking');
+  await req(host, 'link.deny', { id: b.id });
+  await until(() => !room.links.looking.has(b.id));
+  assert.equal(room.links.list.find((x) => x.id === b.id).preview.text, '');
+
+  // Stopped part way: what it printed isn't taken as the lyrics.
+  tool.state.fail = 'lyrics';
+  const c = await req(ana, 'link.add', { url: YT('kJQP7kiw5Fk') });
+  await until(() => ['found', 'none', 'failed'].includes(room.links.list.find((x) => x.id === c.id).preview?.state));
+  assert.equal(room.links.list.find((x) => x.id === c.id).preview.state, 'failed');
+  tool.state.fail = '';
+
+  // Never more than two lookups at once.
+  let most = 0;
+  const watch = setInterval(() => { most = Math.max(most, room.maker.lookups); }, 5);
+  const looked = await Promise.all([1, 2, 3].map((n) => room.maker.previewLyrics({ artist: 'A', title: `Song ${n}` })));
+  clearInterval(watch);
+  assert.equal(most, 2);
+  assert.ok(looked.every((x) => x.found));
+});

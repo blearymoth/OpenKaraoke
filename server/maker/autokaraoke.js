@@ -399,22 +399,22 @@ export function autokaraokeTool({ env = process.env, homedir = os.homedir() } = 
       if (kind === 'make' || kind === 'render' || kind === 'retime' || kind === 'words') {
         try { os.setPriority(child.pid, 19); } catch { /* not allowed: normal priority */ }
       }
-      let pending = '';
-      const feed = (chunk) => {
-        const r = splitProgress(pending, String(chunk));
-        pending = r.pending;
-        for (const line of r.lines) opts.onLine?.(line);
+      const pending = { out: '', err: '' }; // (each stream its own: a line is never half of each)
+      const feed = (stream) => (chunk) => {
+        const r = splitProgress(pending[stream], String(chunk));
+        pending[stream] = r.pending;
+        for (const line of r.lines) opts.onLine?.(line, stream);
         if (r.status) opts.onStatus?.(r.status);
       };
-      child.stdout.on('data', feed);
-      child.stderr.on('data', feed);
+      child.stdout.on('data', feed('out'));
+      child.stderr.on('data', feed('err'));
       const done = new Promise((resolve) => {
         child.on('error', (e) => {
           opts.onLine?.(e.code === 'ENOENT' ? `${file} was not found` : String(e.message));
           resolve({ code: -1, signal: null });
         });
         child.on('close', (code, signal) => {
-          if (pending.trim()) opts.onLine?.(pending.trim());
+          for (const stream of ['out', 'err']) if (pending[stream].trim()) opts.onLine?.(pending[stream].trim(), stream);
           resolve({ code, signal });
         });
       });

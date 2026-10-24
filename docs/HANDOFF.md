@@ -12,7 +12,7 @@ without the owner's PC or drive)._
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 599/599; `npm run e2e` → 29 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 612/612; `npm run e2e` → 29 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
   the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `lyrics-editor.mjs` the lyrics editor, `links.mjs` songs from a link, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
@@ -1341,8 +1341,8 @@ PLAN §31.10. For the songs autokaraoke made (a `NAME.timing.json` beside the CD
   disc's own colours. The TV is served the new drawing and reloads it if the song is on. The song's
   files are unchanged until **Write into the song's folder** (the originals kept once as `.orig`).
   **Revert** goes back to autokaraoke's own timing.
-- Not done: re-timing a verse with Whisper, a guide vocal while editing, the TV drawing the real
-  text, and render options other than the colours.
+- Not done: re-timing a verse with Whisper, and render options other than the colours. (The guide
+  vocal came with the kept vocals, below.)
 - Tests: `test/timing.test.js` (5), `test/lyrics-editor.test.js` (3), `test/e2e/lyrics-editor.mjs` (27).
 - Owner checklist: on a song made with the real autokaraoke — fix a few words, tap a verse, save
   while it plays on the TV, and check the colours match the original drawing.
@@ -1387,9 +1387,13 @@ From the SongGetter/autokaraoke handoff (PLAN §31.2, §31.9, §31.11, §31.12).
     ~~guest accounts~~, ~~the headphone monitor~~, ~~separated vocals~~ and ~~Pitch rings in 3D~~
     (done, above).
   - ~~Making karaoke in the app~~ (the Karaoke maker, above). Still open from PLAN §31: the
-    benchmark ("about N minutes"), guests' wishes, AMD/Intel graphics.
+    benchmark ("about N minutes"), AMD/Intel graphics, uninstalling from the page. ~~Guests'
+    wishes~~ (done as songs from a link, above).
   - ~~The lyrics editor~~ (above). Still open from PLAN §31.5: re-timing a verse with Whisper
-    (a small SongGetter change), a guide vocal while editing, the TV drawing the real text.
+    (a small SongGetter change). ~~A guide vocal while editing~~ (done with the kept vocals).
+  - Waiting on the owner: SongGetter PR #1 (the lyrics lookup) merged and `~/Projects/autokaraoke`
+    updated; until then lyrics are never looked up and Whisper writes them down.
+  - The lyrics preview before approving a song from a link is parked (the owner's call).
 - **Parked** (not without the owner):
   - The host **seek bar** after the TV window is toggled (`SeekBar` in
     `public/js/host/player.js` clears its drag only on `change`) — not reproduced.

@@ -1976,7 +1976,7 @@ transcribed song (no lyrics pasted) mishears words. Autokaraoke helps at each st
 The owner chose to **use the autokaraoke on their PC, in `~/Projects/autokaraoke`**, and to have
 its windows redesigned as part of Settings. So OpenKaraoke ships none of it: it finds that copy,
 runs its command line, and shows the work in **Settings → Karaoke maker**. Milestones 2–4 are
-built (§31.7); the benchmark (1) and guests' wishes (3) are not.
+built (§31.7); the benchmark (1) is not. Guests' wishes (3) became songs from a link (§31.12).
 
 - **Finding it** (`server/maker/where.js` `locateAutokaraoke`, also what the vocal separator uses,
   so there is one answer): `OPENKARAOKE_AUTOKARAOKE_ROOT`,
@@ -2028,7 +2028,7 @@ built (§31.7); the benchmark (1) and guests' wishes (3) are not.
 - **Tests**: a stand-in tool (`server/maker/fake.js`, also `OPENKARAOKE_FAKE_MAKER=1` to try the
   page by hand, `=missing` for the install) writes a real pair — the song's MP3, a word-timed
   `timing.json` and a CDG drawn from it. `test/maker.test.js` (7), `test/e2e/maker.mjs` (27).
-- **Not built**: the benchmark and "about N minutes" (§31.2); guests' wishes; AMD/Intel graphics
+- **Not built**: the benchmark and "about N minutes" (§31.2); AMD/Intel graphics
   (autokaraoke's installer has no path for them); uninstalling from the page (delete the folder).
 
 ### 31.10 Built: the lyrics editor (2026-10-23)
@@ -2070,7 +2070,6 @@ made; other discs' lyrics are pictures and have nothing to edit.
 - **Tests**: `test/timing.test.js` (5), `test/lyrics-editor.test.js` (3), `test/e2e/lyrics-editor.mjs` (27).
 - **Not built** (§31.5):
   - re-timing a stretch with Whisper (needs the new SongGetter function);
-  - the guide vocal while editing (autokaraoke deletes `NAME.work/vocals.wav` unless `--keep-stems`);
   - the TV drawing a `timing.json`'s real text in the lyric layouts;
   - render options other than the colours (lines on screen, font size, lead, page gap): a disc made
     with other options is redrawn with autokaraoke's defaults.

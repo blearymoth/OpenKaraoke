@@ -18,6 +18,8 @@ export { locateAutokaraoke, rootFromLauncher } from './where.js';
 export const THEMES = ['classic', 'blue', 'green'];
 export const WHISPER_MODELS = ['small', 'medium', 'turbo', 'large-v3'];
 export const DEMUCS_MODELS = ['htdemucs', 'htdemucs_ft'];
+/** Who times the lyrics (`--lyric-timer`, 0.4.0): Phonon-2 first and Whisper when it can't, or Whisper only. */
+export const LYRIC_TIMERS = ['phonon', 'whisper'];
 /** Where autokaraoke can look lyrics up (its lyrics_lookup.SOURCES; `make --lyrics-sources`). */
 export const LYRICS_SOURCES = ['sidecar', 'lrclib', 'netease', 'lyricsovh'];
 /** What a song file may be (anything ffmpeg decodes that people keep music in). */
@@ -58,7 +60,7 @@ export function isSongFile(name) {
  * `python -m autokaraoke make …` (options first, then `--` and the song, so a name that starts
  * with "-" is never an option). Throws on a value that is not allowed.
  */
-export function makeArgs({ song, out, lyricsFile = '', artist = '', title = '', language = 'en', theme = 'classic', whisperModel = 'medium', demucsModel = 'htdemucs', lyricsSources = [], keepStems = false }) {
+export function makeArgs({ song, out, lyricsFile = '', artist = '', title = '', language = 'en', theme = 'classic', whisperModel = 'medium', demucsModel = 'htdemucs', lyricsSources = [], keepStems = false, lyricTimer = '' }) {
   if (typeof song !== 'string' || !song) throw new Error('No song');
   if (!cleanUrl(song) && !path.isAbsolute(song)) throw new Error('The song must be a file path or a link');
   if (typeof out !== 'string' || !path.isAbsolute(out)) throw new Error('The save folder must be an absolute path');
@@ -78,6 +80,7 @@ export function makeArgs({ song, out, lyricsFile = '', artist = '', title = '', 
     args.push('--lyrics-sources', lyricsSources.join(','));
   }
   if (keepStems) args.push('--keep-stems');
+  timerArgs(args, lyricTimer);
   const a = cleanName(artist);
   const t = cleanName(title);
   if (a) args.push('--artist', a);
@@ -102,7 +105,7 @@ export function renderArgs({ timing, audio, output, theme = '' }) {
  * `python -m autokaraoke retime <timing.json> --vocals <wav> --from S --to S -O <out>`: re-times
  * the words that start inside [from, to] with Whisper (the lyrics editor).
  */
-export function retimeArgs({ timing, vocals, output, from, to, language = '', whisperModel = 'medium' }) {
+export function retimeArgs({ timing, vocals, output, from, to, language = '', whisperModel = 'medium', lyricTimer = '' }) {
   for (const p of [timing, vocals, output]) if (typeof p !== 'string' || !path.isAbsolute(p)) throw new Error('Re-timing needs absolute paths');
   if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to <= from) throw new Error('Pick a stretch of the song');
   if (!WHISPER_MODELS.includes(whisperModel)) throw new Error('Unknown lyric timer model');
@@ -112,15 +115,23 @@ export function retimeArgs({ timing, vocals, output, from, to, language = '', wh
     if (!LANGUAGE_RE.test(language)) throw new Error('Unknown language');
     args.push('--language', language);
   }
+  timerArgs(args, lyricTimer);
   args.push('--', timing);
   return args;
+}
+
+/** `--lyric-timer phonon|whisper` ('' = not passed: an autokaraoke before 0.4.0 doesn't know it). */
+function timerArgs(args, lyricTimer) {
+  if (!lyricTimer) return;
+  if (!LYRIC_TIMERS.includes(lyricTimer)) throw new Error('Unknown lyric timer');
+  args.push('--lyric-timer', lyricTimer);
 }
 
 /**
  * `python -m autokaraoke words --vocals <wav> -O <timing.json> [--lyrics <file> | --lyrics-sources a,b]`:
  * a disc's words, timed against its vocal (PLAN §31.16). No CDG is drawn.
  */
-export function wordsArgs({ vocals, output, lyricsFile = '', lyricsSources = [], artist = '', title = '', duration = 0, language = '', whisperModel = 'medium' }) {
+export function wordsArgs({ vocals, output, lyricsFile = '', lyricsSources = [], artist = '', title = '', duration = 0, language = '', whisperModel = 'medium', lyricTimer = '' }) {
   for (const p of [vocals, output]) if (typeof p !== 'string' || !path.isAbsolute(p)) throw new Error('Finding the words needs absolute paths');
   if (!WHISPER_MODELS.includes(whisperModel)) throw new Error('Unknown lyric timer model');
   const args = ['-m', 'autokaraoke', 'words', '--vocals', vocals, '-O', output, '--whisper-model', whisperModel];
@@ -140,6 +151,7 @@ export function wordsArgs({ vocals, output, lyricsFile = '', lyricsSources = [],
     if (!LANGUAGE_RE.test(language)) throw new Error('Unknown language');
     args.push('--language', language);
   }
+  timerArgs(args, lyricTimer);
   return args;
 }
 
@@ -227,7 +239,7 @@ export function readMakeLine(text, { status = false } = {}) {
   const s = String(text || '').trim();
   const out = {};
   const pct = /(\d{1,3}(?:\.\d+)?)%/.exec(s);
-  if (/^\[(?:download|youtube|info)\]/i.test(s) || /^Downloading (?!Demucs|Whisper)/.test(s)) {
+  if (/^\[(?:download|youtube|info)\]/i.test(s) || /^Downloading (?!Demucs|Whisper|Phonon)/.test(s)) {
     out.stage = 'download';
     if (pct) out.percent = Math.min(100, Number(pct[1]));
     return out;
@@ -239,6 +251,7 @@ export function readMakeLine(text, { status = false } = {}) {
   let m;
   if ((m = /\((\d+)s\)\s*$/.exec(s)) && / - |\?/.test(s)) out.duration = Number(m[1]);
   if (/^Looking for lyrics:/.test(s)) return { stage: 'timing', lyricsFrom: 'looking' };
+  if ((m = /^Lyric timer: (.{1,40})$/.exec(s))) return { timer: m[1] };
   if ((m = /^used the lyrics from (.+?), saved in /.exec(s))) return { lyricsFrom: m[1].slice(0, 40) };
   if (/^no lyrics found; transcribing instead|^No lyrics given: transcribing/.test(s)) return { stage: 'timing', lyricsFrom: 'whisper' };
   if (/^Separating vocals with|^Using cached stems/.test(s)) Object.assign(out, { stage: 'separate', percent: /^Using cached/.test(s) ? 100 : 0 });
@@ -260,7 +273,7 @@ export function readSetupCheck(text) {
   for (const raw of String(text || '').split('\n')) {
     const line = raw.trim();
     let m;
-    if ((m = /^(Demucs|Whisper)\s+(\S+)\s+(.*?)\s*(ready|MISSING)$/.exec(line))) {
+    if ((m = /^(Demucs|Whisper|Phonon)\s+(\S+)\s+(.*?)\s*(ready|MISSING)$/.exec(line))) {
       out.models.push({ kind: m[1].toLowerCase(), name: m[2], size: m[3].trim(), ready: m[4] === 'ready' });
     } else if ((m = /^models total\s+(.+)$/.exec(line))) out.total = m[1].trim();
     else if ((m = /^Software \(Python environment .*\): (.+)$/.exec(line))) out.software = m[1].trim();
@@ -325,7 +338,7 @@ export function autokaraokeTool({ env = process.env, homedir = os.homedir() } = 
         out.setup = readSetupCheck(setup.out);
         // What this copy can do: looking lyrics up came with its lyrics-lookup version.
         const help = await run(where.python, ['-m', 'autokaraoke', 'make', '--help'], { env: e });
-        out.features = { lookup: /--lyrics-sources/.test(help.out + help.err), words: versionAtLeast(out.version, '0.3.0') };
+        out.features = { lookup: /--lyrics-sources/.test(help.out + help.err), words: versionAtLeast(out.version, '0.3.0'), phonon: versionAtLeast(out.version, '0.4.0') };
       }
       return out;
     },

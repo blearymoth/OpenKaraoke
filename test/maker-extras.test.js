@@ -78,8 +78,21 @@ test('maker: a make teaches the speed; the next job says "about N minutes"', asy
   const done = room.hostView().maker.jobs[0];
   assert.deepEqual(done.times, { separate: 6, mp3: 1, timing: 4, cdg: 1 });
   assert.equal(done.duration, 120);
-  const saved = JSON.parse(await fs.readFile(path.join(app.dataDir, 'maker', 'speed.json'), 'utf8'));
+  // (the speed file is written just after the job is done)
+  const speedFile = async (key) => {
+    let d = null;
+    await until(async () => (d = JSON.parse(await fs.readFile(path.join(app.dataDir, 'maker', 'speed.json'), 'utf8').catch(() => '{}'))).rates?.[key]);
+    return d;
+  };
+  const saved = await speedFile('separate:htdemucs');
   assert.deepEqual(saved.rates['separate:htdemucs'], [3], '6 s for 2 minutes of song: 3 s a minute');
+  // Phonon-2 first (0.4.0, an English song): it timed this one, so the speed is kept as Phonon-2's.
+  assert.equal(tool.state.runs[0].opts.lyricTimer, 'phonon');
+  assert.equal(done.timer, 'Phonon-2');
+  assert.deepEqual(saved.rates['timing:phonon-2'], [2], 'Phonon-2’s own speed, apart from Whisper’s');
+  assert.equal(saved.rates[`timing:${room.maker.whisperModel()}`], undefined);
+  app.settings.update({ maker: { lyricTimer: 'evil' } });
+  assert.equal(app.settings.get('maker.lyricTimer'), 'phonon', 'an unknown timer is ignored');
   assert.equal(room.hostView().maker.typical, 24, 'a 4-minute song: (3 + 2 + 0.5 + 0.5) × 4');
   const src2 = path.join(path.dirname(src), 'Pixel Band - Neon Road.mp3');
   await writePcmWav(src2, { hz: 220, seconds: 2 });
@@ -89,6 +102,17 @@ test('maker: a make teaches the speed; the next job says "about N minutes"', asy
   if (!seen.finishedAt) assert.equal(seen.estimate, 12, 'its length is known once autokaraoke says it');
   await until(() => room.maker.jobs.find((j) => j.id === second.id).status === 'done');
   assert.equal(room.hostView().maker.jobs.find((j) => j.id === second.id).estimate, null, 'finished: no estimate');
+  // Whisper only, by choice: passed on, and its speed kept under the Whisper model.
+  app.settings.update({ maker: { lyricTimer: 'whisper' } });
+  assert.equal(room.hostView().maker.lyricTimer, 'whisper');
+  const src3 = path.join(path.dirname(src), 'Pixel Band - Third.mp3');
+  await writePcmWav(src3, { hz: 220, seconds: 2 });
+  const third = await req(host, 'maker.make', { song: { path: src3 }, lyrics: 'Third' });
+  await until(() => room.maker.jobs.find((j) => j.id === third.id).status === 'done');
+  assert.equal(tool.state.runs.at(-1).opts.lyricTimer, 'whisper');
+  assert.equal(room.hostView().maker.jobs.find((j) => j.id === third.id).timer, 'Whisper');
+  const after = await speedFile(`timing:${room.maker.whisperModel()}`);
+  assert.deepEqual(after.rates[`timing:${room.maker.whisperModel()}`], [2], 'under the Whisper model the hardware check picked');
 });
 
 test('timing.json: the "render" field is kept through an edit; unknown fields are not', () => {
@@ -158,7 +182,7 @@ test('lyrics editor: Whisper re-times one line (not saved until Save); the rende
   tool.state.fail = 'retime';
   r = await post(`${base}/api/lyrics/${trackId}/retime`, { timing: opened.timing, from, to });
   assert.equal(r.status, 400);
-  assert.match((await r.json()).error, /Whisper could not re-time it: no words start/);
+  assert.match((await r.json()).error, /The lyric timer could not re-time it: no words start/);
   tool.state.fail = '';
   r = await post(`${base}/api/lyrics/${trackId}/retime`, { timing: opened.timing, from: 5, to: 2 });
   assert.equal(r.status, 400);

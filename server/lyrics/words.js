@@ -71,7 +71,7 @@ export class WordJobs {
     const job = {
       trackId, state: 'vocal', error: '', at: Date.now(), lyrics,
       sources: lookup ? (s.get('maker.lyricsSources') || []).filter((x) => LYRICS_SOURCES.includes(x)) : [],
-      language: s.get('maker.language') || '', lyricsFrom: lyrics ? 'typed' : '', lines: 0, run: null,
+      language: s.get('maker.language') || '', lyricsFrom: lyrics ? 'typed' : '', timer: '', lines: 0, run: null,
     };
     this.jobs.set(trackId, job);
     this.trim();
@@ -104,10 +104,11 @@ export class WordJobs {
       const lines = [];
       job.run = this.maker.tool.start(this.maker.where, 'words', {
         vocals, output, lyricsFile, lyricsSources: job.sources, artist: song.artist || '', title: song.title || '', duration: song.duration || 0,
-        language: job.language, whisperModel: this.maker.whisperModel(),
+        language: job.language, whisperModel: this.maker.whisperModel(), lyricTimer: this.maker.lyricTimer?.() || '',
         onLine: (l) => {
           lines.push(l);
           const r = readMakeLine(l);
+          if (r.timer) job.timer = r.timer;
           if (r.lyricsFrom && r.lyricsFrom !== 'looking') {
             job.lyricsFrom = r.lyricsFrom;
             this.onChange();
@@ -169,7 +170,7 @@ export class WordJobs {
     const song = this.songOf(j.trackId) || {};
     return {
       trackId: j.trackId, state: j.state, label: WORD_STATES[j.state], error: j.error, at: j.at, lines: j.lines,
-      lyricsFrom: j.lyricsFrom, title: song.title || '', artist: song.artist || '',
+      lyricsFrom: j.lyricsFrom, timer: j.timer || '', title: song.title || '', artist: song.artist || '',
     };
   }
 

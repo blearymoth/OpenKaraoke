@@ -350,7 +350,7 @@ export function LyricsEditor({ trackId }) {
         from: Math.round(from * 1000) / 1000, to: Math.round(to * 1000) / 1000,
       });
       change(readTiming(d.timing));
-      toast(`Whisper re-timed ${d.retimed} word${d.retimed === 1 ? '' : 's'} — play it, then Save to keep it`, 'ok', 6000);
+      toast(`Re-timed ${d.retimed} word${d.retimed === 1 ? '' : 's'} — play it, then Save to keep it`, 'ok', 6000);
     } catch (e) {
       toast(e.message, 'error', 8000);
     } finally {
@@ -496,7 +496,7 @@ export function LyricsEditor({ trackId }) {
           <button class="btn small ghost" title="The whole line 0.1 s earlier" onClick=${() => change(shiftLines(song, li, li, -0.1))}>−0.1</button>
           <button class="btn small ghost" title="The whole line 0.1 s later" onClick=${() => change(shiftLines(song, li, li, 0.1))}>+0.1</button>
           <button class="btn small ghost" title="This line and every one after it 0.5 s later" onClick=${() => change(shiftLines(song, li, song.lines.length - 1, 0.5))}>+0.5 →</button>
-          ${info.retime && li === sel.li && html`<button class="btn small ghost le-retime" title="Whisper listens to the singer and times this line's words again (the other lines stay)" disabled=${!!busy} onClick=${() => retimeLine(li)}>
+          ${info.retime && li === sel.li && html`<button class="btn small ghost le-retime" title="The lyric timer listens to the singer and times this line's words again (the other lines stay)" disabled=${!!busy} onClick=${() => retimeLine(li)}>
             ${busy === 'retime' ? html`<${Spinner} />` : html`<${Icon} name="sparkles" size=${14} />`} Re-time</button>`}
         </div>
       </li>`)}

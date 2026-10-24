@@ -1,6 +1,7 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-24 (a disc's words found from its vocal, for the TV and the editor;
+_Last updated: 2026-10-24 (Phonon-2 first and Whisper second as the lyric timer; a disc's words
+found from its vocal, for the TV and the editor;
 autokaraoke's engine moved into OpenKaraoke as `maker/`, with re-timing
 a line with Whisper, the render options kept and "about N minutes"; the TV writes the real words of
 songs made here; before that, on
@@ -1429,6 +1430,25 @@ be heard on its own, not only songs made here.
 - Tests: `test/words.test.js` (3), `maker/tests/test_words.py` (3), `test/e2e/words.mjs` (22).
 - Owner checklist: on a multiplex disc with the real Whisper, find its words from pasted lyrics, then
   play it in two lines; on a disc you separated, find them by lookup.
+
+## Phonon-2 first, Whisper second (2026-10-24)
+PLAN §31.17. The Karaoke maker times lyrics with **Phonon-2** first (small, English, quick on the
+processor), and with **Whisper** when Phonon-2 can't: a song not in English, too little of the
+lyrics heard (under 60 %), or Phonon-2 missing. This applies to making a song, a disc's words and
+Re-time.
+- Settings → Karaoke maker → **Lyric timer**: "Phonon-2, then Whisper" (default) or "Whisper only".
+  The **Whisper model** setting is unchanged. Each job says which timer timed it.
+- The engine is 0.4.0. **Update** on the Karaoke maker page installs Phonon-2 (`fermion-research`)
+  into the existing environment and downloads its weights (≈158 MB). A fresh Install includes it.
+- Also fixed: a made song showed "In the library now" a moment before its vocals were kept. A test
+  caught the gap under load (2 runs in 8).
+- Tests: `maker/tests/test_phonon.py` (7), plus the maker tests. **Not tried with the real Phonon-2**:
+  the cloud session couldn't download its weights (Hugging Face is blocked there). Every call into
+  its package was checked against the installed package.
+- Owner checklist: Update the Karaoke maker; make an English song from typed lyrics, and check the
+  job says "Timed by Phonon-2" and the words land on time; a song in another language says Whisper;
+  compare a hard song with "Whisper only". If Phonon-2 is often off on singing, tell the next session
+  (the 60 % threshold, or Whisper for typed lyrics, can change).
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

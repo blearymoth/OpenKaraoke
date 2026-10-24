@@ -2249,3 +2249,38 @@ that has a vocal, not only songs made here. The disc's files and its CDG are nev
   Re-time and the guide vocal use the same vocal.
 - **Tests**: `maker/tests/test_words.py` (3), `test/words.test.js` (3), `test/lyric-text.test.js`
   (the colours), `test/e2e/words.mjs` (22).
+
+### 31.17 Phonon-2 first, Whisper second (2026-10-24)
+
+The owner asked for **Phonon-2** (Fermion Research, `pip install fermion-research`; weights
+CC-BY-4.0, ≈158 MB, a compressed derivative of NVIDIA's Parakeet TDT 0.6B; 5.21 % average word
+error on the Open ASR Leaderboard's English sets by its makers' own figures) as the main lyric
+timer and Whisper as the second. Phonon-2 is English speech recognition with a time for every word;
+it can't force-align a given text, and on Linux its pip package runs on the processor only.
+
+- **How it times known lyrics** (`maker/autokaraoke/align.py` `Timer`, `phonon.py`): Phonon-2 hears
+  the vocal, favouring up to 25 of the lyrics' unusual words (its "hotwords"). Its word times go onto
+  the lyrics through `transfer_timing`, the same letter-by-letter matching Whisper's output goes
+  through, and words it didn't hear are spread between their neighbours. If it heard under 60 % of
+  the lyrics' letters (`compare`), Whisper force-aligns them instead.
+- **Whisper is second**, for:
+  - a song whose language isn't English;
+  - Phonon-2 not installed or not downloaded;
+  - Phonon-2 failing or refusing (fermion refuses with SystemExit).
+  The same order is used for `make`, `words` and `retime`, and for writing down a song with no lyrics.
+  `Lyric timer: Phonon-2` (or `Whisper`, or both) says which one timed it. OpenKaraoke shows that on
+  the job and keeps this PC's speed per timer (`timing:phonon-2` apart from `timing:<Whisper model>`).
+- **Choosing**: Settings → Karaoke maker → **Lyric timer** (`maker.lyricTimer`: `phonon`, the
+  default, or `whisper`) → `--lyric-timer`. It is passed only to an engine ≥ 0.4.0
+  (`features.phonon`); an older one is offered Update. **Whisper model** stays its own setting.
+- **Installing**: `fermion-research` is the engine's `phonon` extra, installed by default
+  (`install.sh --no-phonon` leaves it out). Its weights go to `<models>/fermion`
+  (`$FERMION_CACHE_DIR`), are fetched by `setup`, and are listed by `setup --check` as `Phonon
+  phonon-2`. A missing Phonon-2 doesn't make the models "not ready" (Whisper covers). An Update
+  (code only) adds the package and its weights to an older environment.
+- **Not verified**: Phonon-2 on singing, and on the owner's PC. The cloud session could install the
+  package and check every call OpenKaraoke makes into it, but couldn't download the weights
+  (Hugging Face is blocked there). The 60 % threshold is a first guess, to be tuned on real songs.
+- **Tests**: `maker/tests/test_phonon.py` (7: both models are stand-ins), `test/maker-extras.test.js`
+  (the setting, the timer passed on, the speed per timer), `test/maker.test.js` (the Phonon row,
+  the timer line), `test/words.test.js`.

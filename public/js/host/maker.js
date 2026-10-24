@@ -16,7 +16,8 @@ const THEMES = [['classic', 'Classic (amber)'], ['blue', 'Blue'], ['green', 'Gre
 const WHISPER = [['auto', 'Auto — picked for this computer'], ['small', 'Small — 0.5 GB, quickest'], ['medium', 'Medium — 1.5 GB (recommended)'], ['turbo', 'Turbo — 1.6 GB'], ['large-v3', 'Large — 3.1 GB, best on hard songs (≈10 GB of graphics memory)']];
 const DEMUCS = [['htdemucs', 'Standard (recommended)'], ['htdemucs_ft', 'Fine-tuned — cleaner, about 4× slower']];
 const SOURCES = [['lrclib', 'LRCLIB', 'recommended'], ['sidecar', 'A .txt beside the song', 'for songs on this computer'], ['netease', 'NetEase', 'unofficial'], ['lyricsovh', 'lyrics.ovh', 'unofficial, not checked yet']];
-const LYRICS_FROM = { typed: 'Lyrics: as typed.', whisper: 'Lyrics: written down by Whisper — check them in the lyrics editor.', looking: 'Looking the lyrics up…' };
+const LYRICS_FROM = { typed: 'Lyrics: as typed.', whisper: 'Lyrics: written down from the singing — check them in the lyrics editor.', looking: 'Looking the lyrics up…' };
+const TIMERS = [['phonon', 'Phonon-2, then Whisper (recommended)'], ['whisper', 'Whisper only']];
 const STEPS = [['download', 'Download'], ['separate', 'Remove the singer'], ['timing', 'Time the lyrics'], ['cdg', 'Draw the lyrics'], ['done', 'Done']];
 const STATUS = { queued: 'Waiting its turn', waiting: 'Waiting for the song to end', running: 'Working', done: 'Done', failed: 'Didn’t work', cancelled: 'Cancelled' };
 const ACCEPT = '.mp3,.m4a,.aac,.flac,.wav,.ogg,.opus,.wma,.aiff,.aif,.mp4,.m4v,.mkv,.webm,.mov,audio/*';
@@ -175,7 +176,7 @@ function Job({ job, songs }) {
     ${job.status === 'running' && html`<div class="mk-bar" role="progressbar" aria-valuenow=${job.percent} aria-valuemin="0" aria-valuemax="100"><i style=${`width:${Math.max(3, job.percent)}%`}></i></div>`}
     ${job.status === 'running' && job.bar && html`<p class="hint mono ellipsis">${job.bar}</p>`}
     ${job.estimate !== null && job.estimate !== undefined && !finished && html`<p class="hint mk-estimate"><${Icon} name="clock" size=${13} /> ${aboutMinutes(job.estimate)[0].toUpperCase() + aboutMinutes(job.estimate).slice(1)} for this song on this computer.</p>`}
-    ${job.lyricsFrom && html`<p class="hint mk-lyrics-from">${LYRICS_FROM[job.lyricsFrom] || `Lyrics: from ${job.lyricsFrom}.`}${job.result?.vocals ? ' Its vocals are kept: Separated vocals is ready for it.' : ''}</p>`}
+    ${job.lyricsFrom && html`<p class="hint mk-lyrics-from">${LYRICS_FROM[job.lyricsFrom] || `Lyrics: from ${job.lyricsFrom}.`}${job.timer ? ` Timed by ${job.timer}.` : ''}${job.result?.vocals ? ' Its vocals are kept: Separated vocals is ready for it.' : ''}</p>`}
     ${job.status === 'waiting' && html`<p class="hint">This computer has no graphics card, so the room’s sound comes first: it starts when the song ends.</p>`}
     ${job.status === 'failed' && html`<p class="warn-text">${job.error || 'autokaraoke stopped.'}</p>`}
     ${job.status === 'done' && r && html`<div class="mk-result">
@@ -218,7 +219,7 @@ function Verdict({ m }) {
       <dt>Processor</dt><dd>${sp.cores} cores</dd>
       <dt>Memory</dt><dd>${sp.memGB} GB</dd>
       <dt>Free space</dt><dd>${sp.freeGB === null ? '—' : `${sp.freeGB} GB`}</dd>
-      <dt>Lyric timer</dt><dd>${m.whisperModel}${m.whisperModel === v.model ? ' (suits this computer)' : ''}</dd>
+      <dt>Lyric timer</dt><dd>${m.lyricTimer === 'phonon' ? 'Phonon-2, then ' : ''}Whisper ${m.whisperModel}${m.whisperModel === v.model ? ' (suits this computer)' : ''}</dd>
     </dl>
     ${v.warnings.map((w) => html`<p class="warn-text">${w}</p>`)}
     <p class="hint">Checked every time OpenKaraoke starts${m.specsAt ? ` — last ${new Date(m.specsAt).toLocaleString()}` : ''}. The same goes for separating the vocals of a song.</p>
@@ -323,8 +324,8 @@ function MakerSettings({ settings, m }) {
     </div>
     <div class="setting bool">
       <div class="setting-text"><b>Look the lyrics up when none are typed</b>
-        <p class="hint">${m.lookup ? 'Lyrics someone typed always come first; then a lyrics service; Whisper writes down what it hears only when nothing was found.'
-          : 'This copy of autokaraoke can’t look lyrics up yet — update it to its lyrics-lookup version. Until then Whisper writes down what it hears.'}</p></div>
+        <p class="hint">${m.lookup ? 'Lyrics someone typed always come first; then a lyrics service; the lyric timer writes down what it hears only when nothing was found.'
+          : 'This copy of autokaraoke can’t look lyrics up yet — update it to its lyrics-lookup version. Until then the lyric timer writes down what it hears.'}</p></div>
       <div class="setting-control"><${Switch} checked=${settings.lookupLyrics} disabled=${!m.lookup} label="Look the lyrics up when none are typed" onChange=${(v) => save('lookupLyrics', v)} /></div>
     </div>
     ${m.lookup && settings.lookupLyrics && html`<div class="setting column mk-sources">
@@ -335,8 +336,14 @@ function MakerSettings({ settings, m }) {
         <span>${label} <span class="hint">${note}</span></span></label>`)}</div>
     </div>`}
     <div class="setting">
-      <div class="setting-text"><b>Lyric timer</b><p class="hint">A bigger model times hard songs better, and is slower.</p></div>
-      <div class="setting-control"><select class="select" value=${settings.whisperModel} onChange=${(e) => save('whisperModel', e.currentTarget.value)}>${WHISPER.map(([v, l]) => html`<option value=${v}>${l}</option>`)}</select></div>
+      <div class="setting-text"><b>Lyric timer</b><p class="hint">${m.lyricTimer
+        ? 'Phonon-2 is quick and small (English songs). When it can’t hear enough of the lyrics, or the song isn’t in English, Whisper times them.'
+        : 'Update the Karaoke maker to time English songs with Phonon-2, much quicker than Whisper.'}</p></div>
+      <div class="setting-control"><select class="select" aria-label="Lyric timer" disabled=${!m.lyricTimer} value=${m.lyricTimer ? settings.lyricTimer : 'whisper'} onChange=${(e) => save('lyricTimer', e.currentTarget.value)}>${TIMERS.map(([v, l]) => html`<option value=${v}>${l}</option>`)}</select></div>
+    </div>
+    <div class="setting">
+      <div class="setting-text"><b>Whisper model</b><p class="hint">${m.lyricTimer === 'phonon' ? 'For songs Phonon-2 can’t time. ' : ''}A bigger model times hard songs better, and is slower.</p></div>
+      <div class="setting-control"><select class="select" aria-label="Whisper model" value=${settings.whisperModel} onChange=${(e) => save('whisperModel', e.currentTarget.value)}>${WHISPER.map(([v, l]) => html`<option value=${v}>${l}</option>`)}</select></div>
     </div>
     <div class="setting">
       <div class="setting-text"><b>Vocal remover</b></div>

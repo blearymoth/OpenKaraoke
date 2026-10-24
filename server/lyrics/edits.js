@@ -334,7 +334,7 @@ export class LyricEdits {
       await fs.writeFile(input, `${JSON.stringify(timingJson(song), null, 1)}\n`);
       const lines = [];
       const run = this.maker.tool.start(where, 'retime', {
-        timing: input, vocals, output, from, to, language: song.language || '', whisperModel: this.maker.whisperModel(),
+        timing: input, vocals, output, from, to, language: song.language || '', whisperModel: this.maker.whisperModel(), lyricTimer: this.maker.lyricTimer?.() || '',
         onLine: (l) => lines.push(l),
       });
       const { code } = await run.done;
@@ -342,7 +342,7 @@ export class LyricEdits {
       if (code !== 0 || !done) {
         const why = [...lines].reverse().find((l) => /error/i.test(l)) || lines.at(-1) || `autokaraoke stopped (${code})`;
         log.info(`re-timing ${trackId} failed: ${why}`);
-        throw new UserError(`Whisper could not re-time it: ${why.replace(/^error:\s*/i, '').slice(0, 200)}`);
+        throw new UserError(`The lyric timer could not re-time it: ${why.replace(/^error:\s*/i, '').slice(0, 200)}`);
       }
       const timing = timingJson(readTiming(JSON.parse(await fs.readFile(output, 'utf8'))));
       return { timing, retimed: Number(done[1]) };

@@ -40,6 +40,9 @@ test('words: the command line', () => {
   assert.throws(() => wordsArgs({ vocals: 'v.wav', output: '/d/w.json' }), /absolute/);
   assert.throws(() => wordsArgs({ vocals: '/v.wav', output: '/w.json', lyricsSources: ['evil'] }), /source/);
   assert.throws(() => wordsArgs({ vocals: '/v.wav', output: '/w.json', language: '--rm' }), /language/);
+  assert.deepEqual(wordsArgs({ vocals: '/v.wav', output: '/w.json', lyricTimer: 'whisper' }).slice(-2), ['--lyric-timer', 'whisper']);
+  assert.ok(!wordsArgs({ vocals: '/v.wav', output: '/w.json' }).includes('--lyric-timer'), 'not passed to an older autokaraoke');
+  assert.throws(() => wordsArgs({ vocals: '/v.wav', output: '/w.json', lyricTimer: 'evil' }), /lyric timer/);
 });
 
 test('words: a multiplex disc’s words, timed against its singer; then the TV and the editor', async (t) => {
@@ -77,7 +80,8 @@ test('words: a multiplex disc’s words, timed against its singer; then the TV a
   assert.deepEqual(run.opts.lyricsSources, [], 'pasted lyrics: nothing looked up');
   const qs = room.catalog.song(song('quiet storm').id);
   assert.equal(run.opts.title, qs.title, 'the song’s names, for a lookup');
-  assert.deepEqual(room.words.view()[0], { trackId: mpx, state: 'done', label: 'Ready', error: '', at: room.words.jobs.get(mpx).at, lines: 2, lyricsFrom: 'typed', title: qs.title, artist: qs.artist });
+  assert.deepEqual(room.words.view()[0], { trackId: mpx, state: 'done', label: 'Ready', error: '', at: room.words.jobs.get(mpx).at, lines: 2, lyricsFrom: 'typed', timer: 'Phonon-2', title: qs.title, artist: qs.artist });
+  assert.equal(run.opts.lyricTimer, 'phonon', 'Phonon-2 first (an English song), Whisper second');
   await assert.rejects(fs.stat(path.join(app.dataDir, 'lyrics', mpx, 'words-lyrics.txt')), 'the lyrics file is gone');
   assert.deepEqual((await details('quiet storm')).lyrics, { kind: 'words', edited: false });
 
@@ -155,6 +159,9 @@ test('words: cancelled while it works; an older autokaraoke can’t', async (t) 
   assert.equal(room.words.jobs.get(mpx).state, 'cancelled');
   assert.equal(await room.lyrics.editable(room.catalog.track(mpx)), '', 'nothing kept');
 
+  tool.state.version = '0.3.0'; // (before Phonon-2: no --lyric-timer for it)
+  await room.maker.check();
+  assert.equal(room.maker.lyricTimer(), '');
   tool.state.version = '0.2.0';
   await room.maker.check();
   assert.match(room.wordsProblem(mpx), /Update the Karaoke maker/);

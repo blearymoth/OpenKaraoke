@@ -1,6 +1,6 @@
 // A disc's words (PLAN §31.16), host side: Song details → a version with a vocal (multiplex, or
 // separated) → "Find the words" → this dialog (paste the lyrics, or let them be looked up, or what
-// Whisper hears) → the job, followed live on the version's row and in Settings → Karaoke maker →
+// the lyric timer hears) → the job, followed live on the version's row and in Settings → Karaoke maker →
 // then "Edit lyrics" (the lyrics editor) and the TV writes them in two lines and scrolling.
 import { html, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
@@ -9,7 +9,7 @@ import { Modal, Spinner, go, clearFetchCache } from '../lib/components.js';
 import { store, act, closeDialog, openDialog, toast } from './state.js';
 
 const ACTIVE = new Set(['vocal', 'waiting', 'queued', 'working']);
-const FROM = { typed: 'from the lyrics you pasted', whisper: 'from what Whisper heard — check them' };
+const FROM = { typed: 'from the lyrics you pasted', whisper: 'written down from the singing — check them' };
 
 const fromText = (j) => (j.lyricsFrom ? FROM[j.lyricsFrom] || `from ${j.lyricsFrom}` : '');
 
@@ -59,8 +59,8 @@ export function WordsDialog({ trackId, songId }) {
       <label class="field"><span>Lyrics ${lines ? `· ${lines} lines` : '(recommended)'}</span>
         <textarea class="input" rows="9" value=${lyrics} placeholder="Paste the lyrics, one sung line per line." onInput=${(e) => setLyrics(e.currentTarget.value)}></textarea></label>
       ${!lyrics.trim() && (canLookUp ? html`<label class="check-row"><input type="checkbox" checked=${lookup} onChange=${(e) => setLookup(e.currentTarget.checked)} />
-          <span>None pasted: look them up online (${(state.settings.maker?.lyricsSources || []).join(', ') || 'lrclib'}), else Whisper writes down what it hears</span></label>`
-        : html`<p class="hint">None pasted: Whisper writes down what it hears (it mishears songs — check them after).</p>`)}
+          <span>None pasted: look them up online (${(state.settings.maker?.lyricsSources || []).join(', ') || 'lrclib'}), else they are written down from the singing</span></label>`
+        : html`<p class="hint">None pasted: they are written down from the singing (songs are misheard — check them after).</p>`)}
       <p class="hint">A multiplex version’s singer is separated first (a minute or two). On a PC without a graphics card it waits for the song on stage to end.</p>
     </div>
   </${Modal}>`;
@@ -74,7 +74,7 @@ export function WordJobsList({ jobs }) {
     ${jobs.map((j) => html`<div class=${`mk-card words-job ${j.state}`} key=${j.trackId} data-words=${j.trackId}>
       <div class="mk-job-head"><b class="ellipsis">${j.artist ? `${j.artist} – ` : ''}${j.title || 'A version'}</b>
         <span class=${`pill mk-state ${j.state === 'working' ? 'running' : j.state}`}>${ACTIVE.has(j.state) && j.state !== 'waiting' ? html`<${Spinner} /> ` : ''}${j.label}</span></div>
-      ${j.state === 'done' && html`<p class="hint">${j.lines} lines${fromText(j) ? `, ${fromText(j)}` : ''}. The TV writes them in two lines and scrolling.</p>`}
+      ${j.state === 'done' && html`<p class="hint">${j.lines} lines${fromText(j) ? `, ${fromText(j)}` : ''}${j.timer ? `, timed by ${j.timer}` : ''}. The TV writes them in two lines and scrolling.</p>`}
       ${j.state === 'failed' && html`<p class="warn-text">${j.error}</p>`}
       <div class="mk-row">
         ${j.state === 'done' && html`<button class="btn small" onClick=${() => go(`/lyrics/${j.trackId}`)}><${Icon} name="edit" size=${14} /> Edit lyrics</button>`}

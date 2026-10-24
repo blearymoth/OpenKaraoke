@@ -2067,8 +2067,8 @@ built (§31.7); the benchmark (1) is not. Guests' wishes (3) became songs from a
 - **Tests**: a stand-in tool (`server/maker/fake.js`, also `OPENKARAOKE_FAKE_MAKER=1` to try the
   page by hand, `=missing` for the install) writes a real pair — the song's MP3, a word-timed
   `timing.json` and a CDG drawn from it. `test/maker.test.js` (7), `test/e2e/maker.mjs` (27).
-- **Not built**: the benchmark and "about N minutes" (§31.2); AMD/Intel graphics
-  (autokaraoke's installer has no path for them); uninstalling from the page (delete the folder).
+- **Not built**: AMD/Intel graphics (the installer has NVIDIA and CPU paths only); uninstalling from
+  the page (delete the folder). "About N minutes" came later (§31.14).
 
 ### 31.10 Built: the lyrics editor (2026-10-23)
 
@@ -2107,10 +2107,7 @@ made; other discs' lyrics are pictures and have nothing to edit.
     says so if the drive is read-only.
   - An edit follows its file to a new track id (`rekey`).
 - **Tests**: `test/timing.test.js` (5), `test/lyrics-editor.test.js` (3), `test/e2e/lyrics-editor.mjs` (27).
-- **Not built** (§31.5):
-  - re-timing a stretch with Whisper (needs the new SongGetter function);
-  - render options other than the colours (lines on screen, font size, lead, page gap): a disc made
-    with other options is redrawn with autokaraoke's defaults.
+- **Built later**: re-timing a stretch with Whisper (§31.15) and the render options (§31.14).
 
 ### 31.11 Lyrics lookup and kept vocals (2026-10-23)
 

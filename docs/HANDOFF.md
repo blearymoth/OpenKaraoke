@@ -1,6 +1,8 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-24 (the TV writes the real words of songs made here; before that, on
+_Last updated: 2026-10-24 (autokaraoke's engine moved into OpenKaraoke as `maker/`, with re-timing
+a line with Whisper, the render options kept and "about N minutes"; the TV writes the real words of
+songs made here; before that, on
 2026-10-23: songs from a link — guests ask, the host decides —, the hardware check,
 lyrics lookup and kept vocals; before that the lyrics editor, the Karaoke maker — autokaraoke in
 Settings — and Pitch rings in 3D; see those sections below. Before that, on
@@ -1394,20 +1396,38 @@ disc's own colours as it is sung.
 - Owner checklist: a song made with the real autokaraoke, in two lines and scrolling, on the TV
   across the room; both skins (Party writes in Bricolage).
 
+## The engine moved in; re-time, render options, speed (2026-10-24)
+PLAN §31.13–§31.15 (blearymoth/OpenKaraoke#29, from the owner's local session). SongGetter is
+retired: its code, with the 10 Oct lyrics-lookup work, is now `maker/` (the Python package
+`autokaraoke` 0.2.0, without its GTK windows; Settings → Karaoke maker is its window).
+- **Installing** from the page builds `~/.local/share/openkaraoke/autokaraoke/`, reusing an older
+  SongGetter install's models. Until then the old `~/Projects/autokaraoke` keeps working, and the page
+  offers to move. **Update** appears when `maker/`'s version is newer (code only, seconds).
+- **Re-time**: in the lyrics editor, the selected line is re-timed by Whisper against the song's kept
+  vocal (one undoable change). Only for songs whose vocal was kept.
+- **Render options**: `timing.json` remembers how its CDG was drawn; a redraw uses them.
+- **About N minutes**: each make teaches `data/maker/speed.json` this PC's speed; jobs and the Make
+  form show the estimate after the first song.
+- Tests: `test/maker-extras.test.js` (5), `maker/tests` (pytest, 85 + 1 skipped; in CI).
+- Owner checklist (the first run with real Demucs and Whisper): install from the page (the models are
+  reused, not downloaded again), make one song from a file and one from a YouTube link, check the
+  "about N minutes" after the first, re-time a line, then move `~/Projects/autokaraoke` and
+  `~/Projects/karaoke` away. On GitHub: merge SongGetter #2 (the "moved" notice), close #1, archive it.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
   - ~~Browse/search filters~~, ~~the host Library table~~, ~~the year & genre checker~~,
     ~~guest accounts~~, ~~the headphone monitor~~, ~~separated vocals~~ and ~~Pitch rings in 3D~~
     (done, above).
-  - ~~Making karaoke in the app~~ (the Karaoke maker, above). Still open from PLAN §31: the
-    benchmark ("about N minutes"), AMD/Intel graphics, uninstalling from the page. ~~Guests'
-    wishes~~ (done as songs from a link, above).
-  - ~~The lyrics editor~~ (above). Still open from PLAN §31.5: re-timing a verse with Whisper
-    (a small SongGetter change). ~~A guide vocal while editing~~ (done with the kept vocals).
-    ~~The TV drawing the real text~~ (done, above).
-  - Waiting on the owner: SongGetter PR #1 (the lyrics lookup) merged and `~/Projects/autokaraoke`
-    updated; until then lyrics are never looked up and Whisper writes them down.
+  - ~~Making karaoke in the app~~ (the Karaoke maker, above), ~~guests' wishes~~ (songs from a link),
+    ~~"about N minutes"~~ and ~~the engine inside OpenKaraoke~~ (above). Still open from PLAN §31:
+    AMD/Intel graphics (the installer has NVIDIA and CPU paths only), uninstalling from the page.
+  - ~~The lyrics editor~~, ~~a guide vocal~~, ~~the TV drawing the real text~~, ~~re-timing a line
+    with Whisper~~ and ~~the render options~~ (above).
+  - From PLAN §31.5, not started: a `timing.json` for a disc that has a vocal (multiplex, or
+    separated), from pasted lyrics, without touching the disc's CDG — the real words on the TV and
+    the editor for any disc, not only songs made here.
   - The lyrics preview before approving a song from a link is parked (the owner's call).
 - **Parked** (not without the owner):
   - The host **seek bar** after the TV window is toggled (`SeekBar` in

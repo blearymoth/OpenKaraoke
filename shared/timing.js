@@ -3,9 +3,11 @@
 // timing.py and align.py, so a file this edits renders there exactly as one it wrote:
 //
 //   { "version": 1, "title", "artist", "language", "duration",
-//     "lines": [ { "words": [ { "text": "Hello", "start": 12.3, "end": 12.71 }, … ] }, … ] }
+//     "lines": [ { "words": [ { "text": "Hello", "start": 12.3, "end": 12.71 }, … ] }, … ],
+//     "render": { "theme", "lines_on_screen", "font_size", "outline", "lead", "page_gap" } }
 //
-// Times are seconds from the start of the audio.
+// Times are seconds from the start of the audio. "render" (optional) is how autokaraoke drew the
+// CDG; an edit keeps it, so a redraw looks like the original. Other fields are ignored.
 
 export const MAX_LINES = 1500;
 export const MAX_WORDS = 15000;
@@ -44,6 +46,21 @@ export function cleanTiming(song) {
   return { ...song, lines };
 }
 
+/** autokaraoke's "render" keys and their kinds (timing.py RENDER_KEYS). */
+const RENDER_KEYS = { theme: 'str', lines_on_screen: 'int', font_size: 'int', outline: 'int', lead: 'num', page_gap: 'num' };
+
+/** A timing.json's "render" value → its known, well-typed options, or null. */
+export function renderOptions(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  const out = {};
+  for (const [key, kind] of Object.entries(RENDER_KEYS)) {
+    const v = d[key];
+    if (kind === 'str') { if (typeof v === 'string' && /^[a-z][\w-]{0,30}$/.test(v)) out[key] = v; }
+    else if (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v < 1000 && (kind === 'num' || Number.isInteger(v))) out[key] = v;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /** A parsed timing.json (anything else throws), cleaned. */
 export function readTiming(d) {
   if (!d || typeof d !== 'object' || d.version !== 1 || !Array.isArray(d.lines)) throw new Error('Not an autokaraoke timing file (version 1)');
@@ -55,8 +72,10 @@ export function readTiming(d) {
     if (words > MAX_WORDS) throw new Error('Too many words');
     return { words: list.map((w) => ({ text: str(w?.text, MAX_WORD), start: num(w?.start), end: num(w?.end) })) };
   });
+  const render = renderOptions(d.render);
   return cleanTiming({
     title: str(d.title, 200), artist: str(d.artist, 200), language: str(d.language, 12), duration: Math.max(0, num(d.duration)), lines,
+    ...(render ? { render } : {}),
   });
 }
 
@@ -69,6 +88,7 @@ export function timingJson(song) {
     language: song.language || '',
     duration: round3(song.duration || 0),
     lines: song.lines.map((l) => ({ words: l.words.map((w) => ({ text: w.text, start: round3(w.start), end: round3(w.end) })) })),
+    ...(song.render ? { render: { ...song.render } } : {}),
   };
 }
 

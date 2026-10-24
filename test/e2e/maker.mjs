@@ -145,9 +145,9 @@ const party2 = await startParty({ makerTool: tool2 });
 try {
   const host = watch(await browser.newPage({ viewport: { width: 1440, height: 900 } }), 'host2');
   await host.goto(`${party2.base}/host#/settings/maker`);
-  check(await seen(host, '.mk-card:has-text("Install autokaraoke") button:has-text("Install")'), 'not installed: “Install autokaraoke”');
-  check(await seen(host, '.mk-checks li:has-text("not installed yet")'), 'it was found in ~/Projects/autokaraoke');
-  await host.click('.mk-card:has-text("Install autokaraoke") button:has-text("Install")');
+  check(await seen(host, '.mk-card:has-text("Install the Karaoke maker") button:has-text("Install")'), 'not installed: “Install the Karaoke maker”');
+  check(await seen(host, '.mk-checks li:has-text("Not installed yet")'), 'it ships with OpenKaraoke, not installed yet');
+  await host.click('.mk-card:has-text("Install the Karaoke maker") button:has-text("Install")');
   check(await seen(host, '.mk-task .mk-log:has-text("Installing PyTorch")'), 'the install’s log, as it goes');
   check(await seen(host, '.maker .mk-form', 15000), 'installed: the form is there');
   check(tool2.state.runs.some((r) => r.kind === 'install' && r.opts.gpu === false && r.opts.youtube === true), 'the processor build, with YouTube');

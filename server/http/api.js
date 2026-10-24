@@ -406,6 +406,11 @@ export function apiRoutes(router, app) {
     const body = await readJsonBody(ctx.req, 2 * 1024 * 1024);
     return app.room.lyrics.save(ctx.params.trackId, body.timing);
   });
+  router.post('/api/lyrics/:trackId/retime', async (ctx) => { // Whisper re-times a stretch (not saved)
+    requireHost(ctx);
+    const body = await readJsonBody(ctx.req, 2 * 1024 * 1024);
+    return app.room.lyrics.retime(ctx.params.trackId, body.timing, { from: Number(body.from), to: Number(body.to) });
+  });
   router.post('/api/lyrics/:trackId/revert', async (ctx) => {
     requireHost(ctx);
     return app.room.lyrics.revert(ctx.params.trackId);

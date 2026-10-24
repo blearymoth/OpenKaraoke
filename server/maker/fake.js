@@ -110,11 +110,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * The stand-in tool. `state`: installed, models ready, the GPU's name ('' = none), and `fail`
  * ('make' | 'render' | 'setup' | 'install') to make that command fail. `seconds`: how long a make takes.
  */
-export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', installed = true, models = true, gpu = '', gpuMB = 8192, cores = 8, memGB = 16, freeGB = 120, fail = '', seconds = 1.5, songSeconds = 30, lookup = true, lookupHit = 'Found on the internet\nAll the words are here' } = {}) {
+export function fakeAutokaraoke({ root = '/home/you/.local/share/openkaraoke/autokaraoke', legacy = '', installed = true, models = true, gpu = '', gpuMB = 8192, cores = 8, memGB = 16, freeGB = 120, fail = '', seconds = 1.5, songSeconds = 30, lookup = true, lookupHit = 'Found on the internet\nAll the words are here' } = {}) {
   const state = { installed, models, gpu, gpuMB, cores, memGB, freeGB, fail, seconds, songSeconds, lookup, lookupHit, runs: [] };
   const where = () => ({
     root, python: path.join(root, '.venv', 'bin', 'python'), launcher: '', modelsDir: path.join(root, 'models'),
-    hasRoot: true, installed: state.installed, installer: path.join(root, 'install.sh'),
+    hasRoot: true, installed: state.installed, installer: '/opt/OpenKaraoke/maker/install.sh', source: '/opt/OpenKaraoke/maker',
+    bundled: '0.2.0', legacy: state.installed ? legacy : '', legacyModels: legacy ? path.join(legacy, 'models') : '',
   });
   return {
     state,
@@ -122,7 +123,7 @@ export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', insta
 
     async check(at, { whisperModel = 'medium', demucsModel = 'htdemucs' } = {}) {
       return {
-        python: '3.12.3', ffmpeg: 'ready', gpu: state.gpu, version: state.installed ? '0.1.0' : '',
+        python: '3.12.3', ffmpeg: 'ready', gpu: state.gpu, version: state.installed ? '0.2.0' : '', update: false,
         specs: { gpus: state.gpu ? [{ name: state.gpu, memMB: state.gpuMB }] : [], cores: state.cores, memGB: state.memGB, freeGB: state.freeGB },
         features: { lookup: state.installed && state.lookup },
         setup: state.installed ? {
@@ -185,6 +186,29 @@ export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', insta
           say(`Wrote ${opts.output}`);
           return { code: 0, signal: null };
         }
+        if (kind === 'retime') { // (autokaraoke retime: the words starting in [from, to], 0.1 s later)
+          await sleep(step);
+          if (cancelled) return { code: null, signal: 'SIGTERM' };
+          if (state.fail === 'retime') {
+            say('error: no words start between those times');
+            return { code: 1, signal: null };
+          }
+          const d = JSON.parse(await fs.readFile(opts.timing, 'utf8'));
+          let n = 0;
+          for (const l of d.lines) {
+            for (const w of l.words) {
+              if (w.start >= opts.from && w.start <= opts.to) {
+                w.start = Math.round((w.start + 0.1) * 1000) / 1000;
+                w.end = Math.round((w.end + 0.1) * 1000) / 1000;
+                n += 1;
+              }
+            }
+          }
+          state.runs.at(-1).retimed = n;
+          await fs.writeFile(opts.output, `${JSON.stringify(d, null, 1)}\n`);
+          say(`Retimed ${n} words (${opts.from}\u2013${opts.to} s)`);
+          return { code: 0, signal: null };
+        }
         // make
         const isUrl = /^https?:/.test(opts.song);
         const names = { artist: opts.artist || 'Unknown', title: opts.title || 'Song' };
@@ -241,6 +265,7 @@ export function fakeAutokaraoke({ root = '/home/you/Projects/autokaraoke', insta
           await writePcmWav(path.join(work, 'vocals.wav'), { hz: 880, seconds: 2 });
           await writePcmWav(path.join(work, 'instrumental.wav'), { hz: 220, seconds: 2 });
         }
+        say(`Times: ${isUrl ? 'download 2s, ' : ''}separate 6s, mp3 1s, timing 4s, cdg 1s`);
         say(`Done: ${base}.mp3 + ${base}.cdg`);
         return { code: 0, signal: null };
       })();

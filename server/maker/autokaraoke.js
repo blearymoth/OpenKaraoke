@@ -1,9 +1,9 @@
-// The owner's autokaraoke (blearymoth/SongGetter, PLAN §31), installed on this PC in
-// ~/Projects/autokaraoke: it turns a song (a file, or a YouTube link) into an MP3 + CDG karaoke
-// pair, and redraws a CDG from an edited timing.json. OpenKaraoke runs its command line — never
-// a shell, every value its own argument — and reads its output for the progress; the Karaoke
-// maker page (Settings) replaces its GTK windows. Node imports no Python and no ML: the heavy
-// part stays in autokaraoke's own environment (<root>/.venv).
+// The Karaoke maker's engine (PLAN §31): the `autokaraoke` package in maker/, installed by
+// maker/install.sh into ~/.local/share/openkaraoke/autokaraoke (where.js). It turns a song (a
+// file, or a YouTube link) into an MP3 + CDG karaoke pair, and redraws a CDG from an edited
+// timing.json. OpenKaraoke runs its command line — never a shell, every value its own argument —
+// and reads its output for the progress; the Karaoke maker page (Settings) is its window. Node
+// imports no Python and no ML: the heavy part stays in the maker's own environment (<root>/.venv).
 //
 // Pure helpers (argument lists, progress, the setup check) are exported for the tests; the
 // tool itself is `autokaraokeTool()` (server/start.js), or a stand-in (server/maker/fake.js).
@@ -98,16 +98,43 @@ export function renderArgs({ timing, audio, output, theme = '' }) {
   return args;
 }
 
+/**
+ * `python -m autokaraoke retime <timing.json> --vocals <wav> --from S --to S -O <out>`: re-times
+ * the words that start inside [from, to] with Whisper (the lyrics editor).
+ */
+export function retimeArgs({ timing, vocals, output, from, to, language = '', whisperModel = 'medium' }) {
+  for (const p of [timing, vocals, output]) if (typeof p !== 'string' || !path.isAbsolute(p)) throw new Error('Re-timing needs absolute paths');
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to <= from) throw new Error('Pick a stretch of the song');
+  if (!WHISPER_MODELS.includes(whisperModel)) throw new Error('Unknown lyric timer model');
+  const args = ['-m', 'autokaraoke', 'retime', '--vocals', vocals, '--from', String(+from.toFixed(3)), '--to', String(+to.toFixed(3)),
+    '--whisper-model', whisperModel, '-O', output];
+  if (language) {
+    if (!LANGUAGE_RE.test(language)) throw new Error('Unknown language');
+    args.push('--language', language);
+  }
+  args.push('--', timing);
+  return args;
+}
+
 /** `python -m autokaraoke setup [--check] --whisper-model … --demucs-model …`. */
 export function setupArgs({ check = false, whisperModel = 'medium', demucsModel = 'htdemucs' } = {}) {
   if (!WHISPER_MODELS.includes(whisperModel) || !DEMUCS_MODELS.includes(demucsModel)) throw new Error('Unknown model');
   return ['-m', 'autokaraoke', 'setup', ...(check ? ['--check'] : []), '--whisper-model', whisperModel, '--demucs-model', demucsModel];
 }
 
-/** install.sh's options: the graphics card or the processor, YouTube or not. */
-export function installArgs(script, { gpu = false, youtube = true } = {}) {
+/**
+ * maker/install.sh's options: the graphics card or the processor, YouTube or not, an older
+ * install's models to reuse (`modelsFrom`), or only refreshing the code (`codeOnly`).
+ */
+export function installArgs(script, { gpu = false, youtube = true, modelsFrom = '', codeOnly = false } = {}) {
   if (typeof script !== 'string' || !path.isAbsolute(script)) throw new Error('No installer');
-  return [script, gpu ? '--gpu' : '--cpu', ...(youtube ? [] : ['--no-youtube'])];
+  if (codeOnly) return [script, '--code-only'];
+  const args = [script, gpu ? '--gpu' : '--cpu', ...(youtube ? [] : ['--no-youtube'])];
+  if (modelsFrom) {
+    if (typeof modelsFrom !== 'string' || !path.isAbsolute(modelsFrom)) throw new Error('Bad models folder');
+    args.push('--models-from', modelsFrom);
+  }
+  return args;
 }
 
 /**
@@ -133,6 +160,21 @@ export function splitProgress(pending, data) {
     }
   }
   return { pending: rest, lines, status };
+}
+
+/**
+ * make's last line before Done: "Times: download 12s, separate cached, mp3 3s, timing 40s, cdg 2s"
+ * → { download: 12, separate: null, mp3: 3, timing: 40, cdg: 2 } (null: cached), or null.
+ */
+export function readTimes(text) {
+  const m = /^Times: (.+)$/.exec(String(text || '').trim());
+  if (!m) return null;
+  const out = {};
+  for (const part of m[1].split(',')) {
+    const p = /^\s*(download|separate|mp3|timing|cdg) (?:(\d+(?:\.\d+)?)s|cached)\s*$/.exec(part);
+    if (p) out[p[1]] = p[2] === undefined ? null : Number(p[2]);
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 /** The steps of making a song, in order (the page shows them). */
@@ -165,6 +207,7 @@ export function readMakeLine(text, { status = false } = {}) {
   else if (/^(?:Loading Whisper model|Downloading Whisper model|Aligning \d+ words|No lyrics given|Using existing .*timing\.json)/.test(s)) out.stage = 'timing';
   else if ((m = /^Timing: (.+\.timing\.json)$/.exec(s))) Object.assign(out, { stage: 'cdg', percent: 0, timing: m[1] });
   else if (/^CDG: /.test(s)) out.stage = 'cdg';
+  else if (/^Times: /.test(s)) { const t = readTimes(s); if (t) out.times = t; }
   else if ((m = /^Done: (.+\.mp3) \+ (.+\.cdg)$/.exec(s))) Object.assign(out, { stage: 'done', percent: 100, mp3Name: m[1], cdgName: m[2] });
   return out;
 }
@@ -238,6 +281,8 @@ export function autokaraokeTool({ env = process.env, homedir = os.homedir() } = 
           run(where.python, setupArgs({ check: true, whisperModel, demucsModel }), { env: e, timeout: 60000 }),
         ]);
         out.version = (ver.out || ver.err).trim().split('\n')[0].slice(0, 40);
+        // The code that ships with this OpenKaraoke is newer than the installed copy's.
+        out.update = !where.legacy && !!where.bundled && !!out.version && out.version !== where.bundled;
         out.setup = readSetupCheck(setup.out);
         // What this copy can do: looking lyrics up came with its lyrics-lookup version.
         const help = await run(where.python, ['-m', 'autokaraoke', 'make', '--help'], { env: e });
@@ -254,16 +299,16 @@ export function autokaraokeTool({ env = process.env, homedir = os.homedir() } = 
       if (kind === 'install') {
         file = 'bash';
         args = installArgs(where.installer, opts);
-        cwd = where.root;
+        cwd = where.source || path.dirname(where.installer); // the install folder may not exist yet
       } else {
         file = where.python;
-        args = kind === 'make' ? makeArgs(opts) : kind === 'render' ? renderArgs(opts) : setupArgs(opts);
+        args = kind === 'make' ? makeArgs(opts) : kind === 'render' ? renderArgs(opts) : kind === 'retime' ? retimeArgs(opts) : setupArgs(opts);
         // A long job on the party PC: fewer threads, so the TV's sound and drawing keep theirs.
         const threads = String(Math.max(1, (os.availableParallelism?.() || os.cpus().length) - 2));
-        if (kind === 'make') extra = { OMP_NUM_THREADS: threads, MKL_NUM_THREADS: threads };
+        if (kind === 'make' || kind === 'retime') extra = { OMP_NUM_THREADS: threads, MKL_NUM_THREADS: threads };
       }
       const child = spawn(file, args, { cwd, env: childEnv(where, extra), stdio: ['ignore', 'pipe', 'pipe'], detached: true });
-      if (kind === 'make' || kind === 'render') {
+      if (kind === 'make' || kind === 'render' || kind === 'retime') {
         try { os.setPriority(child.pid, 19); } catch { /* not allowed: normal priority */ }
       }
       let pending = '';

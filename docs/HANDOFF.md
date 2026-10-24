@@ -13,7 +13,7 @@ without the owner's PC or drive)._
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 615/615; `npm run e2e` → 30 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 620/620; `npm run e2e` → 30 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
   the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `lyrics-editor.mjs` the lyrics editor, `links.mjs` songs from a link, `text-lyrics.mjs` the real words on the TV, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and

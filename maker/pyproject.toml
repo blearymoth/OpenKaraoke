@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autokaraoke"
+version = "0.2.0"
+description = "OpenKaraoke's Karaoke maker: song -> MP3+CDG (Demucs vocal removal, Whisper lyric timing, CDG rendering)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = ["numpy", "pillow>=10"]
+
+[project.optional-dependencies]
+ml = ["demucs>=4.0.1", "stable-ts>=2.17"]
+youtube = ["yt-dlp[default]"]
+test = ["pytest"]
+
+[project.scripts]
+autokaraoke = "autokaraoke.cli:main"
+
+[tool.setuptools]
+packages = ["autokaraoke"]

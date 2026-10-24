@@ -220,6 +220,7 @@ export class Room {
         if (this.s.current?.trackId === trackId) this.s.player.reload = (this.s.player.reload || 0) + 1;
         this.markDirty();
       },
+      onText: () => this.markDirty(), // (the TV's timing URL: PLAN §9.7)
     });
     this.declined = new Set(); // "inviter>invitee>song" duet invitations turned down this session
     this.handlers = this.buildHandlers();
@@ -318,6 +319,7 @@ export class Room {
 
   onLibraryChanged() {
     this.syncPlays();
+    this.lyrics.forgetText();
     this.markDirty();
   }
 
@@ -2458,6 +2460,10 @@ export class Room {
     let media = mediaUrls(track);
     const edit = track && this.lyrics.gen(track.id);
     if (edit && media?.kind === 'cdg') media = { ...media, cdg: `${media.cdg}?edit=${edit}` }; // (an edited CDG: a new URL each time)
+    if (media?.kind === 'cdg' && this.lyrics.hasText(track)) {
+      const v = this.lyrics.textGen(track.id);
+      media = { ...media, timing: `/media/${track.id}/timing${v ? `?v=${v}` : ''}` }; // its real words (PLAN §9.7)
+    }
     const stems = track && this.stemsFor(track.id);
     if (stems && media?.kind === 'cdg') return { ...media, stems }; // (PLAN §30)
     if (media?.kind !== 'video' || track.kind !== 'video' || !needsConversion(track.video)) return media;

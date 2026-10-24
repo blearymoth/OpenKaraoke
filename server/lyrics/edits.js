@@ -8,6 +8,7 @@ import path from 'node:path';
 import { renameSync } from 'node:fs';
 import { UserError } from '../util/errors.js';
 import { logger } from '../util/log.js';
+import { Lru } from '../util/lru.js';
 import { readTiming, timingJson, timingToLrc } from '../../shared/timing.js';
 import { CDG_INSTR } from '../../shared/cdg.js';
 
@@ -42,8 +43,9 @@ export class LyricEdits {
    * @param {(trackId: string) => void} [o.onChange]  an edit was drawn or reverted
    * @param {(trackId: string) => Promise<string|null>} [o.vocalOf]  the separated vocal's URL, if any
    * @param {(trackId: string) => Promise<string|null>} [o.vocalFileOf]  the kept vocal's file, if any
+   * @param {(trackId: string) => void} [o.onText]  a track's words changed, or it was found to have some
    */
-  constructor({ dataDir, library, maker, onChange = () => {}, vocalOf = async () => null, vocalFileOf = async () => null }) {
+  constructor({ dataDir, library, maker, onChange = () => {}, vocalOf = async () => null, vocalFileOf = async () => null, onText = () => {} }) {
     this.vocalFileOf = vocalFileOf; // the vocal file, for re-timing with Whisper
     this.root = path.join(dataDir, 'lyrics');
     this.vocalOf = vocalOf; // the song's separated vocal (a URL), for a guide while editing
@@ -52,6 +54,67 @@ export class LyricEdits {
     this.onChange = onChange;
     this.drawn = new Map(); // trackId → generation (the edited CDG the TV is served)
     this.busy = new Set();
+    this.onText = onText;
+    this.texts = new Map(); // trackId → generation of its words (the TV's timing URL, PLAN §9.7)
+    this.timed = new Lru({ max: 4000, sizeOf: () => 0 }); // trackId → has a timing.json (looked up once)
+    this.looking = new Set();
+  }
+
+  /**
+   * Has the track words the TV can draw as text (a timing.json beside its CDG, or an edit)? Known at
+   * once after the first look; until then false, and `onText` is called if it turns out to have some.
+   */
+  hasText(track) {
+    if (!track || track.kind !== 'cdg') return false;
+    const known = this.timed.get(track.id);
+    if (known !== undefined) return known;
+    if (!this.looking.has(track.id) && this.looking.size < 64) {
+      this.looking.add(track.id);
+      this.timingFile(track).then((file) => {
+        this.timed.set(track.id, !!file);
+        if (file) this.onText(track.id);
+      }, () => {}).finally(() => this.looking.delete(track.id));
+    }
+    return false;
+  }
+
+  /** Forget what was looked up (the library was rescanned: files came and went). */
+  forgetText() {
+    this.timed = new Lru({ max: 4000, sizeOf: () => 0 });
+  }
+
+  /** Changes each time the track's words change (the TV's timing URL). */
+  textGen(trackId) {
+    return this.texts.get(trackId) || 0;
+  }
+
+  textChanged(trackId) {
+    this.texts.set(trackId, this.textGen(trackId) + 1);
+    this.timed.set(trackId, true);
+    this.onText(trackId);
+  }
+
+  /** The timing.json the TV draws for a track: the edit if there is one, else autokaraoke's own; or null. */
+  async timingFile(track) {
+    const dir = this.dir(track?.id);
+    const f = this.files(track);
+    if (!dir || !f) return null;
+    const draft = path.join(dir, 'timing.json');
+    if (await exists(draft)) return draft;
+    return (await exists(f.timing)) ? f.timing : null;
+  }
+
+  /** The words and times the TV draws (/media/<id>/timing), cleaned; null: none. */
+  async textFor(trackId) {
+    const track = this.library.catalog.track(trackId);
+    const file = await this.timingFile(track);
+    if (!file) return null;
+    try {
+      if ((await fs.stat(file)).size > MAX_TIMING) return null;
+      return timingJson(readTiming(JSON.parse(await fs.readFile(file, 'utf8'))));
+    } catch {
+      return null; // (gone, or unreadable: the disc's own lyrics then)
+    }
   }
 
   /** The edits on disk (after a restart). */
@@ -157,6 +220,7 @@ export class LyricEdits {
       const timingFile = path.join(dir, 'timing.json');
       await fs.writeFile(`${timingFile}.part`, `${JSON.stringify(timingJson(song), null, 1)}\n`);
       await fs.rename(`${timingFile}.part`, timingFile);
+      this.textChanged(trackId); // (the TV's words follow at once, drawn or not)
       const where = this.maker?.where;
       if (!this.maker?.tool || !where?.installed) {
         return { ...(await this.open(trackId)), drawnNow: false, error: 'Saved. autokaraoke is needed to draw the lyrics: install it in Settings → Karaoke maker.' };
@@ -252,6 +316,7 @@ export class LyricEdits {
     await fs.rm(dir, { recursive: true, force: true });
     this.drawn.delete(trackId);
     if (had) this.onChange(trackId);
+    this.textChanged(trackId);
     return this.open(trackId);
   }
 
@@ -283,6 +348,7 @@ export class LyricEdits {
     await fs.rm(dir, { recursive: true, force: true });
     this.drawn.delete(trackId);
     this.onChange(trackId);
+    this.textChanged(trackId);
     return this.open(trackId);
   }
 
@@ -303,6 +369,10 @@ export class LyricEdits {
       if (this.drawn.has(m.from)) {
         this.drawn.set(m.to, this.drawn.get(m.from) + 1);
         this.drawn.delete(m.from);
+      }
+      if (this.texts.has(m.from)) {
+        this.texts.set(m.to, this.texts.get(m.from));
+        this.texts.delete(m.from);
       }
       n++;
     }

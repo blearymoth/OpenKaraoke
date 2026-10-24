@@ -92,6 +92,8 @@ export const DEFAULT_SETTINGS = {
     lyricsMotion: DEFAULT_LYRICS_MOTION,
     // how the lines are laid out: 'page' (the disc's pages) | 'lines' (two at a time) | 'scroll' (a scrolling list)
     lyricsLayout: DEFAULT_LYRICS_LAYOUT,
+    // in those two: the song's real words in the skin's font when it has them (autokaraoke's timing.json)
+    lyricsText: true,
     cdgSmoothing: true, // rounded letters (Scale2x); off: the disc's square pixels, each a whole number of screen pixels
     lighterEffects: DEFAULT_LIGHTER_EFFECTS, // 'auto' | 'on' | 'off': still backgrounds, no blur, on the TV page
     showQr: true,

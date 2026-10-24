@@ -1,6 +1,7 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-23 (songs from a link — guests ask, the host decides —, the hardware check,
+_Last updated: 2026-10-24 (the TV writes the real words of songs made here; before that, on
+2026-10-23: songs from a link — guests ask, the host decides —, the hardware check,
 lyrics lookup and kept vocals; before that the lyrics editor, the Karaoke maker — autokaraoke in
 Settings — and Pitch rings in 3D; see those sections below. Before that, on
 2026-10-18: separated vocals on any version, the headphone monitor, guest accounts, the year &
@@ -12,9 +13,9 @@ without the owner's PC or drive)._
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 599/599; `npm run e2e` → 29 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 620/620; `npm run e2e` → 30 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `lyrics-editor.mjs` the lyrics editor, `links.mjs` songs from a link, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `lyrics-editor.mjs` the lyrics editor, `links.mjs` songs from a link, `text-lyrics.mjs` the real words on the TV, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
@@ -1341,8 +1342,8 @@ PLAN §31.10. For the songs autokaraoke made (a `NAME.timing.json` beside the CD
   disc's own colours. The TV is served the new drawing and reloads it if the song is on. The song's
   files are unchanged until **Write into the song's folder** (the originals kept once as `.orig`).
   **Revert** goes back to autokaraoke's own timing.
-- Not done: re-timing a verse with Whisper, a guide vocal while editing, the TV drawing the real
-  text, and render options other than the colours.
+- Not done: re-timing a verse with Whisper, and render options other than the colours. (The guide
+  vocal came with the kept vocals, below.)
 - Tests: `test/timing.test.js` (5), `test/lyrics-editor.test.js` (3), `test/e2e/lyrics-editor.mjs` (27).
 - Owner checklist: on a song made with the real autokaraoke — fix a few words, tap a verse, save
   while it plays on the TV, and check the colours match the original drawing.
@@ -1380,6 +1381,19 @@ From the SongGetter/autokaraoke handoff (PLAN §31.2, §31.9, §31.11, §31.12).
   - a guest asks for a song from their phone; approve it; it is made and queued;
   - a song with no lyrics typed (looked up), and one LRCLIB doesn't know (Whisper).
 
+## Real words on the TV (2026-10-24)
+PLAN §9.7. In the **two lines** and **scrolling** layouts, a song the Karaoke maker made (its
+`timing.json` beside the CDG) is written on the TV as text in the skin's font, instead of the disc's
+pixels re-arranged: sharp, as big as fits (about 10 % of the screen high), each word wiping in the
+disc's own colours as it is sung.
+- Settings → TV display → **Real words for songs made here** (on by default; shown when the layout
+  isn't pages). Pages and other discs are unchanged.
+- An edit saved in the lyrics editor shows on the TV at once, even without autokaraoke to draw it,
+  and without restarting the song.
+- Tests: `test/lyric-text.test.js` (3), `test/e2e/text-lyrics.mjs` (15).
+- Owner checklist: a song made with the real autokaraoke, in two lines and scrolling, on the TV
+  across the room; both skins (Party writes in Bricolage).
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
@@ -1387,9 +1401,14 @@ From the SongGetter/autokaraoke handoff (PLAN §31.2, §31.9, §31.11, §31.12).
     ~~guest accounts~~, ~~the headphone monitor~~, ~~separated vocals~~ and ~~Pitch rings in 3D~~
     (done, above).
   - ~~Making karaoke in the app~~ (the Karaoke maker, above). Still open from PLAN §31: the
-    benchmark ("about N minutes"), guests' wishes, AMD/Intel graphics.
+    benchmark ("about N minutes"), AMD/Intel graphics, uninstalling from the page. ~~Guests'
+    wishes~~ (done as songs from a link, above).
   - ~~The lyrics editor~~ (above). Still open from PLAN §31.5: re-timing a verse with Whisper
-    (a small SongGetter change), a guide vocal while editing, the TV drawing the real text.
+    (a small SongGetter change). ~~A guide vocal while editing~~ (done with the kept vocals).
+    ~~The TV drawing the real text~~ (done, above).
+  - Waiting on the owner: SongGetter PR #1 (the lyrics lookup) merged and `~/Projects/autokaraoke`
+    updated; until then lyrics are never looked up and Whisper writes them down.
+  - The lyrics preview before approving a song from a link is parked (the owner's call).
 - **Parked** (not without the owner):
   - The host **seek bar** after the TV window is toggled (`SeekBar` in
     `public/js/host/player.js` clears its drag only on `change`) — not reproduced.

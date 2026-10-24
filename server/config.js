@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { JsonDoc, deepMerge, isPlainObject } from './util/jsonfile.js';
 import { THEMES, DEFAULT_THEME, ACCENT_RE, normalizeAccent, normalizeAppearance } from '../shared/themes.js';
 import { LYRICS_LOOKS, LYRICS_MOTIONS, LYRICS_LAYOUTS, LIGHTER_EFFECTS, DEFAULT_LYRICS_LOOK, DEFAULT_LYRICS_MOTION, DEFAULT_LYRICS_LAYOUT, DEFAULT_LIGHTER_EFFECTS } from '../shared/lyrics.js';
-import { THEMES as MAKER_THEMES, WHISPER_MODELS, DEMUCS_MODELS, LYRICS_SOURCES } from './maker/autokaraoke.js';
+import { THEMES as MAKER_THEMES, WHISPER_MODELS, DEMUCS_MODELS, LYRICS_SOURCES, LYRIC_TIMERS } from './maker/autokaraoke.js';
 
 export const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const PUBLIC_DIR = path.join(APP_ROOT, 'public');
@@ -124,6 +124,7 @@ export const DEFAULT_SETTINGS = {
     maxPerGuest: 2, // a guest's songs on the way at once (0 = no limit)
     maxWaiting: 20, // songs asked for and not made yet, from everyone
     lookupLyrics: true, // no lyrics typed: autokaraoke looks them up (before Whisper writes down what it hears)
+    lyricTimer: 'phonon', // 'phonon': Phonon-2 first (fast, English), Whisper when it can't | 'whisper': Whisper only
     lyricsSources: ['lrclib'], // where, in order: sidecar, lrclib, netease, lyricsovh
   },
   guests: {
@@ -243,7 +244,7 @@ export class Settings extends JsonDoc {
     }
     const mk = clean.maker;
     if (mk) { // (a value autokaraoke would refuse is ignored)
-      for (const [key, list] of [['theme', MAKER_THEMES], ['whisperModel', ['auto', ...WHISPER_MODELS]], ['demucsModel', DEMUCS_MODELS]]) {
+      for (const [key, list] of [['theme', MAKER_THEMES], ['whisperModel', ['auto', ...WHISPER_MODELS]], ['demucsModel', DEMUCS_MODELS], ['lyricTimer', LYRIC_TIMERS]]) {
         if (Object.hasOwn(mk, key) && !list.includes(mk[key])) delete mk[key];
       }
       if (Object.hasOwn(mk, 'maxPerGuest')) mk.maxPerGuest = Math.max(0, Math.min(10, Math.round(mk.maxPerGuest)));

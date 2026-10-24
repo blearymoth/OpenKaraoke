@@ -21,6 +21,7 @@ import { Speed } from './speed.js';
 
 const log = logger('maker');
 const KEEP_JOBS = 20;
+const PHONON_MODEL = 'phonon-2'; // (the speed file's key for songs Phonon-2 timed)
 const KEEP_LINES = 200;
 const MAX_LYRICS = 50 * 1024;
 export const MAX_UPLOAD = 500 * 1024 * 1024;
@@ -91,7 +92,21 @@ export class Maker {
   /** Seconds a job is likely to take on this PC, once its length is known; else null. */
   estimate(job) {
     if (!job.duration) return null;
-    return this.speed.estimate({ duration: job.duration, url: job.kind === 'url', demucsModel: job.opts.demucsModel, whisperModel: job.opts.whisperModel });
+    return this.speed.estimate({ duration: job.duration, url: job.kind === 'url', demucsModel: job.opts.demucsModel, whisperModel: this.timingModel(job.opts) });
+  }
+
+  /**
+   * Who times the lyrics (`--lyric-timer`): the host's choice, Phonon-2 first by default; '' when
+   * this autokaraoke is older than 0.4.0 (Whisper only, and the option unknown to it).
+   */
+  lyricTimer() {
+    if (!this.checks?.features?.phonon) return '';
+    return this.settings.get('maker.lyricTimer') === 'whisper' ? 'whisper' : 'phonon';
+  }
+
+  /** The lyric timer a song's speed is kept under: Phonon-2's own (English), else the Whisper model. */
+  timingModel({ lyricTimer = '', language = 'en', whisperModel = 'medium' } = {}) {
+    return lyricTimer === 'phonon' && /^en/.test(language || 'en') ? PHONON_MODEL : whisperModel;
   }
 
   /**
@@ -243,6 +258,7 @@ export class Maker {
       language: typeof input.language === 'string' && /^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/.test(input.language) ? input.language : this.settings.get('maker.language') || 'en',
       theme: THEMES.includes(input.theme) ? input.theme : this.settings.get('maker.theme'),
       whisperModel: this.whisperModel(),
+      lyricTimer: this.lyricTimer(),
       demucsModel: this.settings.get('maker.demucsModel'),
       keepStems: true, // (its separated vocals: the song's Separated vocals and the editor's guide)
       // The lyrics' authority: typed lyrics, else a lyrics service (if this autokaraoke can), else Whisper.
@@ -376,6 +392,7 @@ export class Maker {
         if (r.timing) job.timing = r.timing;
         if (r.mp3Name) job.names = { mp3: r.mp3Name, cdg: r.cdgName };
         if (r.lyricsFrom) job.lyricsFrom = r.lyricsFrom;
+        if (r.timer) job.timer = r.timer;
         if (r.duration && !job.duration) job.duration = r.duration;
         if (r.times) job.times = r.times;
       };
@@ -402,12 +419,19 @@ export class Maker {
       }
       job.stage = 'done';
       job.percent = 100;
-      if (this.speed.record({ times: job.times, duration: job.duration, demucsModel: job.opts.demucsModel, whisperModel: job.opts.whisperModel })) {
+      // (kept under what actually timed it: Phonon-2 alone, else the Whisper model)
+      const timedBy = job.timer === 'Phonon-2' ? PHONON_MODEL : job.opts.whisperModel;
+      if (this.speed.record({ times: job.times, duration: job.duration, demucsModel: job.opts.demucsModel, whisperModel: timedBy })) {
         this.speed.save().catch((e) => log.info(`could not keep this PC's speed: ${e.message}`));
       }
       this.finish(job, 'done');
-      await this.addToLibrary(job);
-      await this.keepVocals(job);
+      try {
+        await this.addToLibrary(job);
+        await this.keepVocals(job);
+      } finally {
+        if (job.result) job.result.scanning = false; // (in the library, with its vocals kept: then it shows)
+        this.onChange();
+      }
       this.tell(job);
     } catch (e) {
       log.info(`making ${job.label} failed: ${e.message}`);
@@ -458,9 +482,6 @@ export class Maker {
       if (track) Object.assign(job.result, { trackId: track.id, songId: track.songId });
     } catch (e) {
       log.info(`could not add ${mp3} to the library: ${e.message}`);
-    } finally {
-      job.result.scanning = false;
-      this.onChange();
     }
   }
 
@@ -567,7 +588,7 @@ export class Maker {
       label: j.kind === 'url' ? j.label : path.basename(j.label), artist: j.artist, title: j.title, lyrics: !!j.lyrics.trim(),
       out: j.out, error: j.error, now: j.now, createdAt: j.createdAt, startedAt: j.startedAt, finishedAt: j.finishedAt,
       lines: j.lines.slice(-40), result: j.result ? { ...j.result } : null, lyricsFrom: j.lyricsFrom || (j.lyrics.trim() ? 'typed' : ''),
-      duration: j.duration || 0, estimate: j.finishedAt ? null : this.estimate(j), times: j.times || null,
+      duration: j.duration || 0, estimate: j.finishedAt ? null : this.estimate(j), times: j.times || null, timer: j.timer || '',
     };
   }
 
@@ -588,8 +609,10 @@ export class Maker {
       verdict: this.verdict || null,
       specsAt: this.specsAt || 0,
       whisperModel: this.whisperModel(),
+      lyricTimer: this.lyricTimer(), // '' = this autokaraoke has Whisper only (before 0.4.0)
       // seconds a 4-minute song takes on this PC, once it has made one (else null)
-      typical: this.speed.estimate({ duration: 240, demucsModel: this.settings.get('maker.demucsModel'), whisperModel: this.whisperModel() }),
+      typical: this.speed.estimate({ duration: 240, demucsModel: this.settings.get('maker.demucsModel'),
+        whisperModel: this.timingModel({ lyricTimer: this.lyricTimer(), language: this.settings.get('maker.language'), whisperModel: this.whisperModel() }) }),
       lookup: !!this.checks?.features?.lookup,
     };
   }

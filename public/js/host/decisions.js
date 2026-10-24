@@ -52,7 +52,7 @@ function PendingLink({ r }) {
       <label class="field"><span>Title</span><input class="input" value=${title} maxlength="120" placeholder="(from YouTube)" onInput=${(e) => setTitle(e.currentTarget.value)} /></label>
     </div>
     <label class="field"><span>Lyrics ${lyrics.trim() ? `· ${lineCount(lyrics)} lines` : ''}</span>
-      <textarea class="input" rows="5" value=${lyrics} placeholder="None typed: they are looked up, or Whisper writes down what it hears." onInput=${(e) => setLyrics(e.currentTarget.value)}></textarea></label>
+      <textarea class="input" rows="5" value=${lyrics} placeholder="None typed: they are looked up, or written down from the singing." onInput=${(e) => setLyrics(e.currentTarget.value)}></textarea></label>
     <div class="btn-row">
       <button class="btn primary" disabled=${busy} onClick=${approve}><${Icon} name="check" size=${16} /> Approve</button>
       <button class="btn ghost danger" disabled=${busy} onClick=${deny}>Deny</button>
@@ -130,7 +130,7 @@ export function DecisionPopup({ route }) {
   return html`<aside class="dec-popup" role="status" aria-live="polite" aria-label="A song asked for from a link">
     <div class="dec-head"><span class="pill bulb">${r.name}</span><b>asks for a song from YouTube</b></div>
     <${LinkOpen} r=${r} />
-    <p class="hint">${r.lyrics ? `With lyrics (${lineCount(r.lyricsText)} lines).` : 'No lyrics: they are looked up, or written down by Whisper.'}${more > 0 ? ` ${plural(more, 'more')} waiting.` : ''}</p>
+    <p class="hint">${r.lyrics ? `With lyrics (${lineCount(r.lyricsText)} lines).` : 'No lyrics: they are looked up, or written down from the singing.'}${more > 0 ? ` ${plural(more, 'more')} waiting.` : ''}</p>
     <div class="btn-row">
       <button class="btn small primary" onClick=${() => act('link.approve', { id: r.id }).then((ok) => ok && toast('Approved — the Karaoke maker makes it now', 'ok'))}>Approve</button>
       <button class="btn small ghost danger" onClick=${() => act('link.deny', { id: r.id })}>Deny</button>

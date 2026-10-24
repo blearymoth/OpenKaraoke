@@ -74,7 +74,7 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P1 **Lyric layouts** (§9.6): the disc's own pages, **two lines at a time** (karaoke-bar style)
   or a **scrolling list** (like music apps), from the sung lines found in each CD+G disc.
 - ✅ P1 **Real words for songs made here** (§9.7): in those two layouts, a song autokaraoke made is
-  written as text from its `timing.json`.
+  written as text from its `timing.json` — and any disc with a vocal, once its words are found (§31.16).
 - ⬜ P2 Mic monitoring with reverb/echo on the PC (localhost only, latency warning).
 
 ### Second screen & displays
@@ -2217,3 +2217,79 @@ settles §31.8's first question: (b), installed by OpenKaraoke, the code from th
   button isn't shown.
 - **Tests**: `maker/tests/test_retime.py` (mocked aligner, a synthetic vocal), `test/maker-extras.test.js` (5).
 
+### 31.16 A disc's words, from its vocal (2026-10-24)
+
+§31.5's "beyond the editor": the real words on the TV (§9.7) and the lyrics editor for any disc
+that has a vocal, not only songs made here. The disc's files and its CDG are never changed.
+
+- **Which versions**: an audio version with CD+G lyrics whose singer can be heard on its own — a
+  multiplex disc (its guide singer is separated, as for the headphone preview, without changing what
+  the room plays) or a version the host separated (§30). Song details shows **Find the words** on
+  those (`room.wordsProblem` says why not on the others: separate it first; install or update the
+  Karaoke maker).
+- **The dialog**: the lyrics to time (recommended), else looked up (the Karaoke maker's sources), else
+  what Whisper hears.
+- **autokaraoke** (`maker/`, version 0.3.0): `python -m autokaraoke words --vocals WAV -O OUT.json
+  [--lyrics FILE | --lyrics-sources a,b] [--artist A --title T --duration S --language xx
+  --whisper-model M]` writes a timing.json (no `render` field: nothing is drawn). Lookup prints the
+  same lines as `make`; it ends with `Words: N lines, M words`; a failure is one line with "error"
+  and a non-zero exit. OpenKaraoke asks only a copy ≥ 0.3.0 (`features.words`); an older one is told
+  to update.
+- **The job** (`server/lyrics/words.js` `WordJobs`, one per version): waits for the vocal (a multiplex
+  one is separated first, retried once), then — on a PC without a graphics card, unless
+  `maker.duringSongs` — for the song on stage to end, then for the heavy-job lane. The result is
+  `data/lyrics/<trackId>/words.json`. The host follows it on the version's row and in Settings →
+  Karaoke maker (**Words for discs**): Stop, Remove from the list, Edit lyrics.
+- **Afterwards** (`LyricEdits`, kind `'words'` beside a made song's `'made'`): `words.json` stands in
+  for the timing.json beside a pair. The TV's timing URL serves it, or its edit, with `source:
+  'words'`; the TV draws it in the disc's own colours, read from the disc's sung lines
+  (`analysisTextColours`), because the disc's colour table isn't autokaraoke's. The editor saves
+  edits but never draws them. Revert goes back to the words found. There is no write-back.
+  **Remove the words** (`words.remove`) forgets them, and the TV shows the disc's lyrics again.
+  Re-time and the guide vocal use the same vocal.
+- **Tests**: `maker/tests/test_words.py` (3), `test/words.test.js` (3), `test/lyric-text.test.js`
+  (the colours), `test/e2e/words.mjs` (22).
+
+### 31.17 Phonon-2 first, Whisper second (2026-10-24)
+
+The owner asked for **Phonon-2** (Fermion Research, `pip install fermion-research`; weights
+CC-BY-4.0, ≈158 MB, a compressed derivative of NVIDIA's Parakeet TDT 0.6B; 5.21 % average word
+error on the Open ASR Leaderboard's English sets by its makers' own figures) as the main lyric
+timer and Whisper as the second. Phonon-2 is English speech recognition with a time for every word;
+it can't force-align a given text, and on Linux its pip package runs on the processor only.
+
+- **How it times known lyrics** (`maker/autokaraoke/align.py` `Timer`, `phonon.py`): Phonon-2 hears
+  the vocal, favouring up to 25 of the lyrics' unusual words (its "hotwords"). Its word times go onto
+  the lyrics through `transfer_timing`, the same letter-by-letter matching Whisper's output goes
+  through, and words it didn't hear are spread between their neighbours. If it heard under 60 % of
+  the lyrics' letters (`compare`), Whisper force-aligns them instead.
+- **Whisper is second**, for:
+  - a song whose language isn't English;
+  - Phonon-2 not installed or not downloaded;
+  - Phonon-2 failing or refusing (fermion refuses with SystemExit).
+  The same order is used for `make`, `words` and `retime`, and for writing down a song with no lyrics.
+  `Lyric timer: Phonon-2` (or `Whisper`, or both) says which one timed it. OpenKaraoke shows that on
+  the job and keeps this PC's speed per timer (`timing:phonon-2` apart from `timing:<Whisper model>`).
+- **Choosing**: Settings → Karaoke maker → **Lyric timer** (`maker.lyricTimer`: `phonon`, the
+  default, or `whisper`) → `--lyric-timer`. It is passed only to an engine ≥ 0.4.0
+  (`features.phonon`); an older one is offered Update. **Whisper model** stays its own setting.
+- **Installing**: `fermion-research` is the engine's `phonon` extra, installed by default
+  (`install.sh --no-phonon` leaves it out). Its weights go to `<models>/fermion`
+  (`$FERMION_CACHE_DIR`), are fetched by `setup`, and are listed by `setup --check` as `Phonon
+  phonon-2`. A missing Phonon-2 doesn't make the models "not ready" (Whisper covers). An Update
+  (code only) adds the package and its weights to an older environment.
+- **Where it comes from** (the owner's choice: a reputable source, not bundled): Fermion Research's
+  own repository on Hugging Face, downloaded on the PC by `setup` / `install.sh` through
+  fermion-research. That package checks the file against the SHA-256 pinned in its catalog, and every
+  unpacked part against its own. OpenKaraoke's installers don't carry it (a bundle in the
+  installers was tried and taken out: it made them ≈280 MB and the copy came from our releases, not
+  the publisher).
+- **Checked on GitHub, not in the cloud session**: Hugging Face and PyTorch's download site are
+  blocked there. `.github/workflows/maker.yml` (pull requests touching `maker/`) runs the engine's
+  tests, fetches Phonon-2 from Hugging Face with the install's own call, then has `autokaraoke words`
+  time espeak-ng's spoken lyrics with it offline, and checks that Phonon-2 did (`Lyric timer:
+  Phonon-2`, 16 words in order). Phonon-2 on singing still needs the owner's PC; the 60 % threshold
+  is a first guess.
+- **Tests**: `maker/tests/test_phonon.py` (7: both models are stand-ins), `test/maker-extras.test.js`
+  (the setting, the timer passed on, the speed per timer), `test/maker.test.js` (the Phonon row,
+  the timer line), `test/words.test.js`.

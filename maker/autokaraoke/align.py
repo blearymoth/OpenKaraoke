@@ -1,5 +1,6 @@
-"""Lyrics timing with Whisper via stable-ts: forced alignment of known lyrics, or
-transcription when no lyrics are given.
+"""Lyrics timing: forced alignment of known lyrics, or transcription when no lyrics are given.
+Two timers (`Timer`): Phonon-2 first (phonon.py: fast, English, hears the vocal and its word times
+go onto the lyrics), and Whisper via stable-ts second (any language, true forced alignment).
 
 The aligner's word list may tokenise differently from the lyrics file (punctuation,
 contractions, merged words), so timings are transferred character by character:
@@ -124,8 +125,90 @@ def _words_of(result):
     return [(w.word, float(w.start), float(w.end)) for w in result.all_words()]
 
 
+TIMERS = ("phonon", "whisper")
+PHONON_MIN = 0.6  # Phonon-2 must hear this share of the lyrics' letters, or Whisper times them
+
+
+class Timer:
+    """The lyric timer for one run: Phonon-2 first (`choice` "phonon"), Whisper second, each
+    loaded only when needed. Passed where a Whisper model was (`align`, `transcribe`)."""
+
+    def __init__(self, choice, whisper_name, device, log=print, mdir=None):
+        self.choice = choice if choice in TIMERS else "phonon"
+        self.whisper_name, self.device, self.log, self.mdir = whisper_name, device, log, mdir
+        self._whisper = None
+        self._phonon = None
+        self.used = set()  # "phonon" / "whisper": what timed this run (for the log and tests)
+
+    def phonon_for(self, language):
+        """Phonon-2, when it is wanted, installed, downloaded and the song is English; else None."""
+        from . import phonon
+        if self.choice != "phonon" or self._phonon is False:
+            return None
+        if language and not str(language).lower().startswith("en"):
+            self.log("Phonon-2 is English only: Whisper times this song.")
+            return None
+        if self._phonon is None:
+            if not phonon.available() or not (self.mdir and phonon.cached(self.mdir)):
+                self.log("Phonon-2 is not installed here: Whisper times this song.")
+                self._phonon = False
+                return None
+            try:
+                self._phonon = phonon.load(self.mdir, self.log)
+            except (Exception, SystemExit) as e:  # noqa: BLE001 - Whisper is the second timer (fermion refuses with SystemExit)
+                self.log(f"Phonon-2 could not start ({e}): Whisper times this song.")
+                self._phonon = False
+                return None
+        return self._phonon
+
+    def whisper(self):
+        if self._whisper is None:
+            self._whisper = load_model(self.whisper_name, self.device, self.log, mdir=self.mdir)
+        return self._whisper
+
+    def align(self, vocals16k, lyric_lines, language):
+        from . import phonon
+        speech = self.phonon_for(language)
+        if speech is not None:
+            try:
+                heard = phonon.heard(speech, vocals16k, phonon.hotwords(lyric_lines))
+                overall, _ = compare(lyric_lines, phonon.lines_of(heard))
+                self.log(f"Phonon-2 heard {overall:.0%} of the lyrics.")
+                if heard and overall >= PHONON_MIN:
+                    self.used.add("phonon")
+                    self.log(f"Aligning {sum(len(l) for l in lyric_lines)} words of lyrics to the vocals (Phonon-2)...")
+                    return transfer_timing(lyric_lines, heard)
+                self.log(f"Under {PHONON_MIN:.0%}: Whisper times the lyrics instead.")
+            except (Exception, SystemExit) as e:  # noqa: BLE001 - Whisper is the second timer (fermion refuses with SystemExit)
+                self.log(f"Phonon-2 could not time them ({e}): Whisper instead.")
+        self.used.add("whisper")
+        return align(self.whisper(), vocals16k, lyric_lines, language, self.log)
+
+    def transcribe(self, vocals16k, language):
+        from . import phonon
+        speech = self.phonon_for(language)
+        if speech is not None:
+            try:
+                lines = phonon.lines_of(phonon.heard(speech, vocals16k))
+                if lines:
+                    self.used.add("phonon")
+                    self.log("No lyrics given: transcribing the vocals with Phonon-2 (check the result, songs are misheard)...")
+                    return lines, "en"
+                self.log("Phonon-2 heard no words: Whisper listens instead.")
+            except (Exception, SystemExit) as e:  # noqa: BLE001
+                self.log(f"Phonon-2 could not transcribe ({e}): Whisper instead.")
+        self.used.add("whisper")
+        return transcribe(self.whisper(), vocals16k, language, self.log)
+
+
+def load_timer(choice, whisper_name, device, log=print, mdir=None):
+    return Timer(choice, whisper_name, device, log, mdir)
+
+
 def align(model, vocals16k, lyric_lines, language, log=print):
-    """vocals16k: mono float32 numpy at 16 kHz."""
+    """vocals16k: mono float32 numpy at 16 kHz. `model`: a Whisper model, or a Timer."""
+    if isinstance(model, Timer):
+        return model.align(vocals16k, lyric_lines, language)
     text = "\n".join(" ".join(line) for line in lyric_lines)
     log(f"Aligning {sum(len(l) for l in lyric_lines)} words of lyrics to the vocals...")
     result = model.align(vocals16k, text, language=language or "en")
@@ -135,6 +218,8 @@ def align(model, vocals16k, lyric_lines, language, log=print):
 
 
 def transcribe(model, vocals16k, language=None, log=print):
+    if isinstance(model, Timer):
+        return model.transcribe(vocals16k, language)
     log("No lyrics given: transcribing the vocals (check the result, Whisper mishears songs)...")
     result = model.transcribe(vocals16k, language=language or None, vad=False)
     try:

@@ -13,6 +13,12 @@ files (`npm run vendor` rebuilds them from the npm packages):
 
 "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
 
+The Karaoke maker downloads its Python packages and models from their own sources when it is
+installed — PyTorch, Demucs, Whisper, fermion-research from PyPI and PyTorch's site, and the models
+from their publishers (Phonon-2 from [Fermion Research on Hugging Face](https://huggingface.co/FermionResearch/Phonon-2),
+CC-BY-4.0, a derivative of NVIDIA's [parakeet-tdt-0.6b-v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)).
+None of them ships with OpenKaraoke.
+
 ## Preact 10.29.8
 
 ```

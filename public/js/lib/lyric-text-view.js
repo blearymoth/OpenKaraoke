@@ -55,6 +55,14 @@ export class TextView {
     if (this.geo?.box) this.measure(this.geo.box);
   }
 
+  /** The disc's colours came in later (a disc's own words: from its sung lines): redraws every line. */
+  setDisc(disc) {
+    this.disc = disc;
+    if (!this.lines) return;
+    this.colours = textColours(this.style.look, this.disc, this.style.plate);
+    for (const it of this.items.values()) it.drawn = -1;
+  }
+
   /** look, plate, outline, font (a CSS font family): redraws every line. */
   setStyle(style) {
     const next = { ...this.style, ...style };

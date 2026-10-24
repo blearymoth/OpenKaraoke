@@ -43,7 +43,7 @@ test('lyrics editor: autokaraoke’s songs only, host only; save → drawn → t
 
   // Song details: the host sees "Edit lyrics" on autokaraoke's version only.
   const details = async (s) => (await fetch(`${base}/api/songs/${s.id}`)).json();
-  assert.deepEqual((await details(nd)).versions[0].lyrics, { edited: false });
+  assert.deepEqual((await details(nd)).versions[0].lyrics, { kind: 'made', edited: false });
   assert.ok((await details(hello)).versions.every((v) => !v.lyrics), 'a disc without a timing.json: nothing to edit');
   const ana = await guest('Ana');
   const asGuest = await fetch(`${base}/api/songs/${nd.id}`, { headers: { 'x-guest-token': ana.welcome.token } });
@@ -76,7 +76,7 @@ test('lyrics editor: autokaraoke’s songs only, host only; save → drawn → t
   const render = tool.state.runs.find((r) => r.kind === 'render');
   assert.equal(render.opts.theme, 'classic', 'drawn in the colours the disc was drawn in');
   assert.ok(render.opts.timing.startsWith(path.join(app.dataDir, 'lyrics')), 'the edit is in the data folder');
-  assert.deepEqual((await details(nd)).versions[0].lyrics, { edited: true });
+  assert.deepEqual((await details(nd)).versions[0].lyrics, { kind: 'made', edited: true });
   const lib = app.library.paths[0];
   assert.equal(JSON.parse(await fs.readFile(path.join(lib, `${made}.timing.json`), 'utf8')).lines[0].words[0].text, 'Driving', 'the library file is untouched');
 

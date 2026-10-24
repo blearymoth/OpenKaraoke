@@ -82,7 +82,9 @@ Server (`server/`)
   the save folder inside the library and its rescan, install/models), `fake.js` (the stand-in tests use;
   `OPENKARAOKE_FAKE_MAKER=1`).
 - `lyrics/edits.js` — the lyrics editor's edits (PLAN §31.10): data/lyrics/<trackId>/ (timing.json +
-  the CDG autokaraoke draws from it), served in place of the disc's CDG; revert, write back, rekey.
+  the CDG autokaraoke draws from it), served in place of the disc's CDG; revert, write back, rekey;
+  a disc's own words (`words.json`, kind 'words': never drawn). `lyrics/words.js` — `WordJobs`: a
+  disc's words timed against its vocal (`autokaraoke words`, PLAN §31.16).
 - `room/links.js` — songs from a link (PLAN §31.12): guests' YouTube requests (`data/requests.json`), limits,
   the host's decision, the maker job, queued for the guest, their phone told.
 - `room/accounts.js` (`data/accounts.json`: guests' usernames, scrypt hashes, token versions — an
@@ -144,7 +146,8 @@ Browser (`public/`, plain ES modules, Preact + htm)
   `vocals.js` (Lead control + Vocals dialog), `graphics.js` (Settings → About → Graphics, desktop app),
   `system.js` (Settings → About → On this computer, desktop app), `maker.js` (Settings → Karaoke maker), `decisions.js` (#/decisions + the popup: guests'
   song links, requests, photos, screens waiting), `lyrics-editor.js`
-  (#/lyrics/<trackId>: autokaraoke's word timings),
+  (#/lyrics/<trackId>: autokaraoke's word timings), `words.js` (Find the words: Song details' button,
+  the dialog, Words for discs),
   `monitor.js` (the headphone
   monitor: the TV's audio engine on headphones, in time with the TV — PLAN §29).
 - `guest.html` + `js/guest/main.js` — join, search, song sheet, queue, reactions, alerts, the

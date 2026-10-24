@@ -1,0 +1,61 @@
+# The Karaoke maker's engine (maker/) on a pull request: its tests, and Phonon-2 for real — fetched
+# from Fermion Research's repository on Hugging Face exactly as a PC's install does (fermion-research
+# checks it against its pinned SHA-256), then `autokaraoke words` timing spoken lyrics with it,
+# offline (espeak-ng's voice, so no media is kept in the repository). Nothing is released here.
+name: Karaoke maker
+
+on:
+  pull_request:
+    paths:
+      - 'maker/**'
+      - '.github/workflows/maker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tests (Python)
+        working-directory: maker
+        run: |
+          python3 -m venv "$RUNNER_TEMP/test-venv"
+          "$RUNNER_TEMP/test-venv/bin/pip" install --quiet numpy pillow pytest
+          "$RUNNER_TEMP/test-venv/bin/python" -m pytest -q
+
+      - name: Phonon-2 from Hugging Face, as an install fetches it
+        timeout-minutes: 15
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet torch --index-url https://download.pytorch.org/whl/cpu
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet "./maker[phonon]"
+          # (install.sh's get_phonon: the same call, into the models folder)
+          "$RUNNER_TEMP/venv/bin/python" -c 'from autokaraoke import phonon; phonon.download("'"$RUNNER_TEMP/models"'")'
+          "$RUNNER_TEMP/venv/bin/python" -c 'from autokaraoke import phonon; import sys; f = phonon.folder("'"$RUNNER_TEMP/models"'"); print(f); sys.exit(0 if f else 1)'
+
+      - name: Phonon-2 times spoken lyrics (autokaraoke words, offline)
+        timeout-minutes: 15
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends espeak-ng ffmpeg
+          M="$RUNNER_TEMP/models"
+          printf 'Hello my friend, the weather is lovely today\nWe are singing a song about the summer\n' > "$RUNNER_TEMP/lyrics.txt"
+          espeak-ng -s 140 -w "$RUNNER_TEMP/speech.wav" "$(tr '\n' ' ' < "$RUNNER_TEMP/lyrics.txt")"
+          HF_HUB_OFFLINE=1 "$RUNNER_TEMP/venv/bin/python" -m autokaraoke words --vocals "$RUNNER_TEMP/speech.wav" \
+            -O "$RUNNER_TEMP/words.json" --lyrics "$RUNNER_TEMP/lyrics.txt" --models-dir "$M" 2>&1 | tee "$RUNNER_TEMP/words.log"
+          grep -q '^Lyric timer: Phonon-2$' "$RUNNER_TEMP/words.log"
+          "$RUNNER_TEMP/venv/bin/python" - "$RUNNER_TEMP/words.json" <<'PY'
+          import json, sys
+          d = json.load(open(sys.argv[1]))
+          words = [w for l in d["lines"] for w in l["words"]]
+          print(f"{len(words)} words, {words[0]['text']} at {words[0]['start']:.2f} s … {words[-1]['text']} at {words[-1]['end']:.2f} s")
+          assert len(words) == 16, len(words)
+          assert all(w["end"] >= w["start"] for w in words)
+          assert all(a["start"] <= b["start"] for a, b in zip(words, words[1:])), "in order"
+          assert words[-1]["end"] - words[0]["start"] > 3, "spread over the speech"
+          PY

@@ -689,6 +689,11 @@ label.btn.disabled { opacity: 0.45; pointer-events: none; }
 .mk-banner { align-items: center; }
 .mk-banner p { margin: 2px 0 0; }
 .mk-jobs { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+/* A disc's words (PLAN §31.16): Song details' row, the dialog, the list in Settings → Karaoke maker */
+.words-state { display: inline-flex; align-items: center; gap: 6px; }
+.words-state .spinner { width: 12px; height: 12px; }
+.words-dialog { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.words-jobs { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 8px; }
 .mk-job-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .mk-job-head b { flex: 1; font-size: 16px; }
 .mk-state.running, .mk-state.queued { background: var(--neon-soft); color: var(--ink); }

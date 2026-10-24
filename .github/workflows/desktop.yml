@@ -14,6 +14,7 @@ on:
       - 'server/**'
       - 'public/**'
       - 'shared/**'
+      - 'maker/**'
       - 'desktop/**'
       - 'package.json'
       - 'LICENSE'

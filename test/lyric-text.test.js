@@ -4,7 +4,9 @@
 // URL in the TV's media (a new one when an edit is saved), and /media/<id>/timing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { textLines, wrapLines, wipeAt, discTextColours, textColours, CLASSIC } from '../shared/lyric-text.js';
+import { textLines, wrapLines, wipeAt, discTextColours, textColours, analysisTextColours, CLASSIC } from '../shared/lyric-text.js';
+import { analyzeLines } from '../shared/lyric-lines.js';
+import { pagesDisc, rollingDisc, duetDisc } from './lyric-discs.js';
 import { contrast, panelBackdrop } from '../shared/lyrics.js';
 import { readTiming } from '../shared/timing.js';
 import { fakeTiming, cdgFromTiming } from '../server/maker/fake.js';
@@ -71,6 +73,15 @@ test('lyric text: the disc’s colours, readable on both skins’ panels', () =>
   const fixed = textColours('panel', dim, { rgb: [7, 11, 22], a: 0.9 });
   assert.ok(contrast(fixed.sung, panelBackdrop({ rgb: [7, 11, 22], a: 0.9 })) >= 7, 'a dim disc gets brighter');
   assert.deepEqual(textColours('disc', dim, null), dim, 'as the disc made them');
+});
+
+test('lyric text: any disc’s colours, from its sung lines (a disc’s own words, PLAN §31.16)', () => {
+  const of = (d) => analysisTextColours(analyzeLines(d.bytes || d));
+  assert.deepEqual(of(pagesDisc()), { bg: [0, 0, 68], unsung: [255, 255, 255], sung: [255, 255, 0] }, 'white → yellow (alike in brightness, not in colour)');
+  assert.deepEqual(of(rollingDisc()).unsung, [255, 255, 255], 'a highlight bar behind the letters is not the letters');
+  assert.deepEqual(of(duetDisc()), { bg: [0, 0, 0], unsung: [85, 153, 255], sung: [255, 221, 0] }, 'the colour most letters turn between');
+  assert.equal(analysisTextColours({ ok: false, lines: [] }), null);
+  assert.equal(analysisTextColours(null), null);
 });
 
 test('lyric text: the TV is told where a song’s words are; a saved edit gives a new URL', async (t) => {

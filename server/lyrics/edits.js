@@ -3,6 +3,10 @@
 // autokaraoke draws from it (`autokaraoke render`, a second or so; no ML) as lyrics.cdg — and the
 // TV is served that CDG instead of the disc's. The library's files are not changed unless the host
 // asks to write the edit back into the song's folder (the originals are kept once, as .orig).
+// A disc that wasn't made here can have words too (PLAN §31.16, ./words.js): autokaraoke times
+// them against the disc's vocal into data/lyrics/<trackId>/words.json, which stands in for the
+// timing.json beside the pair. Its edits are never drawn (the disc keeps its own CDG): the TV
+// writes them as text (§9.7). Their kind is 'words'; a song made here is 'made'.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { renameSync } from 'node:fs';
@@ -94,27 +98,58 @@ export class LyricEdits {
     this.onText(trackId);
   }
 
-  /** The timing.json the TV draws for a track: the edit if there is one, else autokaraoke's own; or null. */
-  async timingFile(track) {
+  /**
+   * Where a track's own words are: autokaraoke's timing.json beside a song made here (kind 'made'),
+   * else the words found for the disc in the data folder (kind 'words'); or null.
+   */
+  async source(track) {
     const dir = this.dir(track?.id);
     const f = this.files(track);
     if (!dir || !f) return null;
-    const draft = path.join(dir, 'timing.json');
-    if (await exists(draft)) return draft;
-    return (await exists(f.timing)) ? f.timing : null;
+    if (await exists(f.timing)) return { file: f.timing, kind: 'made' };
+    const words = path.join(dir, 'words.json');
+    return (await exists(words)) ? { file: words, kind: 'words' } : null;
   }
 
-  /** The words and times the TV draws (/media/<id>/timing), cleaned; null: none. */
+  /** The timing.json the TV draws for a track: the edit if there is one, else its own words; or null. */
+  async timingFile(track) {
+    const src = await this.source(track);
+    if (!src) return null;
+    const draft = path.join(this.dir(track.id), 'timing.json');
+    return (await exists(draft)) ? { file: draft, kind: src.kind } : src;
+  }
+
+  /** The words and times the TV draws (/media/<id>/timing), cleaned, with `source` (its kind); null: none. */
   async textFor(trackId) {
     const track = this.library.catalog.track(trackId);
-    const file = await this.timingFile(track);
-    if (!file) return null;
+    const at = await this.timingFile(track);
+    if (!at) return null;
     try {
-      if ((await fs.stat(file)).size > MAX_TIMING) return null;
-      return timingJson(readTiming(JSON.parse(await fs.readFile(file, 'utf8'))));
+      if ((await fs.stat(at.file)).size > MAX_TIMING) return null;
+      return { ...timingJson(readTiming(JSON.parse(await fs.readFile(at.file, 'utf8')))), source: at.kind };
     } catch {
       return null; // (gone, or unreadable: the disc's own lyrics then)
     }
+  }
+
+  /** New words found for a disc (./words.js): `file` becomes words.json; an edit of the old ones goes. */
+  async setWords(trackId, file) {
+    const dir = this.dir(trackId);
+    await fs.rm(path.join(dir, 'timing.json'), { force: true });
+    await fs.rename(file, path.join(dir, 'words.json'));
+    this.textChanged(trackId);
+  }
+
+  /** Forget a disc's words (and any edit of them): the TV draws the disc's own lyrics again. */
+  async removeWords(trackId) {
+    const { track } = this.track(trackId);
+    if ((await this.source(track))?.kind !== 'words') throw new UserError('This version has no words found for it.');
+    await fs.rm(this.dir(trackId), { recursive: true, force: true });
+    this.drawn.delete(trackId);
+    this.texts.set(trackId, this.textGen(trackId) + 1);
+    this.timed.set(trackId, false);
+    this.onText(trackId);
+    return { removed: true };
   }
 
   /** The edits on disk (after a restart). */
@@ -140,10 +175,15 @@ export class LyricEdits {
     return { cdg, audio, timing: cdg.replace(/\.cdg$/i, '.timing.json'), lrc: cdg.replace(/\.cdg$/i, '.lrc') };
   }
 
-  /** The track has lyrics the editor can edit (autokaraoke's timing.json beside it). */
+  /** The kind of words the editor can edit for a track ('made' | 'words'), or '' (none). */
   async editable(track) {
-    const f = this.files(track);
-    return !!f && (await exists(f.timing));
+    return (await this.source(track))?.kind || '';
+  }
+
+  /** Has the track's words an edit (the editor's draft)? */
+  async edited(trackId) {
+    const dir = this.dir(trackId);
+    return !!dir && (await exists(path.join(dir, 'timing.json')));
   }
 
   /** The edited CDG to serve for a track, or null (the disc's own). */
@@ -164,17 +204,19 @@ export class LyricEdits {
     return { track, f };
   }
 
-  /** What the editor opens: the edit if there is one, else autokaraoke's own timing. */
+  /** What the editor opens: the edit if there is one, else the track's own words. */
   async open(trackId) {
     const { track, f } = this.track(trackId);
     const dir = this.dir(trackId);
     const draft = path.join(dir, 'timing.json');
-    const edited = await exists(draft);
+    const src = await this.source(track);
+    const edited = !!src && (await exists(draft));
     let text;
     try {
-      text = await fs.readFile(edited ? draft : f.timing, 'utf8');
+      if (!src) throw new Error('none');
+      text = await fs.readFile(edited ? draft : src.file, 'utf8');
     } catch {
-      throw new UserError('This song has no timed lyrics to edit: only songs made with autokaraoke have them.');
+      throw new UserError('This version has no timed lyrics to edit: songs made with autokaraoke have them, and a disc with a vocal can get them (Song details → Find the words).');
     }
     if (text.length > MAX_TIMING) throw new UserError('That timing file is too big.');
     let timing;
@@ -195,16 +237,18 @@ export class LyricEdits {
       drawn: this.drawn.has(trackId),
       audio: `/media/${trackId}/audio`,
       vocal: await this.vocalOf(trackId).catch(() => null),
-      file: f.timing,
-      renderer: !!this.maker?.where?.installed,
+      kind: src.kind, // 'made': redrawn and written back; 'words': a disc's, never drawn (the TV writes them)
+      file: src.kind === 'made' ? f.timing : '',
+      renderer: src.kind === 'made' && !!this.maker?.where?.installed,
       retime: !!this.maker?.where?.installed && !!(await this.vocalFile(trackId, f)),
     };
   }
 
   /** Saves an edit and has autokaraoke draw it. → the editor's state. */
   async save(trackId, raw) {
-    const { f } = this.track(trackId);
-    if (!(await exists(f.timing))) throw new UserError('This song has no timed lyrics to edit.');
+    const { track, f } = this.track(trackId);
+    const src = await this.source(track);
+    if (!src) throw new UserError('This version has no timed lyrics to edit.');
     let song;
     try {
       song = readTiming(raw);
@@ -221,6 +265,7 @@ export class LyricEdits {
       await fs.writeFile(`${timingFile}.part`, `${JSON.stringify(timingJson(song), null, 1)}\n`);
       await fs.rename(`${timingFile}.part`, timingFile);
       this.textChanged(trackId); // (the TV's words follow at once, drawn or not)
+      if (src.kind === 'words') return { ...(await this.open(trackId)), drawnNow: false }; // (a disc keeps its CDG)
       const where = this.maker?.where;
       if (!this.maker?.tool || !where?.installed) {
         return { ...(await this.open(trackId)), drawnNow: false, error: 'Saved. autokaraoke is needed to draw the lyrics: install it in Settings → Karaoke maker.' };
@@ -289,7 +334,7 @@ export class LyricEdits {
       await fs.writeFile(input, `${JSON.stringify(timingJson(song), null, 1)}\n`);
       const lines = [];
       const run = this.maker.tool.start(where, 'retime', {
-        timing: input, vocals, output, from, to, language: song.language || '', whisperModel: this.maker.whisperModel(),
+        timing: input, vocals, output, from, to, language: song.language || '', whisperModel: this.maker.whisperModel(), lyricTimer: this.maker.lyricTimer?.() || '',
         onLine: (l) => lines.push(l),
       });
       const { code } = await run.done;
@@ -297,7 +342,7 @@ export class LyricEdits {
       if (code !== 0 || !done) {
         const why = [...lines].reverse().find((l) => /error/i.test(l)) || lines.at(-1) || `autokaraoke stopped (${code})`;
         log.info(`re-timing ${trackId} failed: ${why}`);
-        throw new UserError(`Whisper could not re-time it: ${why.replace(/^error:\s*/i, '').slice(0, 200)}`);
+        throw new UserError(`The lyric timer could not re-time it: ${why.replace(/^error:\s*/i, '').slice(0, 200)}`);
       }
       const timing = timingJson(readTiming(JSON.parse(await fs.readFile(output, 'utf8'))));
       return { timing, retimed: Number(done[1]) };
@@ -308,12 +353,13 @@ export class LyricEdits {
     }
   }
 
-  /** Back to autokaraoke's own timing and the disc's CDG. */
+  /** Back to the track's own words (autokaraoke's timing, or the words found) and the disc's CDG. */
   async revert(trackId) {
-    this.track(trackId);
+    const { track } = this.track(trackId);
     const dir = this.dir(trackId);
     const had = this.drawn.has(trackId);
-    await fs.rm(dir, { recursive: true, force: true });
+    if ((await this.source(track))?.kind === 'words') await fs.rm(path.join(dir, 'timing.json'), { force: true });
+    else await fs.rm(dir, { recursive: true, force: true });
     this.drawn.delete(trackId);
     if (had) this.onChange(trackId);
     this.textChanged(trackId);
@@ -325,7 +371,8 @@ export class LyricEdits {
    * and NAME.lrc (each original kept once as NAME.….orig). Then the edit in the data folder goes.
    */
   async writeBack(trackId) {
-    const { f } = this.track(trackId);
+    const { track, f } = this.track(trackId);
+    if ((await this.source(track))?.kind !== 'made') throw new UserError('A disc’s words stay in OpenKaraoke: its own files are never changed.');
     const dir = this.dir(trackId);
     const draft = path.join(dir, 'timing.json');
     const cdg = path.join(dir, 'lyrics.cdg');

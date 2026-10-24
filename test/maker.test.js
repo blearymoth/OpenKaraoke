@@ -91,6 +91,8 @@ Offline: ready. \`make\` with these models no longer needs the internet (only Yo
   assert.equal(check.software, '5.9 GB');
   assert.equal(check.offline, true);
   assert.equal(readSetupCheck('  Whisper large-v3                    MISSING\nOffline: NOT ready.').models[0].ready, false);
+  assert.deepEqual(readSetupCheck('  Phonon  phonon-2            158 MB   ready').models, [{ kind: 'phonon', name: 'phonon-2', size: '158 MB', ready: true }], 'Phonon-2 (0.4.0)');
+  assert.deepEqual(readMakeLine('Lyric timer: Phonon-2 + Whisper'), { timer: 'Phonon-2 + Whisper' });
   assert.equal(gpuNameOf('GPU 0: NVIDIA GeForce RTX 3080 (UUID: GPU-1234)\n'), 'NVIDIA GeForce RTX 3080');
 
   // The code ships with OpenKaraoke (maker/); the install goes to ~/.local/share/openkaraoke/autokaraoke.

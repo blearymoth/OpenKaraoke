@@ -105,17 +105,21 @@ export function fakeTiming(lyrics, { title = '', artist = '', language = 'en', d
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** autokaraoke's "Lyric timer:" line: Phonon-2 for an English song when it is first, else Whisper. */
+const timerLine = (opts) => `Lyric timer: ${opts.lyricTimer === 'phonon' && /^en/.test(opts.language || 'en') ? 'Phonon-2' : 'Whisper'}`;
 
 /**
  * The stand-in tool. `state`: installed, models ready, the GPU's name ('' = none), and `fail`
- * ('make' | 'render' | 'setup' | 'install') to make that command fail. `seconds`: how long a make takes.
+ * ('make' | 'render' | 'setup' | 'install' | 'retime' | 'words') to make that command fail. `seconds`: how
+ * long a make takes. `version`: the installed copy's ('0.2.0': before `words`). `heard`: what "Whisper
+ * hears" when `words` has no lyrics.
  */
-export function fakeAutokaraoke({ root = '/home/you/.local/share/openkaraoke/autokaraoke', legacy = '', installed = true, models = true, gpu = '', gpuMB = 8192, cores = 8, memGB = 16, freeGB = 120, fail = '', seconds = 1.5, songSeconds = 30, lookup = true, lookupHit = 'Found on the internet\nAll the words are here' } = {}) {
-  const state = { installed, models, gpu, gpuMB, cores, memGB, freeGB, fail, seconds, songSeconds, lookup, lookupHit, runs: [] };
+export function fakeAutokaraoke({ root = '/home/you/.local/share/openkaraoke/autokaraoke', legacy = '', installed = true, models = true, gpu = '', gpuMB = 8192, cores = 8, memGB = 16, freeGB = 120, fail = '', seconds = 1.5, songSeconds = 30, lookup = true, lookupHit = 'Found on the internet\nAll the words are here', version = '0.4.0', heard = 'What whisper herd\nIn the singing' } = {}) {
+  const state = { installed, models, gpu, gpuMB, cores, memGB, freeGB, fail, seconds, songSeconds, lookup, lookupHit, version, heard, runs: [] };
   const where = () => ({
     root, python: path.join(root, '.venv', 'bin', 'python'), launcher: '', modelsDir: path.join(root, 'models'),
     hasRoot: true, installed: state.installed, installer: '/opt/OpenKaraoke/maker/install.sh', source: '/opt/OpenKaraoke/maker',
-    bundled: '0.2.0', legacy: state.installed ? legacy : '', legacyModels: legacy ? path.join(legacy, 'models') : '',
+    bundled: '0.4.0', legacy: state.installed ? legacy : '', legacyModels: legacy ? path.join(legacy, 'models') : '',
   });
   return {
     state,
@@ -123,14 +127,15 @@ export function fakeAutokaraoke({ root = '/home/you/.local/share/openkaraoke/aut
 
     async check(at, { whisperModel = 'medium', demucsModel = 'htdemucs' } = {}) {
       return {
-        python: '3.12.3', ffmpeg: 'ready', gpu: state.gpu, version: state.installed ? '0.2.0' : '', update: false,
+        python: '3.12.3', ffmpeg: 'ready', gpu: state.gpu, version: state.installed ? state.version : '', update: false,
         specs: { gpus: state.gpu ? [{ name: state.gpu, memMB: state.gpuMB }] : [], cores: state.cores, memGB: state.memGB, freeGB: state.freeGB },
-        features: { lookup: state.installed && state.lookup },
+        features: { lookup: state.installed && state.lookup, words: state.installed && state.version >= '0.3.0', phonon: state.installed && state.version >= '0.4.0' },
         setup: state.installed ? {
           folder: path.join(root, 'models'),
           models: [
             { kind: 'demucs', name: demucsModel, size: state.models ? '80 MB' : '', ready: state.models },
             { kind: 'whisper', name: whisperModel, size: state.models ? '1.5 GB' : '', ready: state.models },
+            ...(state.version >= '0.4.0' ? [{ kind: 'phonon', name: 'phonon-2', size: state.models ? '158 MB' : '', ready: state.models }] : []),
           ],
           total: state.models ? '1.6 GB' : '0 KB', software: '2.3 GB', offline: state.models,
         } : null,
@@ -205,8 +210,40 @@ export function fakeAutokaraoke({ root = '/home/you/.local/share/openkaraoke/aut
             }
           }
           state.runs.at(-1).retimed = n;
+          say(timerLine(opts));
           await fs.writeFile(opts.output, `${JSON.stringify(d, null, 1)}\n`);
           say(`Retimed ${n} words (${opts.from}\u2013${opts.to} s)`);
+          return { code: 0, signal: null };
+        }
+        if (kind === 'words') { // (autokaraoke words: a disc's words against its vocal; no CDG)
+          await sleep(step);
+          if (cancelled) return { code: null, signal: 'SIGTERM' };
+          if (state.fail === 'words') {
+            say('error: alignment failed; check that the lyrics match the song');
+            return { code: 1, signal: null };
+          }
+          let lyrics = opts.lyricsFile ? await fs.readFile(opts.lyricsFile, 'utf8') : '';
+          if (lyrics) say(`Aligning ${lyrics.split(/\s+/).filter(Boolean).length} words of lyrics to the vocals...`);
+          else if (opts.lyricsSources?.length) {
+            say(`Looking for lyrics: ${opts.lyricsSources.join(', ')}...`);
+            if (state.lookupHit && opts.lyricsSources.includes('lrclib')) {
+              lyrics = state.lookupHit;
+              say(`  used the lyrics from LRCLIB, saved in words.lyrics.txt; edit them and re-run with --lyrics ... --retime to fix words.`);
+            } else say('  no lyrics found; transcribing instead.');
+          }
+          if (!lyrics) {
+            say('No lyrics given: transcribing the vocals (check the result, Whisper mishears songs)...');
+            lyrics = state.heard;
+          }
+          await sleep(step);
+          if (cancelled) return { code: null, signal: 'SIGTERM' };
+          const timing = fakeTiming(lyrics, { title: opts.title || '', artist: opts.artist || '', language: opts.language || 'en', duration: opts.duration || state.songSeconds });
+          await fs.mkdir(path.dirname(opts.output), { recursive: true });
+          await fs.writeFile(opts.output, `${JSON.stringify(timing, null, 1)}\n`);
+          say(timerLine(opts));
+          say(`Timing: ${opts.output}`);
+          const n = timing.lines.reduce((a, l) => a + l.words.length, 0);
+          say(`Words: ${timing.lines.length} lines, ${n} words`);
           return { code: 0, signal: null };
         }
         // make
@@ -254,6 +291,7 @@ export function fakeAutokaraoke({ root = '/home/you/.local/share/openkaraoke/aut
         const timing = fakeTiming(lyrics, { ...names, language: opts.language, duration: state.songSeconds });
         const timingPath = path.join(opts.out, `${base}.timing.json`);
         await fs.writeFile(timingPath, `${JSON.stringify(timing, null, 1)}\n`);
+        say(timerLine(opts));
         say(`Timing: ${timingPath}`);
         await fs.writeFile(path.join(opts.out, `${base}.lrc`), timingToLrc(readTiming(timing)));
         await sleep(step);

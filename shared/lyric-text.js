@@ -4,7 +4,7 @@
 // wipe come from the song time; the colours from the disc's own colour table, made readable as
 // the disc's are (shared/lyrics.js).
 import { readTiming } from './timing.js';
-import { readablePalette, contrast } from './lyrics.js';
+import { readablePalette, contrast, deltaE } from './lyrics.js';
 import { CDG_INSTR, CDG_PACKET_SIZE } from './cdg.js';
 
 /** autokaraoke's colour-table entries (its render.py): the background, unsung and sung words. */
@@ -13,6 +13,7 @@ export const UNSUNG = 1;
 export const SUNG = 2;
 /** autokaraoke's "classic" theme (4-bit RGB × 17): the colours when the disc's can't be read. */
 export const CLASSIC = { bg: [0, 0, 51], unsung: [255, 255, 255], sung: [255, 187, 0] };
+const SAME = 0.08; // OKLab distance under which sung and unsung look alike: not a wipe to follow
 
 /**
  * The song's lines for the layouts: { start, end, text, words: [{ text, start, end }] } in sung
@@ -96,10 +97,37 @@ export function discTextColours(bytes) {
     };
     const c = { bg: at(BG), unsung: at(UNSUNG), sung: at(SUNG) };
     // (another maker's table, or words the same colour sung and unsung: not a wipe to follow)
-    if (contrast(c.unsung, c.sung) < 1.15 || contrast(c.unsung, c.bg) < 1.5) return null;
+    if (deltaE(c.unsung, c.sung) < SAME || contrast(c.unsung, c.bg) < 1.5) return null;
     return c;
   }
   return null;
+}
+
+/**
+ * Any disc's colours, from its sung lines (shared/lyric-lines.js analysis): the unsung and sung
+ * colours most of its letters turn between, and the background. For a disc's own words (PLAN
+ * §31.16), whose colour table isn't autokaraoke's. → { bg, unsung, sung } or null (no lines).
+ */
+export function analysisTextColours(analysis) {
+  const lines = analysis?.ok ? analysis.lines : null;
+  if (!lines?.length) return null;
+  const pairs = new Map(); // "unsung,sung" (colour-table entries) → pixels
+  for (const l of lines) {
+    for (let i = 0; i < l.at.length; i++) {
+      // (a background pixel that turns is a highlight bar behind the letters, not a letter)
+      if (!(l.at[i] > 0) || l.unsung[i] === l.main || (l.K >> l.unsung[i]) & 1) continue;
+      const k = `${l.unsung[i]},${l.sung[i]}`;
+      pairs.set(k, (pairs.get(k) || 0) + 1);
+    }
+  }
+  let best = null;
+  for (const [k, n] of pairs) if (!best || n > best[1]) best = [k, n];
+  if (!best) return null;
+  const [u, g] = best[0].split(',').map(Number);
+  const pal = lines[0].palette;
+  const at = (c) => [pal[c * 3], pal[c * 3 + 1], pal[c * 3 + 2]];
+  const c = { bg: at(lines[0].main), unsung: at(u), sung: at(g) };
+  return deltaE(c.unsung, c.sung) < SAME ? null : c;
 }
 
 /**

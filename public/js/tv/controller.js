@@ -27,6 +27,7 @@ export class TvController extends EventTarget {
     this.readySent = null;
     this.mirror = null; // { pos, at, playing }
     this.cdgCache = new Map();
+    this.timingUrl = null; // the song's timing.json (its real words, PLAN §9.7) as loaded
     this.loadedTrackId = null;
     this.reloadSeen = null;
     this.gameAudio = null; // { key, tempo, channel } while a game plays clips and no song is on
@@ -105,7 +106,7 @@ export class TvController extends EventTarget {
     // The look and the skin's plate and outline colours (re-read: a skin switch came just before).
     this.lyrics.setOptions({
       look: normalizeLyricsLook(state.display.lyricsLook), motion: state.display.lyricsMotion, smoothing: state.display.cdgSmoothing !== false,
-      layout: state.display.lyricsLayout,
+      layout: state.display.lyricsLayout, text: state.display.lyricsText !== false,
       ...lyricsColours(),
     });
     this.engine.normalize = state.playback.normalize !== false;
@@ -125,7 +126,10 @@ export class TvController extends EventTarget {
     const reload = cur && this.reloadSeen !== null && p.reload !== this.reloadSeen;
     this.reloadSeen = p.reload ?? 0;
     if (id !== this.entryId || reload) this.load(cur, p);
-    else if (this.loaded) this.sync(p);
+    else if (this.loaded) {
+      this.sync(p);
+      if (cur.media?.kind === 'cdg' && (cur.media.timing || null) !== this.timingUrl) this.loadText(cur);
+    }
     this.preloadNext(state);
   }
 
@@ -159,6 +163,7 @@ export class TvController extends EventTarget {
     this.mirror = null;
     this.engine.unload();
     this.lyrics.unload();
+    this.timingUrl = null;
     this.clock.reset();
     this.video.hidden = true;
     this.kind = cur?.media?.kind || null;
@@ -190,7 +195,7 @@ export class TvController extends EventTarget {
           // The browser couldn't decode the file in one go: stream it through <audio> instead.
           return this.engine.loadElement(cur.trackId, this.audio, media.audio);
         });
-        const [, bytes] = await Promise.all([
+        const [, bytes, timing] = await Promise.all([
           media.stems
             ? this.engine.loadStems(cur.trackId, media.stems.music, media.stems.vocal).catch((e) => {
               if (e.superseded || this.entryId !== entryId) throw e;
@@ -199,13 +204,16 @@ export class TvController extends EventTarget {
             })
             : loadFile(),
           this.fetchCdg(media.cdg),
+          this.fetchTiming(media.timing),
         ]);
         if (this.entryId !== entryId) return;
         this.lyrics.load(bytes);
+        this.setText(media.timing, timing);
       } else {
-        const bytes = await this.fetchCdg(media.cdg);
+        const [bytes, timing] = await Promise.all([this.fetchCdg(media.cdg), this.fetchTiming(media.timing)]);
         if (this.entryId !== entryId) return;
         this.lyrics.load(bytes);
+        this.setText(media.timing, timing);
       }
       this.clock.reset();
       if (this.entryId !== entryId) return;
@@ -314,6 +322,30 @@ export class TvController extends EventTarget {
       this.engine.prepare(next.trackId, next.media.audio).catch(() => { this.preloaded = null; });
       this.fetchCdg(next.media.cdg).catch(() => {});
     }, 3000);
+  }
+
+  /** A song's timing.json, or null (none, or it can't be read: the disc's own lyrics then). */
+  async fetchTiming(url) {
+    if (!url) return null;
+    try {
+      const r = await fetch(url);
+      return r.ok ? await r.json() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  setText(url, timing) {
+    this.timingUrl = url || null;
+    this.lyrics.setText(timing);
+  }
+
+  /** The song on now got new words (an edit saved in the lyrics editor): drawn without a reload. */
+  async loadText(cur) {
+    const url = cur.media.timing || null;
+    this.timingUrl = url;
+    const timing = await this.fetchTiming(url);
+    if (this.entryId === cur.id && this.timingUrl === url && this.lyrics.loaded) this.lyrics.setText(timing);
   }
 
   fetchCdg(url) {

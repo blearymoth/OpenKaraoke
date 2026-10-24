@@ -73,6 +73,8 @@ P0 = needed for a first real party, P1 = next, P2 = later. Each line is an accep
 - ✅ P1 Lyric sync offset setting (ms) and automatic output-latency compensation (getOutputTimestamp).
 - ✅ P1 **Lyric layouts** (§9.6): the disc's own pages, **two lines at a time** (karaoke-bar style)
   or a **scrolling list** (like music apps), from the sung lines found in each CD+G disc.
+- ✅ P1 **Real words for songs made here** (§9.7): in those two layouts, a song autokaraoke made is
+  written as text from its `timing.json`.
 - ⬜ P2 Mic monitoring with reverb/echo on the PC (localhost only, latency warning).
 
 ### Second screen & displays
@@ -746,6 +748,41 @@ list has no such limit; lines sung together with the line before (a duet) come i
 is free; a line the disc draws wider than its screen is cut where the disc cuts it; colour-cycling
 wipes (the palette changes, not the pixels) are not seen as singing (such a disc keeps its pages).
 
+### 9.7 Real words for songs made here (2026-10-24)
+A song autokaraoke made has its words and the time of each one (`NAME.timing.json`, §31.5). In the
+two-line and scrolling layouts the TV writes those words as text, in the skin's display font, instead
+of re-arranging the disc's pixels: sharp at any size, as big as fits, and an edit shows at once.
+`display.lyricsText` (Settings → TV display → **Real words for songs made here**, shown when the
+layout isn't pages; on by default). Pages stay the disc's own; other discs are not changed.
+- **Which songs**: a CD+G track with a `timing.json` beside its CDG, or a lyrics-editor edit of it
+  (`LyricEdits.hasText`: looked up once per track, in the background, then remembered until the
+  library changes). The TV's media gets `timing: /media/<id>/timing[?v=<n>]`; the route serves the
+  edit if there is one, else the file beside the pair, cleaned (`readTiming`), no-cache. `v` grows
+  when an edit is saved (drawn or not), reverted or written back, and the TV fetches the new words
+  without reloading the song.
+- **The lines** (`shared/lyric-text.js`): the timing's lines, each starting at its first word and
+  ending at its last word's end, so the plans of §9.6 (`twoLinePlan`, `scrollPlan`, the countdown)
+  place them exactly as they place a disc's lines. The font size is 12.5 % of the lyric box's height
+  in two lines, 9.5 % scrolling, shrunk so the widest line fills 94 % of the box at most, but not
+  below 8 % (scrolling 6.4 %); a line still too wide is split at spaces, each piece keeping its words'
+  times (`wrapLines`).
+- **The wipe** (`wipeAt`): each word fills from its start to its end; between words the wipe waits at
+  the end of the last one sung. A line's canvas is redrawn only when the wipe moves a whole device
+  pixel.
+- **Colours**: the disc's own — autokaraoke's colour table (entries 0 background, 1 unsung, 2 sung;
+  `discTextColours`, the classic theme when it can't be read) — made readable on the panel by the same
+  `readablePalette` as a disc's lyrics (7:1 on the plate, sung and unsung apart); the clear look adds a
+  dark outline, the disc look puts the disc's background colour behind them.
+- **Drawing** (`public/js/lib/lyric-text-view.js` `TextView`, the same interface as `LineView`): a
+  canvas per line, moved by transforms in whole device pixels and faded by opacity; no filter, mask
+  or rounded clip. `#lyrics[data-source]` says `text` or `disc`.
+- **Verified** (`test/e2e/text-lyrics.mjs`, every frame of 10 s recorded): never more than two lines,
+  a line never moves once up, each wipe only goes forward and follows its words' times, the line
+  being sung is always up, a countdown before the first line, the font 10 % of a 1080p screen high;
+  scrolling keeps the line being sung in focus; the mirror draws them too; an edit changes the words
+  without reloading the song; the setting off, or pages, gives the disc's own lyrics. Unit:
+  `test/lyric-text.test.js` (3).
+
 ## 10. Host app (`/host`)
 Layout: top bar (logo, party name, room code chip → invite modal, TV status, search box),
 left nav, main view, right **admin panel** (tabs Queue / Playback / Devices — §22), bottom player
@@ -886,6 +923,7 @@ nobody new can, existing ones still sign in.
 seeks and restarts their own song while it is on (§24). Off: only co-hosts and the host.
 
 **Lyrics on the TV** — `display.lyricsLayout` (`page` | `lines` | `scroll`, §9.6),
+`display.lyricsText` (songs made here written as text in `lines` and `scroll`, §9.7; default on),
 `display.lyricsLook` (`panel` | `clear` | `disc`), `display.lyricsMotion`
 (`smooth` | `disc`), `display.cdgSmoothing`, `display.lighterEffects` (`auto` | `on` | `off`), §9.5.
 A value not on its list is ignored in an update and reset to the default in a saved file; the old
@@ -925,6 +963,7 @@ private repository is kept in `updates.json`, mode 0600, and only sent to GitHub
 - Lyric layouts (§9.6): `test/lyric-lines.test.js` on discs in real discs' styles
   (`test/lyric-discs.js`) and the demo library; `test/e2e/layouts.mjs` records every frame on the
   TV and checks it against the plan (readable, not jittery, not confusing — see §9.6).
+- Real words (§9.7): `test/lyric-text.test.js`; `test/e2e/text-lyrics.mjs` records every frame.
 - E2E (optional devDependency `playwright-core` with system Chromium): host + tv + 2 guests
   in one browser, queue → intro → play → ended; screenshot each screen.
 - Library smoke test: `node scripts/scan-report.js "<drive>"`.
@@ -1939,7 +1978,7 @@ transcribed song (no lyrics pasted) mishears words. Autokaraoke helps at each st
   (the original kept once as `.orig`), or an overlay in `data/` served instead of the disc's CDG
   (the library untouched, e.g. a read-only drive).
 - **Beyond the editor:** with a `timing.json` the TV knows the real text, so the lyric layouts
-  (§9.6) could draw it as text instead of reading the CDG's pixels. For a disc that has a vocal
+  (§9.6) draw it as text instead of reading the CDG's pixels (built: §9.7). For a disc that has a vocal
   (multiplex §21, or a version with the singer separated by §30), autokaraoke could also make a
   `timing.json` from pasted lyrics without touching the disc's CDG.
 
@@ -1959,7 +1998,7 @@ transcribed song (no lyrics pasted) mishears words. Autokaraoke helps at each st
 3. YouTube URLs; guests' wishes.
 4. Install and uninstall from the app, once the owner has chosen the code's source.
 5. The lyrics editor (§31.5): editing and redrawing (render-only), text changes that keep the
-   times, then re-timing a stretch with Whisper; text lyrics on the TV from `timing.json`.
+   times, then re-timing a stretch with Whisper; text lyrics on the TV from `timing.json` (built, §9.7).
 
 ### 31.8 Open questions for the owner (2026-10-18; see §31.9 for what the owner chose)
 
@@ -2070,7 +2109,6 @@ made; other discs' lyrics are pictures and have nothing to edit.
 - **Tests**: `test/timing.test.js` (5), `test/lyrics-editor.test.js` (3), `test/e2e/lyrics-editor.mjs` (27).
 - **Not built** (§31.5):
   - re-timing a stretch with Whisper (needs the new SongGetter function);
-  - the TV drawing a `timing.json`'s real text in the lyric layouts;
   - render options other than the colours (lines on screen, font size, lead, page gap): a disc made
     with other options is redrawn with autokaraoke's defaults.
 

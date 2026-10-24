@@ -123,7 +123,9 @@ try {
   // its address is set; on a fast start it may already be gone again — the host window was quicker.)
   const startingText = await first.waitForSelector('h1', { timeout: 10_000 })
     .then(() => first.textContent('body'), () => (first.isClosed() ? null : ''));
-  if (!first.isClosed()) startingUrl = first.url() || startingUrl; // (the page is there now: its address too)
+  // (The page is there now: its address too — asked of the page itself, as Playwright's own copy
+  // can stay empty when the window navigated while it was being attached.)
+  if (startingText) startingUrl = await first.evaluate(() => location.href).catch(() => first.url()) || startingUrl;
   if (startingText) await shot(first, 'starting').catch(() => {});
   check(/^okapp:\/\/app\/starting\//.test(startingUrl) && (startingText === null || /OpenKaraoke/.test(startingText)),
     `a window says OpenKaraoke is starting (${startingUrl.replace(/\?.*/, '')}: ${startingText === null ? 'gone again before its page could be read' : `"${startingText.replace(/\s+/g, ' ').trim()}"`})`);

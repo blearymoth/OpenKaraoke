@@ -49,6 +49,8 @@ module.exports = {
     'maker/pyproject.toml',
     'maker/README.md',
     'maker/autokaraoke/*.py',
+    // Phonon-2, the first lyric timer (≈180 MB), when the build put it there (maker/bundle-phonon.sh).
+    'maker/bundled/**/*',
     'desktop/main.mjs',
     'desktop/displays.mjs',
     'desktop/graphics.mjs',

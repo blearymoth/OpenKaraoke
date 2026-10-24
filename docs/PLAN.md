@@ -2278,9 +2278,19 @@ it can't force-align a given text, and on Linux its pip package runs on the proc
   (`$FERMION_CACHE_DIR`), are fetched by `setup`, and are listed by `setup --check` as `Phonon
   phonon-2`. A missing Phonon-2 doesn't make the models "not ready" (Whisper covers). An Update
   (code only) adds the package and its weights to an older environment.
-- **Not verified**: Phonon-2 on singing, and on the owner's PC. The cloud session could install the
-  package and check every call OpenKaraoke makes into it, but couldn't download the weights
-  (Hugging Face is blocked there). The 60 % threshold is a first guess, to be tuned on real songs.
+- **Shipped with OpenKaraoke** (the owner asked for it to be packaged in): the release build runs
+  `maker/bundle-phonon.sh`. It installs fermion-research in a throwaway environment, downloads and
+  unpacks Phonon-2 as it would on a PC, keeps only the unpacked model (≈180 MB, the layout of
+  `<models>/fermion`) with its NOTICE, and loads that copy offline to transcribe silence. It goes
+  into the installers (`maker/bundled/`, never in git; credited in `THIRD_PARTY_LICENSES.md`), and
+  `install.sh` copies it into the models folder (an existing copy is kept), on Install and on Update.
+  So no PC downloads it. A source checkout without the bundle still downloads it as before. The
+  installers grow from ≈100 MB to ≈280 MB.
+- **Checked on GitHub, not in the cloud session**: Hugging Face and PyTorch's download site are
+  blocked there. `.github/workflows/maker.yml` (pull requests touching `maker/`) runs the engine's
+  tests, builds the bundle, then has `autokaraoke words` time espeak-ng's spoken lyrics with it
+  offline, and checks that Phonon-2 did (`Lyric timer: Phonon-2`, 16 words in order). Phonon-2 on
+  singing still needs the owner's PC; the 60 % threshold is a first guess.
 - **Tests**: `maker/tests/test_phonon.py` (7: both models are stand-ins), `test/maker-extras.test.js`
   (the setting, the timer passed on, the speed per timer), `test/maker.test.js` (the Phonon row,
   the timer line), `test/words.test.js`.

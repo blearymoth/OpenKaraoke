@@ -20,3 +20,5 @@ __pycache__/
 /maker/.pytest_cache/
 /maker/build/
 /maker/*.egg-info/
+# Phonon-2 for the installers (maker/bundle-phonon.sh; ≈180 MB, never committed)
+/maker/bundled/

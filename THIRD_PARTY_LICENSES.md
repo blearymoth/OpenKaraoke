@@ -13,6 +13,16 @@ files (`npm run vendor` rebuilds them from the npm packages):
 
 "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
 
+The installers also ship one model for the Karaoke maker (`maker/bundled/`, added by
+`maker/bundle-phonon.sh` when they are built; not in the repository):
+
+| Model | Licence | Folder |
+| --- | --- | --- |
+| [Phonon-2](https://huggingface.co/FermionResearch/Phonon-2) by Fermion Research, a derivative of NVIDIA's [parakeet-tdt-0.6b-v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) | [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/) | `maker/bundled/fermion/` (its changes: `NOTICE-Phonon-2.txt` there) |
+
+The Karaoke maker installs its other Python packages and models from their own sources when it is
+installed (PyTorch, Demucs, Whisper, fermion-research…); they are not shipped with OpenKaraoke.
+
 ## Preact 10.29.8
 
 ```

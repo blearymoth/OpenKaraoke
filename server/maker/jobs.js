@@ -15,12 +15,13 @@ import { logger } from '../util/log.js';
 import { parseLink, cleanLyrics } from '../../shared/maker.js';
 import { assess } from '../system/specs.js';
 import {
-  readMakeLine, makeArgs, cleanName, guessNames, isSongFile, THEMES, WHISPER_MODELS, DEMUCS_MODELS, LYRICS_SOURCES,
+  readMakeLine, readLyricsLookup, makeArgs, cleanName, guessNames, isSongFile, THEMES, WHISPER_MODELS, DEMUCS_MODELS, LYRICS_SOURCES,
 } from './autokaraoke.js';
 import { Speed } from './speed.js';
 
 const log = logger('maker');
 const KEEP_JOBS = 20;
+const LOOKUP_MS = 45000; // a lyrics lookup that takes longer is given up
 const PHONON_MODEL = 'phonon-2'; // (the speed file's key for songs Phonon-2 timed)
 const KEEP_LINES = 200;
 const MAX_LYRICS = 50 * 1024;
@@ -127,6 +128,31 @@ export class Maker {
 
   out() {
     return this.outInfo().folder;
+  }
+
+  /**
+   * The lyrics the lyrics services have for a song, before anything is made (the host's preview of a
+   * song from a link, PLAN §31.12): `autokaraoke lyrics`, quick and outside the heavy-job lane.
+   * → { found, source, label, lines, match, text } (the first source in the host's order that has
+   * them), or { found: false }.
+   */
+  async previewLyrics({ artist = '', title = '', duration = 0 } = {}) {
+    if (!this.tool || !this.where?.installed) throw new UserError('Install the Karaoke maker first (Settings → Karaoke maker).');
+    if (!this.checks?.features?.lookup) throw new UserError('This Karaoke maker can’t look lyrics up: update it (Settings → Karaoke maker).');
+    if (!cleanName(title)) throw new UserError('Fill in the title (and the artist) to look the lyrics up.');
+    const sources = (this.settings.get('maker.lyricsSources') || []).filter((x) => LYRICS_SOURCES.includes(x) && x !== 'sidecar');
+    if (!sources.length) throw new UserError('No lyrics service is chosen (Settings → Karaoke maker → Where to look).');
+    const lines = [];
+    const run = this.tool.start(this.where, 'lyrics', { artist, title, duration, sources, onLine: (l) => lines.push(l) });
+    const timer = setTimeout(() => run.cancel(), LOOKUP_MS);
+    try {
+      const { code } = await run.done;
+      if (code !== 0 && !lines.length) throw new UserError('The lyrics couldn’t be looked up just now — try again.');
+    } finally {
+      clearTimeout(timer);
+    }
+    const hit = readLyricsLookup(lines.join('\n')).find((r) => r.found && r.text);
+    return hit ? { found: true, source: hit.source, label: hit.label, lines: hit.text.split('\n').length, match: hit.match, text: hit.text } : { found: false };
   }
 
   /** The lyric timer model: the host's, or ("auto") the one the hardware check picked. */

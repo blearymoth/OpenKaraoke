@@ -93,7 +93,10 @@ conn.on('notify', (m) => {
       toast(m.queued ? `“${title}” is ready — it’s in the queue for you 🎤` : `“${title}” is ready — find it in Songs`, 'ok', 7000);
       buzz([120, 80, 120]);
     } else if (m.state === 'failed') toast(`“${title}” couldn’t be made this time`, 'error', 6000);
-    else if (m.state === 'denied') toast(`The host passed on “${title}”${m.reason ? `: ${String(m.reason).slice(0, 120)}` : ''}`, 'error', 6000);
+    else if (m.state === 'denied') {
+      const alt = m.alt && typeof m.alt.title === 'string' ? ` — “${m.alt.title.slice(0, 80)}” is here to sing (Me tab)` : '';
+      toast(`The host passed on “${title}”${m.reason ? `: ${String(m.reason).slice(0, 120)}` : ''}${alt}`, alt ? 'info' : 'error', alt ? 9000 : 6000);
+    }
   } else if (m.kind === 'game' && typeof m.text === 'string') {
     toast(m.text.slice(0, 140), 'ok', 6000); // a party game calls on this guest (wheel result…)
     buzz([200, 100, 200]);
@@ -1024,8 +1027,11 @@ function LinkCard({ state }) {
     </form>`}
     ${mine.length > 0 && html`<ul class="my-links">${mine.map((r) => html`<li key=${r.id} class=${`my-link ${r.state}`}>
       <div class="grow"><b class="ellipsis">${r.title}</b>
-        <span class="hint">${LINK_STATES[r.state]}${r.state === 'working' && r.stage ? ` — ${LINK_STEP[r.stage] || 'working'}` : ''}${r.state === 'done' && r.queued ? ' — in the queue for you' : ''}${r.error && r.state !== 'done' ? ` (${r.error})` : ''}</span></div>
+        <span class="hint">${LINK_STATES[r.state]}${r.state === 'working' && r.stage ? ` — ${LINK_STEP[r.stage] || 'working'}` : ''}${r.state === 'done' && r.queued ? ' — in the queue for you' : ''}${r.error && r.state !== 'done' && r.state !== 'denied' ? ` (${r.error})` : ''}</span>
+        ${r.state === 'denied' && r.error && html`<span class="link-note">“${r.error}”</span>`}
+        ${r.alt && html`<span class="hint link-alt">The host suggests <b>${r.alt.title}</b>${r.alt.artist ? ` by ${r.alt.artist}` : ''}.</span>`}</div>
       ${r.state === 'done' && r.songId && html`<button class="btn small" onClick=${() => openSong(r.songId)}>Sing it</button>`}
+      ${r.alt && html`<button class="btn small primary" onClick=${() => openSong(r.alt.songId)}>Sing it</button>`}
       ${['pending', 'queued', 'working'].includes(r.state) && html`<button class="btn small ghost" onClick=${() => ask('link.cancel', { id: r.id })}>Cancel</button>`}
     </li>`)}</ul>`}
   </section>`;

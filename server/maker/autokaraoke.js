@@ -155,6 +155,42 @@ export function wordsArgs({ vocals, output, lyricsFile = '', lyricsSources = [],
   return args;
 }
 
+/**
+ * `python -m autokaraoke lyrics --sources a,b --show -- ARTIST TITLE`: what each lyrics source has
+ * for a song, without making anything (the host's preview of a song from a link, PLAN §31.12).
+ */
+export function lyricsArgs({ artist = '', title = '', duration = 0, sources = [] }) {
+  const t = cleanName(title);
+  if (!t) throw new Error('A title is needed to look the lyrics up');
+  const list = sources.filter((x) => LYRICS_SOURCES.includes(x) && x !== 'sidecar'); // (no song file: nothing beside it)
+  if (!list.length) throw new Error('No lyrics source to ask');
+  const args = ['-m', 'autokaraoke', 'lyrics', '--sources', list.join(','), '--show'];
+  if (Number.isFinite(duration) && duration > 0) args.push('--duration', String(Math.round(duration)));
+  args.push('--', cleanName(artist), t);
+  return args;
+}
+
+const LOOKUP_LABELS = { 'Lyrics file next to the song': 'sidecar', LRCLIB: 'lrclib', NetEase: 'netease', 'lyrics.ovh': 'lyricsovh' };
+const LOOKUP_HEAD = /^(Lyrics file next to the song|LRCLIB|NetEase|lyrics\.ovh)\s+(?:(\d+) lines\s+\((.*)\)|nothing found)$/;
+
+/**
+ * `lyrics --show`'s output → [{ source, label, found, lines, match, text }] in the order asked:
+ * each source's line ("LRCLIB    24 lines  (Artist - Title)" or "… nothing found"), then its lyrics.
+ */
+export function readLyricsLookup(text) {
+  const out = [];
+  let cur = null;
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trimEnd();
+    const m = LOOKUP_HEAD.exec(line);
+    if (m) {
+      cur = { source: LOOKUP_LABELS[m[1]], label: m[1], found: !!m[2], lines: Number(m[2] || 0), match: (m[3] || '').slice(0, 200), text: [] };
+      out.push(cur);
+    } else if (cur?.found && line.trim()) cur.text.push(line.trim());
+  }
+  return out.map((r) => ({ ...r, text: r.text.join('\n') }));
+}
+
 /** Is version `v` ('0.3.0') at least `min`? ('' or junk: no.) */
 export function versionAtLeast(v, min) {
   const a = String(v || '').match(/^(\d+)\.(\d+)(?:\.(\d+))?/);
@@ -354,7 +390,7 @@ export function autokaraokeTool({ env = process.env, homedir = os.homedir() } = 
         cwd = where.source || path.dirname(where.installer); // the install folder may not exist yet
       } else {
         file = where.python;
-        args = kind === 'make' ? makeArgs(opts) : kind === 'render' ? renderArgs(opts) : kind === 'retime' ? retimeArgs(opts) : kind === 'words' ? wordsArgs(opts) : setupArgs(opts);
+        args = kind === 'make' ? makeArgs(opts) : kind === 'render' ? renderArgs(opts) : kind === 'retime' ? retimeArgs(opts) : kind === 'words' ? wordsArgs(opts) : kind === 'lyrics' ? lyricsArgs(opts) : setupArgs(opts);
         // A long job on the party PC: fewer threads, so the TV's sound and drawing keep theirs.
         const threads = String(Math.max(1, (os.availableParallelism?.() || os.cpus().length) - 2));
         if (kind === 'make' || kind === 'retime' || kind === 'words') extra = { OMP_NUM_THREADS: threads, MKL_NUM_THREADS: threads };

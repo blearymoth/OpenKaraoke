@@ -1,7 +1,10 @@
 // Songs from a link (PLAN §31.12): a guest — when the host allows it — or the host asks for a
-// YouTube song that isn't in the library, with lyrics if they have them. The host says yes (the
-// popup, or the Decisions page) and may correct the lyrics; the Karaoke maker makes it into the
-// library; it is queued for the guest who asked, and their phone is told. Requests are kept in
+// YouTube song that isn't in the library, with lyrics if they have them. Without lyrics, the
+// artist and title are guessed from the video's title and the lyrics looked up at once, so the host
+// sees them before deciding (the preview). The host says yes (the popup, or the Decisions page) and
+// may correct them — what is shown is what is used —; the Karaoke maker makes it into the library;
+// it is queued for the guest who asked, and their phone is told. Or no, with a note for the guest
+// and, when the library has the song already, that song for them to sing. Requests are kept in
 // data/requests.json and survive a restart (an approved one is made again).
 //
 // States (shared/maker.js): pending → queued (approved) → working → done | failed; pending →
@@ -13,12 +16,13 @@ import { JsonDoc } from '../util/jsonfile.js';
 import { RateLimiter } from '../util/ratelimit.js';
 import { UserError } from '../util/errors.js';
 import { logger } from '../util/log.js';
-import { parseLink, cleanLyrics, OPEN_LINK_STATES } from '../../shared/maker.js';
+import { parseLink, cleanLyrics, namesFromVideo, OPEN_LINK_STATES } from '../../shared/maker.js';
 
 const log = logger('links');
 const KEEP = 200; // finished requests kept (the oldest go)
 const MAX_OPEN_PER_IP = 5;
 const MAX_NAME = 120;
+const MAX_NOTE = 200;
 
 const newId = () => crypto.randomBytes(6).toString('hex');
 const open = (r) => OPEN_LINK_STATES.includes(r.state);
@@ -36,6 +40,7 @@ export class Links {
     this.room = room;
     this.fetch = fetch;
     this.perPhone = new RateLimiter({ capacity: 3, perMs: 10 * 60_000 });
+    this.looking = new Map(); // request id → its lyrics lookup running (in memory: not saved)
   }
 
   get list() {
@@ -50,6 +55,7 @@ export class Links {
     await this.doc.load();
     if (!Array.isArray(this.doc.data.requests)) this.doc.data.requests = [];
     for (const r of this.list) if (r.state === 'working') r.state = 'queued'; // (the job died with the server)
+    for (const r of this.list) if (r.preview?.state === 'looking') r.preview = null; // (the lookup died with it too)
   }
 
   /** After the maker knows where autokaraoke is: the approved requests are made (again). */
@@ -141,7 +147,55 @@ export class Links {
       const d = await res.json();
       r.video = clean([d?.title, d?.author_name].filter((x) => typeof x === 'string' && x).join(' — '), 200);
       if (r.video) this.changed();
+      // The song it probably is, for the host to correct: then its lyrics, unless the guest typed them.
+      if (!r.artist && !r.title && typeof d?.title === 'string') {
+        const guess = namesFromVideo(d.title, d.author_name);
+        r.artist = clean(guess.artist);
+        r.title = clean(guess.title);
+        r.guessed = !!r.title;
+      }
     } catch { /* offline, or YouTube didn't answer */ }
+    if (r.state === 'pending' && !r.lyrics && r.title) void this.preview(r).catch(() => {});
+  }
+
+  /**
+   * The lyrics the lyrics services have for the request's song (the maker's `previewLyrics`), kept
+   * on it for the host: { state: 'looking' | 'found' | 'none' | 'failed', label, lines, match, text,
+   * artist, title }. Shown with the request; Approve uses them unless the host changed them.
+   */
+  async preview(r) {
+    if (this.looking.has(r.id)) return this.looking.get(r.id);
+    const run = (async () => {
+      r.preview = { state: 'looking', artist: r.artist, title: r.title };
+      this.changed();
+      try {
+        const hit = await this.room.maker.previewLyrics({ artist: r.artist, title: r.title });
+        r.preview = hit.found
+          ? { state: 'found', label: hit.label, lines: hit.lines, match: hit.match, text: hit.text, artist: r.artist, title: r.title }
+          : { state: 'none', artist: r.artist, title: r.title };
+      } catch (e) {
+        r.preview = { state: 'failed', error: e instanceof UserError ? e.message : 'The lyrics couldn’t be looked up just now.', artist: r.artist, title: r.title };
+        if (!(e instanceof UserError)) log.info(`lyrics lookup for ${r.id} failed: ${e.message}`);
+      } finally {
+        this.looking.delete(r.id);
+      }
+      this.changed();
+      return r.preview;
+    })();
+    this.looking.set(r.id, run);
+    return run;
+  }
+
+  /** Host: look the lyrics up (again), with the artist and title they filled in. → the request's view. */
+  async lookUpLyrics(id, m = {}) {
+    const r = this.find(id);
+    if (r.state !== 'pending') throw new UserError('That request was already decided.');
+    if (typeof m.artist === 'string') r.artist = clean(m.artist);
+    if (typeof m.title === 'string') r.title = clean(m.title);
+    if (!r.title) throw new UserError('Fill in the title (and the artist) to look the lyrics up.');
+    r.guessed = false;
+    await this.preview(r);
+    return this.view(r, { forHost: true });
   }
 
   trim() {
@@ -158,11 +212,13 @@ export class Links {
     const problem = this.room.maker.readyProblem();
     if (problem) throw new UserError(problem);
     if (typeof m.lyrics === 'string') r.lyrics = cleanLyrics(m.lyrics);
+    else if (!r.lyrics && r.preview?.state === 'found') r.lyrics = r.preview.text; // (what the host saw)
     if (typeof m.artist === 'string') r.artist = clean(m.artist);
     if (typeof m.title === 'string') r.title = clean(m.title);
     r.state = 'queued';
     r.decidedAt = Date.now();
     r.error = '';
+    this.settle(r);
     this.startJob(r, { strict: true });
     this.changed();
     return this.view(r, { forHost: true });
@@ -187,15 +243,32 @@ export class Links {
     if (strict) log.info(`request ${r.id}: ${r.error}`);
   }
 
+  /**
+   * No: `reason`, a note for the guest, and `songId`, a song the library has already (the version
+   * they can sing instead) — both optional. Their phone is told, with that song to open.
+   */
   deny(id, m = {}) {
     const r = this.find(id);
     if (r.state !== 'pending') throw new UserError('That request was already decided.');
+    let alt = null;
+    if (m.songId !== undefined && m.songId !== null && m.songId !== '') {
+      const song = typeof m.songId === 'string' ? this.room.catalog.song(m.songId) : null;
+      if (!song) throw new UserError('That song isn’t in the library (it may have been rescanned).');
+      alt = { songId: song.id, title: song.title, artist: song.artist };
+    }
     r.state = 'denied';
     r.decidedAt = Date.now();
-    r.error = clean(m.reason, 200);
-    if (r.owner) this.room.notifyDevice(r.owner, { t: 'notify', kind: 'link', state: 'denied', title: this.titleOf(r), reason: r.error });
+    r.error = clean(m.reason, MAX_NOTE);
+    r.alt = alt;
+    this.settle(r);
+    if (r.owner) this.room.notifyDevice(r.owner, { t: 'notify', kind: 'link', state: 'denied', title: this.titleOf(r), reason: r.error, alt });
     this.changed();
     return this.view(r, { forHost: true });
+  }
+
+  /** Decided: the preview's text isn't needed any more (the file stays small). */
+  settle(r) {
+    if (r.preview?.text) r.preview = { ...r.preview, text: '' };
   }
 
   /** Cancel: a guest their own (not yet being made… or being made), the host any open one. */
@@ -294,11 +367,14 @@ export class Links {
     const job = r.jobId ? this.room.maker.jobs.find((j) => j.id === r.jobId) : null;
     const base = {
       id: r.id, url: r.url, state: r.state, title: this.titleOf(r), video: r.video, createdAt: r.createdAt,
-      error: r.error, songId: r.songId, queued: !!r.queued, lyrics: !!r.lyrics,
+      error: r.error, songId: r.songId, queued: !!r.queued, lyrics: !!r.lyrics, alt: r.state === 'denied' ? r.alt || null : null,
       stage: job && r.state === 'working' ? job.stage : '', percent: job && r.state === 'working' ? Math.round(job.percent || 0) : 0,
     };
     if (!forHost) return base;
-    return { ...base, name: r.name, owner: r.owner, artist: r.artist, plainTitle: r.title, lyricsText: r.lyrics, trackId: r.trackId, jobId: r.jobId, decidedAt: r.decidedAt, waiting: job?.status === 'waiting' };
+    return {
+      ...base, name: r.name, owner: r.owner, artist: r.artist, plainTitle: r.title, lyricsText: r.lyrics, trackId: r.trackId, jobId: r.jobId, decidedAt: r.decidedAt, waiting: job?.status === 'waiting',
+      guessed: !!r.guessed, preview: r.state === 'pending' ? r.preview || null : null,
+    };
   }
 
   /** The host: open requests first (oldest first), then the last 30 finished. */

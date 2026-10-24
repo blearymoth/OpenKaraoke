@@ -1,6 +1,7 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-24 (Phonon-2 first and Whisper second as the lyric timer; a disc's words
+_Last updated: 2026-10-24 (songs from a link: the lyrics preview, and Deny with a note and a song we
+have; Phonon-2 first and Whisper second as the lyric timer; a disc's words
 found from its vocal, for the TV and the editor;
 autokaraoke's engine moved into OpenKaraoke as `maker/`, with re-timing
 a line with Whisper, the render options kept and "about N minutes"; the TV writes the real words of
@@ -1454,6 +1455,19 @@ Re-time.
   compare a hard song with "Whisper only". If Phonon-2 is often off on singing, tell the next session
   (the 60 % threshold, or Whisper for typed lyrics, can change).
 
+## Songs from a link: lyrics preview, Deny with a note (2026-10-24)
+PLAN §31.12. Two additions the owner asked for:
+- **The lyrics preview**: a guest's request without lyrics has its song guessed from the YouTube
+  title and its lyrics looked up at once. The Decisions card shows them in the lyrics box ("Found on
+  LRCLIB, 24 lines", or "Nothing found"). The host can correct the names and **Look up again**.
+  Approve uses exactly what is shown, from the popup too.
+- **Deny…**: a note for the guest (quick ones or typed), and a song the library already has (it is
+  searched for the request's song) for them to sing. Their phone tells them and offers **Sing it**.
+- Tests: `test/links-preview.test.js` (3), `test/e2e/links.mjs` (32).
+- Owner checklist: a guest asks for a well-known song without lyrics. Check the card's lyrics are the
+  right song's before Approve. Deny one with "We already have this song" and the library's version,
+  and check the guest's phone offers it.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
@@ -1466,9 +1480,9 @@ Re-time.
   - ~~The lyrics editor~~, ~~a guide vocal~~, ~~the TV drawing the real text~~, ~~re-timing a line
     with Whisper~~ and ~~the render options~~ (above).
   - ~~A disc's words from its vocal~~ (above).
-  - The lyrics preview before approving a song from a link is parked (the owner's call).
+  - ~~The lyrics preview before approving a song from a link~~ and ~~Deny with a note~~ (above).
 - **Parked** (not without the owner):
-  - The host **seek bar** after the TV window is toggled (`SeekBar` in
+  - The host **seek bar** after the TV window is toggled (pinned by the owner, 2026-10-24) (`SeekBar` in
     `public/js/host/player.js` clears its drag only on `change`) — not reproduced.
   - **Lyric layouts** — no further work for now.
 - Remaining P2 items (PLAN §2): singer "confidence monitor" layout, teams/tables, mic monitoring

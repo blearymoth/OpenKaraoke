@@ -589,6 +589,7 @@ export class Room {
       'link.cancel': [HG, (c, m) => this.links.cancel(c, m.id)],
       'link.approve': [H, (c, m) => this.links.approve(m.id, m)],
       'link.deny': [H, (c, m) => this.links.deny(m.id, m)],
+      'link.lyrics': [H, (c, m) => this.links.lookUpLyrics(m.id, m)],
       'link.retry': [H, (c, m) => this.links.retry(m.id)],
       'link.remove': [H, (c, m) => this.links.remove(m.id)],
       'link.clear': [H, () => this.links.clear()],

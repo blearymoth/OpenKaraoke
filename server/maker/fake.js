@@ -215,6 +215,21 @@ export function fakeAutokaraoke({ root = '/home/you/.local/share/openkaraoke/aut
           say(`Retimed ${n} words (${opts.from}\u2013${opts.to} s)`);
           return { code: 0, signal: null };
         }
+        if (kind === 'lyrics') { // (autokaraoke lyrics --show: what each source has; LRCLIB knows lookupHit)
+          await sleep(step);
+          const labels = { lrclib: 'LRCLIB', netease: 'NetEase', lyricsovh: 'lyrics.ovh' };
+          for (const src of opts.sources || []) {
+            const label = (labels[src] || src).padEnd(28);
+            const hit = src === 'lrclib' && state.lookupHit && !/nothing/i.test(opts.title);
+            if (!hit) {
+              say(`${label} nothing found`);
+              continue;
+            }
+            say(`${label} ${state.lookupHit.split('\n').length} lines  (${opts.artist || '?'} - ${opts.title})`);
+            for (const line of state.lookupHit.split('\n')) say(line);
+          }
+          return { code: 0, signal: null };
+        }
         if (kind === 'words') { // (autokaraoke words: a disc's words against its vocal; no CDG)
           await sleep(step);
           if (cancelled) return { code: null, signal: 'SIGTERM' };

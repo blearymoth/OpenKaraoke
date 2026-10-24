@@ -2156,13 +2156,26 @@ available, so this follows its description.
   `source: 'link'`). Their phone is told (`notify { kind: 'link', state: done | failed | denied }`).
   A ban cancels the guest's undecided requests. After a restart an approved request is made again
   (working → queued).
+- **The lyrics preview** (owner, 2026-10-24): a request without lyrics gets its song guessed from the
+  video's title (oEmbed's title and channel, `namesFromVideo`: "Artist - Title (Official Video)",
+  else the channel is the artist), then its lyrics looked up at once (`autokaraoke lyrics --sources
+  … --show`, `Maker.previewLyrics`: quick, outside the heavy-job lane; the first of the host's
+  sources that has them). The host sees them in the request's lyrics box with where they came from
+  ("Found on LRCLIB, 24 lines"), or that nothing was found. **Look up again** uses the artist and
+  title as corrected (`link.lyrics {id, artist, title}`). Approve uses what is shown, as typed lyrics
+  (`--lyrics … --retime`: not looked up again), from the popup too. The host's own edits are never
+  overwritten unasked. The preview's text is dropped once decided.
+- **Deny with a note** (owner, 2026-10-24): Deny… opens a dialog (also from the popup). It has a note
+  for the guest (quick ones, or typed; 200 characters), and the library searched for the request's
+  song, so the host can send them a version that is already there (`songId`, checked against the
+  catalog). Their phone's toast says so, and their Me tab shows the note and **Sing it** for that song.
 - **Protocol**: `link.add {url, lyrics, artist, title}` and `link.cancel {id}` (guests: their own;
-  the host: any), `link.approve {id, artist, title, lyrics}`, `link.deny {id, reason}`,
+  the host: any), `link.approve {id, artist, title, lyrics}`, `link.deny {id, reason, songId}`,
+  `link.lyrics {id, artist, title}` (the host's lookup),
   `link.retry {id}`, `link.remove {id}`, `link.clear`. Host view: `links`, `linkCounts`. Guest
   view: `rules.links` (null when off), `me.links`.
-- **Tests**: `test/links.test.js` (5), `test/maker-links.test.js` (3), `test/e2e/links.mjs` (23).
-- **Not built**: the lyrics preview before approval (the old "§25" spec in the patch: parked by the
-  owner).
+- **Tests**: `test/links.test.js` (5), `test/links-preview.test.js` (3), `test/maker-links.test.js` (3),
+  `test/e2e/links.mjs` (32).
 
 ### 31.13 The engine moved into OpenKaraoke (2026-10-23)
 

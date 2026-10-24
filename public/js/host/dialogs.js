@@ -9,6 +9,7 @@ import { wantsVocalPreview } from '/shared/stems.js';
 import { qrSrc } from '../lib/theme.js';
 import { VocalsDialog } from './vocals.js';
 import { WordsButton, WordsDialog } from './words.js';
+import { DenyDialog } from './decisions.js';
 import { versionLabel, versionName, VersionVote } from '../lib/versions.js';
 import { KEY_MIN, KEY_MAX, TEMPO_MIN, TEMPO_MAX, TEMPO_STEP, formatKey, formatTempo } from '/shared/protocol.js';
 
@@ -490,6 +491,7 @@ export function Dialogs() {
     case 'folder': return html`<${FolderDialog} onPick=${dialog.onPick} files=${dialog.files} />`;
     case 'announce': return html`<${AnnounceDialog} />`;
     case 'words': return html`<${WordsDialog} trackId=${dialog.trackId} songId=${dialog.songId} key=${dialog.trackId} />`;
+    case 'deny-link': return html`<${DenyDialog} id=${dialog.id} artist=${dialog.artist} title=${dialog.title} key=${dialog.id} />`;
     default: return null;
   }
 }

@@ -116,6 +116,45 @@ export function retimeArgs({ timing, vocals, output, from, to, language = '', wh
   return args;
 }
 
+/**
+ * `python -m autokaraoke words --vocals <wav> -O <timing.json> [--lyrics <file> | --lyrics-sources a,b]`:
+ * a disc's words, timed against its vocal (PLAN §31.16). No CDG is drawn.
+ */
+export function wordsArgs({ vocals, output, lyricsFile = '', lyricsSources = [], artist = '', title = '', duration = 0, language = '', whisperModel = 'medium' }) {
+  for (const p of [vocals, output]) if (typeof p !== 'string' || !path.isAbsolute(p)) throw new Error('Finding the words needs absolute paths');
+  if (!WHISPER_MODELS.includes(whisperModel)) throw new Error('Unknown lyric timer model');
+  const args = ['-m', 'autokaraoke', 'words', '--vocals', vocals, '-O', output, '--whisper-model', whisperModel];
+  if (lyricsFile) {
+    if (!path.isAbsolute(lyricsFile)) throw new Error('Finding the words needs absolute paths');
+    args.push('--lyrics', lyricsFile);
+  } else if (lyricsSources.length) {
+    if (!lyricsSources.every((x) => LYRICS_SOURCES.includes(x))) throw new Error('Unknown lyrics source');
+    args.push('--lyrics-sources', lyricsSources.join(','));
+  }
+  const a = cleanName(artist);
+  const t = cleanName(title);
+  if (a) args.push('--artist', a);
+  if (t) args.push('--title', t);
+  if (Number.isFinite(duration) && duration > 0) args.push('--duration', String(Math.round(duration * 10) / 10));
+  if (language) {
+    if (!LANGUAGE_RE.test(language)) throw new Error('Unknown language');
+    args.push('--language', language);
+  }
+  return args;
+}
+
+/** Is version `v` ('0.3.0') at least `min`? ('' or junk: no.) */
+export function versionAtLeast(v, min) {
+  const a = String(v || '').match(/^(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (!a) return false;
+  const b = min.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const x = Number(a[i + 1] || 0);
+    if (x !== b[i]) return x > b[i];
+  }
+  return true;
+}
+
 /** `python -m autokaraoke setup [--check] --whisper-model … --demucs-model …`. */
 export function setupArgs({ check = false, whisperModel = 'medium', demucsModel = 'htdemucs' } = {}) {
   if (!WHISPER_MODELS.includes(whisperModel) || !DEMUCS_MODELS.includes(demucsModel)) throw new Error('Unknown model');
@@ -286,7 +325,7 @@ export function autokaraokeTool({ env = process.env, homedir = os.homedir() } = 
         out.setup = readSetupCheck(setup.out);
         // What this copy can do: looking lyrics up came with its lyrics-lookup version.
         const help = await run(where.python, ['-m', 'autokaraoke', 'make', '--help'], { env: e });
-        out.features = { lookup: /--lyrics-sources/.test(help.out + help.err) };
+        out.features = { lookup: /--lyrics-sources/.test(help.out + help.err), words: versionAtLeast(out.version, '0.3.0') };
       }
       return out;
     },
@@ -302,13 +341,13 @@ export function autokaraokeTool({ env = process.env, homedir = os.homedir() } = 
         cwd = where.source || path.dirname(where.installer); // the install folder may not exist yet
       } else {
         file = where.python;
-        args = kind === 'make' ? makeArgs(opts) : kind === 'render' ? renderArgs(opts) : kind === 'retime' ? retimeArgs(opts) : setupArgs(opts);
+        args = kind === 'make' ? makeArgs(opts) : kind === 'render' ? renderArgs(opts) : kind === 'retime' ? retimeArgs(opts) : kind === 'words' ? wordsArgs(opts) : setupArgs(opts);
         // A long job on the party PC: fewer threads, so the TV's sound and drawing keep theirs.
         const threads = String(Math.max(1, (os.availableParallelism?.() || os.cpus().length) - 2));
-        if (kind === 'make' || kind === 'retime') extra = { OMP_NUM_THREADS: threads, MKL_NUM_THREADS: threads };
+        if (kind === 'make' || kind === 'retime' || kind === 'words') extra = { OMP_NUM_THREADS: threads, MKL_NUM_THREADS: threads };
       }
       const child = spawn(file, args, { cwd, env: childEnv(where, extra), stdio: ['ignore', 'pipe', 'pipe'], detached: true });
-      if (kind === 'make' || kind === 'render' || kind === 'retime') {
+      if (kind === 'make' || kind === 'render' || kind === 'retime' || kind === 'words') {
         try { os.setPriority(child.pid, 19); } catch { /* not allowed: normal priority */ }
       }
       let pending = '';

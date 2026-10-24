@@ -1,6 +1,7 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-24 (autokaraoke's engine moved into OpenKaraoke as `maker/`, with re-timing
+_Last updated: 2026-10-24 (a disc's words found from its vocal, for the TV and the editor;
+autokaraoke's engine moved into OpenKaraoke as `maker/`, with re-timing
 a line with Whisper, the render options kept and "about N minutes"; the TV writes the real words of
 songs made here; before that, on
 2026-10-23: songs from a link — guests ask, the host decides —, the hardware check,
@@ -15,9 +16,9 @@ without the owner's PC or drive)._
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 620/620; `npm run e2e` → 30 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 624/624; `npm run e2e` → 31 Playwright scripts, all green (`themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
-  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `lyrics-editor.mjs` the lyrics editor, `links.mjs` songs from a link, `text-lyrics.mjs` the real words on the TV, `vocal-stem.mjs`
+  the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `lyrics-editor.mjs` the lyrics editor, `links.mjs` songs from a link, `text-lyrics.mjs` the real words on the TV, `words.mjs` a disc's words, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
   `versions.mjs` the admin panel and version votes, `lyrics.mjs` the readable lyrics,
   `layouts.mjs` the lyric layouts, `photos.mjs` the camera (in the page, or the camera app on
@@ -1414,6 +1415,21 @@ retired: its code, with the 10 Oct lyrics-lookup work, is now `maker/` (the Pyth
   "about N minutes" after the first, re-time a line, then move `~/Projects/autokaraoke` and
   `~/Projects/karaoke` away. On GitHub: merge SongGetter #2 (the "moved" notice), close #1, archive it.
 
+## A disc's words, from its vocal (2026-10-24)
+PLAN §31.16. The real words on the TV, and the lyrics editor, now work for any disc whose singer can
+be heard on its own, not only songs made here.
+- Song details → a multiplex version (or one you separated) → **Find the words**. Paste the lyrics
+  (best), or let them be looked up, or Whisper writes down what it hears. A multiplex disc's singer
+  is separated first (the room's sound is unchanged).
+- Follow it on the version's row, or in Settings → Karaoke maker → **Words for discs**. Then **Edit
+  lyrics**. In two lines and scrolling, the TV writes those words in the disc's own colours.
+- The disc's files and CDG are never changed. Edits are saved, never drawn, and never written into
+  the library; **Remove the words** gives the TV the disc's lyrics again.
+- The engine is 0.3.0 (the new `words` command): the page offers **Update** to an installed 0.2.0.
+- Tests: `test/words.test.js` (3), `maker/tests/test_words.py` (3), `test/e2e/words.mjs` (22).
+- Owner checklist: on a multiplex disc with the real Whisper, find its words from pasted lyrics, then
+  play it in two lines; on a disc you separated, find them by lookup.
+
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.
 - **Open feature work** (the owner's list, 2026-10-18):
@@ -1425,9 +1441,7 @@ retired: its code, with the 10 Oct lyrics-lookup work, is now `maker/` (the Pyth
     AMD/Intel graphics (the installer has NVIDIA and CPU paths only), uninstalling from the page.
   - ~~The lyrics editor~~, ~~a guide vocal~~, ~~the TV drawing the real text~~, ~~re-timing a line
     with Whisper~~ and ~~the render options~~ (above).
-  - From PLAN §31.5, not started: a `timing.json` for a disc that has a vocal (multiplex, or
-    separated), from pasted lyrics, without touching the disc's CDG — the real words on the TV and
-    the editor for any disc, not only songs made here.
+  - ~~A disc's words from its vocal~~ (above).
   - The lyrics preview before approving a song from a link is parked (the owner's call).
 - **Parked** (not without the owner):
   - The host **seek bar** after the TV window is toggled (`SeekBar` in

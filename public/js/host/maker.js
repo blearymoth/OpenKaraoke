@@ -8,6 +8,7 @@ import { Icon } from '../lib/icons.js';
 import { Switch, Spinner, go } from '../lib/components.js';
 import { act, toast, openDialog, chooseFolder, chooseSongFile, saveSetting } from './state.js';
 import { parseLink, aboutMinutes } from '/shared/maker.js';
+import { WordJobsList } from './words.js';
 
 const LANGUAGES = [['en', 'English'], ['fi', 'Finnish'], ['sv', 'Swedish'], ['no', 'Norwegian'], ['da', 'Danish'], ['de', 'German'],
   ['nl', 'Dutch'], ['fr', 'French'], ['es', 'Spanish'], ['it', 'Italian'], ['pt', 'Portuguese'], ['pl', 'Polish'], ['ja', 'Japanese'], ['ko', 'Korean'], ['zh', 'Chinese']];
@@ -369,6 +370,7 @@ export function MakerSection({ state }) {
     ${installed && m.where?.legacy && m.where?.installer && html`<${InstallBlock} m=${m} moving=${true} />`}
     <${Task} task=${m.task} />
     ${m.jobs.length > 0 && html`<div class="mk-jobs">${[...m.jobs].reverse().map((j) => html`<${Job} key=${j.id} job=${j} />`)}</div>`}
+    <${WordJobsList} jobs=${state.words} />
     ${installed && html`<${MakerSettings} settings=${settings} m=${m} />`}
     <h3 class="section-title">The Karaoke maker on this computer</h3>
     <${Checks} m=${m} />

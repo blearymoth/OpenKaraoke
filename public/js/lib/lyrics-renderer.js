@@ -20,7 +20,7 @@ import {
 import { linesAsync } from '/shared/lyric-lines.js';
 import { LineView } from './lyric-lines-view.js';
 import { TextView } from './lyric-text-view.js';
-import { textLines, discTextColours } from '/shared/lyric-text.js';
+import { textLines, discTextColours, analysisTextColours } from '/shared/lyric-text.js';
 import { token } from './theme.js';
 
 const MEM = MW * MH;
@@ -146,8 +146,18 @@ export class LyricsRenderer {
   setText(timing) {
     const lines = timing ? textLines(timing) : [];
     this.text = lines.length ? lines : null;
-    this.textView.setSong(this.text, this.text && this.decoder ? discTextColours(this.decoder.bytes) : null);
+    this.textSource = timing?.source === 'words' ? 'words' : 'made';
+    this.textView.setSong(this.text, this.text ? this.textColours() : null);
     this.layout();
+  }
+
+  /**
+   * The colours of the words: autokaraoke's colour table for a song made here; for a disc's own
+   * words (PLAN §31.16), what its sung lines turn between, once they are found.
+   */
+  textColours() {
+    if (this.textSource === 'words') return analysisTextColours(this.lines);
+    return this.decoder ? discTextColours(this.decoder.bytes) : null;
   }
 
   get loaded() {
@@ -187,6 +197,7 @@ export class LyricsRenderer {
       if (!lines || gen !== this.gen) return;
       this.lines = lines;
       this.lineView.setSong(lines.ok ? lines : null);
+      if (this.text && this.textSource === 'words') this.textView.setDisc(this.textColours());
       this.layout();
     }, () => {
       if (gen === this.gen) this.lines = { ok: false, reason: 'failed', lines: [] };

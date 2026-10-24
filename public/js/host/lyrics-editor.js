@@ -7,7 +7,7 @@ import { html, useEffect, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { Spinner, apiGet, apiPost, go } from '../lib/components.js';
 import { formatTime } from '../lib/store.js';
-import { toast } from './state.js';
+import { toast, act } from './state.js';
 import { storedSink } from './preview.js';
 import {
   readTiming, timingJson, timingText, parseLyrics, transferTiming, flatWords, wordAt, stepWord,
@@ -321,7 +321,7 @@ export function LyricsEditor({ trackId }) {
       setInfo(d);
       setDirty(false);
       if (d.error) toast(d.error, 'error', 8000);
-      else toast('Saved — the TV shows the new lyrics', 'ok');
+      else toast(d.kind === 'words' ? 'Saved — the TV writes the new words (two lines and scrolling)' : 'Saved — the TV shows the new lyrics', 'ok');
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -358,12 +358,13 @@ export function LyricsEditor({ trackId }) {
     }
   };
   const revert = async () => {
-    if (!confirm('Go back to autokaraoke’s own timing? Your edit is thrown away.')) return;
+    const words = info.kind === 'words';
+    if (!confirm(words ? 'Go back to the words found for this disc? Your edit is thrown away.' : 'Go back to autokaraoke’s own timing? Your edit is thrown away.')) return;
     setBusy('revert');
     try {
       await apiPost(`/api/lyrics/${encodeURIComponent(trackId)}/revert`);
       await load();
-      toast('Back to autokaraoke’s timing', 'ok');
+      toast(words ? 'Back to the words found' : 'Back to autokaraoke’s timing', 'ok');
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -382,6 +383,18 @@ export function LyricsEditor({ trackId }) {
     } finally {
       setBusy('');
     }
+  };
+  /** A disc's words (PLAN §31.16): forgotten, and the TV shows the disc's own lyrics again. */
+  const removeWords = async () => {
+    if (!confirm('Forget the words found for this disc (and your edits)? The TV shows the disc’s own lyrics again.')) return;
+    setBusy('remove');
+    const ok = await act('words.remove', { trackId });
+    setBusy('');
+    if (!ok) return;
+    setDirty(false);
+    toast('The words are gone', 'ok');
+    if (history.length > 1) history.back();
+    else go('/');
   };
   const leave = () => {
     if (dirty && !confirm('Leave without saving your changes?')) return;
@@ -421,13 +434,17 @@ export function LyricsEditor({ trackId }) {
       </div>
       <div class="btn-row le-actions">
         <button class="btn ghost" onClick=${leave}>Close</button>
+        ${info.kind === 'words' && html`<button class="btn ghost danger" disabled=${!!busy} onClick=${removeWords}>Remove the words</button>`}
         ${info.edited && html`<button class="btn ghost" disabled=${!!busy} onClick=${revert}>Revert</button>`}
-        ${info.edited && info.drawn && !dirty && html`<button class="btn" disabled=${!!busy} onClick=${writeBack}>Write into the song’s folder</button>`}
-        <button class="btn primary" disabled=${!!busy || (!dirty && info.drawn)} onClick=${save}>${busy === 'save' ? 'Saving…' : 'Save'}</button>
+        ${info.kind === 'made' && info.edited && info.drawn && !dirty && html`<button class="btn" disabled=${!!busy} onClick=${writeBack}>Write into the song’s folder</button>`}
+        <button class="btn primary" disabled=${!!busy || (!dirty && (info.drawn || info.kind === 'words'))} onClick=${save}>${busy === 'save' ? 'Saving…' : 'Save'}</button>
       </div>
     </header>
-    <p class=${`le-state ${dirty ? 'dirty' : ''}`}>${dirty ? 'Unsaved changes.' : info.edited ? (info.drawn ? 'Your edit — the TV shows it.' : 'Your edit is saved, but not drawn yet.') : 'autokaraoke’s own timing.'}
-      ${!info.renderer && html` <span class="warn-text">autokaraoke isn’t installed, so saved lyrics can’t be drawn (Settings → Karaoke maker).</span>`}</p>
+    ${info.kind === 'words'
+      ? html`<p class=${`le-state ${dirty ? 'dirty' : ''}`}>${dirty ? 'Unsaved changes.' : info.edited ? 'Your edit — the TV writes it in two lines and scrolling.' : 'The words found for this disc — the TV writes them in two lines and scrolling.'}
+        <span class="hint"> The disc’s own lyrics screens are not changed.</span></p>`
+      : html`<p class=${`le-state ${dirty ? 'dirty' : ''}`}>${dirty ? 'Unsaved changes.' : info.edited ? (info.drawn ? 'Your edit — the TV shows it.' : 'Your edit is saved, but not drawn yet.') : 'autokaraoke’s own timing.'}
+        ${!info.renderer && html` <span class="warn-text">autokaraoke isn’t installed, so saved lyrics can’t be drawn (Settings → Karaoke maker).</span>`}</p>`}
 
     <audio ref=${audio} src=${info.audio} preload="auto"></audio>
     ${info.vocal && html`<audio ref=${vocal} src=${info.vocal} preload="auto"></audio>`}
@@ -436,7 +453,7 @@ export function LyricsEditor({ trackId }) {
       <span class="le-time mono" ref=${timeRef}>0:00.00 / 0:00</span>
       <input class="le-seek" ref=${seekRef} type="range" min="0" max=${Math.max(1, dur || info.timing.duration || 1)} step="0.01" aria-label="Position in the song"
         onInput=${(e) => seek(Number(e.currentTarget.value))} />
-      ${info.vocal && html`<button class=${`btn small ${guide ? 'primary' : 'ghost'}`} aria-pressed=${guide} title="The singer, separated when the song was made, to time the words by" onClick=${() => setGuide(!guide)}><${Icon} name="mic" size=${14} /> Guide vocal</button>`}
+      ${info.vocal && html`<button class=${`btn small ${guide ? 'primary' : 'ghost'}`} aria-pressed=${guide} title="The singer, separated from the song, to time the words by" onClick=${() => setGuide(!guide)}><${Icon} name="mic" size=${14} /> Guide vocal</button>`}
       <div class="segmented" role="group" aria-label="Speed">${SPEEDS.map(([v, l]) => html`<button class=${speed === v ? 'on' : ''} onClick=${() => setSpeed(v)}>${l}</button>`)}</div>
       <button class="icon-btn" aria-label="Undo" title="Undo (Ctrl+Z)" disabled=${!undo.current.length} onClick=${() => back(undo, redo)}><${Icon} name="history" size=${18} /></button>
     </div>

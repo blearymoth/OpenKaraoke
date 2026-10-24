@@ -25,6 +25,7 @@ import { VideoJobs } from '../video/jobs.js';
 import { Maker } from '../maker/jobs.js';
 import { LyricEdits } from '../lyrics/edits.js';
 import { Links } from './links.js';
+import { WordJobs } from '../lyrics/words.js';
 import { Lane } from '../util/lane.js';
 import { needsConversion } from '../video/ffmpeg.js';
 import { readZipEntry } from '../library/zip.js';
@@ -214,13 +215,25 @@ export class Room {
       dataDir: app.dataDir,
       library: this.library,
       maker: this.maker,
-      vocalOf: async (trackId) => (this.stemAsked(trackId) && !this.stemOk(trackId) && (await this.stems.filesReady(trackId)) ? `/media/${trackId}/stem/vocal` : null),
+      vocalOf: async (trackId) => ((this.stemAsked(trackId) || this.stemOk(trackId)) && (await this.stems.filesReady(trackId)) ? `/media/${trackId}/stem/vocal` : null),
       vocalFileOf: async (trackId) => this.stems?.file?.(trackId, 'vocal.wav') || null,
       onChange: (trackId) => {
         if (this.s.current?.trackId === trackId) this.s.player.reload = (this.s.player.reload || 0) + 1;
         this.markDirty();
       },
       onText: () => this.markDirty(), // (the TV's timing URL: PLAN §9.7)
+    });
+    // A disc's words, timed against its vocal (PLAN §31.16): the TV writes them, the editor fixes them.
+    this.words = new WordJobs({
+      edits: this.lyrics,
+      maker: this.maker,
+      vocalFor: (trackId, cancelled) => this.vocalForWords(trackId, cancelled),
+      songOf: (trackId) => {
+        const track = this.catalog.track(trackId);
+        const song = track && this.catalog.song(track.songId);
+        return song ? { artist: song.artist, title: song.title, duration: track.dur || song.dur || 0 } : null;
+      },
+      onChange: () => this.markDirty(),
     });
     this.declined = new Set(); // "inviter>invitee>song" duet invitations turned down this session
     this.handlers = this.buildHandlers();
@@ -280,6 +293,7 @@ export class Room {
     this.stems.close();
     this.videos.close();
     this.maker.close();
+    this.words.close();
     if (save) await Promise.all([this.doc.flush(), this.vocals.flush(), this.versions.flush(), this.links.doc.flush()]);
     else {
       this.doc.discard();
@@ -336,6 +350,7 @@ export class Room {
     const vocals = this.vocals.rekey(list);
     const stems = this.stems.rekey(list);
     this.lyrics.rekey(list);
+    this.words.rekey(list);
     const prefs = rekeyRecords(this.s.trackPrefs, list);
     const map = new Map(list.map((m) => [m.from, m.to]));
     let pointed = 0;
@@ -566,6 +581,10 @@ export class Room {
       'maker.install': [H, (c, m) => this.maker.startTask('install', { gpu: !!m.gpu, youtube: m.youtube !== false })],
       'maker.setup': [H, (c, m) => this.maker.startTask('setup', { whisperModel: m.whisperModel, demucsModel: m.demucsModel })],
       'maker.cancelTask': [H, () => this.maker.cancelTask()],
+      'words.find': [H, (c, m) => this.findWords(m)],
+      'words.cancel': [H, (c, m) => this.words.cancel(str(m.trackId, 80))],
+      'words.dismiss': [H, (c, m) => this.words.dismiss(str(m.trackId, 80))],
+      'words.remove': [H, (c, m) => this.lyrics.removeWords(str(m.trackId, 80))],
       'link.add': [HG, (c, m) => this.links.add(c, m)],
       'link.cancel': [HG, (c, m) => this.links.cancel(c, m.id)],
       'link.approve': [H, (c, m) => this.links.approve(m.id, m)],
@@ -1352,6 +1371,49 @@ export class Room {
     await this.stems.ensure(trackId);
     const st = this.stems.view(trackId);
     return { status: st.status, url: st.status === 'ready' ? `/media/${trackId}/stem/vocal` : '' };
+  }
+
+  // ---- a disc's words (PLAN §31.16) ----------------------------------------------------------------
+
+  /** Can this version's words be timed against its vocal? '' = yes, else why not. */
+  wordsProblem(trackId) {
+    const track = this.catalog.track(trackId);
+    if (!track || mediaUrls(track)?.kind !== 'cdg') return 'Only audio versions with CD+G lyrics can get their words.';
+    if (!this.stemOk(trackId) && !this.stemAsked(trackId)) return 'The words are timed against the singer: separate this version’s vocals first (Separate vocals), or pick a multiplex version.';
+    return this.words.problem();
+  }
+
+  /** Host: find a version's words ({ trackId, lyrics?, lookup? }). */
+  async findWords(m) {
+    const trackId = str(m.trackId, 80);
+    const track = this.catalog.track(trackId);
+    if (!track) fail('Unknown track', 'not_found');
+    if ((await this.lyrics.source(track))?.kind === 'made') fail('This song was made here: its words are already there (Edit lyrics).', 'made');
+    const why = this.wordsProblem(trackId);
+    if (why) fail(why, 'unavailable');
+    return this.words.start(trackId, { lyrics: typeof m.lyrics === 'string' ? m.lyrics : '', lookup: m.lookup !== false });
+  }
+
+  /**
+   * The vocal a disc's words are timed against, once it is on disk: a multiplex disc's guide singer
+   * (separated now if it wasn't), or the vocal the host separated. Waits for a separation running.
+   */
+  async vocalForWords(trackId, cancelled = () => false) {
+    if (!this.stemOk(trackId) && !this.stemAsked(trackId)) throw new UserError('Separate this version’s vocals first.');
+    let retried = false;
+    while (!cancelled()) {
+      if (await this.stems.filesReady(trackId)) return this.stems.file(trackId, 'vocal.wav');
+      if (!this.stems.enabled) throw new UserError('The vocal separator isn’t set up on this computer (the Karaoke maker).');
+      const st = this.stems.view(trackId);
+      if (st.status === 'skipped') throw new UserError('This version’s singer can’t be separated.');
+      if (st.status === 'failed') {
+        if (retried) throw new UserError(`The singer could not be separated: ${st.error || 'see the log'}`);
+        retried = true;
+        await this.stems.retry(trackId);
+      } else if (st.status !== 'separating') await this.stems.ensure(trackId);
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    return '';
   }
 
   // ---- separated vocals on any track (PLAN §30) ---------------------------------------------------
@@ -2812,6 +2874,7 @@ export class Room {
       video: { ...this.videos.status(), tracks: this.convertibleCount() },
       maker: this.maker.view(),
       links: this.links.hostView(),
+      words: this.words.view(),
       linkCounts: this.links.counts(),
       current: this.currentView({ media: true, version: true, voter: HOST_VOTER }), // (media: the headphone monitor)
       player: this.playerView(),

@@ -143,9 +143,13 @@ export function apiRoutes(router, app) {
         if (asked) void app.room.stems.ensure(v.id); // (separated before a restart: found on disk)
         v.stems = asked ? app.room.stems.view(v.id).status : 'idle';
       }
-      // The host: versions autokaraoke made can have their lyrics edited (PLAN §31.5).
+      // The host: versions with timed words — made with autokaraoke, or a disc's words found from its
+      // vocal — can have their lyrics edited (PLAN §31.5, §31.16); a disc with a vocal can get them.
       await Promise.all(detail.versions.map(async (v) => {
-        if (await app.room.lyrics.editable(cat().track(v.id))) v.lyrics = { edited: app.room.lyrics.gen(v.id) > 0 };
+        const track = cat().track(v.id);
+        const kind = await app.room.lyrics.editable(track);
+        if (kind) v.lyrics = { kind, edited: await app.room.lyrics.edited(v.id) };
+        else if (mediaUrls(track)?.kind === 'cdg') v.words = { problem: app.room.wordsProblem(v.id) };
       }));
     }
     const voter = guestId || (ctx.isHost ? HOST_VOTER : null);

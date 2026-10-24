@@ -19,6 +19,8 @@ import {
 } from '/shared/lyrics.js';
 import { linesAsync } from '/shared/lyric-lines.js';
 import { LineView } from './lyric-lines-view.js';
+import { TextView } from './lyric-text-view.js';
+import { textLines, discTextColours } from '/shared/lyric-text.js';
 import { token } from './theme.js';
 
 const MEM = MW * MH;
@@ -34,6 +36,7 @@ export function lyricsColours() {
   return {
     plate: { rgb: rgb('--lyrics-plate-rgb') || rgb('--night-rgb') || [0, 0, 0], a: Number.isFinite(a) ? a : 0.9 },
     outline: { rgb: rgb('--shade-rgb') || [0, 0, 0], a: 0.9 },
+    font: token('--font-display') || 'system-ui, sans-serif',
   };
 }
 
@@ -59,6 +62,11 @@ export class LyricsRenderer {
     this.lines = null; // the song's sung lines (shared/lyric-lines.js): null while they are being found
     this.lineView = new LineView(win); // the other layouts: two lines, a scrolling list
     this.lineView.setStyle({ look: this.look, smoothing: this.smoothing, plate: this.plate, outline: this.outline });
+    this.font = options.font || 'system-ui, sans-serif';
+    this.textWanted = options.text !== false; // the song's real words, when it has them (PLAN §9.7)
+    this.text = null; // their lines (shared/lyric-text.js), null: the disc's pixels
+    this.textView = new TextView(win);
+    this.textView.setStyle({ look: this.look, plate: this.plate, outline: this.outline, font: this.font });
     this.decoder = null;
     this.timeline = null;
     this.roles = null; // the song's colour roles, once the load-time pass is done
@@ -86,12 +94,16 @@ export class LyricsRenderer {
   /**
    * look: 'panel' | 'clear' | 'disc'; smoothing: rounded letters (Scale2x, filtered) or the
    * disc's square pixels (a whole number of device pixels each); motion: 'smooth' | 'disc';
-   * plate, outline: { rgb: [r, g, b], a } (lyricsColours()).
+   * plate, outline: { rgb: [r, g, b], a }, font: the skin's display font (lyricsColours());
+   * text: the song's real words in the two-line and scrolling layouts, when it has them.
    */
-  setOptions({ look = this.look, smoothing = this.smoothing, motion = this.motion, plate = this.plate, outline = this.outline, layout = this.layoutWanted } = {}) {
+  setOptions({ look = this.look, smoothing = this.smoothing, motion = this.motion, plate = this.plate, outline = this.outline, layout = this.layoutWanted, font = this.font, text = this.textWanted } = {}) {
     layout = normalizeLyricsLayout(layout);
-    const relayoutLines = layout !== this.layoutWanted;
+    text = text !== false;
+    const relayoutLines = layout !== this.layoutWanted || text !== this.textWanted;
     this.layoutWanted = layout;
+    this.textWanted = text;
+    this.font = font;
     look = normalizeLyricsLook(look);
     motion = normalizeLyricsMotion(motion);
     smoothing = smoothing !== false;
@@ -101,6 +113,7 @@ export class LyricsRenderer {
     if (this.lyrics.dataset.look !== look) this.lyrics.dataset.look = look;
     if (recolour) this.stale = true;
     this.lineView.setStyle({ look, smoothing, plate, outline });
+    this.textView.setStyle({ look, plate, outline, font });
     if (relayout || relayoutLines) this.layout();
   }
 
@@ -111,8 +124,30 @@ export class LyricsRenderer {
    */
   get layoutShown() {
     if (this.layoutWanted === 'page' || !this.decoder) return 'page';
+    if (this.textShown) return this.layoutWanted;
     if (!this.lines) return 'wait';
     return this.lines.ok ? this.layoutWanted : 'page';
+  }
+
+  /** The song's real words are what the layout draws (not the disc's pixels). */
+  get textShown() {
+    return this.textWanted && !!this.text?.length && this.layoutWanted !== 'page';
+  }
+
+  /** The view drawing the two-line and scrolling layouts. */
+  get activeView() {
+    return this.textShown ? this.textView : this.lineView;
+  }
+
+  /**
+   * The song's timing.json (autokaraoke's words and times), after load(); null: none. Its lines are
+   * drawn as text in the two-line and scrolling layouts, in the disc's colours.
+   */
+  setText(timing) {
+    const lines = timing ? textLines(timing) : [];
+    this.text = lines.length ? lines : null;
+    this.textView.setSong(this.text, this.text && this.decoder ? discTextColours(this.decoder.bytes) : null);
+    this.layout();
   }
 
   get loaded() {
@@ -164,6 +199,8 @@ export class LyricsRenderer {
     this.gen++;
     this.lines = null;
     this.lineView.clear();
+    this.text = null;
+    this.textView.clear();
     this.decoder = null;
     this.timeline = null;
     this.roles = null;
@@ -235,13 +272,22 @@ export class LyricsRenderer {
     this.lastTf = '';
     if (this.lyrics.dataset.layout !== shownLayout) this.lyrics.dataset.layout = shownLayout;
     this.lyrics.dataset.layoutWanted = this.layoutWanted;
+    const source = this.textShown ? 'text' : 'disc';
+    if (this.lyrics.dataset.source !== source) this.lyrics.dataset.source = source;
     const lined = shownLayout === 'lines' || shownLayout === 'scroll';
-    if (lined) this.lineView.setLayout(shownLayout, { w: boxW, h: boxH, dpr });
+    const lv = this.activeView;
+    (lv === this.textView ? this.lineView : this.textView).hide();
+    if (lined) lv.setLayout(shownLayout, { w: boxW, h: boxH, dpr });
     // the panel's plate: behind the two lines only (a band), else the whole box
-    const band = lined ? this.lineView.plateBand() : null;
+    const band = lined ? lv.plateBand() : null;
     Object.assign(this.plateEl.style, band ? { top: px(band.top), bottom: 'auto', height: px(band.height) } : { top: '', bottom: '', height: '' });
-    const first = lined ? this.lines.lines[0] : null;
-    this.win.style.background = first && this.look === 'disc' ? `rgb(${[0, 1, 2].map((i) => first.palette[first.main * 3 + i])})` : '';
+    let back = '';
+    if (lined && this.look === 'disc') {
+      const first = this.lines?.lines?.[0];
+      if (lv === this.textView) back = lv.background;
+      else if (first) back = `rgb(${[0, 1, 2].map((i) => first.palette[first.main * 3 + i])})`;
+    }
+    this.win.style.background = back;
     if (this.decoder && this.lastT !== null) this.render(this.lastT);
   }
 
@@ -257,7 +303,7 @@ export class LyricsRenderer {
     if (shownLayout !== this.lyrics.dataset.layout) this.layout();
     if (shownLayout !== 'page') {
       this.full = true; // (the page is drawn whole when it shows again)
-      if (shownLayout !== 'wait') this.lineView.render(t);
+      if (shownLayout !== 'wait') this.activeView.render(t);
       return false;
     }
     const drew = d.version !== this.drawnVersion || this.stale || this.full ? this.update() : false;

@@ -116,7 +116,8 @@ analysis — PLAN §21), `lyrics.js` (readable lyrics: the looks' and layouts' s
 colour roles, the readable palette, the scroll timeline — PLAN §9.5), `lyric-lines.js` (a disc's
 sung lines, found in one pass: each pixel's unsung/sung colour and moment — PLAN §9.6),
 `lyric-layout.js` (when and where lines show: two lines, the scrolling list; pure functions of the
-time), `graphics.js` (which WebGL renderers draw in software), `pitch3d.js` (Pitch rings' 3D scene: matrices,
+time), `lyric-text.js` (songs made here written as text: a timing.json's lines, the wipe, the disc's
+colours made readable — PLAN §9.7), `graphics.js` (which WebGL renderers draw in software), `pitch3d.js` (Pitch rings' 3D scene: matrices,
 meshes, ring poses, the camera — pure), `monitor.js` (the headphone monitor's
 timing rules), `timing.js` (autokaraoke's timing.json: reading, cleaning, LRC, new words keep the times, the
 editor's operations — PLAN §31.10), `maker.js` (song links: YouTube only, `parseLink`; typed lyrics; request states), `filters.js` (browse filters: several
@@ -131,7 +132,8 @@ Browser (`public/`, plain ES modules, Preact + htm)
 - `js/lib/audio-engine.js` — Signalsmith buffer mode (key/tempo) + element mode; channel
   matrix, loudness, fades. `js/lib/lyrics-renderer.js` — the TV's lyrics (decoder memory on a
   canvas moved by a transform, dirty rectangles, looks; picks the layout);
-  `js/lib/lyric-lines-view.js` — the two-line and scrolling layouts (a canvas per line); `js/lib/frame-clock.js` — the lyrics'
+  `js/lib/lyric-lines-view.js` — the two-line and scrolling layouts (a canvas per line);
+  `js/lib/lyric-text-view.js` — the same layouts with a song's real words (its timing.json); `js/lib/frame-clock.js` — the lyrics'
   even, never-backward clock; `js/lib/cdg-canvas.js` — the quiz's CDG renderer.
 - `host.html` + `js/host/` — `main.js` (shell, routes, PIN screen, shortcuts), `state.js`,
   `player.js` (slim bar, phones' mini player), `panel.js` (the admin panel: Queue / Playback /
@@ -179,7 +181,7 @@ Desktop app (`desktop/`, Electron; see docs/HANDOFF.md "Desktop app" and "One-do
 
 Tests (`test/`): node:test suites + helpers (`lyric-discs.js`: discs in real discs' styles);
 `test/e2e/` Playwright scripts (`lyrics.mjs`: the TV's readable lyrics; `layouts.mjs`: the lyric
-layouts, every frame checked against the plan). Dev tooling: `scripts/lib/cdg-writer.js` (+ `cdg-font.js`) writes
+layouts, every frame checked against the plan; `text-lyrics.mjs`: the real words). Dev tooling: `scripts/lib/cdg-writer.js` (+ `cdg-font.js`) writes
 synthetic CDGs for tests and the demo; `scripts/lyrics-check.js` (+ `lib/png.js`) checks the
 readable lyrics and the layouts on a real library (PNG contact sheets).
 

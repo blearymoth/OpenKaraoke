@@ -241,6 +241,13 @@ export class LineView {
     it.drawn = n;
   }
 
+  /** Takes every line off the screen (the song's real words are drawn instead, ./lyric-text-view.js). */
+  hide() {
+    for (const it of this.items.values()) it.el.remove();
+    this.items.clear();
+    this.showDots(null);
+  }
+
   clear() {
     this.setSong(null);
     this.showDots(null);

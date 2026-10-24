@@ -1,4 +1,4 @@
-// Media streaming: /media/:trackId/(audio|cdg|video).
+// Media streaming: /media/:trackId/(audio|cdg|video), and a song's timed words (/timing).
 // Only files that belong to an indexed track are ever served — never user-supplied paths.
 import fsp from 'node:fs/promises';
 import zlib from 'node:zlib';
@@ -51,6 +51,17 @@ export function mediaRoutes(router, app) {
       if (e.code === 'ENOENT') throw new HttpError(404, 'Not ready');
       throw e;
     }
+  });
+
+  // A song's words and their times (autokaraoke's timing.json, or the lyrics editor's edit of it):
+  // the TV writes them as text in the two-line and scrolling layouts (PLAN §9.7).
+  router.get('/media/:trackId/timing', async ({ req, res, params }) => {
+    const track = library.catalog.track(params.trackId);
+    if (!track) throw new HttpError(404, 'Unknown track (the library may have been rescanned)');
+    const timing = await app.room?.lyrics.textFor(track.id);
+    if (!timing) throw new HttpError(404, 'This track has no timed words');
+    const body = Buffer.from(JSON.stringify(timing));
+    return sendBuffer(req, res, acceptsGzip(req) ? await gzip(body) : body, { contentType: 'application/json; charset=utf-8', cacheControl: 'private, no-cache', encoding: acceptsGzip(req) ? 'gzip' : undefined });
   });
 
   // CDG files are tiny once gzipped (mostly zero bytes) and read in one go by the TV.

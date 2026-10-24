@@ -4,8 +4,15 @@ The Python side of **Settings → Karaoke maker** (docs/PLAN.md §31). It turns 
 YouTube link — into an MP3 + CDG pair:
 
 1. Demucs removes the lead vocal (`htdemucs`).
-2. Whisper (via stable-ts) times the lyrics word by word: typed or looked-up lyrics are
-   force-aligned to the vocal; with none, Whisper writes down what it hears.
+2. The lyrics are timed word by word, by two timers (`--lyric-timer phonon`, the default):
+   - **Phonon-2** first (Fermion Research's `fermion-research`, ≈158 MB, English, fast on a
+     processor): it hears the vocal, favouring the lyrics' unusual words, and its word times go onto
+     the typed or looked-up lyrics letter by letter (`align.transfer_timing`);
+   - **Whisper** (via stable-ts) when Phonon-2 can't: a song not in English, under 60 % of the
+     lyrics heard, or Phonon-2 not installed. Whisper force-aligns the lyrics to the vocal.
+
+   With no lyrics, the first timer that can writes down what it hears. `Lyric timer: …` says which
+   timed the song. `--lyric-timer whisper` uses Whisper only.
 3. A CDG is drawn with a word-by-word wipe.
 
 ```
@@ -23,7 +30,9 @@ page replaces its windows.
 Use Settings → Karaoke maker → Install. It runs `install.sh`, which builds a Python environment
 in `~/.local/share/openkaraoke/autokaraoke/` with a copy of this folder and downloads the models
 (about 4 GB, or 8 GB with an NVIDIA graphics card). It needs Python 3.10+ and FFmpeg with the LAME
-MP3 encoder. From a terminal: `maker/install.sh [--cpu|--gpu] [--no-youtube]`.
+MP3 encoder. From a terminal: `maker/install.sh [--cpu|--gpu] [--no-youtube] [--no-phonon]`.
+Phonon-2 runs on the processor (its pip package has no CUDA engine), which is fast enough for it.
+An Update from the page (code only) adds Phonon-2 to an older install and downloads its weights.
 
 ## The command line (OpenKaraoke reads it)
 

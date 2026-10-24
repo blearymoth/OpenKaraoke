@@ -3,13 +3,14 @@
 # OpenKaraoke. Settings → Karaoke maker runs this; it also works from a terminal.
 #
 # Everything goes to one folder (default ~/.local/share/openkaraoke/autokaraoke):
-#   .venv/    the Python environment (PyTorch, Demucs, Whisper, yt-dlp) with a copy of this code
-#   models/   the downloaded models (Demucs, Whisper)
+#   .venv/    the Python environment (PyTorch, Demucs, Phonon-2, Whisper, yt-dlp) with a copy of this code
+#   models/   the downloaded models (Demucs, Phonon-2, Whisper)
 # This folder (inside OpenKaraoke, read-only in the AppImage) is only read. To uninstall,
 # delete the install folder. After this script, making songs works without the internet.
 #
-# Usage: ./install.sh [--cpu | --gpu] [--whisper-model NAME] [--no-youtube] [--no-models]
+# Usage: ./install.sh [--cpu | --gpu] [--whisper-model NAME] [--no-youtube] [--no-phonon] [--no-models]
 #                     [--home DIR] [--models-from DIR] [--code-only]
+#   --no-phonon        leave out Phonon-2 (the first lyric timer): Whisper times every song
 #   --models-from DIR  reuse models already downloaded (e.g. an older autokaraoke install):
 #                      hard-linked when on the same disk, else copied; DIR is left as it is
 #   --code-only        only refresh the copy of this code in an existing environment
@@ -19,6 +20,7 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEST="${OPENKARAOKE_MAKER_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/openkaraoke/autokaraoke}"
 TORCH=auto
 YOUTUBE=1
+PHONON=1
 GET_MODELS=1
 WHISPER=medium
 MODELS_FROM=""
@@ -29,12 +31,13 @@ while [[ $# -gt 0 ]]; do
     --cpu) TORCH=cpu ;;
     --gpu) TORCH=gpu ;;
     --no-youtube) YOUTUBE=0 ;;
+    --no-phonon) PHONON=0 ;;
     --no-models) GET_MODELS=0 ;;
     --code-only) CODE_ONLY=1 ;;
     --whisper-model) WHISPER="${2:?--whisper-model needs a name}"; shift ;;
     --home) DEST="${2:?--home needs a folder}"; shift ;;
     --models-from) MODELS_FROM="${2:?--models-from needs a folder}"; shift ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1 (see --help)" >&2; exit 2 ;;
   esac
   shift
@@ -52,12 +55,25 @@ cp -r "$SRC/autokaraoke" "$SRC/pyproject.toml" "$SRC/README.md" "$BUILD/"
 find "$BUILD" -name __pycache__ -prune -exec rm -rf {} +
 
 EXTRAS=ml
-[[ $YOUTUBE == 1 ]] && EXTRAS=ml,youtube
+[[ $YOUTUBE == 1 ]] && EXTRAS="$EXTRAS,youtube"
+[[ $PHONON == 1 ]] && EXTRAS="$EXTRAS,phonon"
+
+# Phonon-2's weights (≈158 MB) into the models folder; Whisper times songs until they are there.
+get_phonon() {
+  AUTOKARAOKE_MODELS="$MODELS" "$VENV/bin/python" -c 'from autokaraoke import models, phonon; phonon.download(models.models_dir())' \
+    || echo "Phonon-2 could not be downloaded now: Whisper times songs until it is (Settings → Karaoke maker → Download)." >&2
+}
 
 if [[ $CODE_ONLY == 1 ]]; then
   [[ -x "$VENV/bin/python" ]] || { echo "error: no install in $DEST to update" >&2; exit 1; }
   say "Updating the Karaoke maker's code in $DEST"
   "${PIP[@]}" -q --no-deps --force-reinstall "$BUILD"
+  # Phonon-2 came with 0.4.0: an older environment gets it (a few hundred MB, once) and its weights.
+  if [[ $PHONON == 1 ]] && ! "$VENV/bin/python" -c 'import fermion' 2>/dev/null; then
+    say "Installing Phonon-2, the first lyric timer"
+    "${PIP[@]}" -q "fermion-research>=0.2.14"
+    [[ $GET_MODELS == 1 ]] && get_phonon
+  fi
   echo "autokaraoke $("$VENV/bin/python" -m autokaraoke --version)"
   exit 0
 fi

@@ -118,11 +118,12 @@ try {
   app = await launch();
   // At once, a window that says OpenKaraoke is starting; it goes when the host window shows.
   const first = await app.firstWindow();
-  const startingUrl = first.url();
-  // (firstWindow() comes as soon as the window exists, before its page has loaded; on a fast
-  // start it may already be gone again — the host window was quicker.)
+  let startingUrl = first.url();
+  // (firstWindow() comes as soon as the window exists, before its page has loaded — even before
+  // its address is set; on a fast start it may already be gone again — the host window was quicker.)
   const startingText = await first.waitForSelector('h1', { timeout: 10_000 })
     .then(() => first.textContent('body'), () => (first.isClosed() ? null : ''));
+  if (!first.isClosed()) startingUrl = first.url() || startingUrl; // (the page is there now: its address too)
   if (startingText) await shot(first, 'starting').catch(() => {});
   check(/^okapp:\/\/app\/starting\//.test(startingUrl) && (startingText === null || /OpenKaraoke/.test(startingText)),
     `a window says OpenKaraoke is starting (${startingUrl.replace(/\?.*/, '')}: ${startingText === null ? 'gone again before its page could be read' : `"${startingText.replace(/\s+/g, ' ').trim()}"`})`);

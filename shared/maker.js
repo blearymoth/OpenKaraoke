@@ -35,6 +35,24 @@ export function parseLink(input) {
   return { url: `https://www.youtube.com/watch?v=${id}`, id };
 }
 
+// What a video's title says beyond the song: "(Official Music Video)", "[Lyrics]", "(HD)"…
+const NOISE = /\s*[([](?:[^)\]]*\b(?:official|video|audio|lyrics?|visuali[sz]er|hd|hq|4k|remaster(?:ed)?|live|mv|m\/v)\b[^)\]]*)[)\]]/gi;
+const CHANNEL_NOISE = /\s*(?:-\s*topic|vevo|official)\s*$/i;
+
+/**
+ * The artist and title a YouTube video is probably of, from its title and channel (oEmbed's title
+ * and author_name): "Rick Astley - Never Gonna Give You Up (Official Music Video)" → { artist:
+ * 'Rick Astley', title: 'Never Gonna Give You Up' }; with no " - " in the title, the channel
+ * ("AdeleVEVO", "Adele - Topic") is the artist. A guess for the host to correct.
+ */
+export function namesFromVideo(videoTitle, channel = '') {
+  const one = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim() : '');
+  const t = one(videoTitle).replace(NOISE, '').replace(/\s+/g, ' ').trim();
+  const m = /^(.+?)\s+[-–—|]\s+(.+)$/.exec(t);
+  if (m) return { artist: m[1].trim().slice(0, 120), title: m[2].replace(/^["“]|["”]$/g, '').trim().slice(0, 120) };
+  return { artist: one(channel).replace(CHANNEL_NOISE, '').trim().slice(0, 120), title: t.slice(0, 120) };
+}
+
 /** Typed lyrics: plain lines, no control characters, at most MAX_LYRICS characters; '' when there are none. */
 export function cleanLyrics(input) {
   if (typeof input !== 'string') return '';

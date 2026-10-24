@@ -259,4 +259,6 @@ body.guest {
 .my-link .grow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
 .my-link.done b { color: var(--ok); }
 .my-link.failed b, .my-link.denied b { color: var(--ink-2); }
+.my-link .link-note { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+.my-link .link-alt { overflow-wrap: anywhere; }
 .g-ask-link { display: flex; justify-content: center; margin: -8px 0 16px; }

@@ -2,7 +2,9 @@
 // End-to-end checks of songs from a link (PLAN §31.12) with the stand-in autokaraoke: a guest asks
 // on their phone's Me tab (a wrong link is caught there), the host's popup asks at once (Later puts
 // it off), the Decisions page shows it with the lyrics to correct, Approve → made → queued for the
-// guest, who is told; Deny tells them too; an empty search offers it; phones' widths; no errors.
+// guest, who is told; Deny… (the dialog) sends a note and a song the library has, which their phone
+// offers to sing; without lyrics, the host looks them up and Approve uses what was shown; an empty
+// search offers it; phones' widths; no errors.
 //
 //   node test/e2e/links.mjs [outDir]
 import fs from 'node:fs/promises';
@@ -94,14 +96,41 @@ try {
   check(await seen(ana, '.toast:has-text("is ready — it’s in the queue for you")', 10000), 'the guest is told it’s ready and queued');
   check(await seen(ana, '.my-link.done button:has-text("Sing it")'), 'their list: “Ready”, Sing it');
 
-  // ---- a second request, denied from the popup ------------------------------------------------------------
+  // ---- a second request, denied from the popup: a note, and a song the library has -----------------------
   await ana.fill('input[aria-label="YouTube link"]', 'https://www.youtube.com/watch?v=kJQP7kiw5Fk');
   await ana.click('#link-card button:has-text("Ask the host")');
   await host.click('.nav a[href="#/"]');
   check(await seen(host, '.dec-popup'), 'the popup again, for the new one');
   await host.click('.dec-popup button:has-text("Deny")');
+  check(await seen(host, '.deny-dialog'), 'Deny…: the dialog');
+  await host.fill('.deny-dialog input[type=search]', 'Neon Heart');
+  check(await seen(host, '.deny-song:has-text("Neon Heart")'), 'the library searched: Neon Heart is here');
+  await host.click('.deny-song:has-text("Neon Heart")');
+  check(await host.inputValue('.deny-dialog textarea') === 'We already have this song — sing ours!', 'a song picked: the note says so (the host can change it)');
+  await shot(host, 'links-deny');
+  await host.click('.dialog-foot button:has-text("Deny and tell Ana")');
   check(await seen(ana, '.toast:has-text("The host passed on")', 10000), 'denied: the guest is told');
-  check(await seen(ana, '.my-link.denied'), 'their list says so');
+  check(await seen(ana, '.toast:has-text("Neon Heart")'), 'with the song to sing');
+  check(await seen(ana, '.my-link.denied .link-note:has-text("We already have this song")'), 'their list has the note');
+  await shot(ana, 'links-guest-denied');
+  await ana.click('.my-link.denied button:has-text("Sing it")');
+  check(await seen(ana, '.sheet[aria-label="Song"] :text("Neon Heart")'), '“Sing it”: the song’s sheet opens');
+  await ana.click('.sheet-close');
+
+  // ---- a third, without lyrics: the host looks them up, Approve uses them -----------------------------------
+  await ana.fill('input[aria-label="YouTube link"]', 'https://www.youtube.com/watch?v=9bZkp7q19f0');
+  await ana.click('#link-card button:has-text("Ask the host")');
+  await host.click('.dec-popup button:has-text("Check the lyrics")');
+  check(await seen(host, '.dec-link.pending'), 'Decisions: the new request');
+  await host.fill('.dec-link.pending .dec-names input >> nth=0', 'Pixel Band');
+  await host.fill('.dec-link.pending .dec-names input >> nth=1', 'Night Drive');
+  await host.click('.dec-link.pending button:has-text("Look them up")');
+  check(await seen(host, '.dec-lyrics-note.found:has-text("Found on")'), 'looked up: “Found on LRCLIB”');
+  const found = await host.inputValue('.dec-link.pending textarea');
+  check(found === 'Found on the internet\nAll the words are here', `the lyrics in the box (${JSON.stringify(found)})`);
+  await shot(host, 'links-preview');
+  await host.click('.dec-link.pending button:has-text("Approve")');
+  check(await until(() => room.maker.jobs.at(-1).lyrics === 'Found on the internet\nAll the words are here'), 'Approve: the lyrics shown are the ones used');
 
   // ---- an empty search offers it --------------------------------------------------------------------------
   await ana.click('.g-tabs button:has(span:text-is("Songs"))');

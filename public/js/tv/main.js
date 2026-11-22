@@ -16,9 +16,6 @@ const store = createStore({ status: 'connecting', state: null, display: 'main', 
 
 const preview = params.get('display') === 'preview'; // the host's small live preview
 const board = params.get('layout') === 'board'; // a queue board for a second screen (muted)
-// The desktop app on native Wayland, which can't place its windows: the person moves this one to
-// the TV. The app marks <html class="tv-placed"> once it is full screen there.
-const placeHint = params.get('place') === 'wayland';
 const muted = preview || board; // never plays sound, whatever the server says
 if (board) document.body.classList.add('board-layout');
 if (preview) document.body.classList.add('preview');
@@ -350,15 +347,7 @@ function App() {
     ${s.identify && html`<div class="identify" aria-hidden="true"><div class="identify-card"><b>${s.identify.name}</b><span>${s.identify.where}</span><small>This name is shown in the host’s Devices list</small></div></div>`}
     ${noVideo && st.current?.media?.kind === 'video' && html`<div class="preview-poster"><img src=${artUrl(st.current.songId, 500)} alt="" /><b>Music video on the TV</b><span>${st.current.title} · ${st.current.artist}</span></div>`}
     ${!s.unlocked && s.display === 'main' && html`<${StartOverlay} />`}
-    ${placeHint && html`<${PlaceHint} />`}
   `;
-}
-
-function PlaceHint() {
-  return html`<div class="place-hint" role="note">
-    <b>Move this window to the TV</b>
-    <span>Press <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>→</kbd> (or <kbd>←</kbd>), or drag it there: it goes full screen on the TV by itself. <kbd>F11</kbd> — full screen right here.</span>
-  </div>`;
 }
 
 function Refused({ reason, title = 'This screen can\'t join', text = DENIED_MESSAGES[reason] || reason }) {

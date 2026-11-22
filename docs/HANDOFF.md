@@ -1,6 +1,8 @@
 # Handoff — where the project stands and what to do next
 
-_Last updated: 2026-10-24 (songs from a link: the lyrics preview, and Deny with a note and a song we
+_Last updated: 2026-11-22 (Edit details: the host corrects a version's artist, title, label,
+version note, explicit and duet marks, and the song's year and genre, from Song details; the TV
+window's "Move this window to the TV" card removed. Before that, on 2026-10-24: songs from a link: the lyrics preview, and Deny with a note and a song we
 have; Phonon-2 first and Whisper second as the lyric timer; a disc's words
 found from its vocal, for the TV and the editor;
 autokaraoke's engine moved into OpenKaraoke as `maker/`, with re-timing
@@ -18,7 +20,7 @@ without the owner's PC or drive)._
   metadata (M5), eight party games plus performance ratings (M6) and the polish list (M7):
   break music, guest photos, remote display pairing, live TV preview, printable songbook,
   systemd service, playlists, duet invitations, co-hosts, queue board, preview on headphones.
-- `npm test` → 624/624; `npm run e2e` → 31 Playwright scripts, all green (`themes.mjs` checks
+- `npm test` → 633/633; `npm run e2e` → 32 Playwright scripts, all green (`track-edit.mjs` Edit details, `themes.mjs` checks
   the skins, `hotspot.mjs` the party hotspot, `vocals.mjs` the guide singer, `singer-controls.mjs`
   the singer's own play/pause/seek on their phone, `filters.mjs` the browse filters and the Library table, `year-genre.mjs` the year & genre checker, `accounts.mjs` guest accounts, `monitor.mjs` the headphone monitor, `stems.mjs` separated vocals, `maker.mjs` the Karaoke maker, `lyrics-editor.mjs` the lyrics editor, `links.mjs` songs from a link, `text-lyrics.mjs` the real words on the TV, `words.mjs` a disc's words, `vocal-stem.mjs`
   the multiplex vocal in the headphones, `admin.mjs` and
@@ -449,7 +451,8 @@ dependencies and still runs with `node server/index.js`).
   - On native Wayland the app can't place windows or learn where they are (checked in a
     headless GNOME Shell 46 with two monitors: window positions, `window.screen` and the
     Window Management API's `currentScreen` all stay put). The TV window opens maximized where
-    the mouse is, with a hint on it; GNOME resizes a maximized window moved to another screen
+    the mouse is (no hint on it any more: the owner found the "Move this window to the TV" card
+    in the way, removed 2026-11-22); GNOME resizes a maximized window moved to another screen
     (Super+Shift+→, a drag), and that resize makes it go full screen there. Ctrl+T with the
     mouse on the TV opens it right there (then F11). Verified 13/13 in that GNOME session;
     XWayland still places it by itself (now full screen only after the window is mapped — it
@@ -1467,6 +1470,23 @@ PLAN §31.12. Two additions the owner asked for:
 - Owner checklist: a guest asks for a well-known song without lyrics. Check the card's lyrics are the
   right song's before Approve. Deny one with "We already have this song" and the library's version,
   and check the guest's phone offers it.
+
+## Edit details and no TV hint (2026-11-22)
+- **Edit details** (PLAN §32): Song details → a version's **Edit** button opens an editor for that
+  version (a picker in it switches to another): artist, title, label, version note, Explicit, Duet,
+  and the whole song's year and genre. OpenKaraoke keeps the edits itself in
+  `data/trackedits.json` by track id (`server/library/trackedits.js`); **the file on the drive is
+  never renamed or changed** (the owner's library is 90k files on a USB drive, and a renamed file
+  would lose its plays, votes and lyrics edits). The edit is laid over the file name's parse result
+  at every catalog build (`Catalog.applyEdit`, the worker too); the file name's own result stays on
+  `t.po` and is what the cache stores. A new artist or title moves the version to that song (an
+  existing one, or a new one). Each edited field offers "use the file name's"; **Back to the file
+  name** drops the whole edit. Year and genre go to the host's own values (`songmeta.json`, PLAN
+  §27); Song details now shows those over the online ones. Edits follow a file whose id moves.
+- The TV window's "Move this window to the TV" card (desktop app on native Wayland) is gone; moving
+  the maximized window to the TV still makes it go full screen there by itself.
+- Not done: a song whose every version was retitled gets a new song id, so its favourites,
+  playlists and play count stay with the old id (like a renamed file).
 
 ## Next steps
 - Owner checklist above, then a real party. Note anything odd for the next session.

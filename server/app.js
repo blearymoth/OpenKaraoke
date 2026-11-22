@@ -15,6 +15,7 @@ import { Hub } from './ws/hub.js';
 import { Room } from './room/room.js';
 import { ArtworkService } from './artwork/service.js';
 import { SongMeta } from './library/songmeta.js';
+import { TrackEdits } from './library/trackedits.js';
 import { Accounts } from './room/accounts.js';
 import { ArtFeed } from './artwork/feed.js';
 import { lanAddresses, isLocalAddress } from './util/net.js';
@@ -55,6 +56,10 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   const auth = new Auth({ dataDir, settings });
   await auth.load();
   const library = new LibraryService({ dataDir, settings });
+  // The host's own details for versions (artist, title, label…): laid over the file names at every build.
+  const trackEdits = await new TrackEdits(path.join(dataDir, 'trackedits.json')).load();
+  library.catalog.editFor = (id) => trackEdits.get(id);
+  library.catalog.editsObject = () => trackEdits.toObject();
   await library.init({ scan });
   if (watch) library.startWatcher();
   const songMeta = await new SongMeta(path.join(dataDir, 'songmeta.json')).load(); // the host's years and genres
@@ -67,7 +72,7 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   // `instance` tells this process apart from another server on the same address (/api/health).
   /** A guest's identity from their token (a plain guest token or a signed-in account's), or null. */
   const guestOf = (token) => accounts.identity({ guest: auth.verify(token, 'guest')?.id || null, account: auth.verify(token, 'account')?.id || null });
-  const app = { dataDir, settings, library, artwork, songMeta, accounts, guestOf, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [], stemRun, videoTool, makerTool, lane: new Lane(), fetch };
+  const app = { dataDir, settings, library, artwork, songMeta, trackEdits, accounts, guestOf, auth, router, hub, version: VERSION, instance: crypto.randomBytes(8).toString('hex'), port: 0, server: null, closers: [], stemRun, videoTool, makerTool, lane: new Lane(), fetch };
 
   // The party hotspot (PLAN §20).
   const hotspot = new Hotspot({
@@ -140,6 +145,7 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   app.closers.push((opts) => room.close(opts));
   app.closers.push((opts) => artwork.close(opts));
   app.closers.push(({ save = true } = {}) => (save ? songMeta.flush() : songMeta.discard()));
+  app.closers.push(({ save = true } = {}) => (save ? trackEdits.flush() : trackEdits.discard()));
   app.closers.push(({ save = true } = {}) => (save ? accounts.flush() : accounts.discard()));
   app.closers.push(() => hotspot.close());
   hotspot.on('change', (view) => room.onHotspot(view));
@@ -164,13 +170,20 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   app.closers.push(() => clearInterval(lanTimer));
 
   library.on('changed', () => room.onLibraryChanged());
+  // A file whose id changed (its folder became a library folder of its own, or was folded back):
+  // its edits follow it, and the catalog lays them over it again.
+  const moveEdits = (moves) => {
+    if (trackEdits.rekey(moves)) library.applyEdits().catch((e) => logger('library').warn('could not apply the moved edits', e.message));
+  };
   library.on('ids', (moves) => {
     room.migrateTrackIds(moves);
+    moveEdits(moves);
     library.ackIdMoves(moves);
   });
   const earlyMoves = library.takeIdMoves();
   if (earlyMoves.length) {
     room.migrateTrackIds(earlyMoves);
+    moveEdits(earlyMoves);
     library.ackIdMoves(earlyMoves);
   }
   library.on('status', () => room.markDirty());

@@ -2,7 +2,7 @@
 import { html, useEffect, useMemo, useRef, useState } from '../vendor/preact.js';
 import { Icon } from '../lib/icons.js';
 import { useStore, formatTime, artStore } from '../lib/store.js';
-import { Modal, Cover, Spinner, Stepper, useFetch, apiGet, copyText, SongBadges, go, clearFetchCache } from '../lib/components.js';
+import { Modal, Cover, Spinner, Stepper, useFetch, apiGet, apiPost, copyText, SongBadges, go, clearFetchCache } from '../lib/components.js';
 import { store, act, closeDialog, openDialog, toast } from './state.js';
 import { PreviewButton, PreviewOutput } from './preview.js';
 import { wantsVocalPreview } from '/shared/stems.js';
@@ -100,6 +100,8 @@ export function SongDialog({ songId }) {
   const { data: song, error, reload } = useFetch(`/api/songs/${encodeURIComponent(songId)}`, null, { ttl: 2000 });
   useEffect(() => artStore.subscribe((ev) => { if (ev.all || ev.songs.includes(songId)) reload(); }), [songId]);
   const fav = state.favorites.includes(songId);
+  const year = song?.own?.year || song?.meta?.year; // (the host's own over the online one)
+  const genre = song?.own?.genre || song?.meta?.genre;
   return html`<${Modal} title="Song details" wide onClose=${closeDialog}>
     ${error && html`<p class="warn-text">${error.message}</p>`}
     ${!song && !error && html`<${Spinner} />`}
@@ -110,8 +112,8 @@ export function SongDialog({ songId }) {
           <h3>${song.title} <${SongBadges} song=${song} /></h3>
           <div class="artist-links">${song.artists.map((a, i) => html`${i ? ' & ' : ''}<a href=${`#/artist/${encodeURIComponent(a.key)}`} onClick=${closeDialog}>${a.name}</a>`)}</div>
           <div class="chips">${song.tags.map((t) => html`<a class="chip" href=${`#/tag/${encodeURIComponent(t)}`} onClick=${closeDialog}>${t}</a>`)}
-            ${song.meta?.genre && html`<a class="chip" href=${`#/genre/${encodeURIComponent(song.meta.genre)}`} onClick=${closeDialog}>${song.meta.genre}</a>`}
-            ${song.meta?.year > 0 && html`<a class="chip" href=${`#/decade/${Math.floor(song.meta.year / 10) * 10}`} onClick=${closeDialog}>${song.meta.year}</a>`}</div>
+            ${genre && html`<a class="chip" href=${`#/genre/${encodeURIComponent(genre)}`} onClick=${closeDialog}>${genre}</a>`}
+            ${year > 0 && html`<a class="chip" href=${`#/decade/${Math.floor(year / 10) * 10}`} onClick=${closeDialog}>${year}</a>`}</div>
           ${song.meta?.album && html`<p class="muted ellipsis" title=${song.meta.album}>From the album <b>${song.meta.album}</b></p>`}
           <p class="muted">${song.plays ? `Sung ${song.plays} time${song.plays === 1 ? '' : 's'} here.` : 'Never sung here yet.'} ${formatTime(song.dur)} long.</p>
           <p class="hint art-source">${artSource(song.meta)} <button class="link" onClick=${() => openDialog({ type: 'artwork', songId })}>Change cover</button></p>
@@ -161,11 +163,105 @@ function VersionsTable({ song, songId }) {
           ${many && html`<td class="num" data-label="Sung">${v.plays ? `${v.plays}×` : html`<span class="faint">—</span>`}</td>
             <td><${VersionVote} v=${v} label=${`Votes for ${versionName(v)}`} onVote=${(x) => vote(v, x)} /></td>`}
           <td class="file ellipsis" title=${v.file}>${v.file}</td>
-          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} vocal=${wantsVocalPreview(v)} />`}${v.stems !== undefined && html`<${SeparateButton} v=${v} />`}<${WordsButton} v=${v} songId=${songId} /><button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
+          <td class="actions">${v.kind !== 'video' && html`<${PreviewButton} trackId=${v.id} vocal=${wantsVocalPreview(v)} />`}${v.stems !== undefined && html`<${SeparateButton} v=${v} />`}<${WordsButton} v=${v} songId=${songId} /><button class=${`btn small ghost ${v.edited ? 'on' : ''}`} title=${v.edited ? 'You changed this version’s details' : 'Change the artist, title, label… of this version'} onClick=${() => openDialog({ type: 'track', songId, trackId: v.id })}><${Icon} name="edit" size=${14} /> Edit</button><button class="btn small" onClick=${() => openDialog({ type: 'add', songId, trackId: v.id })}>Queue</button></td>
         </tr>`;
       })}</tbody>
     </table>
     ${many && html`<p class="hint">Votes choose the default (“Best available”): a version with two more thumbs up than down from guests plays first — even over your preferred labels — and one with two more thumbs down only when there is no other. Your own vote settles it either way. Guests can vote once a version has been played tonight.</p>`}`;
+}
+
+const TEXT_FIELDS = [
+  ['artist', 'Artist', 120],
+  ['title', 'Title', 120],
+  ['brand', 'Label', 40],
+  ['variant', 'Version', 80],
+];
+
+/**
+ * Edit details: one version's artist, title, label, version note and marks, and the song's year
+ * and genre. Kept by OpenKaraoke (data/trackedits.json); the file on the drive is never changed,
+ * and each field can go back to what the file name says.
+ */
+export function TrackEditDialog({ songId, trackId: initialTrack }) {
+  const { data: song, error } = useFetch(`/api/songs/${encodeURIComponent(songId)}`, null, { ttl: 0 });
+  const [trackId, setTrackId] = useState(initialTrack);
+  const [form, setForm] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const v = song?.versions.find((x) => x.id === trackId) || song?.versions[0];
+  const fileInfo = v?.fileInfo;
+  const current = v && {
+    artist: v.artist, title: v.title, brand: v.brand || '', variant: v.variant || '',
+    explicit: !!v.flags?.explicit, duet: !!v.flags?.duet,
+    year: String(song.own?.year || song.meta?.year || ''), genre: song.own?.genre || song.meta?.genre || '',
+  };
+  // The form starts from the version's details once per version (not again when the song is
+  // fetched again, which would lose what is being typed).
+  const [formFor, setFormFor] = useState('');
+  useEffect(() => {
+    if (!current || formFor === v.id) return;
+    setForm({ ...current });
+    setFormFor(v.id);
+  }, [song, v?.id]);
+  const back = () => openDialog({ type: 'song', songId });
+  const set = (k, value) => setForm((f) => ({ ...f, [k]: value }));
+  const save = async (reset = false) => {
+    const body = { trackId: v.id };
+    if (reset) body.reset = true;
+    else {
+      for (const k of ['artist', 'title', 'brand', 'variant', 'explicit', 'duet']) {
+        const val = typeof form[k] === 'string' ? form[k].trim() : form[k];
+        if (val === current[k]) continue;
+        body[k] = fileInfo && val === fileInfo[k] ? null : val; // the file name's again: no edit kept
+      }
+      for (const k of ['year', 'genre']) {
+        const val = form[k].trim();
+        if (val !== current[k]) body[k] = val === '' ? null : k === 'year' ? Number(val) : val;
+      }
+      if (Object.keys(body).length === 1) return back();
+    }
+    setBusy(true);
+    try {
+      const r = await apiPost('/api/library/track', body);
+      toast(reset ? 'Back to what the file name says' : 'Details saved', 'ok');
+      clearFetchCache(); // song details, lists and search show the new details
+      openDialog({ type: 'song', songId: r.songId });
+    } catch (e) {
+      toast(e.message, 'error');
+      setBusy(false);
+    }
+  };
+  const changed = (k) => fileInfo && v.edited?.includes(k);
+  return html`<${Modal} title="Edit details" onClose=${closeDialog} footer=${html`
+      ${v?.edited?.length > 0 && html`<button class="btn ghost danger" disabled=${busy} onClick=${() => save(true)}>Back to the file name</button>`}
+      <button class="btn ghost" disabled=${busy} onClick=${back}>Cancel</button>
+      <button class="btn primary" disabled=${busy || !form} onClick=${() => save()}>Save</button>`}>
+    ${error && html`<p class="warn-text">${error.message}</p>`}
+    ${!song && !error && html`<${Spinner} />`}
+    ${song && v && form && formFor === v.id && html`
+      ${song.versions.length > 1
+        ? html`<label class="field"><span>Version to edit</span>
+            <select class="select" value=${v.id} disabled=${busy} onChange=${(e) => setTrackId(e.currentTarget.value)}>
+              ${song.versions.map((x) => html`<option value=${x.id}>${versionLabel(x)}</option>`)}
+            </select></label>`
+        : null}
+      <p class="hint ellipsis" title=${v.file}>File: ${v.file}</p>
+      ${TEXT_FIELDS.map(([k, label, max]) => html`<label class="field"><span>${label}${changed(k) ? html` <button type="button" class="link" onClick=${(e) => { e.preventDefault(); set(k, fileInfo[k]); }}>use the file name’s: “${fileInfo[k] || 'none'}”</button>` : ''}</span>
+        <input class="input" value=${form[k]} maxlength=${max} placeholder=${k === 'brand' ? 'No label' : k === 'variant' ? 'Standard (e.g. Live, Acoustic)' : ''}
+          onInput=${(e) => set(k, e.currentTarget.value)} onKeyDown=${(e) => { if (e.key === 'Enter') save(); }} /></label>`)}
+      <label class="toggle-row"><span><b>Explicit</b><br /><span class="hint">Hidden from guests when explicit songs are off.</span></span>
+        <span class="switch"><input type="checkbox" checked=${form.explicit} onChange=${(e) => set('explicit', e.currentTarget.checked)} /><span></span></span></label>
+      <label class="toggle-row"><span><b>Duet</b><br /><span class="hint">Listed under Duets.</span></span>
+        <span class="switch"><input type="checkbox" checked=${form.duet} onChange=${(e) => set('duet', e.currentTarget.checked)} /><span></span></span></label>
+      <h4 class="section-title">The whole song</h4>
+      <div class="row-2">
+        <label class="field"><span>Year</span>
+          <input class="input" inputmode="numeric" maxlength="4" value=${form.year} placeholder="Unknown" onInput=${(e) => set('year', e.currentTarget.value.replace(/\D/g, ''))} /></label>
+        <label class="field"><span>Genre</span>
+          <input class="input" maxlength="40" value=${form.genre} placeholder="Unknown" onInput=${(e) => set('genre', e.currentTarget.value)} /></label>
+      </div>
+      <p class="hint">OpenKaraoke keeps these changes itself: the file on the drive is not renamed or changed. A new artist or title moves this version to that song. Clear the year or genre to use the one found online.</p>
+    `}
+  </${Modal}>`;
 }
 
 /** "Add to playlist ▾" for the song details (creates a playlist when there is none). */
@@ -485,6 +581,7 @@ export function Dialogs() {
     case 'add': return html`<${AddDialog} ...${dialog} key=${dialog.songId} />`;
     case 'song': return html`<${SongDialog} songId=${dialog.songId} key=${dialog.songId} />`;
     case 'artwork': return html`<${ArtworkDialog} songId=${dialog.songId} key=${dialog.songId} />`;
+    case 'track': return html`<${TrackEditDialog} songId=${dialog.songId} trackId=${dialog.trackId} key=${dialog.songId} />`;
     case 'edit': return html`<${EditDialog} entryId=${dialog.entryId} />`;
     case 'invite': return html`<${InviteDialog} />`;
     case 'vocals': return html`<${VocalsDialog} />`;

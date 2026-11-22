@@ -2311,3 +2311,40 @@ it can't force-align a given text, and on Linux its pip package runs on the proc
 - **Tests**: `maker/tests/test_phonon.py` (7: both models are stand-ins), `test/maker-extras.test.js`
   (the setting, the timer passed on, the speed per timer), `test/maker.test.js` (the Phonon row,
   the timer line), `test/words.test.js`.
+
+## 32. Editing a version's details (host)
+
+The owner asked to correct a karaoke file's details right where the song is opened and its
+version (track) is chosen: **Song details → Versions → Edit** on a row. The editor
+(`TrackEditDialog`, `public/js/host/dialogs.js`) opens on that version, with a picker to switch to
+another of the song's versions.
+
+**Fields**: per version — Artist, Title, Label, Version (a note such as "Live, Acoustic"; commas
+separate several), Explicit, Duet; for the whole song — Year and Genre (the host's own values, §27;
+cleared = the online one again). An edited field offers "use the file name's: …"; **Back to the
+file name** drops the version's whole edit.
+
+**Nothing on the drive changes.** `server/library/trackedits.js` keeps `data/trackedits.json`
+`{ version, tracks: { <track id>: { artist?, title?, brand?, variant?, explicit?, duet?, at } } }`
+(text cleaned: spaces folded, no control characters, artist/title ≤ 120, label ≤ 40, version ≤ 80;
+an empty artist or title is refused, an empty label or version note is a value). The catalog's
+`editFor(id)` (injected by `app.js`) is laid over each track's parse result at every build
+(`Catalog.applyEdit` → `applyTrackEdit`: artist → credits and letter, title → the grouping key,
+version note → the live/acoustic flags, explicit/duet → flags and the Explicit/Duets tags); the
+worker build gets the edits as a plain object. The file name's own result is kept on `t.po`, and
+that is what the cache and a rescan's re-use store. A new artist or title therefore moves the
+version to another song (one that exists, or a new one). Edits follow a file whose id moves (the
+`ids` event → `rekey`, then a rebuild).
+
+**Server** (host only): `POST /api/library/track { trackId, artist?, title?, brand?, variant?,
+explicit?, duet?, year?, genre? }` (a value sets a field, `null` takes it back) or `{ trackId,
+reset: true }` → the edit is saved, the catalog is built again (`LibraryService.applyEdits`: after
+a load or scan under way, calls meanwhile share one rebuild, then `changed`) and the year/genre are
+set on the song the version is in now → `{ songId, edit }`. A bad year or genre is refused before
+anything is saved. `GET /api/songs/:id` adds, for the host only, `own` (the host's year and genre)
+and on each version `fileInfo` (the file name's details) and `edited` (the fields changed).
+
+**Tests**: `test/track-edits.test.js` (the overlay, cleaning, the file and `rekey`, the catalog in
+the main thread and the worker, the cache keeping the file name's result, the API end to end with
+a restart and a rescan), `test/e2e/track-edit.mjs` (opening on a version, switching, a label and a
+year, a new title moving it, back to the file name, a phone).

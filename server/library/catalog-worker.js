@@ -13,7 +13,7 @@ parentPort.once('message', async (job) => {
   }
 });
 
-function build({ roots, chunks }) {
+function build({ roots, chunks, edits = {} }) {
   const input = [];
   const fresh = [];
   const dec = new TextDecoder();
@@ -27,7 +27,9 @@ function build({ roots, chunks }) {
       input.push(t);
     }
   }
-  const out = new Catalog().load(input, roots).exportBuild(input, fresh);
+  const catalog = new Catalog();
+  catalog.editFor = (id) => (Object.hasOwn(edits, id) ? edits[id] : null);
+  const out = catalog.load(input, roots).exportBuild(input, fresh);
   const pieces = [...out.ids, ...out.parsed, ...out.songs, ...out.artists];
   return [out, [out.order.buffer, out.songOf.buffer, out.artistOrder.buffer, ...pieces.map((u) => u.buffer)]];
 }

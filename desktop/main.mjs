@@ -345,7 +345,6 @@ function run() {
       settled = null;
       timer = setTimeout(() => { if (!win.isDestroyed() && win.isMaximized() && !win.isFullScreen()) settled = size(); }, 1200);
     };
-    const placed = (on) => win.webContents.executeJavaScript(`document.documentElement.classList.toggle('tv-placed', ${on})`).catch(() => {});
     win.on('maximize', settle);
     win.on('resize', () => {
       if (settled === null || win.isFullScreen() || !win.isMaximized() || size() === settled) return;
@@ -356,12 +355,8 @@ function run() {
     win.on('enter-full-screen', () => {
       clearTimeout(timer);
       settled = null;
-      placed(true);
     });
-    win.on('leave-full-screen', () => {
-      placed(false);
-      settle();
-    });
+    win.on('leave-full-screen', settle);
   }
 
   // ---- permissions: sound output and the microphone for the app's own pages only -------------
@@ -715,7 +710,7 @@ function run() {
     });
     if (WAYLAND) watchTvMove(tvWin);
     // Its own origin: zooming the host window (Ctrl +/−, kept per origin) never zooms the TV.
-    tvWin.loadURL(`${tvBase}/tv${WAYLAND ? '?place=wayland' : ''}`);
+    tvWin.loadURL(`${tvBase}/tv`);
     emitTv();
     return { already: false, second: !!target, fullscreen: !!target, wayland: WAYLAND };
   }

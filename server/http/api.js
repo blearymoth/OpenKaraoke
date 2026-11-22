@@ -21,6 +21,8 @@ import { songbookRoutes } from './songbook.js';
 import { RateLimiter } from '../util/ratelimit.js';
 import { Lru } from '../util/lru.js';
 import { defaultMusicDirs } from '../config.js';
+import { cleanTrackPatch } from '../library/trackedits.js';
+import { cleanYear, cleanGenre, MIN_YEAR, maxYear } from '../library/songmeta.js';
 import { rescanForPaths } from '../library/service.js';
 import { logger } from '../util/log.js';
 import { isSongFile } from '../maker/autokaraoke.js';
@@ -152,6 +154,19 @@ export function apiRoutes(router, app) {
         else if (mediaUrls(track)?.kind === 'cdg') v.words = { problem: app.room.wordsProblem(v.id) };
       }));
     }
+    if (!guest) {
+      // The host: the year and genre they set themselves, and each version's details as its file
+      // name gives them (`file`) next to what the host changed (`edited`), for the details editor.
+      detail.own = app.songMeta.get(detail.key) || null;
+      for (const v of detail.versions) {
+        const t = cat().track(v.id);
+        const base = t?.po || t?.p;
+        if (!base) continue;
+        v.fileInfo = { artist: base.artist, title: base.title, brand: base.brand, variant: base.variant.join(', '), explicit: !!base.flags.explicit, duet: !!base.flags.duet };
+        const e = app.trackEdits.get(v.id);
+        if (e) v.edited = Object.keys(e).filter((k) => k !== 'at');
+      }
+    }
     const voter = guestId || (ctx.isHost ? HOST_VOTER : null);
     return app.room ? app.room.decorateVersions(detail, { voter, guest }) : detail;
   });
@@ -267,6 +282,36 @@ export function apiRoutes(router, app) {
     app.songMeta.set(song.key, patch);
     cat().metaChanged();
     return { row: cat().tableRow(song), check: app.artwork.checks().get(song.id) || null };
+  });
+
+  // The host's own details for one version (track) of a song (library/trackedits.js): artist,
+  // title, label, version note, explicit, duet — each a value, or null to take the file name's
+  // back — and the song's year and genre (songmeta.js). The file itself is never changed. The
+  // catalog is built again (a new artist or title moves the version to another song): the answer
+  // names the song the version is in now.
+  router.post('/api/library/track', async (ctx) => {
+    requireHost(ctx);
+    const body = await readJsonBody(ctx.req, 4096);
+    const trackId = typeof body.trackId === 'string' ? body.trackId.slice(0, 20) : '';
+    const track = cat().track(trackId);
+    if (!track) throw new HttpError(404, 'That version is not in the library (any more).');
+    const patch = body.reset === true ? null : cleanTrackPatch(body);
+    const song = {};
+    for (const k of ['year', 'genre']) if (Object.hasOwn(body, k)) song[k] = body[k] === null || body[k] === '' ? null : body[k];
+    // Checked before anything is saved, so a bad year changes nothing.
+    if (song.year != null && !cleanYear(song.year)) throw new HttpError(400, `A year from ${MIN_YEAR} to ${maxYear()}, please.`);
+    if (song.genre != null && !cleanGenre(song.genre)) throw new HttpError(400, 'That genre has odd characters in it (or it is empty).');
+    const changed = patch === null ? app.trackEdits.clear(trackId) : Object.keys(patch).length > 0;
+    if (patch && changed) app.trackEdits.set(trackId, patch);
+    if (changed) await app.library.applyEdits();
+    const now = cat().track(trackId);
+    const into = now && cat().song(now.songId);
+    if (!into) throw new HttpError(404, 'That version is not in the library (any more).');
+    if (Object.keys(song).length) {
+      app.songMeta.set(into.key, song);
+      cat().metaChanged();
+    }
+    return { songId: into.id, edit: app.trackEdits.get(trackId) };
   });
 
   // When the song first came out, from the providers (the checker's year suggestion).

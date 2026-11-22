@@ -63,7 +63,10 @@ Server (`server/`)
   clustering, search, browse, cache; `loadAsync` = the same build in `catalog-worker.js`, a
   `node:worker_threads` worker), `service.js` (cache load/save, background rescans — a big one
   rebuilds in the worker and loops over tracks in slices, `util/slice.js` — offline/online
-  watcher, `absPath`), `ids.js` (track ids that follow a folder split or fold).
+  watcher, `absPath`), `ids.js` (track ids that follow a folder split or fold), `id3.js` (the
+  release year in an MP3's ID3v2 tag, pure: the original date over the recording date),
+  `tagyears.js` (`data/tagyears.json`: those years read in the background after each library
+  change, by song key; a file read again only when its size or time changes — PLAN §27).
 - `http/` — `router.js`, `static.js` (ETag, gzip, byte ranges, `safeJoin`), `media.js`
   (`/media/:trackId/audio|cdg|video`, zip entries), `api.js` (PLAN §8), `shell.js` (writes the
   current skin into every HTML page: `<html data-theme>`, theme-color; part of the ETag).

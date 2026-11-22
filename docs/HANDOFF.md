@@ -1236,6 +1236,28 @@ mine — change them freely):
   on a few "compilation" songs and check the years it finds against what you know.
 - Tests: `test/year-genre-check.test.js` (4), `test/e2e/year-genre.mjs` (29).
 
+## Years from the MP3 files' own tags (2026-11-22)
+PLAN §27 ("Years in the files' tags"). Deezer's years are album dates, so compilations and
+reissues show later years than the first release; a year written in the file can now beat it.
+- `server/library/id3.js` reads ID3v2.2/2.3/2.4 (Latin-1, UTF-16 with or without a BOM, UTF-8):
+  the original release date first (TDOR/TORY), then TDRC/TYER/TDRL. `server/library/tagyears.js`
+  reads them in a background pass after every library change (up to 3 MP3s per song, until one has
+  a year), kept by song key in `data/tagyears.json`; a file is read again only when its size or
+  time changed, so a later pass is stat calls only.
+- Which year a song shows: the host's own (`songmeta.json`), then the file's tag, then the online
+  one. A tag year is `fileTag: { year: true }` on the merged entry, and the year & genre checker
+  treats it as checked (never flagged; `SongMeta.checked()`).
+- **Nothing in the owner's library has year tags yet**: a sample of 1,500 of the 87,856 MP3s had
+  only title, artist and an otslabs/otsaudio URL comment. This adds the reader only; it writes no
+  tags. A pilot MusicBrainz lookup of 200 songs found 58 % (title tags are cut at 30 characters, so
+  a tagging tool must take titles from the file names; one answer was wrong: the Everly Brothers'
+  "Temptation" as 1980 instead of its original release). Tagging the library is a separate step.
+- Owner checklist: once some files are tagged, the Library table should show the tagged year and
+  the checker should not flag it (not run on real tagged files yet).
+- Tests: `test/tag-years.test.js` (the reader across versions and encodings, original date over a
+  reissue, damaged tags, the background pass: cache, kept in the file, read again after a retag;
+  the order of precedence).
+
 ## Guest accounts (2026-10-18)
 PLAN §28. The owner chose: guests only (the host keeps the PIN), anyone at the party can make
 one, optional, keeping name/avatar/colour, favourites, song history and version votes.

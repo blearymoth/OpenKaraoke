@@ -15,6 +15,7 @@ import { Hub } from './ws/hub.js';
 import { Room } from './room/room.js';
 import { ArtworkService } from './artwork/service.js';
 import { SongMeta } from './library/songmeta.js';
+import { TagYears } from './library/tagyears.js';
 import { TrackEdits } from './library/trackedits.js';
 import { Accounts } from './room/accounts.js';
 import { ArtFeed } from './artwork/feed.js';
@@ -63,9 +64,18 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   await library.init({ scan });
   if (watch) library.startWatcher();
   const songMeta = await new SongMeta(path.join(dataDir, 'songmeta.json')).load(); // the host's years and genres
+  // The years written in the MP3 files' own tags, read in the background (under the host's own years).
+  const tagYears = await new TagYears(path.join(dataDir, 'tagyears.json')).load();
+  songMeta.tagYears = tagYears;
   const accounts = await new Accounts(path.join(dataDir, 'accounts.json')).load(); // guests' usernames and passwords
   const artwork = new ArtworkService({ dataDir, settings, library, fetch, version: VERSION, overrides: songMeta });
   await artwork.init({ crawl });
+  if (crawl) {
+    tagYears.onChange = () => { songMeta.merged.clear(); songMeta.version++; artwork.installMeta(); };
+    const readTags = () => tagYears.scan(library).catch((e) => logger('tags').warn('could not read the files\' year tags', e.message));
+    library.on('changed', readTags);
+    readTags();
+  }
 
   const router = new Router();
   const hub = new Hub();
@@ -145,6 +155,7 @@ export async function createApp({ dataDir, args = {}, scan, watch = true, fetch 
   app.closers.push((opts) => room.close(opts));
   app.closers.push((opts) => artwork.close(opts));
   app.closers.push(({ save = true } = {}) => (save ? songMeta.flush() : songMeta.discard()));
+  app.closers.push(({ save = true } = {}) => { tagYears.stop(); return save ? tagYears.flush() : tagYears.discard(); });
   app.closers.push(({ save = true } = {}) => (save ? trackEdits.flush() : trackEdits.discard()));
   app.closers.push(({ save = true } = {}) => (save ? accounts.flush() : accounts.discard()));
   app.closers.push(() => hotspot.close());

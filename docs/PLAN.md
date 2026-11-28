@@ -1684,6 +1684,16 @@ first release, the API end to end with a MusicBrainz answer, a restart), `test/e
 (the flagged rows and why, Escape/Enter, an impossible year, undo, Use R&B, Find the first release
 → Use 1984, Right, the decade filter follows, the kinds, Use all, the plain table's mark, a phone).
 
+**Years in the files' tags** (2026-11-22): a year written in an MP3's own ID3v2 tag sits between
+the host's year and the online one — the host's own, then the file's tag, then the online
+(Deezer) year. `server/library/id3.js` reads it (pure; the original release date TDOR/TORY over
+TDRC/TYER/TDRL; ID3v2.2's TOR/TYE too); `server/library/tagyears.js` reads the tags in a
+background pass after each library change (up to 3 MP3s per song), kept by song key in
+`data/tagyears.json` `{ version, songs: { <song key>: { year, f, size, mtime } } }` (year 0 = read,
+none); a file is read again only when its size or mtime changes. `SongMeta.apply` marks a tag year
+`fileTag: { year: true }`; the checker treats it as checked (`SongMeta.checked()`), so it is never
+flagged. Nothing writes tags. Tests: `test/tag-years.test.js`.
+
 ## 28. Guest accounts
 
 The owner chose: accounts for **guests** (the host keeps the PIN); **anyone at the party** can

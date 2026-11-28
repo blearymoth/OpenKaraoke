@@ -1281,7 +1281,7 @@ export class ArtworkService extends EventEmitter {
     const map = checkSongs({
       songs: cat.songList,
       online: (key) => this.songs.get(key) || null,
-      own: (key) => this.overrides?.get(key) || null,
+      own: (key) => (this.overrides?.checked ? this.overrides.checked(key) : this.overrides?.get(key)) || null,
       albumType: (e) => (e?.p && e.albumId ? this.albums.get(`${e.p}:${e.albumId}`)?.type || '' : ''),
       artistGenre: (key) => this.artists.get(key)?.genre || '',
       now: this.now(),

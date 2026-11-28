@@ -31,6 +31,7 @@ export class SongMeta {
     this.version = 0; // bumped on every change (the checker's cache)
     this.merged = new Map(); // song key → { src, out }: the merged entry, while its source is the same
     this.now = now;
+    this.tagYears = null; // the years in the files' own tags (library/tagyears.js): under the host's, over the online ones
   }
 
   async load() {
@@ -66,14 +67,24 @@ export class SongMeta {
    */
   apply(key, entry) {
     const own = Object.hasOwn(this.songs, key) ? this.songs[key] : null;
-    if (!own) return entry;
+    const tag = this.tagYears ? this.tagYears.get(key) : 0;
+    if (!own && !tag) return entry;
     const hit = this.merged.get(key);
-    if (hit && hit.src === entry && hit.own === own) return hit.out;
+    if (hit && hit.src === entry && hit.own === own && hit.tag === tag) return hit.out;
     const out = { ...(entry || {}), host: {} };
-    if (own.year) { out.year = own.year; out.host.year = true; }
-    if (own.genre) { out.genre = own.genre; out.host.genre = true; }
-    this.merged.set(key, { src: entry, own, out });
+    if (tag) { out.year = tag; out.fileTag = { year: true }; }
+    if (own?.year) { out.year = own.year; out.host.year = true; delete out.fileTag; }
+    if (own?.genre) { out.genre = own.genre; out.host.genre = true; }
+    this.merged.set(key, { src: entry, own, tag, out });
     return out;
+  }
+
+  /** The year the checker treats as already checked: the host's own, else the one in the file's tag. */
+  checked(key) {
+    const own = this.get(key);
+    if (own?.year) return own;
+    const tag = this.tagYears ? this.tagYears.get(key) : 0;
+    return tag ? { ...(own || {}), year: tag } : own;
   }
 
   /**

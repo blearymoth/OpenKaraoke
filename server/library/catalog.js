@@ -5,6 +5,7 @@
 import { Worker } from 'node:worker_threads';
 import { fold, compact, editDistance, shortId, splitCredits } from '../../shared/text.js';
 import { parseName, titleKeyOf, BRAND_NAMES } from './parse.js';
+import { applyTrackEdit } from './trackedits.js';
 import { Lru } from '../util/lru.js';
 import { slicer, abortError } from '../util/slice.js';
 import { VERSION_FILTERS, TABLE_COLUMNS } from '../../shared/filters.js';
@@ -134,6 +135,9 @@ export class Catalog {
     this.plays = new Map(); // songId -> times performed (all time)
     this.metaFor = () => null; // injected: songKey -> metadata (genre, year, rank...)
     this.metaVersion = 0; // bump with metaChanged() when metadata arrives
+    // injected: trackId -> the host's edit of that version (library/trackedits.js), laid over its
+    // parse result at every build. The file name's own result is kept on `t.po` meanwhile.
+    this.editFor = () => null;
     this.builtAt = 0;
     this._popularCache = null; // { v, list }: every song, most popular first
     this._filtered = new Lru({ max: 32, maxBytes: 400_000 }); // filtered popular lists (size = songs)
@@ -153,7 +157,9 @@ export class Catalog {
         const dirName = t.dir ? t.dir.split('/').pop() : '';
         t.p = parseName(t.name, dirName);
         t.pv = PARSER_VERSION;
+        delete t.po;
       }
+      this.applyEdit(t);
       tracks.set(t.id, t);
     }
     this.tracks = tracks;
@@ -162,6 +168,19 @@ export class Catalog {
     this.builtAt = Date.now();
     this.buildMs = this.builtAt - t0;
     return this;
+  }
+
+  /** Lays the host's edit of `t` (editFor) over the file name's parse result, or takes an old one off. */
+  applyEdit(t) {
+    const base = t.po || t.p;
+    const e = this.editFor(t.id);
+    if (e) {
+      t.po = base;
+      t.p = applyTrackEdit(base, e);
+    } else if (t.po) {
+      t.p = t.po;
+      delete t.po;
+    }
   }
 
   /**
@@ -181,12 +200,13 @@ export class Catalog {
         const t = rawTracks[j];
         const parsed = t.p && t.pv === PARSER_VERSION;
         if (!parsed) fresh.push(j);
-        rows.push([t.root, t.dir, t.name, t.duration, parsed ? t.p : 0]);
+        rows.push([t.root, t.dir, t.name, t.duration, parsed ? t.po || t.p : 0]);
       }
       chunks.push(enc.encode(JSON.stringify(rows)));
       await tick();
     }
-    const b = await runWorker({ roots, chunks }, chunks.map((c) => c.buffer), signal);
+    const edits = this.editsObject?.() || {}; // the host's edits, by track id (the worker's editFor)
+    const b = await runWorker({ roots, chunks, edits }, chunks.map((c) => c.buffer), signal);
     await tick(true);
     const dec = new TextDecoder();
     const each = async function* (parts) {
@@ -236,7 +256,9 @@ export class Catalog {
     for (let i = 0; i < fresh.length; i++) {
       rawTracks[fresh[i]].p = parsed[i];
       rawTracks[fresh[i]].pv = PARSER_VERSION;
+      delete rawTracks[fresh[i]].po;
     }
+    for (const t of rawTracks) this.applyEdit(t); // (the worker grouped them with the same edits)
     for (let i = 0; i < b.order.length; i++) rawTracks[b.order[i]].songId = songList[b.songOf[i]].id;
     this.roots = roots;
     this.tracks = tracks;
@@ -289,7 +311,7 @@ export class Catalog {
       ids: rows(input, (t) => t.id),
       order,
       songOf,
-      parsed: rows(fresh, (j) => input[j].p),
+      parsed: rows(fresh, (j) => input[j].po || input[j].p), // the file name's own (edits are laid over it again)
       songs: rows(this.songList, (s) => [s.id, s.key, s.credits, s.title, s.artist, s.letter, s.tags, s.flags, s.duration, s.versions, s.artistFold, s.titleFold, s.altFold]),
       artists: rows(artists, (a) => [a.key, a.name, a.letter, a.songIds.map((id) => songAt.get(id)), a.count, a.solo, a.trackCount, a.fold, a.sortKey]),
       artistOrder: Int32Array.from(this.artistList, (a) => artistAt.get(a)),
@@ -1107,7 +1129,7 @@ function cacheRecord(t, dirs) {
   }
   if (t.kind === 'video') rec.v = t.video;
   if (t.kind === 'zip') { rec.z = t.zip; rec.e = t.entries; }
-  rec.p = t.p;
+  rec.p = t.po || t.p; // the file name's own parse result: the host's edits live in trackedits.json
   return rec;
 }
 

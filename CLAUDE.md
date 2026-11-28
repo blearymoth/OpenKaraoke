@@ -90,7 +90,9 @@ Server (`server/`)
 - `room/accounts.js` (`data/accounts.json`: guests' usernames, scrypt hashes, token versions — an
   account is one guest identity; `app.guestOf(token)` for HTTP — PLAN §28).
 - `library/songmeta.js` (`data/songmeta.json`: the host's own years and genres, laid over the
-  online ones in `catalog.metaFor`), `artwork/checker.js` (the year & genre checker's flags and
+  online ones in `catalog.metaFor`), `library/trackedits.js` (`data/trackedits.json`: the host's
+  own artist/title/label/version/explicit/duet for a version, laid over its file name at every
+  catalog build — the file is never changed; PLAN §32), `artwork/checker.js` (the year & genre checker's flags and
   suggestions — PLAN §27).
 - `ws/hub.js` — hello handshake, heartbeat, `rid` request/response, broadcasts.
 - `net/` — the party hotspot (PLAN §20): `nmcli.js` (the only place programs are started:
@@ -142,7 +144,7 @@ Browser (`public/`, plain ES modules, Preact + htm)
   `player.js` (slim bar, phones' mini player), `panel.js` (the admin panel: Queue / Playback /
   Devices tabs; the phones' Control page), `queue.js`, `playback.js` (now playing + version vote,
   sound, live preview, TV window), `devices.js` (screens, host devices, guests), `menu.js`,
-  `views.js`, `dialogs.js`, `settings.js`, `hotspot.js` (party hotspot block + banner),
+  `views.js`, `dialogs.js` (incl. Edit details: a version's details, PLAN §32), `settings.js`, `hotspot.js` (party hotspot block + banner),
   `vocals.js` (Lead control + Vocals dialog), `graphics.js` (Settings → About → Graphics, desktop app),
   `system.js` (Settings → About → On this computer, desktop app), `maker.js` (Settings → Karaoke maker), `decisions.js` (#/decisions + the popup: guests'
   song links, requests, photos, screens waiting), `lyrics-editor.js`

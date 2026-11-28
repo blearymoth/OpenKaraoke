@@ -283,7 +283,7 @@ export class LibraryService extends EventEmitter {
     for (const t of res.tracks) {
       if (!scanned.has(t.root)) continue;
       const prev = previous.get(previousKey(t));
-      if (prev?.p && prev.pv === PARSER_VERSION) { t.p = prev.p; t.pv = prev.pv; } // skip re-parsing
+      if (prev?.p && prev.pv === PARSER_VERSION) { t.p = prev.po || prev.p; t.pv = prev.pv; } // skip re-parsing (the file name's own result)
       tracks.push(t);
       if (tracks.length % 1000 === 0) await tick();
     }
@@ -343,6 +343,28 @@ export class LibraryService extends EventEmitter {
       this.catalog.load(tracks, paths);
     }
     return 'done';
+  }
+
+  /**
+   * Builds the catalog again from the tracks it has, after the host edited a version's details
+   * (library/trackedits.js): no scan, the same ids. Runs after a scan or load that is under way,
+   * and calls made meanwhile share one rebuild. Emits 'changed'.
+   */
+  applyEdits() {
+    if (this.editing) {
+      this.editAgain = true;
+      return this.editing;
+    }
+    this.editing = (async () => {
+      do {
+        this.editAgain = false;
+        await this.loading;
+        if (this.scanning) await this.scanning.catch(() => {});
+        await this.rebuild([...this.catalog.tracks.values()], this.catalog.roots, null);
+      } while (this.editAgain);
+      this.emit('changed', { reason: 'edits' });
+    })().finally(() => { this.editing = null; });
+    return this.editing;
   }
 
   /** Stops a running scan (used on shutdown). */

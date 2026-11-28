@@ -247,10 +247,6 @@ body.preview :is(.announce, .start) { -webkit-backdrop-filter: none; backdrop-fi
 .corner-qr img { width: min(13vh, calc(var(--lyr-side) - 2.5vw - 3.4vh)); height: auto; aspect-ratio: 1; }
 .corner-qr span { font-family: var(--font-display); font-weight: 800; font-size: 2.6vh; letter-spacing: 0.16em; }
 /* The desktop app on native Wayland: how to move the TV window to the TV (gone once it's there). */
-.place-hint { position: absolute; left: 50%; bottom: 6vh; transform: translateX(-50%); z-index: 60; display: grid; gap: 1vh; width: min(70vw, 120vh); padding: 2.4vh 3vh; border-radius: 2vh; background: var(--stage); color: var(--ink-2); border: 1px solid var(--line-strong); box-shadow: 0 2vh 6vh rgba(0, 0, 0, 0.5); font-size: 2.6vh; text-align: center; }
-.place-hint b { font-size: 3.4vh; color: var(--ink); }
-.place-hint kbd { font: inherit; font-weight: 700; color: var(--ink); padding: 0.1vh 0.9vh; border-radius: 0.8vh; border: 1px solid var(--line-strong); background: var(--stage-2); }
-.tv-placed .place-hint { display: none; }
 .corner-qr.two { gap: 1vh; } /* the two steps one above the other: as narrow as one, clear of the lyrics */
 .corner-qr figure { margin: 0; display: grid; justify-items: center; gap: 0.8vh; }
 .corner-qr.two img { width: min(11vh, calc(var(--lyr-side) - 2.5vw - 3.4vh)); }
